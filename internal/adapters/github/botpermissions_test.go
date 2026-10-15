@@ -62,3 +62,37 @@ func TestValidateBotPermissions_RefusalsAreMissingAndOutagesFail(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateBotPermissions_ReadsPushAccess reads permissions.push from the
+// repository response. The 2026-10-15 Forge CI release passed its token check
+// with a bot that could only read, and failed an hour later on the push.
+func TestValidateBotPermissions_ReadsPushAccess(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name, body string
+		want       provider.PushAccess
+	}{
+		{"push granted", `{"permissions":{"pull":true,"push":true}}`, provider.PushAllowed},
+		{"read only", `{"permissions":{"pull":true,"push":false}}`, provider.PushDenied},
+		{"no permissions, as for an App token", `{"full_name":"owner/repo"}`, provider.PushUnknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := fakegitserver.New(t)
+			for path, body := range map[string]string{"/user": `{}`, "/repos/owner/repo": tc.body, "/repos/owner/repo/branches": `[]`} {
+				srv.OnGet(path, func(fakegitserver.Request) fakegitserver.Response {
+					return fakegitserver.Response{Status: http.StatusOK, Body: body}
+				})
+			}
+
+			p := &github.Provider{Env: envFunc(map[string]string{"GITHUB_TOKEN": "ghs_AAA"}), APIBaseOverride: srv.URL(), HTTPClient: srv.Client()}
+
+			got, err := p.ValidateBotPermissions(context.Background(), "owner/repo")
+			if err != nil || got == nil || got.Push != tc.want || !got.RepoAccessible {
+				t.Fatalf("got %+v, %v; want Push %v", got, err, tc.want)
+			}
+		})
+	}
+}

@@ -3981,7 +3981,7 @@ validate one aspect of release-flow authentication
 
 #### `forge-ci validate auth bot-permissions`
 
-probe the configured release-bot token's repo + branch access
+probe the configured release-bot token's repo, push and branch access
 
 ```
 EXAMPLE:

@@ -64,3 +64,40 @@ func TestValidateBotPermissions_RefusalsAreMissingAndOutagesFail(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateBotPermissions_ReadsPushAccess reads the bot's role from the
+// project response. Below Developer it reports nothing rather than a refusal:
+// a role held through an ancestor group is not in the response.
+func TestValidateBotPermissions_ReadsPushAccess(t *testing.T) {
+	t.Parallel()
+
+	const project = "/api/v4/projects/group%2Fproject"
+
+	for _, tc := range []struct {
+		name, body string
+		want       provider.PushAccess
+	}{
+		{"project maintainer", `{"permissions":{"project_access":{"access_level":40},"group_access":null}}`, provider.PushAllowed},
+		{"group developer", `{"permissions":{"project_access":null,"group_access":{"access_level":30}}}`, provider.PushAllowed},
+		{"project reporter", `{"permissions":{"project_access":{"access_level":20},"group_access":null}}`, provider.PushUnknown},
+		{"no membership shown", `{"permissions":{"project_access":null,"group_access":null}}`, provider.PushUnknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := fakegitserver.NewGitLab(t)
+			for path, body := range map[string]string{"/api/v4/user": `{}`, project: tc.body, project + "/repository/branches": `[]`} {
+				srv.OnGet(path, func(fakegitserver.Request) fakegitserver.Response {
+					return fakegitserver.Response{Status: http.StatusOK, Body: body}
+				})
+			}
+
+			p := &gitlab.Provider{Env: envFunc(map[string]string{"GITLAB_TOKEN": "glpat_test"}), APIBaseOverride: srv.URL(), HTTPClient: srv.Client()}
+
+			got, err := p.ValidateBotPermissions(context.Background(), "group/project")
+			if err != nil || got == nil || got.Push != tc.want || !got.RepoAccessible {
+				t.Fatalf("got %+v, %v; want Push %v", got, err, tc.want)
+			}
+		})
+	}
+}

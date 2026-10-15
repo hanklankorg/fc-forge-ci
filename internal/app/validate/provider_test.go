@@ -275,3 +275,46 @@ func TestBotPermissions_EmptyRepoUsage(t *testing.T) {
 		t.Errorf("probed the forge with no repository, %d calls", c)
 	}
 }
+
+func TestBotPermissions_PushDeniedFatal(t *testing.T) {
+	t.Parallel()
+	prov := fakeprovider.New(t).WithBotPermissions(provider.BotPermissions{
+		UserAccessible: true, RepoAccessible: true, BranchesAccessible: true, Push: provider.PushDenied,
+	})
+
+	err := appvalidate.BotPermissions(context.Background(), prov, &bytes.Buffer{}, appvalidate.BotPermissionsInput{
+		Repository: "owner/repo",
+	})
+	if !errors.Is(err, errs.ErrPermissionDenied) {
+		t.Fatalf("err = %v, want ErrPermissionDenied", err)
+	}
+
+	for _, want := range []string{"not push to it", "write access to owner/repo"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to mention %q", err, want)
+		}
+	}
+}
+
+// An unknown answer is no refusal: GitHub App tokens and inherited GitLab
+// roles carry no push field, and refusing them would block working releases.
+func TestBotPermissions_PushAllowedReportedUnknownPasses(t *testing.T) {
+	t.Parallel()
+
+	for push, wantLine := range map[provider.PushAccess]bool{provider.PushAllowed: true, provider.PushUnknown: false} {
+		prov := fakeprovider.New(t).WithBotPermissions(provider.BotPermissions{
+			UserAccessible: true, RepoAccessible: true, BranchesAccessible: true, Push: push,
+		})
+
+		var buf bytes.Buffer
+		if err := appvalidate.BotPermissions(context.Background(), prov, &buf, appvalidate.BotPermissionsInput{
+			Repository: "owner/repo",
+		}); err != nil {
+			t.Fatalf("push %v: %v", push, err)
+		}
+
+		if got := strings.Contains(buf.String(), "can push to the repository"); got != wantLine {
+			t.Errorf("push %v: push line shown = %v, want %v:\n%s", push, got, wantLine, buf.String())
+		}
+	}
+}

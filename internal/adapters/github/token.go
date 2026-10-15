@@ -5,6 +5,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
@@ -69,5 +70,43 @@ func (p *Provider) ValidateBotPermissions(ctx context.Context, repo string) (*pr
 		}
 	}
 
-	return provider.ProbeBotPermissions(probe("/user"), probe("/repos/"+repo), probe("/repos/"+repo+"/branches"))
+	push := provider.PushUnknown
+	repoProbe := func() error {
+		body, err := getJSON(ctx, p.HTTPClient, p.restURL("/repos/"+repo), headers)
+		if err == nil {
+			push = repositoryPushAccess(body)
+		}
+
+		return err
+	}
+
+	bp, err := provider.ProbeBotPermissions(probe("/user"), repoProbe, probe("/repos/"+repo+"/branches"))
+	if err != nil {
+		return nil, err
+	}
+
+	bp.Push = push
+
+	return bp, nil
+}
+
+// repositoryPushAccess reads permissions.push from a repository response.
+// A personal token's response carries the user's permissions; a GitHub App
+// token's carries none, which is no refusal.
+func repositoryPushAccess(body []byte) provider.PushAccess {
+	var repository struct {
+		Permissions *struct {
+			Push bool `json:"push"`
+		} `json:"permissions"`
+	}
+
+	if json.Unmarshal(body, &repository) != nil || repository.Permissions == nil {
+		return provider.PushUnknown
+	}
+
+	if repository.Permissions.Push {
+		return provider.PushAllowed
+	}
+
+	return provider.PushDenied
 }

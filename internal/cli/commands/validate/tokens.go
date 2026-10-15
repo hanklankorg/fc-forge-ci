@@ -84,7 +84,7 @@ func authTokenCmd() *cli.Command {
 func authBotPermissionsCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "bot-permissions",
-		Usage: "probe the configured release-bot token's repo + branch access",
+		Usage: "probe the configured release-bot token's repo, push and branch access",
 		Description: `EXAMPLE:
    forge-ci validate auth bot-permissions --repository org/app`,
 		Flags: []cli.Flag{

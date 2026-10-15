@@ -12,6 +12,7 @@ import (
 
 	"github.com/diggsweden/forge-ci/internal/adapters/forgejo"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/provider"
 )
 
 // permissionServer answers the three probe endpoints in memory with the supplied
@@ -162,5 +163,50 @@ func TestValidateBotPermissions_RefusesAnUnusableRepo(t *testing.T) {
 		if _, err := p.ValidateBotPermissions(context.Background(), repo); !errors.Is(err, errs.ErrUsage) {
 			t.Errorf("repo %q: err = %v, want ErrUsage (a caller mistake, not a permissions answer)", repo, err)
 		}
+	}
+}
+
+// TestValidateBotPermissions_ReadsPushAccess reads permissions.push from the
+// repository response, so a bot that can only read fails before the gates run
+// instead of at the release push.
+func TestValidateBotPermissions_ReadsPushAccess(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name, body string
+		want       provider.PushAccess
+	}{
+		{"push granted", `{"permissions":{"admin":false,"push":true,"pull":true}}`, provider.PushAllowed},
+		{"read only", `{"permissions":{"admin":false,"push":false,"pull":true}}`, provider.PushDenied},
+		{"no permissions", `{"full_name":"owner/repo"}`, provider.PushUnknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body := "{}"
+
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/branches"):
+					body = "[]"
+				case strings.Contains(r.URL.Path, "/repos/"):
+					body = tc.body
+				}
+
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(body))
+			})
+
+			p := &forgejo.Provider{
+				Env:             envMap(map[string]string{"FORGEJO_TOKEN": "tok"}),
+				HTTPClient:      inMemoryClient(handler),
+				APIBaseOverride: "https://forgejo.invalid",
+			}
+
+			got, err := p.ValidateBotPermissions(context.Background(), "owner/repo")
+			if err != nil || got == nil || got.Push != tc.want || !got.RepoAccessible {
+				t.Fatalf("got %+v, %v; want Push %v", got, err, tc.want)
+			}
+		})
 	}
 }

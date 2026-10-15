@@ -399,11 +399,28 @@ type RepoMetadata struct {
 //
 // Adapters that can't perform a probe (e.g. local) return false for
 // all three. Use cases decide which fields are fatal vs warning.
+//
+// Push is what the repository probe's response says about writing to the
+// repository. Reading succeeds for a bot without write access, and the
+// release only learns otherwise when it pushes its commit an hour later.
 type BotPermissions struct {
 	UserAccessible     bool
 	RepoAccessible     bool
 	BranchesAccessible bool
+	Push               PushAccess
 }
+
+// PushAccess is whether the forge says the bot may push to the repository.
+type PushAccess int
+
+// The forge either reports push access or does not say: a GitHub App token's
+// repository response carries no permissions, and GitLab hides access the bot
+// holds through an ancestor group.
+const (
+	PushUnknown PushAccess = iota
+	PushAllowed
+	PushDenied
+)
 
 // MakeLatestMode is the forge-side value for release "latest" handling. GitHub
 // accepts "true", "false", and "legacy"; other forges may ignore it.

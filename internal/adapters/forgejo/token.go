@@ -65,14 +65,22 @@ func (p *Provider) ValidateBotPermissions(ctx context.Context, repo string) (*pr
 		return nil, err
 	}
 
-	return provider.ProbeBotPermissions(
+	push := provider.PushUnknown
+
+	bp, probeErr := provider.ProbeBotPermissions(
 		func() error {
 			_, resp, err := client.GetMyUserInfo()
 
 			return classifyErr(resp, err)
 		},
 		func() error {
-			_, resp, err := client.GetRepo(owner, name)
+			repository, resp, err := client.GetRepo(owner, name)
+			if err == nil && repository != nil && repository.Permissions != nil {
+				push = provider.PushDenied
+				if repository.Permissions.Push {
+					push = provider.PushAllowed
+				}
+			}
 
 			return classifyErr(resp, err)
 		},
@@ -82,4 +90,11 @@ func (p *Provider) ValidateBotPermissions(ctx context.Context, repo string) (*pr
 			return classifyErr(resp, err)
 		},
 	)
+	if probeErr != nil {
+		return nil, probeErr
+	}
+
+	bp.Push = push
+
+	return bp, nil
 }

@@ -5,6 +5,7 @@ package gitlab
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -81,9 +82,58 @@ func (p *Provider) ValidateBotPermissions(ctx context.Context, repo string) (*pr
 		}
 	}
 
-	return provider.ProbeBotPermissions(
+	push := provider.PushUnknown
+	projectProbe := func() error {
+		body, err := getJSON(ctx, p.HTTPClient, strings.TrimRight(apiBase, "/")+"/api/v4/projects/"+encoded, headers)
+		if err == nil {
+			push = projectPushAccess(body)
+		}
+
+		return err
+	}
+
+	bp, err := provider.ProbeBotPermissions(
 		probe("/api/v4/user"),
-		probe("/api/v4/projects/"+encoded),
+		projectProbe,
 		probe("/api/v4/projects/"+encoded+"/repository/branches"),
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	bp.Push = push
+
+	return bp, nil
+}
+
+// developerAccessLevel is the lowest GitLab role that may push.
+const developerAccessLevel = 30
+
+// projectPushAccess reads the bot's role from a project response. It never
+// reports a refusal: the response shows direct project and group membership
+// only, so a bot that holds its role through an ancestor group looks like a
+// stranger.
+func projectPushAccess(body []byte) provider.PushAccess {
+	type access struct {
+		AccessLevel int `json:"access_level"`
+	}
+
+	var project struct {
+		Permissions struct {
+			ProjectAccess *access `json:"project_access"`
+			GroupAccess   *access `json:"group_access"`
+		} `json:"permissions"`
+	}
+
+	if json.Unmarshal(body, &project) != nil {
+		return provider.PushUnknown
+	}
+
+	for _, granted := range []*access{project.Permissions.ProjectAccess, project.Permissions.GroupAccess} {
+		if granted != nil && granted.AccessLevel >= developerAccessLevel {
+			return provider.PushAllowed
+		}
+	}
+
+	return provider.PushUnknown
 }

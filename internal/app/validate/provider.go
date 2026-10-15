@@ -97,7 +97,8 @@ type BotPermissionsInput struct {
 
 // BotPermissions runs the three-probe check and renders the canonical
 // w sequence. RepoAccessible=false is fatal; UserAccessible=false
-// is also fatal; BranchesAccessible=false produces a warn-only block.
+// is also fatal; so is a forge that says the bot may not push.
+// BranchesAccessible=false produces a warn-only block.
 func BotPermissions(ctx context.Context, prov provider.TokenValidator, out io.Writer, in BotPermissionsInput) error {
 	if strings.TrimSpace(in.Repository) == "" {
 		return fmt.Errorf("usage: validate auth bot-permissions <repository>: %w", errs.ErrUsage)
@@ -116,6 +117,18 @@ func BotPermissions(ctx context.Context, prov provider.TokenValidator, out io.Wr
 
 	if !bp.RepoAccessible {
 		return fmt.Errorf("bot token cannot access this repository\nplease ensure the bot has appropriate repository access: %w", errs.ErrPermissionDenied)
+	}
+
+	// The release pushes its commit and tag much later; a bot that can only
+	// read would fail there, after the build and test gates have run.
+	if bp.Push == provider.PushDenied {
+		return fmt.Errorf("bot token can read this repository but not push to it\n"+
+			"give the release bot write access to %s (and, if a rule protects the release branch or tags, let it bypass that rule): %w",
+			in.Repository, errs.ErrPermissionDenied)
+	}
+
+	if bp.Push == provider.PushAllowed {
+		_, _ = fmt.Fprintf(out, "%s Bot token can push to the repository\n", clicolor.Check(out))
 	}
 
 	if !bp.BranchesAccessible {
