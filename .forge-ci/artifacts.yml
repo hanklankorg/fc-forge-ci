@@ -9,4 +9,6 @@ artifacts:
     project-type: meta
     working-directory: .
     build-type: application
+    # A release request must be signed by a key in .forge-ci/allowed_signers.
+    require-authorization: true
 containers: []

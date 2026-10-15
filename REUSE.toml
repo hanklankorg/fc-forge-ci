@@ -78,6 +78,11 @@ SPDX-FileCopyrightText = "2026 Digg - Agency for Digital Government"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
+path = ".forge-ci/allowed_signers"
+SPDX-FileCopyrightText = "2026 Digg - Agency for Digital Government"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
 path = "examples/signing/sigstore-keyless/.forge-ci/allowed_signers.example"
 SPDX-FileCopyrightText = "2026 Digg - Agency for Digital Government"
 SPDX-License-Identifier = "CC0-1.0"
