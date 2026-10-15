@@ -36,7 +36,6 @@ import (
 func declaredWritingContainerJobs() map[string]string {
 	return map[string]string{
 		"publish-snapshot-npm.yml/build-and-publish": "packages: write",
-		"release-create-github.yml/create-release":   "contents: write, id-token: write",
 		"version-bump.yml/bump-version":              "contents: write",
 	}
 }

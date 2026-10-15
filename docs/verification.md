@@ -945,7 +945,7 @@ What this design does NOT defend against:
 **No setting skips the check quietly.** The fix is at the runner. The two overrides are described below, and each says in the log that it was used: the `--debug-allow-swap` flag, and the test hook `FORGE_CI_PROC_SWAPS`, which replaces only the file that is read. The error message lists:
 
 1. The one-line runner fix: `sudo swapoff -a` (persist in `/etc/fstab`).
-2. Switching to a hosted runner (GitHub-hosted, GitLab-shared, Forgejo-Actions runners have swap disabled by default).
+2. That a hosted runner is no exception. GitHub-hosted runners have swap on, so the GitHub release layer signs on the plain runner and turns swap off first; a job container could not, because it starts before the first step. On self-hosted runners, any forge, swap is turned off in the host setup.
 3. Alternatives for operators who genuinely cannot disable swap: **Sigstore keyless** (`cosign sign` + OIDC; no long-lived private key) or forge-ci's **KMS-backed signing** (`sign.method: kms`; AWS KMS, GCP KMS, Azure Key Vault, OpenBao/Vault, or PKCS#11). The key remains in the provider; provider authentication and reachability are operator responsibilities.
 
 **Debug-only override.** Local debugging sometimes needs to exercise the signing path on a developer laptop where swap is on for unrelated reasons. The narrow escape hatch is the `--debug-allow-swap` CLI flag:

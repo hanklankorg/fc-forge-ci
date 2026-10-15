@@ -831,6 +831,11 @@ no KMS input. Whether signatures also go to the public transparency log is the
 
 ### Signing boundary
 
+The runner that runs the sign job needs swap off: `release sign` refuses to
+load a long-lived key while swap is active, and the signer container cannot
+turn it off ([swap policy](verification.md#swap-policy)). Turn it off in the
+runner host's setup, or sign with `sigstore` or `kms`.
+
 These properties are the boundary. A change that leaves the public YAML
 untouched can still alter every downstream release's provenance, so the
 workflows, the signer tooling, the resolver, the binary and its checksum are

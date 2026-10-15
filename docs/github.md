@@ -321,6 +321,14 @@ Release artifacts are signed with one method, `sign.method` in
 | `kms` | A KMS key reference (AWS, GCP, Azure, Vault/OpenBao, PKCS#11) | `.bundle` sidecars; the token exchange with the KMS is the caller's. See the [OpenBao example](../examples/signing/openbao-kms/). |
 | `kms` with `key: env://COSIGN_KEY` | A Cosign key pair: the private key in `RELEASE_COSIGN_PRIVATE_KEY`, its passphrase in `RELEASE_COSIGN_PASSPHRASE` | `.bundle` sidecars, verified against the public key. The GitLab and Forgejo layers sign the same way. See the [example](../examples/signing/cosign-key/). |
 
+Signing and publishing run in the release's plain-runner job with the
+forge-ci binary pinned by the orchestrator, not in the runtime image, which
+only assembles the files. GitHub-hosted runners have swap on, and
+`release sign` refuses to load a long-lived key while it is
+([swap policy](verification.md#swap-policy)), so that job turns swap off
+first. A self-hosted runner needs swap off, or passwordless `sudo` for the
+job to do it.
+
 **Cosign key signing.** `sign.key: env://COSIGN_KEY` is the one environment
 reference `artifacts.yml` accepts; another variable is refused, because Cosign
 would receive it. Pass the two `RELEASE_COSIGN_*` secrets to the release

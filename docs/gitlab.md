@@ -678,6 +678,11 @@ pipeline, for example with a build component and `publish-forge-packages`.
 
 ## Signing
 
+The runner that runs the signing jobs needs swap off: `release sign` refuses
+to load a long-lived key while swap is active, and a job image cannot turn
+it off ([swap policy](verification.md#swap-policy)). Turn it off in the
+runner host's setup, or sign with `sigstore` or `kms`.
+
 ### Signing and publication are separate authorities
 
 Removing long-lived secrets from a build does not remove its `CI_JOB_TOKEN`.

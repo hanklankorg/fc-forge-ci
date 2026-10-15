@@ -700,6 +700,7 @@ jobs:
       cosign-public-key: ${{ inputs['cosign-public-key'] }}
       cosign-public-key-sha256: ${{ inputs['cosign-public-key-sha256'] }}
       release-asset-retention: ${{ inputs['release-asset-retention'] }}
+      forge-ci-binary-ref: ${{ needs.parse-config.outputs.forge-ci-binary-ref }}
   # ===== Stage 6: Summary =====
   release-summary:
     name: Release Summary

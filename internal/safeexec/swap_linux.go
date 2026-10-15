@@ -68,11 +68,11 @@ func SwapEnabled() (bool, error) {
 //
 // The fix on a real swap-enabled host is one of:
 //
-//   - disable swap on the runner (`sudo swapoff -a`)
-//   - use a hosted runner (swap off by default)
-//   - use an external signing path that doesn't decrypt the key in
-//     our process (Sigstore keyless, KMS-backed signing — neither of
-//     which forge-ci itself implements today)
+//   - disable swap on the runner (`sudo swapoff -a`); a hosted runner
+//     needs it too where swap is on, as on GitHub's, and the GitHub
+//     release layer does it before signing
+//   - use a signing method that doesn't decrypt a long-lived key in
+//     this process (--method=sigstore or --method=kms)
 //
 // Reports which of the three passing states applied, so the caller can tell
 // the operator apart from the log:
@@ -125,7 +125,8 @@ func RequireNoSwap(debugAllowSwap bool) (SwapState, error) {
 		"swap is enabled on this runner; refusing to handle private-key material to prevent swap-page extraction.\n\n"+
 			"Fix the runner:\n"+
 			"  • disable swap: `sudo swapoff -a` (persist via /etc/fstab)\n"+
-			"  • OR run release-signing on a hosted runner (GHA-hosted has swap off by default)\n\n"+
+			"  • a hosted runner is no exception: GitHub's have swap on, and the GitHub release layer\n"+
+			"    turns it off in the signing job; on your own runners turn it off in the host setup\n\n"+
 			"Or use forge-ci release sign with a backend that does not load a long-lived private key into this process:\n"+
 			"  --method=sigstore: Sigstore keyless via cosign and OIDC (ephemeral keys are still handled by cosign)\n"+
 			"  --method=kms: KMS-backed signing with a remote key reference (a local key file is not remote KMS)\n"+

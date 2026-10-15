@@ -110,6 +110,11 @@ on:
         required: false
         default: ""
         type: string
+      forge-ci-binary-ref:
+        description: "Immutable forge-ci commit the plain-runner signing job installs; the orchestrator passes the commit its runtime image was built from."
+        required: false
+        default: "v0.90.0"
+        type: string
       release-asset-retention:
         description: "How many of the newest published releases keep every file. After publishing, each older release keeps its checksums, signatures and SBOMs and loses its archives, binaries and packages; the releases and tags stay, and an immutable release is kept whole. Empty, the default, deletes nothing."
         required: false
@@ -148,8 +153,11 @@ jobs:
       upload-as-artifact: true
       artifact-name: "release-changelog"
       changelog-config: ${{ inputs['changelog-config'] }}
-  create-release:
-    name: Create GitHub Release
+  assemble-release:
+    # Everything up to the checksums runs in the caller's runtime image. It
+    # holds no write authority and no signing key: the image is the caller's
+    # choice, and a job container starts before any step could check it.
+    name: Assemble Release Files
     needs: [generate-changelog]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -157,19 +165,17 @@ jobs:
       image: ${{ inputs['runtime-image'] }}
     permissions:
       actions: read
-      contents: write
+      contents: read
       packages: read
-      id-token: write
+    outputs:
+      source-date-epoch: ${{ steps.epoch.outputs.source-date-epoch }}
     steps:
       - name: Harden GitHub runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: ${{ inputs['egress-policy'] }}
           allowed-endpoints: ${{ inputs['egress-allowed-endpoints'] }}
-      # Defense-in-depth: refuse PR-context triggers. RELEASE_TOKEN +
-      # RELEASE_GPG_PRIVATE_KEY land in env on this job and must
-      # never run with PR-HEAD code. forge-ci is pre-baked.
-      - name: Refuse PR-context trigger (publish/release secrets in scope)
+      - name: Refuse PR-context trigger
         run: forge-ci validate event-context
       - name: Checkout repository with moved tag
         env:
@@ -178,22 +184,11 @@ jobs:
           CHECKOUT_FETCH_ALL_REFS: "true" # full history + all tags
         run: forge-ci platform checkout
       - name: Set deterministic release epoch
-        run: printf 'SOURCE_DATE_EPOCH=%s\n' "$(git log -1 --format=%ct HEAD)" >> "$GITHUB_ENV"
-      - name: Import GPG key
-        # GPG agent setup is only needed when artifact signing uses the
-        # GPG backend. Sigstore (keyless OIDC) and KMS (cosign + external
-        # provider) don't read $GPG_PRIVATE_KEY at all — running this
-        # step with no secret would fail loud, and running it with the
-        # secret would needlessly decrypt a key the flow doesn't use.
-        # The plan precomputes sign.imports_gpg_key so this gate carries the
-        # intent ("import the key") rather than hard-coding the method name.
-        if: ${{ inputs['sign-artifacts'] && fromJSON(inputs['config-plan-json']).sign.imports_gpg_key }}
-        id: import-gpg
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
-          GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
-          GIT_USER_SIGNINGKEY: "true"
-        run: forge-ci release gpg import
+        id: epoch
+        run: |
+          epoch="$(git log -1 --format=%ct HEAD)"
+          printf 'SOURCE_DATE_EPOCH=%s\n' "$epoch" >>"$GITHUB_ENV"
+          printf 'source-date-epoch=%s\n' "$epoch" >>"$GITHUB_OUTPUT"
       - name: Download Release Changelog
         continue-on-error: true
         env:
@@ -252,6 +247,95 @@ jobs:
         env:
           RELEASE_ASSEMBLY: .forge-ci/release-assembly.json
         run: forge-ci release checksums
+      - name: Upload assembled release files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-assembly
+          path: |
+            .forge-ci/release-assembly.json
+            release-files/
+            ReleasenotesTmp
+          include-hidden-files: true
+          retention-days: "1"
+          if-no-files-found: error
+  create-release:
+    # Signing and publishing run on the plain runner with the forge-ci binary
+    # pinned by forge-ci-binary-ref, like the release commit in the prepare
+    # stage. A job container could not turn swap off: it starts before the
+    # first step, and GitHub-hosted runners have swap on. release sign refuses
+    # to load a private key while swap is active (docs/verification.md#swap-policy).
+    name: Create GitHub Release
+    needs: [assemble-release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+    env:
+      # Deterministic OpenPGP signatures use the release commit's time.
+      SOURCE_DATE_EPOCH: ${{ needs.assemble-release.outputs.source-date-epoch }}
+    steps:
+      - name: Harden GitHub runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: ${{ inputs['egress-policy'] }}
+          allowed-endpoints: ${{ inputs['egress-allowed-endpoints'] }}
+      - name: Checkout forge-ci bootstrap installers
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
+          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          path: .github-shared
+          sparse-checkout: scripts/bootstrap
+          persist-credentials: false
+      - name: Install forge-ci binary
+        env:
+          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
+        run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
+      # Defense-in-depth: refuse PR-context triggers. RELEASE_TOKEN and the
+      # signing keys land in env on this job and must never run with PR-HEAD
+      # code.
+      - name: Refuse PR-context trigger (publish/release secrets in scope)
+        run: forge-ci validate event-context
+      - name: Install cosign
+        if: ${{ inputs['sign-artifacts'] }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source .github-shared/scripts/bootstrap/install-cosign.sh
+          install_cosign
+      - name: Turn swap off before any key is loaded
+        # A self-hosted runner whose operator turned swap off skips this; one
+        # without passwordless sudo fails here, and release sign would refuse.
+        if: ${{ inputs['sign-artifacts'] }}
+        run: |
+          set -euo pipefail
+          if [ "$(wc -l </proc/swaps)" -gt 1 ]; then
+            sudo -n swapoff -a
+          fi
+      - name: Download assembled release files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: release-assembly
+          ARTIFACT_DIR: .
+        run: forge-ci artifact download
+      - name: Import GPG key
+        # GPG agent setup is only needed when artifact signing uses the
+        # GPG backend. Sigstore (keyless OIDC) and KMS (cosign + external
+        # provider) don't read $GPG_PRIVATE_KEY at all — running this
+        # step with no secret would fail loud, and running it with the
+        # secret would needlessly decrypt a key the flow doesn't use.
+        # The plan precomputes sign.imports_gpg_key so this gate carries the
+        # intent ("import the key") rather than hard-coding the method name.
+        if: ${{ inputs['sign-artifacts'] && fromJSON(inputs['config-plan-json']).sign.imports_gpg_key }}
+        id: import-gpg
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+          GIT_USER_SIGNINGKEY: "true"
+        run: forge-ci release gpg import
       - name: Bind Cosign signing key to trusted public key
         # The caller supplies the trust root; the layer ships none. The
         # engine refuses an empty key, an empty digest and a mismatch, before
