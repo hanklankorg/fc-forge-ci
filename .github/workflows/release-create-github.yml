@@ -330,11 +330,12 @@ jobs:
         # The plan precomputes sign.imports_gpg_key so this gate carries the
         # intent ("import the key") rather than hard-coding the method name.
         if: ${{ inputs['sign-artifacts'] && fromJSON(inputs['config-plan-json']).sign.imports_gpg_key }}
+        # No git signing configuration: this job signs files, not commits,
+        # and has no checkout for git config to write to.
         id: import-gpg
         env:
           GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
-          GIT_USER_SIGNINGKEY: "true"
         run: forge-ci release gpg import
       - name: Bind Cosign signing key to trusted public key
         # The caller supplies the trust root; the layer ships none. The
