@@ -73,10 +73,10 @@ func TestRenderer_GitCliffArgs(t *testing.T) {
 	m.Add("git-cliff", `
 set -euo pipefail
 case "$*" in
-  '--offline --config cliff.toml --unreleased --tag v1.2.3 --output CHANGELOG.md')
+  '--offline --config cliff.toml --tag-pattern ^v[0-9]+\.[0-9]+\.[0-9]+$ --unreleased --tag v1.2.3 --output CHANGELOG.md')
     printf '# cliff\n' >CHANGELOG.md
     ;;
-  '--offline --config body.toml --unreleased --tag v1.2.3')
+  '--offline --config body.toml --tag-pattern ^v[0-9]+\.[0-9]+\.[0-9]+$ --unreleased --tag v1.2.3')
     printf 'cliff body\n'
     ;;
   *)

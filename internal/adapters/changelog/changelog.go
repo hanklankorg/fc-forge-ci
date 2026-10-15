@@ -25,6 +25,9 @@ const (
 // errUnsupportedBackend marks a backend name outside the supported set.
 var errUnsupportedBackend = errors.New("unsupported changelog backend")
 
+// stableTagPattern is the git-cliff --tag-pattern for stable release tags.
+const stableTagPattern = `^v[0-9]+\.[0-9]+\.[0-9]+$`
+
 // Renderer invokes git-chglog or git-cliff. The binary fields are test seams;
 // empty values use the conventional binary names.
 //
@@ -37,6 +40,11 @@ var errUnsupportedBackend = errors.New("unsupported changelog backend")
 // git-cliff runs with --offline for the same reason: a configured remote
 // would otherwise send it to the forge API for pull request metadata, which
 // the bundled templates never render.
+//
+// It also reads stable release tags only (stableTagPattern). A release is
+// always a stable vMAJOR.MINOR.PATCH tag, and any other tag would end the
+// unreleased range early: Forge CI's rolling v0.90.0-pre tag sits on main
+// HEAD, so git-cliff took it as the latest release and rendered 0.90.0 empty.
 type Renderer struct {
 	GitChglogBin string
 	GitCliffBin  string
@@ -54,7 +62,7 @@ func (r *Renderer) RenderFull(ctx context.Context, backend, config, tag, outputP
 
 		return err
 	case backendGitCliff:
-		_, err := r.run(ctx, r.gitCliffBin(), "--offline", "--config", config, "--unreleased", "--tag", tag, "--output", outputPath)
+		_, err := r.run(ctx, r.gitCliffBin(), "--offline", "--config", config, "--tag-pattern", stableTagPattern, "--unreleased", "--tag", tag, "--output", outputPath)
 
 		return err
 	default:
@@ -68,7 +76,7 @@ func (r *Renderer) RenderBody(ctx context.Context, backend, config, tag, reposit
 	case backendGitChglog:
 		return r.run(ctx, r.gitChglogBin(), "--config", config, "--repository-url", repositoryURL, "--next-tag", tag, tag)
 	case backendGitCliff:
-		return r.run(ctx, r.gitCliffBin(), "--offline", "--config", config, "--unreleased", "--tag", tag)
+		return r.run(ctx, r.gitCliffBin(), "--offline", "--config", config, "--tag-pattern", stableTagPattern, "--unreleased", "--tag", tag)
 	default:
 		return "", fmt.Errorf("%w %q", errUnsupportedBackend, backend)
 	}

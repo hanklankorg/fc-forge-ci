@@ -95,7 +95,7 @@ carries a description. The orchestrator inputs most callers set:
 | `branch` | release, snapshot | The branch to prepare and release from, or the snapshot branch. |
 | `artifacts-config` | release, snapshot | Path to `artifacts.yml`, default `.forge-ci/artifacts.yml`. |
 | `release-publisher` | release | `github-cli` creates the GitHub release; empty skips it. |
-| `changelog-creator`, `changelog.config` | release | The changelog renderer (default `git-cliff`) and its configuration. git-cliff renders offline: a configuration that uses remote metadata, such as pull-request numbers, gets none. |
+| `changelog-creator`, `changelog.config` | release | The changelog renderer (default `git-cliff`) and its configuration. git-cliff renders offline: a configuration that uses remote metadata, such as pull-request numbers, gets none. It reads stable `vX.Y.Z` tags only, overriding any `tag_pattern` in the configuration, so pre-release tags never split the changelog. |
 | `release.sboms`, `release.signartifacts`, `release.requireallowlistedsigner`, `release.draft` | release | SBOM selection, artifact signing, the signer allowlist and draft releases. |
 | `release-asset-retention` | release | How many of the newest releases keep every file; older ones keep their checksums and signatures. Empty, the default, deletes nothing. See [Old releases' files](#old-releases-files). |
 | `promote-staging-environment`, `promote-release-environment`, `promote-release-*` | release | The GitHub Environments that gate the promotion ladder, and an optional separate release registry. |

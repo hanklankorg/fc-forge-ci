@@ -22,6 +22,7 @@ import (
 func newRealGit(t *testing.T) (*adaptergit.Repo, *isolatedgit.Repo) {
 	t.Helper()
 	ig := isolatedgit.NewRepo(t)
+
 	return &adaptergit.Repo{Dir: ig.Dir}, ig
 }
 
@@ -49,13 +50,13 @@ func TestTagUniqueness_FailsWhenCollisions(t *testing.T) {
 
 	gitr, ig := newRealGit(t)
 	ig.AddTag("v1.0.0", "main")
-	ig.AddTag("v1.0.0-alias", "alias")
+	ig.AddTag("v1.0.1", "second release on the same commit")
 
 	err := appvalidate.TagUniqueness(context.Background(), gitr, &bytes.Buffer{}, appvalidate.TagUniquenessInput{Tag: "v1.0.0"})
 	if !errors.Is(err, errs.ErrValidation) {
 		t.Fatalf("err = %v, want ErrValidation", err)
 	}
-	if !strings.Contains(err.Error(), "v1.0.0-alias") {
+	if !strings.Contains(err.Error(), "v1.0.1") {
 		t.Errorf("error should list other tag: %v", err)
 	}
 	if !strings.Contains(err.Error(), "git-cliff/issues/1036") {
@@ -69,7 +70,7 @@ func TestTagUniqueness_IgnoreTagDoesNotHideOtherCollisions(t *testing.T) {
 	gitr, ig := newRealGit(t)
 	ig.AddTag("release-request/v1.0.0", "request")
 	ig.AddTag("v1.0.0", "expected final")
-	ig.AddTag("v1.0.0-alias", "unexpected alias")
+	ig.AddTag("v0.9.9", "unexpected release")
 
 	err := appvalidate.TagUniqueness(context.Background(), gitr, &bytes.Buffer{}, appvalidate.TagUniquenessInput{
 		Tag:       "release-request/v1.0.0",
@@ -78,13 +79,34 @@ func TestTagUniqueness_IgnoreTagDoesNotHideOtherCollisions(t *testing.T) {
 	if !errors.Is(err, errs.ErrValidation) {
 		t.Fatalf("err = %v, want ErrValidation", err)
 	}
-	if !strings.Contains(err.Error(), "v1.0.0-alias") {
+	if !strings.Contains(err.Error(), "v0.9.9") {
 		t.Errorf("error should list unexpected tag: %v", err)
 	}
 
 	// And it does not re-report the tag the caller told it to ignore.
 	if strings.Contains(err.Error(), "v1.0.0\n") {
 		t.Errorf("the ignored tag was reported as a collision: %v", err)
+	}
+}
+
+// The 2026-10-15 Forge CI release request failed here: Self Runtime Container
+// moves the rolling v0.90.0-pre tag to every main HEAD, which is where a
+// release request belongs. The changelog renderer reads stable tags only, so
+// tags it skips are no collision.
+func TestTagUniqueness_IgnoresTagsTheChangelogSkips(t *testing.T) {
+	t.Parallel()
+
+	gitr, ig := newRealGit(t)
+	ig.AddTag("release-request/v0.90.0", "request")
+	ig.AddTag("v0.90.0-pre", "rolling pre-release")
+	ig.AddTag("v0.90.0-rc.1", "release candidate")
+	ig.AddTag("nightly", "not a version")
+
+	var buf bytes.Buffer
+	if err := appvalidate.TagUniqueness(context.Background(), gitr, &buf, appvalidate.TagUniquenessInput{
+		Tag: "release-request/v0.90.0",
+	}); err != nil {
+		t.Fatalf("TagUniqueness = %v, want nil:\n%s", err, buf.String())
 	}
 }
 

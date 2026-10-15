@@ -126,7 +126,7 @@ images and pins, a validating regex. The inputs that are not obvious:
 | | `request-allowed-signers` | OpenSSH allowed-signers text for the people who may sign a request tag. |
 | | `bot-name`, `bot-email` | The release bot identity; no default. |
 | | `checks`, `build` | Consumer commands: checks on the request commit, and the build that writes `dist/release-files.json` and `release-notes.md`. |
-| | `changelog-backend`, `changelog-config`, `commit-body-config` | `git-chglog` (default) or `git-cliff`, and the consumer's configuration files. git-cliff renders offline, without remote metadata. |
+| | `changelog-backend`, `changelog-config`, `commit-body-config` | `git-chglog` (default) or `git-cliff`, and the consumer's configuration files. git-cliff renders offline, without remote metadata, and reads stable `vX.Y.Z` tags only, overriding any `tag_pattern` in the configuration. |
 | | `release-branch` | The branch a release lands on; empty, the default, takes the project's default branch. The request must be its head. |
 | | `transparency-log` | `none` (default) or `public`: whether Cosign signatures are also written to the public Sigstore transparency log. See [Signing](#signing). |
 | | `sign-distro-packages` | Default `true`: GPG `.sig` sidecars for `.deb`, `.rpm` and `.apk`, which makes the GPG variables required. |
