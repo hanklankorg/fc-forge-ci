@@ -1,0 +1,115 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+# Include this component from a pinned, independently controlled CI policy.
+# The resource group stays locked through the mirrored child pipeline, covering
+# preparation, signing, promotion and publication across concurrent releases.
+spec:
+  component: [sha, reference]
+  inputs:
+    engine-project:
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
+    consumer-project:
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
+    job-image:
+      description: Non-root tools for consumer checks and changelog rendering.
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    build-image:
+      description: Consumer build tools; may match job-image when no separate builder is needed.
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    signer-image:
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    publication-project:
+      type: string
+    publication-image-repository:
+      type: string
+    cosign-public-key-sha256:
+      regex: '^[0-9a-f]{64}$'
+    release-git-url:
+      type: string
+    release-git-host-key-fingerprint:
+      type: string
+    request-allowed-signers:
+      type: string
+    bot-name:
+      type: string
+    bot-email:
+      type: string
+    checks:
+      type: array
+    build:
+      type: array
+    changelog-backend:
+      default: git-chglog
+      options: [git-chglog, git-cliff]
+    changelog-config:
+      description: Consumer config used by the selected changelog renderer.
+      default: .chglog/config-keepachangelog.yml
+    commit-body-config:
+      description: Consumer config used to render the release commit body.
+      default: .chglog/config-minimal.yml
+    sign-distro-packages:
+      type: boolean
+      default: true
+    release-asset-retention:
+      description: >-
+        How many of the newest releases keep every file. After publishing, each older release keeps its checksums, signatures and SBOMs and loses its archives, binaries and packages, upload and link both; the releases and tags stay. Empty, the default, deletes nothing.
+      regex: '^$|^[1-9][0-9]*$'
+      default: ''
+    base-images:
+      description: Import, sign and publish newly built content-addressed bases in the publication project's bases repository.
+      type: boolean
+      default: false
+    transparency-log:
+      description: >-
+        Whether Cosign signatures are also written to the public Sigstore transparency log. `none`, the default, writes no entry and contacts no Sigstore service: a signature is then verified against the key alone. `public` writes every signature to the public log, Rekor, permanently. Every release of one organization takes the same value, because a signature is verified the way it was made.
+      default: none
+      options: [none, public]
+    release-branch:
+      description: >-
+        Branch a release lands on. The release request must be its head, and the release commit is pushed to it. Empty, the default, takes the project's default branch.
+      default: ''
+      regex: '^$|^[A-Za-z0-9_][A-Za-z0-9_./-]*$'
+---
+release:
+  stage: deploy
+  resource_group: release
+  interruptible: false
+  inherit:
+    variables: false
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_TAG =~ /^release-request\/v[0-9]+\.[0-9]+\.[0-9]+$/'
+  trigger:
+    strategy: mirror
+    forward:
+      yaml_variables: false
+      pipeline_variables: false
+    include:
+      - project: $[[ inputs.engine-project ]]
+        ref: $[[ component.sha ]]
+        file: /templates/release-jobs.yml
+        inputs:
+          engine-sha: $[[ component.sha ]]
+          engine-reference: $[[ component.reference ]]
+          engine-project: $[[ inputs.engine-project ]]
+          consumer-project: $[[ inputs.consumer-project ]]
+          job-image: $[[ inputs.job-image ]]
+          build-image: $[[ inputs.build-image ]]
+          signer-image: $[[ inputs.signer-image ]]
+          publication-project: $[[ inputs.publication-project ]]
+          publication-image-repository: $[[ inputs.publication-image-repository ]]
+          cosign-public-key-sha256: $[[ inputs.cosign-public-key-sha256 ]]
+          release-git-url: $[[ inputs.release-git-url ]]
+          release-git-host-key-fingerprint: $[[ inputs.release-git-host-key-fingerprint ]]
+          request-allowed-signers: $[[ inputs.request-allowed-signers ]]
+          bot-name: $[[ inputs.bot-name ]]
+          bot-email: $[[ inputs.bot-email ]]
+          checks: $[[ inputs.checks ]]
+          build: $[[ inputs.build ]]
+          changelog-backend: $[[ inputs.changelog-backend ]]
+          changelog-config: $[[ inputs.changelog-config ]]
+          commit-body-config: $[[ inputs.commit-body-config ]]
+          sign-distro-packages: $[[ inputs.sign-distro-packages ]]
+          release-asset-retention: $[[ inputs.release-asset-retention ]]
+          base-images: $[[ inputs.base-images ]]
+          transparency-log: $[[ inputs.transparency-log ]]
+          release-branch: $[[ inputs.release-branch ]]

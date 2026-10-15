@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: 'Verify Forgejo API token'
+description: >-
+  Fail fast when a Forgejo API token is empty or lacks read access to the repo, before a long release/build job is spent on a mis-scoped or missing token. The token is passed to forge-ci over stdin, never as a process argument. read:repository is sufficient.
+inputs:
+  token:
+    description: Forgejo API token to verify.
+    required: true
+  repository:
+    description: owner/repo to probe. Defaults to github.repository.
+    required: false
+    default: ${{ github.repository }}
+  server-url:
+    description: Forgejo server URL. Defaults to github.server_url.
+    required: false
+    default: ${{ github.server_url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Verify Forgejo API token
+      shell: bash
+      env:
+        FORGEJO_API_TOKEN: ${{ inputs.token }}
+        VERIFY_REPO: ${{ inputs.repository }}
+        VERIFY_SERVER: ${{ inputs.server-url }}
+      run: bash "${GITHUB_ACTION_PATH}/verify-forgejo-token.sh"

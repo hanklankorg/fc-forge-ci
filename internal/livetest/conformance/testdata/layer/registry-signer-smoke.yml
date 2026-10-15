@@ -1,0 +1,321 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Live-tier fixture of TestForgejoLayer_RegistrySignerSmoke. A template: the
+# test renders it into a scratch repository on the lab beside a Containerfile
+# and one text file, sets the release secrets there and pushes the request
+# tag. One image, one platform, one base: the smallest release that builds an
+# image in a job and takes it through the registry, the ledger and the signer.
+#
+# No call passes forge-ci-repository. The other fixtures write it out, as
+# the examples do; this one leaves it to the FORGE_CI_REPOSITORY variable,
+# so the layer's other way of finding its own files runs too.
+name: Forgejo layer registry and signer smoke
+
+on:
+  push:
+    tags:
+      - 'release-request/v*'
+
+# permissions: is a GitHub field Forgejo ignores (warning per run) --
+# kept for Scorecard Token-Permissions and GitHub portability. Real
+# restriction is Forgejo's repo-scoped read-default token.
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    uses: OWNER/forge-ci/.forgejo/workflows/prepare-release.yml@PIN_FORGE_CI_SHA
+    with:
+      runner-label: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-sha: PIN_FORGE_CI_SHA
+      signer-image: RENDER_SIGNER_IMAGE
+      bot-name: Layer acceptance
+      bot-email: layer-acceptance@invalid.example
+      release-git-url: RENDER_RELEASE_GIT_URL
+      release-git-host-key-fingerprint: RENDER_RELEASE_GIT_HOST_KEY_FINGERPRINT
+      sign-distro-packages: 'false'
+      # The request is a tag a person signed, and the layer admits it only
+      # when .forgejo/release-allowed-signers of the requested commit names
+      # the signer. The minimal release keeps the default, an unsigned tag.
+      verify-release-request-signature: 'true'
+    secrets:
+      RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+
+  # Whether a job on this runner may build an image at all, asked by the
+  # layer's own action: it installs Buildah, picks the job's container storage
+  # and ends with a probe build. When this job fails, the test's failure says
+  # that the runner is the reason and not the release.
+  storage:
+    name: Check that a job can build an image
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Set up Buildah
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-buildah@PIN_FORGE_CI_SHA
+
+  build:
+    name: Build and push registry smoke image
+    needs: [prepare, storage]
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      dist-digest: ${{ steps.dist.outputs.digest }}
+      base-image: ${{ steps.base-image.outputs.image }}
+      base-digest: ${{ steps.base-image.outputs.digest }}
+      base-input-id: ${{ steps.base.outputs.input-id }}
+      base-ledger-json: ${{ steps.base-ledger.outputs.json }}
+    steps:
+      - name: Set up forge-ci
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA
+        with:
+          expected-sha256: RENDER_FORGE_CI_SHA256
+
+      - name: Checkout prepared release
+        env:
+          CHECKOUT_REF: ${{ needs.prepare.outputs.release-sha }}
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout
+
+      # The runner's job image carries no Buildah; every consumer that builds
+      # an image provisions it in the job that builds.
+      - name: Set up Buildah
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-buildah@PIN_FORGE_CI_SHA
+
+      - name: Login to registry
+        id: registry
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/registry-login@PIN_FORGE_CI_SHA
+        with:
+          username: ${{ forgejo.repository_owner }}
+          token: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+          create-auth-file: 'true'
+
+      - name: Build and push registry smoke image
+        id: image
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/build-push-oci-image@PIN_FORGE_CI_SHA
+        with:
+          tag: ${{ needs.prepare.outputs.release-tag }}
+          containerfile: Containerfile
+          builds: '[{"platform":"linux/amd64","build-args":[]}]'
+          title: layer-registry-signer-smoke
+          description: Disposable registry and signer acceptance image
+          licenses: CC0-1.0
+          auth-file: ${{ steps.registry.outputs.auth-file }}
+
+      - name: Assemble smoke release files
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release-tag }}
+        run: |
+          set -euo pipefail
+          version=${RELEASE_TAG#v}
+          test "${version}" = 0.0.1
+          asset="registry-signer-smoke_${version}.tar.gz"
+          sbom="registry-signer-smoke_${version}.sbom.json"
+          mkdir -p dist
+          # A release asset is an archive; a bare text file is not one the
+          # signer will publish.
+          tar --format=ustar --sort=name --mtime='@946684800' --owner=0 --group=0 \
+            --numeric-owner -cf - smoke.txt | gzip -n >"dist/${asset}"
+          printf '{"bomFormat":"CycloneDX","components":[],"metadata":{"component":{"name":"registry-signer-smoke","type":"container","version":"%s"}},"specVersion":"1.5","version":1}\n' \
+            "${version}" >"dist/${sbom}"
+          # The image ledger takes the image's own SBOM by that name. It and
+          # release-notes.md are not public files, so they are not declared.
+          cp "dist/${sbom}" dist/image-sbom.cyclonedx.json
+          printf '# Registry and signer smoke %s\n\nDisposable acceptance release.\n' \
+            "${RELEASE_TAG}" >dist/release-notes.md
+          forge-ci release files declare \
+            --asset "dist/${asset}" \
+            --sbom "dist/${sbom}" \
+            --checksums-file "dist/registry-signer-smoke_${version}_checksums.txt"
+
+      - name: Record registry smoke image
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/record-release-image@PIN_FORGE_CI_SHA
+        with:
+          role: smoke
+          image: ${{ steps.image.outputs.image }}
+          digest: ${{ steps.image.outputs.digest }}
+          tag: ${{ needs.prepare.outputs.release-tag }}
+          release-tag: ${{ needs.prepare.outputs.release-tag }}
+          sbom: dist/image-sbom.cyclonedx.json
+
+      - name: Upload unsigned smoke hand-off
+        id: dist
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/upload-dist@PIN_FORGE_CI_SHA
+        with:
+          artifact-name: build-dist
+          path: dist/
+
+      # The base-image path on the smallest base there is: the same FROM
+      # scratch image, pushed straight to the final tag the base verifier
+      # looks up, <base repository>:<base input ID>-<flavor>. A consumer's
+      # base input ID addresses the content of its base. This one names the
+      # run instead, so that only the lineage signed in this run can satisfy
+      # the verification below.
+      - name: Derive registry smoke base input ID
+        id: base
+        env:
+          RUN_ID: ${{ forgejo.run_id }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.release-sha }}
+        run: |
+          set -euo pipefail
+          base_input_id=$(printf '%s %s' "${RUN_ID:?}" "${RELEASE_SHA:?}" | sha256sum)
+          printf 'input-id=%s\n' "${base_input_id%% *}" >>"${FORGEJO_OUTPUT}"
+
+      - name: Build and push registry smoke base image
+        id: base-image
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/build-push-oci-image@PIN_FORGE_CI_SHA
+        with:
+          image: RENDER_BASE_REPOSITORY
+          tag: ${{ steps.base.outputs.input-id }}-smoke
+          containerfile: Containerfile
+          builds: '[{"platform":"linux/amd64","build-args":[]}]'
+          title: layer-registry-signer-smoke-base
+          description: Disposable base-image acceptance image
+          licenses: CC0-1.0
+          auth-file: ${{ steps.registry.outputs.auth-file }}
+
+      # The base ledger pins the SBOM the signer attests. The signer downloads
+      # the artifact into premade-sboms/, so the entry names the file there.
+      - name: Record registry smoke base image
+        id: base-ledger
+        env:
+          BASE_IMAGE: ${{ steps.base-image.outputs.image }}
+          BASE_DIGEST: ${{ steps.base-image.outputs.digest }}
+          BASE_INPUT_ID: ${{ steps.base.outputs.input-id }}
+        run: |
+          set -euo pipefail
+          mkdir -p premade-sboms
+          cp dist/image-sbom.cyclonedx.json premade-sboms/base-sbom-smoke.cyclonedx.json
+          sbom_sha256=$(sha256sum premade-sboms/base-sbom-smoke.cyclonedx.json)
+          forge-ci container ledger add \
+            --ledger base-images.ledger.json \
+            --image-kind base \
+            --role base \
+            --flavor smoke \
+            --ref "${BASE_IMAGE:?}@${BASE_DIGEST:?}" \
+            --digest "${BASE_DIGEST}" \
+            --final-tag "${BASE_IMAGE}:${BASE_INPUT_ID:?}-smoke" \
+            --base-input-id "${BASE_INPUT_ID}" \
+            --sbom premade-sboms/base-sbom-smoke.cyclonedx.json \
+            --sbom-sha256 "${sbom_sha256%% *}"
+          printf 'json=%s\n' "$(tr -d '\n' <base-images.ledger.json)" >>"${FORGEJO_OUTPUT}"
+
+      - name: Upload base SBOM for the signer
+        run: |
+          set -euo pipefail
+          forge-ci artifact upload --name base-sboms --dir premade-sboms
+
+      - name: Cleanup build registry authentication
+        if: always()
+        env:
+          REGISTRY_AUTH_FILE: ${{ steps.registry.outputs.auth-file }}
+        run: |
+          set -euo pipefail
+          if [ -n "${REGISTRY_AUTH_FILE:-}" ]; then
+            rm -f -- "${REGISTRY_AUTH_FILE}"
+          fi
+
+  sign-and-publish:
+    name: Sign and publish registry smoke release
+    needs: [prepare, build]
+    if: ${{ always() && needs.build.result == 'success' }}
+    uses: OWNER/forge-ci/.forgejo/workflows/sign-and-publish-release.yml@PIN_FORGE_CI_SHA
+    with:
+      runner-label: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-sha: PIN_FORGE_CI_SHA
+      signer-image: RENDER_SIGNER_IMAGE
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: RENDER_COSIGN_PUBLIC_KEY_SHA256
+      release-tag: ${{ needs.prepare.outputs.release-tag }}
+      release-sha: ${{ needs.prepare.outputs.release-sha }}
+      release-request-sha: ${{ forgejo.sha }}
+      dist-digest: ${{ needs.build.outputs.dist-digest }}
+      artifact-name: build-dist
+      artifact-path: dist/
+      release-images-path: dist/release-images.json
+      caller-workflow: layer-registry-smoke.yml
+      sign-distro-packages: 'false'
+    secrets:
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+
+  sign-base:
+    name: Sign registry smoke base image
+    needs: [prepare, build]
+    uses: OWNER/forge-ci/.forgejo/workflows/sign-container-images.yml@PIN_FORGE_CI_SHA
+    with:
+      runner-label: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-sha: PIN_FORGE_CI_SHA
+      signer-image: RENDER_SIGNER_IMAGE
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: RENDER_COSIGN_PUBLIC_KEY_SHA256
+      ledger-json: ${{ needs.build.outputs.base-ledger-json }}
+      base-repository: RENDER_BASE_REPOSITORY
+      source-sha: ${{ needs.prepare.outputs.release-sha }}
+      caller-workflow: layer-registry-smoke.yml
+      sbom-artifact: base-sboms
+    secrets:
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+
+  verify-base:
+    name: Verify signed registry smoke base image
+    needs: [prepare, build, sign-base]
+    uses: OWNER/forge-ci/.forgejo/workflows/verify-base-container-images.yml@PIN_FORGE_CI_SHA
+    with:
+      runner-label: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-sha: PIN_FORGE_CI_SHA
+      signer-image: RENDER_SIGNER_IMAGE
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: RENDER_COSIGN_PUBLIC_KEY_SHA256
+      release-sha: ${{ needs.prepare.outputs.release-sha }}
+      base-repository: RENDER_BASE_REPOSITORY
+      base-input-id: ${{ needs.build.outputs.base-input-id }}
+      flavors-file: base-flavors.list
+      caller-workflow: layer-registry-smoke.yml
+
+  # The verifier reports a final tag it cannot find as a cache miss and
+  # succeeds, so this job turns its answer into the verdict: the image signed
+  # in this run is among the bases whose signature, SBOM attestation and
+  # lineage verified.
+  require-base:
+    name: Require verified registry smoke base image
+    needs: [build, verify-base]
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Require this run's base image among the verified bases
+        env:
+          ALL_FOUND: ${{ needs.verify-base.outputs.all-found }}
+          VERIFIED_IMAGES_JSON: ${{ needs.verify-base.outputs.all-images-json }}
+          BASE_IMAGE: ${{ needs.build.outputs.base-image }}
+          BASE_DIGEST: ${{ needs.build.outputs.base-digest }}
+        run: |
+          set -euo pipefail
+          verified="\"ref\":\"${BASE_IMAGE:?}@${BASE_DIGEST:?}\""
+          if [[ "${ALL_FOUND}" != true || "${VERIFIED_IMAGES_JSON}" != *"${verified}"* ]]; then
+            echo "ERROR: the base image signed in this run did not verify: ${BASE_IMAGE}@${BASE_DIGEST}" >&2
+            exit 1
+          fi

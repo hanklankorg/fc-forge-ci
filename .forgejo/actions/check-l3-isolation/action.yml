@@ -1,0 +1,93 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: 'Check release isolation'
+description: >-
+  The release-integrity gate: statically asserts the release-isolation and secret-boundary invariants of a consumer's release workflow (the build job references no signing-key secret, the prepare job's signing-key refs precede checkout, the cross-repo sign job enumerates every required signing secret and is pinned, release-tag/release-sha flow from prepare to signer, and the dist-digest tamper-evidence channel is intact) plus the supporting hygiene that keeps them meaningful (one forge-ci pin across the workflow directory, and the signer image, the Cosign public key digest and the transparency-log setting written out as literals wherever a job passes them to the layer). Shared so every signing consumer enforces the same guard instead of carrying its own copy.
+inputs:
+  workflow:
+    description: Release workflow path.
+    required: false
+    default: .forgejo/workflows/release.yml
+  build-job:
+    description: Dist-producing job that must hold no signing keys (e.g. build-and-release, dist).
+    required: false
+    default: build-and-release
+  sign-job:
+    description: Cross-repo signer call-site job.
+    required: false
+    default: sign-and-publish
+  prepare-job:
+    description: >-
+      Prepare job whose signing-key references (fail-fast secrets checks) must come before its first checkout step. Skipped when the job doesn't exist.
+    required: false
+    default: prepare
+  signing-secrets:
+    description: Space-separated signing-key secret names to enforce.
+    required: false
+    default: RELEASE_COSIGN_PRIVATE_KEY RELEASE_COSIGN_PASSPHRASE RELEASE_GPG_PRIVATE_KEY RELEASE_GPG_PASSPHRASE RELEASE_GPG_FINGERPRINT
+  dist-digest-output:
+    description: The build job's digest output name (e.g. dist-digest).
+    required: false
+    default: dist-digest
+  single-pin-subject:
+    description: >-
+      owner/repository whose commit pins must agree across the workflow directory. Empty takes the repository the runner fetched this action from, so the check follows a fork without configuration. An action referenced by a local path has no such repository and must name the subject. Every job that calls one of the subject's reusable workflows must also pass that commit, written out, as forge-ci-sha. A job that passes signer-image, cosign-public-key-sha256 or transparency-log to one of them must write the value out too: an image reference pinned by digest, 64 hex characters, and none or public, never an expression.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Check release isolation and secret boundaries
+      shell: bash
+      env:
+        ISOLATION_WORKFLOW: ${{ inputs.workflow }}
+        ISOLATION_BUILD_JOB: ${{ inputs.build-job }}
+        ISOLATION_SIGN_JOB: ${{ inputs.sign-job }}
+        ISOLATION_PREPARE_JOB: ${{ inputs.prepare-job }}
+        ISOLATION_SIGNING_SECRETS: ${{ inputs.signing-secrets }}
+        ISOLATION_DIST_DIGEST_OUTPUT: ${{ inputs.dist-digest-output }}
+        ISOLATION_SINGLE_PIN_SUBJECT: ${{ inputs.single-pin-subject }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        # The runner sets GITHUB_ACTION_REPOSITORY to the owner/repository of
+        # the `uses:` reference it resolved for this action. An empty subject
+        # would switch the pin check off, so it is refused here.
+        single_pin_subject=${ISOLATION_SINGLE_PIN_SUBJECT:-${GITHUB_ACTION_REPOSITORY:-}}
+        if [ -z "${single_pin_subject}" ]; then
+          echo "ERROR: single-pin-subject is empty and this action was not fetched from a repository" >&2
+          exit 1
+        fi
+        # The signer image runs with the signing keys, and the digest is what
+        # binds a public key read from a variable to the reviewed workflow.
+        # Both are literals of the layer's own input names. So is the
+        # transparency log: a value from a variable could send the next
+        # release to the public log, for good, without a reviewed commit.
+        secret_flags=()
+        for secret in ${ISOLATION_SIGNING_SECRETS}; do
+          secret_flags+=(--signing-secret "${secret}")
+        done
+        # Only this action's own serving repository has declarations here.
+        # An explicit foreign subject keeps the generic pin checks; its API
+        # must not be judged against an unrelated checkout's declarations.
+        contract_flags=()
+        if [ "${single_pin_subject}" = "${GITHUB_ACTION_REPOSITORY:-}" ]; then
+          contract_flags=(--contract-root "${GITHUB_ACTION_PATH}/../../..")
+        fi
+        run_forge_ci validate isolation \
+          --workflow "${ISOLATION_WORKFLOW}" \
+          --build-job "${ISOLATION_BUILD_JOB}" \
+          --sign-job "${ISOLATION_SIGN_JOB}" \
+          --prepare-job "${ISOLATION_PREPARE_JOB}" \
+          --dist-digest-output "${ISOLATION_DIST_DIGEST_OUTPUT}" \
+          --single-pin-subject "${single_pin_subject}" \
+          --single-pin-input forge-ci-sha \
+          --literal-input signer-image=image-digest \
+          --literal-input cosign-public-key-sha256=sha256 \
+          --literal-input transparency-log=enum:none/public \
+          "${contract_flags[@]}" \
+          "${secret_flags[@]}"

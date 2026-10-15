@@ -1,0 +1,354 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# workflow-call-secrets-contract: RELEASE_COSIGN_PRIVATE_KEY RELEASE_COSIGN_PASSPHRASE RELEASE_REGISTRY_TOKEN
+# (The platform rejects declared workflow_call.secrets, and test/forgejoguard
+#  holds this file to that. This comment is the authoritative,
+#  machine-readable owner instead; check-l3-isolation's sibling-mode
+#  lockstep invariant parses it.)
+#
+name: Sign container images (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      runner-label:
+        description: Exact trusted runner label selected by the consumer repository.
+        type: string
+        required: true
+      forge-ci-repository:
+        description: >-
+          Repository that serves this workflow, as owner/repository on this instance or as a full HTTPS Git URL. The owner/repository of this workflow's uses: line. Empty takes the calling repository's or organization's FORGE_CI_REPOSITORY variable; with neither, the workflow stops. The exact revision remains forge-ci-sha.
+        type: string
+        required: false
+        default: ''
+      signer-image:
+        description: >-
+          Immutable digest-pinned signer image coordinate, for example forge.example/owner/forge-ci-signer@sha256:<digest>. The calling organization builds it from containers/signer/Containerfile of the forge-ci repository; no image is published upstream.
+        type: string
+        required: true
+      cosign-public-key:
+        description: >-
+          PEM text of the Cosign public key the calling organization trusts. A public key is not a secret, so it may come from a variable. The engine refuses an empty key.
+        type: string
+        required: true
+      cosign-public-key-sha256:
+        description: >-
+          SHA-256 of that key as a file ending in one newline, as `sha256sum cosign.pub` prints it. Written as a literal in the calling workflow, it binds a key read from a variable to reviewed code. The engine refuses an empty digest and a mismatch.
+        type: string
+        required: true
+      transparency-log:
+        description: >-
+          Whether Cosign signatures are also written to the public Sigstore transparency log. `none`, the default, writes no entry and contacts no Sigstore service: a signature is then verified against the key alone. `public` writes every signature to the public log, Rekor, permanently. Every workflow of one organization takes the same value, because a signature is verified the way it was made.
+        type: string
+        required: false
+        default: none
+      ledger-json:
+        description: >-
+          Base-image ledger JSON array conforming to the schema consumed by `container base-images sign`. Every entry is image_kind=base and carries all per-image data: flavor, digest-pinned ref, content-addressed final_tag, staging candidate_tag, first-class base_input_id, the premade SBOM pin (sbom + sbom_sha256), and provenance extras.
+        type: string
+        required: true
+      repository-suffix:
+        description: >-
+          Optional suffix appended to the caller repository package name, for example -base for forge.example/owner/repo-base. Must be empty or match -[A-Za-z0-9][A-Za-z0-9._-]*.
+        type: string
+        required: false
+        default: ''
+      base-repository:
+        description: >-
+          Full base-image repository. Empty derives it from the calling repository and repository-suffix. On this forge's registry, with its host and port, it must be under the calling repository's owner, compared without case. On another registry, such as ghcr.io/owner/project-base, it is taken as declared, with registry-user and RELEASE_REGISTRY_TOKEN for that registry. Must match the repository used to build, verify, and promote the bases.
+        type: string
+        required: false
+        default: ''
+      registry-user:
+        description: >-
+          User the registry token logs in as. Empty is the calling repository's owner, which is right for this forge's registry; a repository on another registry, such as GHCR, names its user there.
+        type: string
+        required: false
+        default: ''
+      source-sha:
+        description: Consumer commit SHA that produced the signed base images.
+        type: string
+        required: true
+      caller-workflow:
+        description: >-
+          Consumer workflow file that produced the signed base images, for example container-bases.yml. Must be a relative path with no `..` step and no control character.
+        type: string
+        required: true
+      forge-ci-sha:
+        description: Exact forge-ci commit SHA to check the layer's helper files out at. Pass the same SHA used to pin this reusable workflow.
+        type: string
+        required: true
+      sbom-artifact:
+        description: >-
+          Current-run artifact name containing the pre-built per-flavor CycloneDX SBOMs (base-sbom-<flavor>.cyclonedx.json) the ledger pins. This workflow's ledger contract requires each sbom path under premade-sboms/. The signer downloads the artifact there, verifies sha256(file) == sbom_sha256 per entry, and attests exactly that document — SBOMs are never generated inside the signing boundary.
+        type: string
+        required: true
+
+env:
+  FORGEJO_SERVER: ${{ forgejo.server_url }}
+  FORGEJO_REPO: ${{ forgejo.repository }}
+  # Base-image lineage is carried in a standard SLSA Provenance v1.0 attestation
+  # (cosign --type slsaprovenance1), not a bespoke predicate type — flavor and
+  # base_input_id live in buildDefinition.externalParameters, so any SLSA-aware
+  # verifier reads it without knowledge of this layer. `container
+  # base-images sign` builds the run-level predicate (source, workflow, commit,
+  # builder) with the generic `release provenance` profile and enriches it per
+  # image before attesting — no predicate policy lives in shell. Its
+  # externalParameters.source is the SLSA VCS URI ("git+<url>"), which
+  # `base-images validate` and `promote` match against EXPECTED_SOURCE; the
+  # caller workflow file is recorded as externalParameters.workflow.
+
+jobs:
+  coordinates:
+    name: Validate helper trust coordinates
+    runs-on: ${{ inputs['runner-label'] }}
+    timeout-minutes: 5
+    # permissions: is a GitHub field Forgejo ignores (warning per run) --
+    # kept for Scorecard Token-Permissions and GitHub portability. Real
+    # restriction is Forgejo's repo-scoped read-default token.
+    permissions:
+      contents: read
+    outputs:
+      helpers_repository: ${{ steps.validate.outputs.helpers_repository }}
+      signer_image: ${{ steps.validate.outputs.signer_image }}
+      transparency_log: ${{ steps.validate.outputs.transparency_log }}
+    steps:
+      - name: Validate trust coordinates
+        id: validate
+        env:
+          # The caller names the repository the layer's files are fetched from:
+          # the input, or a variable. In a called workflow `vars` reads the
+          # CALLING repository and its organization. There is no third source:
+          # a default could only name one organization's repository.
+          HELPERS_REPOSITORY_INPUT: ${{ inputs['forge-ci-repository'] || vars.FORGE_CI_REPOSITORY }}
+          SERVER_URL: ${{ forgejo.server_url }}
+          SIGNER_IMAGE_INPUT: ${{ inputs['signer-image'] }}
+          TRANSPARENCY_LOG_INPUT: ${{ inputs['transparency-log'] }}
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          repository=${HELPERS_REPOSITORY_INPUT:-}
+          if [[ -z "${repository}" ]]; then
+            echo "ERROR: no repository is named to fetch the layer's files from. Pass the forge-ci-repository input (the owner/repository of this workflow's uses: line), or set the FORGE_CI_REPOSITORY variable on the calling repository or its organization." >&2
+            exit 1
+          fi
+          # owner/repository names a repository on this instance.
+          if [[ "${repository}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+$ &&
+            "/${repository}/" != *'/./'* && "/${repository}/" != *'/../'* ]]; then
+            repository="${SERVER_URL:?}/${repository}.git"
+          fi
+          repository_rest=${repository#https://}
+          repository_authority=${repository_rest%%/*}
+          repository_path=${repository_rest#*/}
+          repository_slug=${repository_path%.git}
+          repository_port=
+          repository_port_invalid=false
+          if [[ "${repository_authority}" =~ :([0-9]{1,5})$ ]]; then
+            repository_port=${BASH_REMATCH[1]}
+            if ((10#${repository_port} < 1 || 10#${repository_port} > 65535)); then
+              repository_port_invalid=true
+            fi
+          fi
+          if [[ "${repository}" != https://* || "${repository}" == *'?'* || "${repository}" == *'#'* ||
+            ! "${repository_slug}" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$ ||
+            "/${repository_slug}/" == *'/./'* || "/${repository_slug}/" == *'/../'* ||
+            "${repository_path}" == *\\* || ! "${repository}" =~ ^[[:graph:]]+$ ||
+            "${repository_rest}" != */* || -z "${repository_path}" || "${repository_authority}" == *@* ||
+            ! "${repository_authority}" =~ ^([A-Za-z0-9][A-Za-z0-9.-]*|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?$ ||
+            "${repository_port_invalid}" == true ]]; then
+            echo "ERROR: forge-ci-repository must be owner/repository or an HTTPS repository URL without credentials, query, or fragment: ${repository}" >&2
+            exit 1
+          fi
+          signer_image=${SIGNER_IMAGE_INPUT}
+          if [ -z "${signer_image}" ]; then
+            echo "ERROR: signer-image is required: build containers/signer/Containerfile of the forge-ci repository and pass the image by digest" >&2
+            exit 1
+          fi
+          if [[ ! "${signer_image}" =~ ^[a-z0-9]+([.-][a-z0-9]+)*(:[0-9]+)?/([a-z0-9]+(([._]|__|-+)[a-z0-9]+)*/)*[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*@sha256:[0-9a-f]{64}$ ]]; then
+            echo "ERROR: signer-image must be a complete OCI repository coordinate pinned by sha256 digest" >&2
+            exit 1
+          fi
+          # One setting for signing and for verification. Anything but the two
+          # values would reach the CLI as "unset", which it reads as public.
+          transparency_log=${TRANSPARENCY_LOG_INPUT}
+          case "${transparency_log}" in
+            none | public) ;;
+            *)
+              echo "ERROR: transparency-log must be none or public: ${transparency_log}" >&2
+              exit 1
+              ;;
+          esac
+          {
+            printf 'helpers_repository=%s\n' "${repository}"
+            printf 'signer_image=%s\n' "${signer_image}"
+            printf 'transparency_log=%s\n' "${transparency_log}"
+          } >>"${FORGEJO_OUTPUT}"
+
+  sign-container-images:
+    name: Sign container images
+    needs: coordinates
+    runs-on: ${{ inputs['runner-label'] }}
+    container:
+      image: ${{ needs.coordinates.outputs.signer_image }}
+    env:
+      SIGNER_STRICT: '1'
+      FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+      FORGE_CI_COSIGN_TRANSPARENCY: ${{ needs.coordinates.outputs.transparency_log }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout layer helpers
+        env:
+          EXPECTED_HELPERS_SHA: ${{ inputs['forge-ci-sha'] }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${EXPECTED_HELPERS_SHA}" =~ ^([0123456789abcdef]{40}|[0123456789abcdef]{64})$ ]]; then
+            echo "ERROR: forge-ci-sha must be a 40- or 64-character lowercase commit hex digest" >&2
+            exit 1
+          fi
+          signer_workspace=$(mktemp -d /tmp/forge-ci-signer.XXXXXX)
+          helpers_dir="${signer_workspace}/helpers"
+          work_dir="${signer_workspace}/work"
+          mkdir -p "${work_dir}"
+          {
+            echo "SIGNER_WORKSPACE=${signer_workspace}"
+            echo "HELPERS_DIR=${helpers_dir}"
+            echo "SIGNER_WORK_DIR=${work_dir}"
+          } >>"${FORGEJO_ENV}"
+          git init --quiet "${helpers_dir}"
+          git -C "${helpers_dir}" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          # Direct unadvertised SHA fetches can be refused.
+          # Retry advertised branches/tags without assuming a default branch.
+          # Disable credential prompts, retain both failures for diagnostics,
+          # and verify the exact pin below with detach + rev-parse.
+          helpers_fetch_log=$(mktemp)
+          if ! GIT_TERMINAL_PROMPT=0 git -C "${helpers_dir}" -c protocol.version=2 fetch --quiet --no-tags --depth=1 --no-recurse-submodules origin "${EXPECTED_HELPERS_SHA}" 2>"${helpers_fetch_log}"; then
+            if ! GIT_TERMINAL_PROMPT=0 git -C "${helpers_dir}" -c protocol.version=2 fetch --quiet --no-recurse-submodules origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*' 2>>"${helpers_fetch_log}"; then
+              echo "ERROR: cannot fetch layer helpers ${EXPECTED_HELPERS_SHA} from $(git -C "${helpers_dir}" remote get-url origin)" >&2
+              echo "  (git may report 'could not read Username': this forge answers the same way for a repository that is absent and one this run cannot read, so it is not necessarily a missing credential)" >&2
+              cat -- "${helpers_fetch_log}" >&2
+              rm -f -- "${helpers_fetch_log}"
+              exit 1
+            fi
+          fi
+          rm -f -- "${helpers_fetch_log}"
+          git -C "${helpers_dir}" checkout --quiet --detach "${EXPECTED_HELPERS_SHA}"
+
+      - name: Verify trusted helper checkout
+        env:
+          EXPECTED_HELPERS_SHA: ${{ inputs['forge-ci-sha'] }}
+        run: |
+          set -euo pipefail
+          # Input hex-validation happens once at the checkout step (workflow
+          # inputs are immutable between steps); this step verifies the LIVE
+          # checkout matches the pinned SHA, which subsumes the format check.
+          actual_sha=$(git -C "${HELPERS_DIR:?}" rev-parse HEAD)
+          if [ "${actual_sha}" != "${EXPECTED_HELPERS_SHA}" ]; then
+            echo "ERROR: helper checkout resolved to unexpected commit" >&2
+            echo "  expected: ${EXPECTED_HELPERS_SHA}" >&2
+            echo "  actual:   ${actual_sha}" >&2
+            exit 1
+          fi
+
+      # The checkout holds the binary's checksum and not the binary. It is
+      # downloaded here, by that checksum and without credentials, so that no
+      # later step, each of which may hold a key, has to reach the network
+      # for it. The toolchain check below refuses a job that skipped this.
+      - name: Fetch engine binary
+        run: |
+          set -euo pipefail
+          # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+          source "${HELPERS_DIR:?}/.forgejo/bin/lib-forge-ci.sh"
+          fetch_forge_ci
+
+      - name: Verify signer toolchain
+        run: |
+          set -euo pipefail
+          bash "${HELPERS_DIR:?}/.forgejo/scripts/verify-signer-toolchain.sh"
+
+      - name: Bind Cosign signing key to trusted public key
+        env:
+          COSIGN_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+          TRUSTED_KEY_INPUT: ${{ inputs['cosign-public-key'] }}
+          TRUSTED_KEY_SHA256_INPUT: ${{ inputs['cosign-public-key-sha256'] }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+          source "${HELPERS_DIR:?}/.forgejo/bin/lib-forge-ci.sh"
+          # The caller supplies the trust root; the layer ships none. The
+          # engine refuses an empty key, an empty digest and a mismatch.
+          trusted_key="${SIGNER_WORKSPACE:?}/cosign.pub"
+          # $(...) drops the input's trailing newlines in any shell, so the
+          # file is the key and one newline, as `sha256sum cosign.pub` hashed it.
+          trusted_public_key=$(printf '%s' "${TRUSTED_KEY_INPUT}")
+          printf '%s\n' "${trusted_public_key}" >"${trusted_key}"
+          printf '%s\n' "${TRUSTED_KEY_SHA256_INPUT}" >"${trusted_key}.sha256"
+          run_forge_ci validate signing-key \
+            --key env://COSIGN_KEY \
+            --trusted-public-key "${trusted_key}" \
+            --trusted-public-key-digest "${trusted_key}.sha256"
+      - name: Sign and attest images
+        timeout-minutes: 30
+        env:
+          # `artifact download` reads this run's artifact through the Forgejo
+          # provider. The signing verb consults no provider: its registry and
+          # source come from the flags below.
+          FORGE_CI_PROVIDER: forgejo
+          LEDGER_JSON: ${{ inputs.ledger-json }}
+          REPOSITORY_SUFFIX: ${{ inputs.repository-suffix }}
+          BASE_IMAGE_REPOSITORY: ${{ inputs.base-repository }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          CALLER_WORKFLOW: ${{ inputs.caller-workflow }}
+          SBOM_ARTIFACT: ${{ inputs.sbom-artifact }}
+          COSIGN_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+          REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+          REGISTRY_USER: ${{ inputs['registry-user'] || forgejo.repository_owner }}
+        run: |
+          set -euo pipefail
+          cd "${SIGNER_WORK_DIR:?}"
+          cosign_key="${COSIGN_KEY:?}"
+          cosign_password="${COSIGN_PASSWORD:?}"
+          registry_token="${REGISTRY_TOKEN:?}"
+          registry_user="${REGISTRY_USER:?}"
+          unset COSIGN_KEY COSIGN_PASSWORD REGISTRY_TOKEN REGISTRY_USER
+          # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+          source "${HELPERS_DIR:?}/.forgejo/bin/lib-forge-ci.sh"
+          # LEDGER CONTRACT: each entry's sbom path is rooted under
+          # premade-sboms/, so the premade SBOM artifact must land in exactly
+          # that directory under the signer work dir. Keep the path and the
+          # --sbom-path-pattern below in lockstep.
+          run_forge_ci artifact download \
+            --name "${SBOM_ARTIFACT:?}" \
+            --dir premade-sboms
+          printf '%s' "${LEDGER_JSON:?}" > base-images.ledger.json
+          forge_ci_mark_external_registry "${BASE_IMAGE_REPOSITORY:-}" "${FORGEJO_SERVER:-}"
+          # The step supplies its inputs as flags, the timestamp and, on stdin, the
+          # registry token; `container base-images sign --help` states the rules.
+          printf '%s' "${registry_token}" | COSIGN_KEY="${cosign_key}" COSIGN_PASSWORD="${cosign_password}" \
+            run_forge_ci container base-images sign \
+            --ledger base-images.ledger.json \
+            --server-url "${FORGEJO_SERVER:?}" \
+            --repository "${FORGEJO_REPO:?}" \
+            --repository-suffix "${REPOSITORY_SUFFIX}" \
+            --expected-repository "${BASE_IMAGE_REPOSITORY}" \
+            --workflow "${CALLER_WORKFLOW:?}" \
+            --source-sha "${SOURCE_SHA}" \
+            --started-on "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --registry-username "${registry_user}" \
+            --registry-password-file - \
+            --sbom-path-pattern '^premade-sboms/base-sbom-[A-Za-z0-9._-]+[.]cyclonedx[.]json$' \
+            --method kms \
+            --key env://COSIGN_KEY
+
+      - name: Cleanup signer workspace
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${SIGNER_WORKSPACE:-}" ]; then
+            rm -rf "${SIGNER_WORKSPACE}"
+          fi

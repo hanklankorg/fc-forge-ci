@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: 'Upload dist/ hand-off'
+description: >-
+  Hand the unsigned dist/ tree to the sign-and-publish job. Owns the consumer side of the cross-job contract so it can't drift from the signer: optionally prunes GoReleaser's raw per-platform binary directories (the signer publishes only top-level files), computes the canonical hand-off digest through the same pinned forge-ci boundary the signer verifies with, and uploads through `forge-ci artifact upload`. Outputs the digest to pass straight to sign-and-publish-release.yml as dist-digest.
+inputs:
+  artifact-name:
+    description: Artifact name the sign-and-publish job downloads.
+    required: false
+    default: build-dist
+  path:
+    description: Directory to hand off.
+    required: false
+    default: dist/
+  prune-dirs:
+    description: >-
+      OPT-IN deletion: remove subdirectories before digest+upload (e.g. GoReleaser's raw binary dirs, which roughly double the artifact and are never signed or published — the signer publishes only top-level files). Defaults to 'false' so an action named "upload" never deletes unless asked; set 'true' explicitly when your dist/ contains prunable dirs.
+    required: false
+    default: 'false'
+  retention-days:
+    description: Artifact retention in days.
+    required: false
+    default: '1'
+
+outputs:
+  digest:
+    description: Canonical sha256 hand-off digest; pass to sign-and-publish as dist-digest.
+    value: ${{ steps.handoff.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+    - name: Prune and digest dist/
+      id: handoff
+      shell: bash
+      env:
+        UPLOAD_DIST_PATH: ${{ inputs.path }}
+        UPLOAD_DIST_PRUNE: ${{ inputs.prune-dirs }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        FORGE_CI_PROVIDER=forgejo run_forge_ci release prepare-dist \
+          --path "${UPLOAD_DIST_PATH}" \
+          --prune-dirs "${UPLOAD_DIST_PRUNE}"
+
+    - name: Upload artifact
+      shell: bash
+      env:
+        UPLOAD_DIST_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        UPLOAD_DIST_PATH: ${{ inputs.path }}
+        UPLOAD_DIST_RETENTION_DAYS: ${{ inputs.retention-days }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        FORGE_CI_PROVIDER=forgejo run_forge_ci artifact upload \
+          --name "${UPLOAD_DIST_ARTIFACT_NAME}" \
+          --dir "${UPLOAD_DIST_PATH}" \
+          --retention-days "${UPLOAD_DIST_RETENTION_DAYS}" \
+          --if-no-files error \
+          --include-hidden

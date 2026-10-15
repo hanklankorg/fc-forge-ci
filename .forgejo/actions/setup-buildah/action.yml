@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: Setup Buildah
+description: Install Buildah and configure job-local overlay/fuse storage with vfs fallback.
+
+inputs:
+  extra-packages:
+    description: Whitespace-separated additional apt packages to install with Buildah.
+    required: false
+    default: ''
+  install-packages:
+    description: Whether to install Buildah, fuse-overlayfs, and extra packages with apt-get.
+    required: false
+    default: 'true'
+  probe-build:
+    description: Whether to validate storage by building and removing a scratch image.
+    required: false
+    default: 'true'
+  print-store:
+    description: Whether to print the Buildah storage store details after setup.
+    required: false
+    default: 'false'
+  summary:
+    description: Whether to append selected storage details to the job summary.
+    required: false
+    default: 'false'
+
+# Storage details (driver, conf path, root) are intentionally NOT outputs:
+# no consumer ever read them, and unused contract surface invites coupling.
+# They remain visible in the step log for diagnostics.
+
+runs:
+  using: composite
+  steps:
+    - name: Configure Buildah storage
+      id: setup
+      shell: bash
+      env:
+        SETUP_BUILDAH_EXTRA_PACKAGES: ${{ inputs.extra-packages }}
+        SETUP_BUILDAH_INSTALL_PACKAGES: ${{ inputs.install-packages }}
+        SETUP_BUILDAH_PROBE_BUILD: ${{ inputs.probe-build }}
+        CONTAINER_STORAGE_PRINT_STORE: ${{ inputs.print-store }}
+        CONTAINER_STORAGE_SUMMARY: ${{ inputs.summary }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        run_forge_ci container setup-buildah \
+          --install-packages="${SETUP_BUILDAH_INSTALL_PACKAGES:-true}" \
+          --probe-build="${SETUP_BUILDAH_PROBE_BUILD:-true}" \
+          --print-store="${CONTAINER_STORAGE_PRINT_STORE:-false}" \
+          --summary="${CONTAINER_STORAGE_SUMMARY:-false}" \
+          --extra-packages "${SETUP_BUILDAH_EXTRA_PACKAGES:-}"

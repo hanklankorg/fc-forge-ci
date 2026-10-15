@@ -1,0 +1,94 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: Prune base images
+description: >-
+  Prune promoted bases using the signed SLSA attestations of the supplied release images. The caller must supply every supported release whose base must be retained. Run on a schedule, outside the release path.
+inputs:
+  release-images:
+    description: >-
+      Newline- or comma-separated digest-pinned release image refs whose bases must be kept. Every one is attestation-verified; a ref that does not verify, or names no base, aborts the run rather than shrinking the keep-set.
+    required: true
+  cosign-public-key-path:
+    description: Path to the trusted Cosign public key in the job's workspace. Optional COSIGN_PUBLIC_KEY_SHA256 pins its bytes; EXPECTED_SOURCE and EXPECTED_WORKFLOW can constrain every supplied release attestation. The layer ships no key.
+    required: true
+  transparency-log:
+    description: >-
+      How the release images were signed: the transparency-log value of the workflow that signed them. `none`, the default, verifies each attestation against the key alone; `public` requires its entry in the public Sigstore transparency log.
+    required: false
+    default: none
+  repository-suffix:
+    description: Suffix appended to the repository to address the base-image package, e.g. -base.
+    required: false
+    default: -base
+  expected-repository:
+    description: Exact base-image repository allowed for the tags considered. Defaults to <host>/<owner/repo><suffix>.
+    required: false
+    default: ''
+  dry-run:
+    description: >-
+      Report what would be deleted without deleting it. Defaults to true; run it that way for a few cycles and read the list before flipping it.
+    required: false
+    default: 'true'
+  max-delete:
+    description: >-
+      Maximum unreferenced base-input IDs per pass, not tag deletions. All flavor tags of each selected ID are removed. 0 disables the bound.
+    required: false
+    default: '20'
+  local-registry:
+    description: >-
+      List and delete through the configured plain OCI registry instead of the forge package API. The engine refuses known shared manifests and requires tag-addressed deletion support; there is no digest-deletion fallback.
+    required: false
+    default: 'false'
+  token:
+    description: Forge token with package delete permission. Not required when local-registry is true.
+    required: false
+    default: ''
+
+outputs:
+  prunable-count:
+    description: How many base-input IDs were unreferenced.
+    value: ${{ steps.prune.outputs.prunable_count }}
+  deleted-count:
+    description: How many base-input IDs had all their flavor tags deleted. Zero on a dry run.
+    value: ${{ steps.prune.outputs.deleted_count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Prune unreferenced base images
+      id: prune
+      shell: bash
+      env:
+        INPUT_RELEASE_IMAGES: ${{ inputs['release-images'] }}
+        INPUT_COSIGN_PUBLIC_KEY_PATH: ${{ inputs['cosign-public-key-path'] }}
+        INPUT_REPOSITORY_SUFFIX: ${{ inputs['repository-suffix'] }}
+        INPUT_EXPECTED_REPOSITORY: ${{ inputs['expected-repository'] }}
+        INPUT_DRY_RUN: ${{ inputs['dry-run'] }}
+        INPUT_MAX_DELETE: ${{ inputs['max-delete'] }}
+        INPUT_LOCAL_REGISTRY: ${{ inputs['local-registry'] }}
+        INPUT_TRANSPARENCY_LOG: ${{ inputs['transparency-log'] }}
+        FORGEJO_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        # Anything but the two values would reach the CLI as "unset", which
+        # it reads as public.
+        case "${INPUT_TRANSPARENCY_LOG}" in
+          none | public) ;;
+          *)
+            echo "ERROR: transparency-log must be none or public: ${INPUT_TRANSPARENCY_LOG}" >&2
+            exit 1
+            ;;
+        esac
+        FORGE_CI_COSIGN_TRANSPARENCY="${INPUT_TRANSPARENCY_LOG}" \
+          run_forge_ci container base-images prune \
+          --release-images "${INPUT_RELEASE_IMAGES:?release-images is required}" \
+          --cosign-public-key-path "${INPUT_COSIGN_PUBLIC_KEY_PATH:?cosign-public-key-path is required}" \
+          --repository-suffix "${INPUT_REPOSITORY_SUFFIX}" \
+          --expected-repository "${INPUT_EXPECTED_REPOSITORY}" \
+          --max-delete "${INPUT_MAX_DELETE}" \
+          --dry-run="${INPUT_DRY_RUN}" \
+          --local-registry="${INPUT_LOCAL_REGISTRY}"

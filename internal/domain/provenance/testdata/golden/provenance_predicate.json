@@ -1,0 +1,29 @@
+{
+  "buildDefinition": {
+    "buildType": "https://diggsweden.github.io/forge-ci/container-build/v1",
+    "externalParameters": {
+      "image": "ghcr.io/diggsweden/app",
+      "ref": "refs/tags/v1.2.3",
+      "source": "git+https://github.com/diggsweden/forge-ci"
+    },
+    "internalParameters": {},
+    "resolvedDependencies": [
+      {
+        "uri": "git+https://github.com/diggsweden/forge-ci@refs/tags/v1.2.3",
+        "digest": {
+          "gitCommit": "cccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    ]
+  },
+  "runDetails": {
+    "builder": {
+      "id": "https://github.com/diggsweden/forge-ci/.github/workflows/publish-container.yml@refs/tags/v1.2.3"
+    },
+    "metadata": {
+      "invocationId": "https://github.com/diggsweden/forge-ci/actions/runs/4242",
+      "startedOn": "2026-06-01T12:00:00Z",
+      "finishedOn": "2026-06-01T12:00:00Z"
+    }
+  }
+}

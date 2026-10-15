@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# Opengrep/semgrep path exclusions.
+#
+# examples/ are adopter-facing documentation snippets, not executed
+# workflows. They pass each secret by name in an explicit `secrets:`
+# mapping, matching the secrets each orchestrator declares at the
+# workflow_call boundary.
+examples/
+
+# Go test files. The flagged patterns are the point of the tests, not
+# attack surfaces: PGP/JWT-shaped fixtures feeding redaction and
+# gpg-import tests, direct writes to httptest ResponseWriters in
+# protocol mocks, exec.Command of freshly built test binaries, and
+# reflect-by-name in table-driven key tests.
+*_test.go
+
+# Live workflow fixtures pin PIN_FORGE_CI_SHA, which Layer.Render replaces
+# with the exact served commit and refuses if any placeholder survives.
+# They are test inputs, not workflows a forge can run as committed.
+internal/livetest/conformance/testdata/layer/

@@ -1,0 +1,89 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: 'Registry login (buildah/skopeo)'
+description: >-
+  Log in to an OCI registry by writing a containers auth file through forge-ci. Centralises the secure invocation so consumers don't re-hand-roll it: the token is passed over stdin (never on the command line / process list), and empty inputs fail fast. By default the credentials go to a fresh file of the job's own, whose path is the `auth-file` output; pass it to the steps that pull or push. The registry host defaults to the host of the server URL.
+inputs:
+  username:
+    description: Registry username (e.g. the repository owner).
+    required: true
+  token:
+    description: >-
+      Registry token/password. Passed to the client over stdin and never placed on the command line. Source it from a secret at the call site.
+    required: true
+  registry:
+    description: >-
+      Registry host (e.g. forge.example), or an image repository on it (e.g. ghcr.io/owner/project). Defaults to the host component of github.server_url.
+    required: false
+    default: ''
+  tool:
+    description: >-
+      Compatibility input. Must be "buildah" (default) or "skopeo"; forge-ci writes a shared auth file consumed by both tools.
+    required: false
+    default: 'buildah'
+  auth-file:
+    description: >-
+      Explicit credentials-file path (--auth-file). When empty, a fresh file is created, or with create-auth-file false the client's default auth location is used.
+    required: false
+    default: ''
+  create-auth-file:
+    description: >-
+      When true (the default) and `auth-file` is empty, create a fresh isolated credentials file (mktemp under RUNNER_TEMP, mode 0600) to log into, and expose its path via the `auth-file` output. Set false only to log into the client's shared default location, which every later step of the job, and on a runner that keeps its home directory every later job, can read.
+    required: false
+    default: 'true'
+  export-env:
+    description: >-
+      When true, append REGISTRY_AUTH_FILE=<auth-file> to the job environment so subsequent steps' buildah/skopeo/podman calls use the isolated credentials file without each consumer hand-rolling the export. The env name is the containers-auth contract and is owned here. Requires an auth file (auth-file or create-auth-file) — exporting the client's default location is a misconfiguration and fails fast.
+    required: false
+    default: 'false'
+
+outputs:
+  auth-file:
+    description: >-
+      The credentials-file path used for login — the explicit `auth-file`, the freshly created isolated file (when create-auth-file), or empty when the client's default location was used. Wire it into the env your push/promote steps read (a step output is reliable across the action boundary).
+    value: ${{ steps.login.outputs.auth-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Registry login
+      id: login
+      shell: bash
+      env:
+        REGISTRY_LOGIN_USERNAME: ${{ inputs.username }}
+        REGISTRY_LOGIN_TOKEN: ${{ inputs.token }}
+        REGISTRY_LOGIN_REGISTRY: ${{ inputs.registry }}
+        REGISTRY_LOGIN_TOOL: ${{ inputs.tool }}
+        REGISTRY_LOGIN_AUTHFILE: ${{ inputs.auth-file }}
+        REGISTRY_LOGIN_CREATE_AUTHFILE: ${{ inputs.create-auth-file }}
+        REGISTRY_LOGIN_EXPORT_ENV: ${{ inputs.export-env }}
+        REGISTRY_LOGIN_SERVER: ${{ github.server_url }}
+      run: |
+        set -euo pipefail
+        case "${REGISTRY_LOGIN_TOOL}" in
+          buildah | skopeo) ;;
+          *)
+            echo "ERROR: registry-login: tool must be 'buildah' or 'skopeo', got '${REGISTRY_LOGIN_TOOL}'" >&2
+            exit 1
+            ;;
+        esac
+        if [ -z "${REGISTRY_LOGIN_TOKEN}" ]; then
+          echo "ERROR: registry-login: missing token" >&2
+          exit 1
+        fi
+        registry_login_token=${REGISTRY_LOGIN_TOKEN}
+        export -n registry_login_token
+        unset REGISTRY_LOGIN_TOKEN
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        printf '%s' "${registry_login_token}" | FORGE_CI_PROVIDER=forgejo run_forge_ci container login \
+          --registry "${REGISTRY_LOGIN_REGISTRY}" \
+          --server-url "${REGISTRY_LOGIN_SERVER}" \
+          --registry-username "${REGISTRY_LOGIN_USERNAME:?}" \
+          --registry-password-file - \
+          --auth-file "${REGISTRY_LOGIN_AUTHFILE}" \
+          --create-auth-file="${REGISTRY_LOGIN_CREATE_AUTHFILE}" \
+          --export-env="${REGISTRY_LOGIN_EXPORT_ENV}" \
+          --env-file "${FORGEJO_ENV:-${GITHUB_ENV:-}}"

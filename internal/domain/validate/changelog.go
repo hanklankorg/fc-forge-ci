@@ -1,0 +1,28 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+// SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
+
+package validate
+
+// CountLines returns the number of '\n' separators in content + 1 if
+// content is non-empty (matching `wc -l`'s newline-terminator semantics
+// for our purposes — an empty file is 0 lines, a single line without
+// trailing newline is still 1 line). Used by the full-changelog check.
+func CountLines(content []byte) int {
+	if len(content) == 0 {
+		return 0
+	}
+
+	n := 0 //nolint:varnamelen // idiomatic short name (testing/http/io conventions).
+
+	for _, b := range content {
+		if b == '\n' {
+			n++
+		}
+	}
+	// File without trailing newline still counts its final line.
+	if content[len(content)-1] != '\n' {
+		n++
+	}
+
+	return n
+}

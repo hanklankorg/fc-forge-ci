@@ -1,0 +1,117 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Signer image for the privileged jobs of the Forgejo layer
+# (.forgejo/workflows). forge-ci ships this definition and publishes no
+# image: an organization builds it, pushes it to its own registry and passes
+# the digest-pinned coordinate as the workflows' signer-image input.
+#
+# The build context is the repository root, and this file copies exactly one
+# file from it:
+#
+#   buildah build --file containers/signer/Containerfile .
+#
+# Containerfile.containerignore beside this file cuts the context down to that
+# file for Buildah and Podman, so the Git history and the layer's binary are
+# not sent to the build.
+
+# Debian trixie: ships skopeo 1.18 (bookworm shipped 1.9.3, whose `--format`
+# template engine lacks the `json` function the re-attest label fetch relied on).
+FROM docker.io/library/debian:13.7-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
+
+ARG TARGETARCH
+
+# Renovate's dockerfile manager updates the base image digest above. The three
+# toolchain pins below are updated by hand, and that is deliberate: each
+# version travels with two architecture digests, no datasource can move all
+# three together, and a bumped version beside stale digests only produces a
+# build that fails its own sha256sum check. Update the version and both
+# digests in one change.
+ARG JQ_VERSION=1.8.1
+ARG COSIGN_VERSION=3.1.1
+ARG SYFT_VERSION=1.45.1
+
+ARG JQ_SHA256_AMD64=020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d
+ARG JQ_SHA256_ARM64=6bc62f25981328edd3cfcfe6fe51b073f2d7e7710d7ef7fcdac28d4e384fc3d4
+ARG COSIGN_SHA256_AMD64=ae1ecd212663f3693ad9edf8b1a183900c9a52d3155ba6e354237f9a0f6463fc
+ARG COSIGN_SHA256_ARM64=2ec865872e331c32fd12b08dae15332d3f92c0aa029219589684a4903ca85d11
+ARG SYFT_SHA256_AMD64=20c84195e24927f50a3b2269946be51f4c4abc9d2f145fee7388b4199149f716
+ARG SYFT_SHA256_ARM64=7df9f45cba1f6358ecfc7fac349d43b4605137001f9646b41267abe15a7c6cd7
+
+ENV HOME=/home/signer
+
+# OS packages follow the distribution's update stream when this layer is built.
+# Release jobs consume a reviewed signer-image digest; the base digest alone does
+# not freeze APT repository contents. Standalone tool downloads are pinned below.
+# hadolint ignore=DL3008
+RUN set -eux; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
+    bash \
+    ca-certificates \
+    coreutils \
+    curl \
+    findutils \
+    gawk \
+    git \
+    gnupg \
+    grep \
+    sed \
+    skopeo \
+    tar; \
+  rm -rf /var/lib/apt/lists/*
+
+# Buildah builds the OCI format, which has no SHELL, so RUN is /bin/sh. The
+# checksum pipes need no pipefail: printf cannot fail, and sha256sum's status
+# is the pipeline's.
+# hadolint ignore=DL4006
+RUN set -eux; \
+  case "${TARGETARCH}" in \
+    amd64) \
+      jq_arch=amd64; jq_sha="${JQ_SHA256_AMD64}"; \
+      cosign_arch=amd64; cosign_sha="${COSIGN_SHA256_AMD64}"; \
+      syft_arch=amd64; syft_sha="${SYFT_SHA256_AMD64}"; \
+      ;; \
+    arm64) \
+      jq_arch=arm64; jq_sha="${JQ_SHA256_ARM64}"; \
+      cosign_arch=arm64; cosign_sha="${COSIGN_SHA256_ARM64}"; \
+      syft_arch=arm64; syft_sha="${SYFT_SHA256_ARM64}"; \
+      ;; \
+    *) \
+      echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; \
+      exit 1; \
+      ;; \
+  esac; \
+  curl -fsSLo /usr/local/bin/jq "https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/jq-linux-${jq_arch}"; \
+  printf '%s  /usr/local/bin/jq\n' "${jq_sha}" | sha256sum -c -; \
+  chmod 0755 /usr/local/bin/jq; \
+  curl -fsSLo /usr/local/bin/cosign "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-${cosign_arch}"; \
+  printf '%s  /usr/local/bin/cosign\n' "${cosign_sha}" | sha256sum -c -; \
+  chmod 0755 /usr/local/bin/cosign; \
+  syft_archive="/tmp/syft.tar.gz"; \
+  curl -fsSLo "${syft_archive}" "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_${syft_arch}.tar.gz"; \
+  printf '%s  %s\n' "${syft_sha}" "${syft_archive}" | sha256sum -c -; \
+  tar -xzf "${syft_archive}" -C /usr/local/bin syft; \
+  chmod 0755 /usr/local/bin/syft; \
+  rm -f "${syft_archive}"
+
+# /workspace below is the WORKDIR and nothing else: the signer jobs stage
+# every file under a private /tmp directory they create and remove, so no
+# material is kept there. Its mode is 0777 so the WORKDIR stays usable
+# whatever UID the container runner starts the job as; restricting it to the
+# signer user would fail such a job before its first step and would protect
+# a directory that holds nothing. /home/signer, which does hold state, is
+# 0700 and owned by that user.
+RUN set -eux; \
+  addgroup --system --gid 10001 signer; \
+  adduser --system --uid 10001 --gid 10001 --home /home/signer --shell /usr/sbin/nologin signer; \
+  install -d -m 0700 -o signer -g signer /home/signer; \
+  install -d -m 0777 /workspace
+
+COPY .forgejo/scripts/verify-signer-toolchain.sh /usr/local/bin/verify-signer-toolchain
+RUN chmod 0755 /usr/local/bin/verify-signer-toolchain \
+  && SIGNER_STRICT=1 /usr/local/bin/verify-signer-toolchain
+
+USER 10001:10001
+WORKDIR /workspace

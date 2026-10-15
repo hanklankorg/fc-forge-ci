@@ -1,0 +1,512 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# workflow-call-secrets-contract: RELEASE_SSH_SIGNING_KEY RELEASE_COSIGN_PRIVATE_KEY RELEASE_COSIGN_PASSPHRASE RELEASE_GPG_PRIVATE_KEY RELEASE_GPG_FINGERPRINT RELEASE_GPG_PASSPHRASE RELEASE_TOKEN RELEASE_REGISTRY_TOKEN
+# (The platform rejects declared workflow_call.secrets; this comment is the
+#  authoritative, machine-readable owner — same convention as
+#  sign-and-publish-release.yml. Only RELEASE_SSH_SIGNING_KEY is consumed
+#  here; the rest are fail-fast presence checks for the enabled downstream
+#  release features.)
+#
+# Reusable prepare stage for a consumer release: guard the release-request
+# tag, fail-fast on enabled pipeline secrets, require the request at the head
+# of the release branch, generate + sign the changelog commit, and create the final release
+# tag once. Callers consume
+# outputs.release-tag / outputs.release-sha in their build job and forward
+# them to sign-and-publish-release.yml.
+#
+# Requires Forgejo v16+ (reusable-workflow job expansion, forgejo#8780).
+#
+# The layer's own actions cannot be `uses:`-referenced from a called
+# workflow without a second hardcoded pin, so this workflow clones ITSELF at
+# the caller-supplied forge-ci-sha (rev-parse-verified, the signer's
+# helpers pattern) and runs its actions as local paths from that checkout —
+# one pin, carried by the caller, covers the workflow, the actions, and the
+# checksum-bound forge-ci binary they verify.
+name: Prepare release (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      runner-label:
+        description: Exact trusted runner label selected by the consumer repository.
+        type: string
+        required: true
+      forge-ci-repository:
+        description: >-
+          Repository that serves this workflow, as owner/repository on this instance or as a full HTTPS Git URL. The owner/repository of this workflow's uses: line. Empty takes the calling repository's or organization's FORGE_CI_REPOSITORY variable; with neither, the workflow stops. The exact revision remains forge-ci-sha.
+        type: string
+        required: false
+        default: ''
+      forge-ci-sha:
+        description: Exact forge-ci commit SHA to check the layer's helper files out at. Pass the same SHA used to pin this reusable workflow.
+        type: string
+        required: true
+      signer-image:
+        description: The same digest-pinned image passed to the signer workflow. Its manifest must be anonymously readable before release preparation.
+        type: string
+        required: true
+      skip-signer-image-check:
+        description: Explicitly skip the anonymous availability check for a private signer image. Does not skip coordinate validation or the signer's own checks.
+        type: string
+        required: false
+        default: 'false'
+      bot-name:
+        description: Git author name for the changelog/release commit.
+        type: string
+        required: true
+      bot-email:
+        description: Git author email for the changelog/release commit.
+        type: string
+        required: true
+      release-git-url:
+        description: Exact SSH URL used to push the signed release commit and tag.
+        type: string
+        required: true
+      release-git-host-key-fingerprint:
+        description: Pinned SSH ed25519 host-key fingerprint for the Forgejo release host.
+        type: string
+        required: true
+      changelog-config:
+        description: git-chglog changelog config path (mirrors the prepare-release action default).
+        type: string
+        required: false
+        default: .chglog/config-keepachangelog.yml
+      commit-body-config:
+        description: git-chglog commit-body config path (mirrors the prepare-release action default).
+        type: string
+        required: false
+        default: .chglog/config-minimal.yml
+      changelog-backend:
+        description: Changelog renderer (git-chglog or git-cliff).
+        type: string
+        required: false
+        default: git-chglog
+      verify-release-request-signature:
+        description: Verify the human release-request tag with the configured SSH allowed-signers file.
+        type: string
+        required: false
+        default: "false"
+      release-request-allowed-signers:
+        description: SSH allowed signers file used when release-request signature verification is enabled.
+        type: string
+        required: false
+        default: .forgejo/release-allowed-signers
+      sign-distro-packages:
+        description: Require GPG secrets during prepare because the signer will sign distro packages.
+        type: string
+        required: false
+        default: "true"
+      publish-container-images:
+        description: Require the package-registry token during prepare because the signer will publish container images.
+        type: string
+        required: false
+        default: "true"
+      release-branch:
+        description: Branch the release lands on. The release request must be its head, and the signed release commit is pushed to it.
+        type: string
+        required: false
+        default: main
+    outputs:
+      release-tag:
+        description: Final stable release tag (vX.Y.Z) derived from the request tag.
+        value: ${{ jobs.prepare.outputs.release-tag }}
+      release-sha:
+        description: Final commit SHA the release tag points to after preparation.
+        value: ${{ jobs.prepare.outputs.release-sha }}
+
+jobs:
+  coordinates:
+    name: Validate helper repository coordinate
+    runs-on: ${{ inputs['runner-label'] }}
+    timeout-minutes: 5
+    # permissions: is a GitHub field Forgejo ignores (warning per run) --
+    # kept for Scorecard Token-Permissions and GitHub portability. Real
+    # restriction is Forgejo's repo-scoped read-default token.
+    permissions:
+      contents: read
+    outputs:
+      helpers_repository: ${{ steps.validate.outputs.helpers_repository }}
+      signer_image: ${{ steps.validate.outputs.signer_image }}
+      release_branch: ${{ steps.branch.outputs.release_branch }}
+    steps:
+      - name: Validate trust coordinate
+        id: validate
+        env:
+          # The caller names the repository the layer's files are fetched from:
+          # the input, or a variable. In a called workflow `vars` reads the
+          # CALLING repository and its organization. There is no third source:
+          # a default could only name one organization's repository.
+          HELPERS_REPOSITORY_INPUT: ${{ inputs['forge-ci-repository'] || vars.FORGE_CI_REPOSITORY }}
+          SERVER_URL: ${{ forgejo.server_url }}
+          SIGNER_IMAGE_INPUT: ${{ inputs['signer-image'] }}
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          repository=${HELPERS_REPOSITORY_INPUT:-}
+          if [[ -z "${repository}" ]]; then
+            echo "ERROR: no repository is named to fetch the layer's files from. Pass the forge-ci-repository input (the owner/repository of this workflow's uses: line), or set the FORGE_CI_REPOSITORY variable on the calling repository or its organization." >&2
+            exit 1
+          fi
+          # owner/repository names a repository on this instance.
+          if [[ "${repository}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+$ &&
+            "/${repository}/" != *'/./'* && "/${repository}/" != *'/../'* ]]; then
+            repository="${SERVER_URL:?}/${repository}.git"
+          fi
+          repository_rest=${repository#https://}
+          repository_authority=${repository_rest%%/*}
+          repository_path=${repository_rest#*/}
+          repository_slug=${repository_path%.git}
+          repository_port=
+          repository_port_invalid=false
+          if [[ "${repository_authority}" =~ :([0-9]{1,5})$ ]]; then
+            repository_port=${BASH_REMATCH[1]}
+            if ((10#${repository_port} < 1 || 10#${repository_port} > 65535)); then
+              repository_port_invalid=true
+            fi
+          fi
+          if [[ "${repository}" != https://* || "${repository}" == *'?'* || "${repository}" == *'#'* ||
+            ! "${repository_slug}" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$ ||
+            "/${repository_slug}/" == *'/./'* || "/${repository_slug}/" == *'/../'* ||
+            "${repository_path}" == *\\* || ! "${repository}" =~ ^[[:graph:]]+$ ||
+            "${repository_rest}" != */* || -z "${repository_path}" || "${repository_authority}" == *@* ||
+            ! "${repository_authority}" =~ ^([A-Za-z0-9][A-Za-z0-9.-]*|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?$ ||
+            "${repository_port_invalid}" == true ]]; then
+            echo "ERROR: forge-ci-repository must be owner/repository or an HTTPS repository URL without credentials, query, or fragment: ${repository}" >&2
+            exit 1
+          fi
+          signer_image=${SIGNER_IMAGE_INPUT}
+          if [[ ! "${signer_image}" =~ ^[a-z0-9]+([.-][a-z0-9]+)*(:[0-9]+)?/([a-z0-9]+(([._]|__|-+)[a-z0-9]+)*/)*[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*@sha256:[0-9a-f]{64}$ ]]; then
+            echo "ERROR: signer-image must be a complete OCI repository coordinate pinned by sha256 digest" >&2
+            exit 1
+          fi
+          {
+            printf 'helpers_repository=%s\n' "${repository}"
+            printf 'signer_image=%s\n' "${signer_image}"
+          } >>"${FORGEJO_OUTPUT}"
+
+      - name: Validate release branch
+        id: branch
+        env:
+          RELEASE_BRANCH_INPUT: ${{ inputs['release-branch'] }}
+        run: |
+          set -euo pipefail
+          if ! git check-ref-format --branch "${RELEASE_BRANCH_INPUT}" >/dev/null 2>&1; then
+            echo "ERROR: release-branch must be a valid branch name: ${RELEASE_BRANCH_INPUT}" >&2
+            exit 1
+          fi
+          printf 'release_branch=%s\n' "${RELEASE_BRANCH_INPUT}" >>"${FORGEJO_OUTPUT}"
+
+  render:
+    name: Render release changelog
+    needs: coordinates
+    runs-on: ${{ inputs['runner-label'] }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      # ORDERING IS LOAD-BEARING: the secrets fail-fast runs before any
+      # checkout, so a misconfigured consumer is refused before any consumer
+      # code runs at all. Binary-only releases can disable the GPG and
+      # registry groups without weakening the always-required secret set.
+      - name: Check required secrets
+        # Presence, not value: every SECRET_* here is the boolean answer to
+        # "is it configured", so the step that only counts missing secrets
+        # never holds a signing key or a token. The expression answers false
+        # for an unset secret, so set -u cannot fire on a declared name.
+        env:
+          SECRET_RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN != '' }}
+          SECRET_RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN != '' }}
+          SECRET_RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY != '' }}
+          SECRET_RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT != '' }}
+          SECRET_RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE != '' }}
+          SECRET_RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY != '' }}
+          SECRET_RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE != '' }}
+          SECRET_RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY != '' }}
+          SIGN_DISTRO_PACKAGES: ${{ inputs['sign-distro-packages'] }}
+          PUBLISH_CONTAINER_IMAGES: ${{ inputs['publish-container-images'] }}
+        run: |
+          set -euo pipefail
+          case "${SIGN_DISTRO_PACKAGES}" in
+            true|false) ;;
+            *) echo "ERROR: sign-distro-packages must be true or false" >&2; exit 1 ;;
+          esac
+          case "${PUBLISH_CONTAINER_IMAGES}" in
+            true|false) ;;
+            *) echo "ERROR: publish-container-images must be true or false" >&2; exit 1 ;;
+          esac
+          required=(
+            SECRET_RELEASE_TOKEN
+            SECRET_RELEASE_COSIGN_PRIVATE_KEY
+            SECRET_RELEASE_COSIGN_PASSPHRASE
+            SECRET_RELEASE_SSH_SIGNING_KEY
+          )
+          if [ "${SIGN_DISTRO_PACKAGES}" = true ]; then
+            required+=(SECRET_RELEASE_GPG_PRIVATE_KEY SECRET_RELEASE_GPG_FINGERPRINT SECRET_RELEASE_GPG_PASSPHRASE)
+          fi
+          if [ "${PUBLISH_CONTAINER_IMAGES}" = true ]; then
+            required+=(SECRET_RELEASE_REGISTRY_TOKEN)
+          fi
+          missing=""
+          for v in "${required[@]}"; do
+            [ "${!v}" = true ] || missing="${missing}  - ${v#SECRET_}"$'\n'
+          done
+          if [ -n "${missing}" ]; then
+            printf 'ERROR: missing required secrets:\n%s' "${missing}" >&2
+            echo "Configure them in the repository or organization settings." >&2
+            exit 1
+          fi
+          echo "All required secrets are configured."
+
+      # Verified self-checkout (the signer's helpers pattern): fetch this
+      # repository at the caller's pin into a subdirectory, fail-closed on
+      # any mismatch, then run our actions as local paths from it.
+      - name: Checkout layer helpers at the caller's pin
+        env:
+          EXPECTED_HELPERS_SHA: ${{ inputs['forge-ci-sha'] }}
+          FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${EXPECTED_HELPERS_SHA}" =~ ^([0123456789abcdef]{40}|[0123456789abcdef]{64})$ ]]; then
+            echo "ERROR: forge-ci-sha must be a 40- or 64-character lowercase commit hex digest" >&2
+            exit 1
+          fi
+          helpers_dir=.forge-ci-helpers
+          git init --quiet "${helpers_dir}"
+          git -C "${helpers_dir}" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          # Direct unadvertised SHA fetches can be refused.
+          # Retry advertised branches/tags without assuming a default branch.
+          # Disable credential prompts, retain both failures for diagnostics,
+          # and verify the exact pin below with detach + rev-parse.
+          helpers_fetch_log=$(mktemp)
+          if ! GIT_TERMINAL_PROMPT=0 git -C "${helpers_dir}" -c protocol.version=2 fetch --quiet --no-tags --depth=1 --no-recurse-submodules origin "${EXPECTED_HELPERS_SHA}" 2>"${helpers_fetch_log}"; then
+            if ! GIT_TERMINAL_PROMPT=0 git -C "${helpers_dir}" -c protocol.version=2 fetch --quiet --no-recurse-submodules origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*' 2>>"${helpers_fetch_log}"; then
+              echo "ERROR: cannot fetch layer helpers ${EXPECTED_HELPERS_SHA} from $(git -C "${helpers_dir}" remote get-url origin)" >&2
+              echo "  (git may report 'could not read Username': this forge answers the same way for a repository that is absent and one this run cannot read, so it is not necessarily a missing credential)" >&2
+              cat -- "${helpers_fetch_log}" >&2
+              rm -f -- "${helpers_fetch_log}"
+              exit 1
+            fi
+          fi
+          rm -f -- "${helpers_fetch_log}"
+          git -C "${helpers_dir}" checkout --quiet --detach "${EXPECTED_HELPERS_SHA}"
+          actual_sha=$(git -C "${helpers_dir}" rev-parse HEAD)
+          if [ "${actual_sha}" != "${EXPECTED_HELPERS_SHA}" ]; then
+            echo "ERROR: helper checkout resolved to unexpected commit ${actual_sha}" >&2
+            exit 1
+          fi
+
+      # The checkout holds the binary's checksum and not the binary. It is
+      # downloaded here, by that checksum and without credentials, into the
+      # verified checkout, where every later step finds it.
+      - name: Fetch engine binary
+        env:
+          FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source ./.forge-ci-helpers/.forgejo/bin/lib-forge-ci.sh
+          fetch_forge_ci
+
+      - name: Check signer image availability
+        env:
+          SIGNER_IMAGE: ${{ needs.coordinates.outputs.signer_image }}
+          SKIP_SIGNER_IMAGE_CHECK: ${{ inputs['skip-signer-image-check'] }}
+        run: |
+          set -euo pipefail
+          case "${SKIP_SIGNER_IMAGE_CHECK}" in
+            false) ;;
+            true)
+              echo "Anonymous signer-image availability check explicitly skipped for a private image."
+              exit 0
+              ;;
+            *) echo "ERROR: skip-signer-image-check must be true or false" >&2; exit 1 ;;
+          esac
+          # No consumer checkout or signing secret exists in this step.
+          # shellcheck source=/dev/null
+          source ./.forge-ci-helpers/.forgejo/bin/lib-forge-ci.sh
+          run_forge_ci container manifest digest --ref "${SIGNER_IMAGE}" \
+            --anonymous --retry-attempts 1 >/dev/null
+          echo "Signer image manifest is available anonymously."
+
+      # Engine checkout of the consumer at the request tag: sha256-aware,
+      # node-free, full refs for changelog rendering. Runs the checksum-
+      # verified binary from the pinned helpers checkout via the lib.
+      - name: Checkout consumer repository at release request tag
+        env:
+          # The tag name remains authorization metadata. Checkout and every
+          # later source check use the immutable event commit instead.
+          CHECKOUT_REF: ${{ forgejo.sha }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source ./.forge-ci-helpers/.forgejo/bin/lib-forge-ci.sh
+          run_forge_ci platform checkout --fetch-all-refs
+
+      - name: Reject non-stable release request
+        uses: ./.forge-ci-helpers/.forgejo/actions/guard-release-tag
+
+      # The prepare action pushes the release commit to the release branch
+      # with the bot's key. A request on a commit that branch does not have
+      # yet would carry those commits onto it, past review, so the request
+      # must be its head before the signing key is loaded. Local refs only:
+      # the checkout above fetched them. The branch is named explicitly:
+      # left out, the engine reads RELEASE_BRANCH or BRANCH from the
+      # environment, so neither name is used here.
+      - name: Require the release request at the head of the release branch
+        env:
+          RELEASE_REQUEST: ${{ forgejo.ref_name }}
+          TARGET_BRANCH: ${{ needs.coordinates.outputs.release_branch }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source ./.forge-ci-helpers/.forgejo/bin/lib-forge-ci.sh
+          run_forge_ci validate tag commit \
+            --tag "${RELEASE_REQUEST:?}" \
+            --branch "${TARGET_BRANCH:?}" \
+            --require-head
+
+      - name: Render project-controlled changelog configuration
+        uses: ./.forge-ci-helpers/.forgejo/actions/render-changelog
+        with:
+          changelog-config: ${{ inputs['changelog-config'] }}
+          commit-body-config: ${{ inputs['commit-body-config'] }}
+          changelog-backend: ${{ inputs['changelog-backend'] }}
+          repository-url: ${{ forgejo.server_url }}/${{ forgejo.repository }}
+          forgejo-ref-name: ${{ forgejo.ref_name }}
+          release-branch: ${{ needs.coordinates.outputs.release_branch }}
+
+      - name: Upload rendered changelog and commit message
+        run: |
+          set -euo pipefail
+          # Only data crosses jobs. No checkout, tools, Git config or environment.
+          handoff=$(mktemp -d "${RUNNER_TEMP:?}/release-changelog.XXXXXX")
+          for file in CHANGELOG.md commit-msg.txt; do
+            if [ ! -f "${file}" ] || [ -L "${file}" ]; then
+              echo "ERROR: renderer must produce a regular ${file}" >&2
+              exit 1
+            fi
+            cp -- "${file}" "${handoff}/${file}"
+          done
+          # shellcheck source=/dev/null
+          source ./.forge-ci-helpers/.forgejo/bin/lib-forge-ci.sh
+          run_forge_ci artifact upload \
+            --name release-changelog --dir "${handoff}" \
+            --retention-days 1 --if-no-files error
+
+  # A renderer config can run commands (git-cliff replace_command). A later
+  # key-free step in the same job cannot undo its processes or filesystem edits.
+  # This fresh job receives only two data files and never runs the renderer.
+  prepare:
+    name: Prepare release
+    needs: [coordinates, render]
+    runs-on: ${{ inputs['runner-label'] }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      release-tag: ${{ steps.prepare-release.outputs.release-tag }}
+      release-sha: ${{ steps.prepare-release.outputs.release-sha }}
+    steps:
+      - name: Checkout layer helpers at the caller's pin
+        env:
+          EXPECTED_HELPERS_SHA: ${{ inputs['forge-ci-sha'] }}
+          FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${EXPECTED_HELPERS_SHA}" =~ ^([0123456789abcdef]{40}|[0123456789abcdef]{64})$ ]]; then
+            echo "ERROR: forge-ci-sha must be a 40- or 64-character lowercase commit hex digest" >&2
+            exit 1
+          fi
+          helpers_dir=.forge-ci-helpers
+          git init --quiet "${helpers_dir}"
+          git -C "${helpers_dir}" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          # Direct unadvertised SHA fetches can be refused.
+          # Retry advertised branches/tags without assuming a default branch.
+          helpers_fetch_log=$(mktemp)
+          if ! GIT_TERMINAL_PROMPT=0 git -C "${helpers_dir}" -c protocol.version=2 fetch --quiet --no-tags --depth=1 --no-recurse-submodules origin "${EXPECTED_HELPERS_SHA}" 2>"${helpers_fetch_log}"; then
+            if ! GIT_TERMINAL_PROMPT=0 git -C "${helpers_dir}" -c protocol.version=2 fetch --quiet --no-recurse-submodules origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*' 2>>"${helpers_fetch_log}"; then
+              echo "ERROR: cannot fetch layer helpers ${EXPECTED_HELPERS_SHA} from $(git -C "${helpers_dir}" remote get-url origin)" >&2
+              cat -- "${helpers_fetch_log}" >&2
+              rm -f -- "${helpers_fetch_log}"
+              exit 1
+            fi
+          fi
+          rm -f -- "${helpers_fetch_log}"
+          git -C "${helpers_dir}" checkout --quiet --detach "${EXPECTED_HELPERS_SHA}"
+          actual_sha=$(git -C "${helpers_dir}" rev-parse HEAD)
+          if [ "${actual_sha}" != "${EXPECTED_HELPERS_SHA}" ]; then
+            echo "ERROR: helper checkout resolved to unexpected commit ${actual_sha}" >&2
+            exit 1
+          fi
+
+      - name: Fetch engine binary
+        env:
+          FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source ./.forge-ci-helpers/.forgejo/bin/lib-forge-ci.sh
+          fetch_forge_ci
+
+      - name: Checkout consumer repository at release request tag
+        env:
+          CHECKOUT_REF: ${{ forgejo.sha }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source ./.forge-ci-helpers/.forgejo/bin/lib-forge-ci.sh
+          run_forge_ci platform checkout --fetch-all-refs
+
+      - name: Reject non-stable release request
+        uses: ./.forge-ci-helpers/.forgejo/actions/guard-release-tag
+
+      - name: Require the release request at the head of the release branch
+        env:
+          RELEASE_REQUEST: ${{ forgejo.ref_name }}
+          TARGET_BRANCH: ${{ needs.coordinates.outputs.release_branch }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source ./.forge-ci-helpers/.forgejo/bin/lib-forge-ci.sh
+          run_forge_ci validate tag commit \
+            --tag "${RELEASE_REQUEST:?}" \
+            --branch "${TARGET_BRANCH:?}" \
+            --require-head
+
+      - name: Download rendered release data
+        env:
+          TARGET_BRANCH: ${{ needs.coordinates.outputs.release_branch }}
+        run: |
+          set -euo pipefail
+          # Extract outside both checkouts; copy only regular data files, never
+          # a renderer-supplied Git config, hook, helper or startup script.
+          handoff=$(mktemp -d "${RUNNER_TEMP:?}/release-changelog.XXXXXX")
+          # shellcheck source=/dev/null
+          source ./.forge-ci-helpers/.forgejo/bin/lib-forge-ci.sh
+          run_forge_ci artifact download --name release-changelog --dir "${handoff}"
+          git -c core.hooksPath=/dev/null checkout -b "${TARGET_BRANCH:?}"
+          for file in CHANGELOG.md commit-msg.txt; do
+            if [ ! -f "${handoff}/${file}" ] || [ -L "${handoff}/${file}" ]; then
+              echo "ERROR: changelog artifact must contain a regular ${file}" >&2
+              exit 1
+            fi
+            cp --remove-destination -- "${handoff}/${file}" "${file}"
+          done
+          rm -rf -- "${handoff}"
+
+      - name: Sign changelog commit and create final tag
+        id: prepare-release
+        uses: ./.forge-ci-helpers/.forgejo/actions/prepare-release
+        with:
+          bot-name: ${{ inputs['bot-name'] }}
+          bot-email: ${{ inputs['bot-email'] }}
+          forgejo-repo: ${{ forgejo.repository }}
+          forgejo-ref-name: ${{ forgejo.ref_name }}
+          release-branch: ${{ needs.coordinates.outputs.release_branch }}
+          release-request-sha: ${{ forgejo.sha }}
+          verify-release-request-signature: ${{ inputs['verify-release-request-signature'] }}
+          release-request-allowed-signers: ${{ inputs['release-request-allowed-signers'] }}
+          release-git-url: ${{ inputs['release-git-url'] }}
+          release-git-host-key-fingerprint: ${{ inputs['release-git-host-key-fingerprint'] }}
+          ssh-signing-key: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}

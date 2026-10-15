@@ -1,0 +1,799 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# Internal workflow — builds, smoke-tests, and publishes the shared
+# forge-ci runtime container image.
+#
+# A family of images is produced from the same Containerfile:
+#   ghcr.io/<owner>/forge-ci-runtime-base — base stage
+#   ghcr.io/<owner>/forge-ci-runtime      — full stage (with security/SBOM tools)
+#
+# Triggers:
+#   pull_request — verify only (build + smoke-test, no push)
+#   push         — to the pre-release branch (FORGE_CI_PRERELEASE_BRANCH,
+#                  default main): verify + publish; other branches skip
+#   tag v*       — verify + publish with semver tags
+#   schedule     — weekly rebuild using the committed base/tool pins
+#   dispatch     — manual, opt-in publish via `publish` input
+name: Self Runtime Container
+on:
+  pull_request:
+    paths:
+      - containers/runtime/**
+      - scripts/bootstrap/install-yq.sh
+      - scripts/bootstrap/install-syft.sh
+      - scripts/bootstrap/install-trivy.sh
+      - scripts/bootstrap/install-git-cliff.sh
+      - scripts/bootstrap/install-gh.sh
+      - scripts/bootstrap/install-glab.sh
+      - scripts/bootstrap/install-mise.sh
+      - scripts/bootstrap/install-publiccode-parser.sh
+      - scripts/bootstrap/install-forge-ci.sh
+      - cmd/forge-ci/**
+      - internal/**
+      - go.mod
+      - go.sum
+      - .github/workflows/self-runtime-container.yml
+  push:
+    # Every branch triggers so the pre-release branch can be a variable; build-cli
+    # skips the whole run for pushes to any other branch.
+    branches:
+      - "**"
+    tags:
+      - "v*.*.*"
+      # Exclude the rolling CLI pre-release tag (v0.90.0-pre): it's created by this
+      # workflow's publish-cli job and must NOT re-trigger the release/tag path.
+      - "!v*-pre"
+      # No `paths:` filter on push: tag pushes routinely don't touch runtime
+      # files, but every release tag must produce a matching image so consumers
+      # can pin runtime-image to the version they're using. Branch pushes pay
+      # a ~3 min cached build cost on every main merge — acceptable.
+  schedule:
+    - cron: "30 2 * * 1"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish runtime container images"
+        required: false
+        default: false
+        type: boolean
+permissions:
+  contents: read
+jobs:
+  verify:
+    name: Build And Verify
+    needs: [build-cli]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime:
+          - name: forge-ci-runtime-base
+            target: base
+            local-tag: forge-ci-runtime-base:verify
+            smoke-test: |
+              bash --version
+              git --version
+              gpg --version
+              jq --version
+              yq --version
+              zip -v >/dev/null
+              git-cliff --version
+              gh --version
+              glab --version
+              forge-ci --version
+              test -d /opt/forge-ci/scripts/bootstrap
+              test -f /opt/forge-ci/templates/gitcliff/default.toml
+          - name: forge-ci-runtime
+            target: full
+            local-tag: forge-ci-runtime:verify
+            smoke-test: |
+              bash --version
+              git --version
+              gpg --version
+              jq --version
+              yq --version
+              git-cliff --version
+              gh --version
+              glab --version
+              syft version
+              trivy --version
+              forge-ci --version
+              test -f /opt/forge-ci/templates/gitcliff/default.toml
+          # Toolchain images are named with the release line they target
+          # (rust-stable, go-1.27, node-24, java-25, android-35). Changing a line
+          # requires explicit Containerfile and matrix updates;
+          # a versioned name alone does not establish future maintenance coverage.
+          - name: forge-ci-runtime-rust-stable
+            target: rust
+            local-tag: forge-ci-runtime-rust-stable:verify
+            smoke-test: |
+              bash --version
+              git --version
+              jq --version
+              yq --version
+              rustc --version
+              cargo --version
+              cargo cyclonedx --version
+              forge-ci --version
+              test -d /opt/forge-ci/scripts/bootstrap
+          - name: forge-ci-runtime-go-1.27
+            target: go
+            local-tag: forge-ci-runtime-go-1.27:verify
+            smoke-test: |
+              bash --version
+              git --version
+              jq --version
+              yq --version
+              go version
+              go env GOROOT GOPATH
+              cyclonedx-gomod version
+              forge-ci --version
+              test -d /opt/forge-ci/scripts/bootstrap
+          - name: forge-ci-runtime-node-24
+            target: node
+            local-tag: forge-ci-runtime-node-24:verify
+            smoke-test: |
+              bash --version
+              git --version
+              jq --version
+              yq --version
+              node --version
+              npm --version
+              corepack --version
+              forge-ci --version
+              test -d /opt/forge-ci/scripts/bootstrap
+          - name: forge-ci-runtime-java-25
+            target: java
+            local-tag: forge-ci-runtime-java-25:verify
+            smoke-test: |
+              bash --version
+              git --version
+              jq --version
+              yq --version
+              java -version 2>&1
+              mvn -version
+              gradle --version
+              forge-ci --version
+              test -d /opt/forge-ci/scripts/bootstrap
+          - name: forge-ci-runtime-android-35
+            target: android
+            local-tag: forge-ci-runtime-android-35:verify
+            smoke-test: |
+              bash --version
+              git --version
+              java -version 2>&1
+              gradle --version
+              sdkmanager --version
+              adb --version
+              forge-ci --version
+              test -d /opt/android-sdk/platforms
+              test -d /opt/android-sdk/build-tools
+    permissions:
+      contents: read
+      packages: read # read-only import of the forge-neutral build cache (publish-arch writes it)
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Download CLI dist
+        # JS action (bootstrap): this download OBTAINS the engine binary —
+        # cli-dist is the CLI built this run — so no engine exists yet to run
+        # `forge-ci artifact download`.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cli-dist
+          path: cli-dist
+      - name: Stage prebuilt forge-ci
+        # Bake the binary built once by build-cli (linux/amd64 for this host).
+        env:
+          VERSION: ${{ needs.build-cli.outputs.version }}
+        run: |
+          set -euo pipefail
+          tarball="$(find cli-dist -name "forge-ci_${VERSION}_linux_amd64.tar.gz" | head -1)"
+          if [ -z "$tarball" ]; then
+            echo "::error::CLI tarball for ${VERSION} linux/amd64 not found in cli-dist/"; ls -R cli-dist; exit 1
+          fi
+          mkdir -p cli-prebuilt
+          tar -xzf "$tarball" -C cli-prebuilt forge-ci
+      # Make the buildah/podman dependency explicit + forge-portable: a fast
+      # no-op on GitHub runners (pre-installed), installs them elsewhere.
+      - name: Ensure buildah + podman
+        run: bash scripts/bootstrap/install-buildah.sh
+      # Read-only login so the build below can IMPORT the forge-neutral registry
+      # build cache that publish-arch writes. Gated to trusted contexts only:
+      # NOT pull_request, because a fork PR's token cannot read the upstream
+      # org's packages (a 401 the cache import couldn't recover from).
+      - name: Log in to GHCR (read build cache)
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          CONTAINER_REGISTRY: ghcr.io
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: ./cli-prebuilt/forge-ci container login
+      # Build into local container storage with buildah (daemonless, node-less,
+      # forge-neutral) — replaces docker/setup-buildx-action + docker/build-push-action.
+      # The build-once CLI staged above drives it; podman reads buildah's storage
+      # for the smoke tests below. buildah tags a bare name under localhost/, so
+      # the image is referenced as localhost/<tag>. Imports the forge-neutral
+      # registry cache read-only (no --cache-push; best-effort — a miss just
+      # builds from scratch). BUILD_CACHE_REPO is empty (no cache) on
+      # pull_request, matching the login gate. Only the publish jobs WRITE the
+      # cache. verify runs amd64 natively.
+      - name: Build runtime image
+        env:
+          BUILD_CONTEXT: .
+          CONTAINER_FILE: containers/runtime/Containerfile
+          BUILD_TARGET: ${{ matrix.runtime.target }}
+          BUILD_MODE: load
+          IMAGE_REF: localhost/${{ matrix.runtime.local-tag }}
+          BUILD_CACHE_REPO: ${{ github.event_name != 'pull_request' && format('ghcr.io/{0}/forge-ci-buildcache', github.repository_owner) || '' }}
+        run: ./cli-prebuilt/forge-ci container build
+      - name: Smoke-test runtime image
+        # podman reads buildah's container storage (no docker daemon), so the
+        # image built above runs without a load into dockerd.
+        run: |
+          podman run --rm localhost/${{ matrix.runtime.local-tag }} bash -c '
+            set -euo pipefail
+            ${{ matrix.runtime.smoke-test }}
+          '
+      - name: Verify baked forge-ci runs
+        # The image's CLI is the build-once binary; assert it executes and
+        # reports the expected build-cli version.
+        env:
+          EXPECTED_VERSION: ${{ needs.build-cli.outputs.version }}
+        run: |
+          actual="$(podman run --rm localhost/${{ matrix.runtime.local-tag }} forge-ci --version 2>&1)"
+          if ! printf '%s' "$actual" | grep -qF "$EXPECTED_VERSION"; then
+            printf 'FAIL: %s does not contain expected version %s\n  output: %s\n' \
+                   "${{ matrix.runtime.local-tag }}" "$EXPECTED_VERSION" "$actual" >&2
+            exit 1
+          fi
+          printf 'OK: embedded version contains %s\n  output: %s\n' "$EXPECTED_VERSION" "$actual"
+  # Build CLI archives once for this run (goreleaser). Each image bakes the
+  # matching architecture's binary from cli-dist; publish-cli uploads those
+  # archives to the rolling pre-release. Stable archives rebuild separately in
+  # release-binary.yml.
+  # version-tag: the real tag on a release push, else the rolling pre-release tag.
+  build-cli:
+    name: Build CLI
+    # verify and the publish jobs all consume the single binary it builds, so a
+    # push to a branch other than the pre-release branch skips the whole run.
+    # PRs build only (sign=false → no cosign/syft/OIDC).
+    if: >-
+      github.event_name != 'push' || github.ref_type == 'tag' || github.ref == format('refs/heads/{0}', vars.FORGE_CI_PRERELEASE_BRANCH || 'main')
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/build-cli.yml
+    with:
+      version-tag: ${{ github.ref_type == 'tag' && github.ref_name || 'v0.90.0-pre' }}
+      artifact-name: cli-dist
+      sign: ${{ github.event_name != 'pull_request' }}
+
+  # The runtime images' platforms, declared once in RUNTIME_PLATFORMS and
+  # narrowed by the optional RELEASE_PLATFORMS repository variable, such as
+  # linux/amd64 for a fork that tests on amd64 only. The engine refuses an
+  # undeclared, duplicated or malformed entry before anything is built, and
+  # names each leg's suffix, so the jobs below name no architecture.
+  platforms:
+    name: Plan Platforms
+    needs: [build-cli]
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      matrix-json: ${{ steps.plan.outputs.matrix-json }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: Download CLI dist
+        # JS action (bootstrap): this download OBTAINS the engine binary.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cli-dist
+          path: cli-dist
+      - name: Plan the runtime image platforms
+        id: plan
+        env:
+          VERSION: ${{ needs.build-cli.outputs.version }}
+          RUNTIME_PLATFORMS: linux/amd64,linux/arm64
+          RELEASE_PLATFORMS: ${{ vars.RELEASE_PLATFORMS }}
+        run: |
+          set -euo pipefail
+          tarball="$(find cli-dist -name "forge-ci_${VERSION}_linux_amd64.tar.gz" | head -1)"
+          if [ -z "$tarball" ]; then
+            echo "::error::CLI tarball for ${VERSION} linux/amd64 not found in cli-dist/"; ls -R cli-dist; exit 1
+          fi
+          mkdir -p cli-prebuilt
+          tar -xzf "$tarball" -C cli-prebuilt forge-ci
+          cli-prebuilt/forge-ci container platform-plan --platforms "${RUNTIME_PLATFORMS}" --select "${RELEASE_PLATFORMS}"
+  # Publish phase 1: build each (target, platform) leg natively on a runner of
+  # its architecture; no QEMU emulation. Each leg pushes by digest only; tags
+  # are applied later by publish-merge.
+  publish-arch:
+    name: Publish (${{ matrix.runtime.name }} - ${{ matrix.platform.platform }})
+    needs: [verify, build-cli, platforms]
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    # GitHub's hosted runner label for the leg's architecture.
+    runs-on: ${{ matrix.platform.suffix == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime:
+          - name: forge-ci-runtime-base
+            target: base
+          - name: forge-ci-runtime
+            target: full
+          - name: forge-ci-runtime-rust-stable
+            target: rust
+          - name: forge-ci-runtime-go-1.27
+            target: go
+          - name: forge-ci-runtime-node-24
+            target: node
+          - name: forge-ci-runtime-java-25
+            target: java
+          - name: forge-ci-runtime-android-35
+            target: android
+        # The planned platforms; publish-merge assembles whatever was built,
+        # as it does for android.
+        platform: ${{ fromJSON(needs.platforms.outputs.matrix-json) }}
+        # Android SDK platform-tools/build-tools ship as x86_64-only Linux
+        # binaries (adb/aapt2/d8 are x86_64 ELF), so an arm64 android image
+        # cannot run its own tooling ("Exec format error"). Build android for
+        # amd64 only; publish-merge globs whatever arches exist, producing a
+        # single-arch android manifest.
+        exclude:
+          - runtime:
+              name: forge-ci-runtime-android-35
+              target: android
+            platform:
+              platform: linux/arm64
+              suffix: arm64
+    permissions:
+      contents: read
+      packages: write
+      # id-token: keyless cosign signing of the per-arch CycloneDX SBOM
+      # attestation (`container attest`). Provenance + image signature are
+      # attested on the merged index in publish-merge. No GitHub attestation API.
+      id-token: write
+      # security-events lets the trivy SARIF upload below land on
+      # the Security tab (per-(target, arch) category).
+      security-events: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Install syft
+        # syft scans the pushed image for the analyzed-container SBOM.
+        # Pin matches the version installed inside the runtime image's
+        # own `full` stage (containers/runtime/Containerfile).
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          syft-version: 'v1.45.1'
+      - name: Install cosign
+        # Keyless signing of the per-arch CycloneDX SBOM attestation below.
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v3.1.3'
+      - name: Download CLI dist
+        # JS action (bootstrap): this download OBTAINS the engine binary —
+        # cli-dist is the CLI built this run — so no engine exists yet to run
+        # `forge-ci artifact download`.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cli-dist
+          path: cli-dist
+      - name: Stage prebuilt forge-ci (bake + runner tool)
+        # Extract the per-arch binary built once by build-cli into the build
+        # context (cli-prebuilt/forge-ci, copied by the Containerfile) and
+        # also install it as the runner-side CLI tool used by write-digest-marker
+        # below — one binary, no on-runner compile. The native-runner arch
+        # matches matrix.platform.suffix, so the extracted binary is correct for
+        # both uses.
+        env:
+          VERSION: ${{ needs.build-cli.outputs.version }}
+          SUFFIX: ${{ matrix.platform.suffix }}
+        run: |
+          set -euo pipefail
+          tarball="$(find cli-dist -name "forge-ci_${VERSION}_linux_${SUFFIX}.tar.gz" | head -1)"
+          if [ -z "$tarball" ]; then
+            echo "::error::CLI tarball for ${VERSION} linux/${SUFFIX} not found in cli-dist/"; ls -R cli-dist; exit 1
+          fi
+          mkdir -p cli-prebuilt
+          tar -xzf "$tarball" -C cli-prebuilt forge-ci
+          sudo install -m0755 cli-prebuilt/forge-ci /usr/local/bin/forge-ci
+          forge-ci --version
+      - name: Compute build metadata
+        id: meta
+        run: |
+          source_date_epoch="$(git log -1 --format=%ct HEAD)"
+          commit_date="$(date -u -d "@$source_date_epoch" +%Y-%m-%dT%H:%M:%SZ)"
+          {
+            printf 'source-date-epoch=%s\n' "$source_date_epoch"
+            printf 'commit-date=%s\n' "$commit_date"
+          } >> "$GITHUB_OUTPUT"
+      - name: Log in to GHCR
+        env:
+          CONTAINER_REGISTRY: ghcr.io
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: forge-ci container login
+      - name: Ensure buildah + podman
+        # Explicit + forge-portable: no-op on GitHub runners, installs elsewhere.
+        run: bash scripts/bootstrap/install-buildah.sh
+      # buildah builds the single-platform image; the ggcr adapter pushes it
+      # TAGLESS by digest (PUT manifest by digest) — the daemonless equivalent of
+      # build-push's push-by-digest=true, with no tag to create or clean up.
+      # No BuildKit in-index attestations (provenance/sbom): every piece of
+      # evidence is a SIGNED cosign in-toto attestation (SLSA provenance on the
+      # merged index in publish-merge, CycloneDX SBOM per-arch below). publish-merge
+      # applies the real tags from `forge-ci container metadata` via
+      # `forge-ci container manifest merge` once both arches' digests exist.
+      # Emits digest=<sha256> consumed by the steps below + publish-merge.
+      - name: Build and push by digest
+        id: build
+        env:
+          BUILD_CONTEXT: .
+          CONTAINER_FILE: containers/runtime/Containerfile
+          BUILD_TARGET: ${{ matrix.runtime.target }}
+          BUILD_PLATFORM: ${{ matrix.platform.platform }}
+          BUILD_MODE: push-by-digest
+          IMAGE_REF: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}
+          # Forge-neutral registry layer cache (replaces type=gha): one dedicated
+          # cache package per project, shared by every image and arch (Buildah
+          # keys layers by content and takes no tag). Read-write
+          # here (--cache-push; trusted push, packages:write + logged in above).
+          BUILD_CACHE_REPO: ghcr.io/${{ github.repository_owner }}/forge-ci-buildcache
+          BUILD_CACHE_PUSH: "true"
+          # OCI labels so each image self-identifies via `docker inspect` / GHCR
+          # even after tags are pruned. (licenses is intentionally omitted — a
+          # runtime image bundles many differently-licensed tools.)
+          LABELS: |
+            org.opencontainers.image.title=${{ matrix.runtime.name }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.created=${{ steps.meta.outputs.commit-date }}
+        run: forge-ci container build
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: forge-ci container write-digest-marker
+      - name: Verify baked CLI == published binary (build-once gate)
+        # Make "build once" machine-checked: the binary inside the just-pushed
+        # image must be byte-identical to this run's staged tarball binary. They are
+        # the same artifact by construction (COPY of cli-prebuilt/forge-ci),
+        # so this is a regression guard against the prebuilt path being bypassed.
+        env:
+          IMAGE_REF: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          want="$(sha256sum cli-prebuilt/forge-ci | awk '{print $1}')"
+          cid="$(docker create "$IMAGE_REF")"
+          docker cp "$cid:/usr/local/bin/forge-ci" /tmp/baked-forge-ci
+          docker rm "$cid" >/dev/null
+          got="$(sha256sum /tmp/baked-forge-ci | awk '{print $1}')"
+          if [ "$got" != "$want" ]; then
+            echo "::error::baked CLI ($got) != published binary ($want) — build-once violated"; exit 1
+          fi
+          printf 'build-once OK: baked CLI matches published binary (%s)\n' "$want"
+      - name: Upload digest
+        # JS action (not `forge-ci artifact upload`): the v4 artifact API
+        # needs ACTIONS_RESULTS_URL/ACTIONS_RUNTIME_TOKEN, which GitHub exposes
+        # only to actions, not to `run:` steps.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digests-${{ matrix.runtime.target }}-${{ matrix.platform.suffix }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+      - name: Generate analyzed-container SBOM (CycloneDX)
+        # syft scans the just-pushed per-arch image. The CycloneDX output is
+        # signed as a cosign attestation in the next step; provenance is attested
+        # on the merged index in publish-merge.
+        env:
+          IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: forge-ci sbom assemble
+      - name: Attest SBOM (cosign keyless)
+        # Signed in-toto CycloneDX attestation attached to THIS per-arch image
+        # digest: each arch has its own SBOM, while provenance is the one
+        # attestation on the index, whose digest pins every arch. Verify:
+        #   cosign verify-attestation --type cyclonedx \
+        #     --certificate-identity-regexp '^https://github.com/diggsweden/forge-ci/\.github/workflows/self-runtime-container\.yml@.*' \
+        #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+        #     ghcr.io/diggsweden/<runtime>@sha256:<per-arch-digest>
+        env:
+          SIGN_METHOD: sigstore
+          IMAGE_REF: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          pred="$(find . -maxdepth 1 -name '*-analyzed-container-sbom.cyclonedx.json' | head -1)"
+          forge-ci container attest \
+            --type cyclonedx \
+            --predicate "$pred" \
+            "$IMAGE_REF"
+      - name: Scan image for vulnerabilities (trivy)
+        # Runtime images are the most-pulled artefact in this repo —
+        # every consumer that sets `runtime-image:` pulls one of
+        # these. Weekly schedule + SARIF upload gives ongoing CVE
+        # visibility against the security tab. exit-code=0 keeps
+        # this advisory; promote to a non-zero gate once the noise
+        # floor is understood.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}@${{ steps.build.outputs.digest }}
+          format: sarif
+          output: trivy-results.sarif
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          exit-code: '0'
+      - name: Upload trivy SARIF to Code Scanning
+        # forge-ci's own upload-sarif (no JS codeql-action): it stamps the
+        # category into each SARIF run's automationDetails.id — the field Code
+        # Scanning keys analyses on — so the per-(target, arch) legs stay
+        # distinct instead of silently overwriting one another. GITHUB_TOKEN is
+        # mapped to the CLI's CODE_SCANNING_TOKEN (this job has
+        # security-events: write).
+        env:
+          SARIF_FILE: trivy-results.sarif
+          SARIF_CATEGORY: runtime-${{ matrix.runtime.target }}-${{ matrix.platform.suffix }}
+          CODE_SCANNING_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: forge-ci security report upload-sarif
+
+  # Publish phase 2: assemble each target's per-arch digests into a single
+  # multi-arch manifest list and apply tags from forge-ci metadata.
+  publish-merge:
+    name: Publish Manifest (${{ matrix.runtime.name }})
+    needs: [publish-arch, build-cli]
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == format('refs/heads/{0}', vars.FORGE_CI_PRERELEASE_BRANCH || 'main'))
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime:
+          - name: forge-ci-runtime-base
+            target: base
+          - name: forge-ci-runtime
+            target: full
+          - name: forge-ci-runtime-rust-stable
+            target: rust
+          - name: forge-ci-runtime-go-1.27
+            target: go
+          - name: forge-ci-runtime-node-24
+            target: node
+          - name: forge-ci-runtime-java-25
+            target: java
+          - name: forge-ci-runtime-android-35
+            target: android
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+      # Job-level OIDC grant for keyless signing and attestation below.
+      # Other steps in this job can also request a token.
+      id-token: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v3.1.3'
+      - name: Download CLI dist
+        # JS action (bootstrap): this download OBTAINS the engine binary —
+        # cli-dist is the CLI built this run — so no engine exists yet to run
+        # `forge-ci artifact download`.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cli-dist
+          path: cli-dist
+      - name: Stage prebuilt forge-ci (runner tool)
+        # Use the CLI built once by build-cli as the runner-side tool for
+        # metadata / manifest-merge / sign — no on-runner Go compile. This
+        # job runs on ubuntu-24.04 (amd64).
+        env:
+          VERSION: ${{ needs.build-cli.outputs.version }}
+        run: |
+          set -euo pipefail
+          tarball="$(find cli-dist -name "forge-ci_${VERSION}_linux_amd64.tar.gz" | head -1)"
+          if [ -z "$tarball" ]; then
+            echo "::error::CLI tarball for ${VERSION} linux/amd64 not found in cli-dist/"; ls -R cli-dist; exit 1
+          fi
+          tmp="$(mktemp -d)"
+          tar -xzf "$tarball" -C "$tmp" forge-ci
+          sudo install -m0755 "$tmp/forge-ci" /usr/local/bin/forge-ci
+          forge-ci --version
+      - name: Download digests
+        # Engine verb, run by the CLI built this run (installed above). Only
+        # UPLOADS must stay on the JS action (see Upload digest): the v4
+        # upload API needs ACTIONS_RUNTIME_TOKEN, which GitHub injects only
+        # into JS action contexts. Downloads use the public REST zip endpoint
+        # with the ordinary token.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_PATTERN: digests-${{ matrix.runtime.target }}-*
+          ARTIFACT_MERGE_MULTIPLE: 'true'
+          ARTIFACT_DIR: /tmp/digests
+        run: forge-ci artifact download
+      - name: Log in to GHCR
+        env:
+          CONTAINER_REGISTRY: ghcr.io
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: forge-ci container login
+      - name: Compute build stamp
+        id: stamp
+        # Tag-safe build stamp derived from the commit timestamp (not
+        # wall-clock), so re-runs of the same commit produce the same tag.
+        run: |
+          epoch="$(git log -1 --format=%ct HEAD)"
+          printf 'value=%s\n' "$(date -u -d "@$epoch" +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+          # Reproducible timestamp for the provenance attestation below.
+          printf 'SOURCE_DATE_EPOCH=%s\n' "$epoch" >> "$GITHUB_ENV"
+      - name: Compute image metadata
+        id: metadata
+        env:
+          IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}
+          FLAVOR: latest=false
+          TAG_RULES: |
+            type=raw,value=weekly,enable=${{ github.event_name == 'schedule' }}
+            type=raw,value=v0.90.0-pre,enable=${{ (github.event_name == 'workflow_dispatch' && inputs.publish) || github.ref == format('refs/heads/{0}', vars.FORGE_CI_PRERELEASE_BRANCH || 'main') }}
+            type=raw,value=v0.90.0-pre-${{ steps.stamp.outputs.value }},enable=${{ (github.event_name == 'workflow_dispatch' && inputs.publish) || github.ref == format('refs/heads/{0}', vars.FORGE_CI_PRERELEASE_BRANCH || 'main') }}
+            type=ref,event=branch
+            type=sha,prefix=sha-,enable=${{ github.event_name != 'schedule' && github.ref_type != 'tag' }}
+            type=semver,pattern=v{{version}},enable=${{ github.ref_type == 'tag' }}
+            type=semver,pattern=v{{major}}.{{minor}},enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+            type=semver,pattern=v{{major}},enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+        run: forge-ci container metadata
+      - name: Verify mutable source ref is still current
+        if: ${{ github.ref_type == 'branch' }}
+        run: |
+          set -euo pipefail
+          remote_sha="$(git ls-remote --exit-code origin "$GITHUB_REF" | awk 'NR == 1 { print $1 }')"
+          if [[ "$remote_sha" != "$GITHUB_SHA" ]]; then
+            printf 'Refusing stale publication: %s now resolves to %s, run built %s\n' "$GITHUB_REF" "$remote_sha" "$GITHUB_SHA" >&2
+            exit 1
+          fi
+      - name: Create manifest list and push
+        env:
+          IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}
+          TAGS: ${{ steps.metadata.outputs.tags }}
+          DIGESTS_DIR: /tmp/digests
+        run: forge-ci container manifest merge
+      - name: Inspect manifest
+        id: inspect
+        env:
+          TAGS: ${{ steps.metadata.outputs.tags }}
+        run: forge-ci container manifest inspect
+      - name: Sign image (cosign keyless)
+        # Sigstore-keyless signing of the runtime image. Signs the
+        # manifest list digest + every per-arch child (--recursive
+        # default). The signature lives in GHCR next to the image;
+        # consumers verify with:
+        #   forge-ci validate container-signature \
+        #     ghcr.io/diggsweden/forge-ci-runtime-base@sha256:... \
+        #     --method sigstore \
+        #     --cert-identity-regexp '^https://github.com/diggsweden/forge-ci/\.github/workflows/self-runtime-container\.yml@.*' \
+        #     --cert-oidc-issuer https://token.actions.githubusercontent.com
+        env:
+          SIGN_METHOD: sigstore
+        run: |
+          forge-ci container sign "${{ steps.inspect.outputs.image-digest-ref }}"
+      - name: Attest SLSA provenance (cosign keyless)
+        # Signed in-toto SLSA v1.0 provenance attached to the manifest-list
+        # digest, which pins every per-arch child. The predicate is
+        # generated by `container attest` from the CI environment. Portable
+        # replacement for actions/attest-build-provenance; verify on any forge:
+        #   forge-ci container attest --help  /  cosign verify-attestation \
+        #     --type slsaprovenance1 \
+        #     --certificate-identity-regexp '^https://github.com/diggsweden/forge-ci/\.github/workflows/self-runtime-container\.yml@.*' \
+        #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+        #     ghcr.io/diggsweden/forge-ci-runtime-base@sha256:...
+        env:
+          SIGN_METHOD: sigstore
+        run: |
+          forge-ci container attest --type slsaprovenance1 "${{ steps.inspect.outputs.image-digest-ref }}"
+      - name: Prune old image versions
+        # Every publish adds a version per commit and nothing else removes
+        # them; GHCR deletes only through the Packages API. Opt in with the
+        # repository variable RUNTIME_IMAGE_RETENTION, the number of newest
+        # commit images to keep. Release and pre-release tags, and everything
+        # a kept image lists or is signed with, stay.
+        if: ${{ vars.RUNTIME_IMAGE_RETENTION != '' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REGISTRY_USER: ${{ github.actor }}
+          RUNTIME_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}
+          RECENT_COUNT: ${{ vars.RUNTIME_IMAGE_RETENTION }}
+        run: |
+          forge-ci container package-retention --repository "${RUNTIME_IMAGE,,}" \
+            --recent-count "${RECENT_COUNT}" --max-delete 0 --dry-run=false
+
+  # Publish the CLI tarballs (built once by build-cli) to the rolling pre-release
+  # v0.90.0-pre. Tagged releases currently rebuild and publish through
+  # release-binary.yml. Runs after publish-merge so
+  # the pre-release CLI and pre-release images advance together. install-forge-ci.sh
+  # resolves `forge-ci-binary-ref: v0.90.0-pre` to these assets (download +
+  # cosign-verify against the build-cli pre-release identity).
+  publish-cli:
+    name: Publish CLI (pre-release)
+    needs: [build-cli, publish-merge]
+    if: >-
+      github.ref == format('refs/heads/{0}', vars.FORGE_CI_PRERELEASE_BRANCH || 'main') && (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref_type != 'tag') || (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref_type != 'tag'))
+    concurrency:
+      group: self-runtime-cli-v0.90.0-pre
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # create/update the pre-release + its tag
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Download CLI dist
+        # JS action (bootstrap): this download OBTAINS the engine binary —
+        # cli-dist is the CLI built this run — so no engine exists yet to run
+        # `forge-ci artifact download`.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cli-dist
+          path: cli-dist
+      - name: Publish rolling pre-release
+        # Bootstrap the CLI from this run's checksum-verified linux/amd64
+        # archive, then let the repository-private typed use case update the
+        # pre-provisioned mutable -pre release in place: payloads first, the
+        # signature bundle next, and checksums.txt last as the commit point.
+        # Readers can briefly see mixed/missing payloads, but the old or absent
+        # checksum makes installers fail closed; the channel tag moves only
+        # after the complete asset set verifies. The moved tag is excluded from this workflow's and
+        # self-release.yml's tag triggers, so it never re-enters the release path.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.build-cli.outputs.version }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          # Read by publish-self-runtime-cli: the repository and branch allowed to
+          # own the rolling channel, matching the installer's pre-release signer.
+          FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
+          FORGE_CI_PRERELEASE_BRANCH: ${{ vars.FORGE_CI_PRERELEASE_BRANCH || 'main' }}
+        run: |
+          set -euo pipefail
+          assets_dir=cli-dist
+          archive_name="forge-ci_${VERSION}_linux_amd64.tar.gz"
+          archive="${assets_dir}/${archive_name}"
+          test -f "${assets_dir}/checksums.txt"
+          test -f "$archive"
+          checksum_entries="$(awk -v name="$archive_name" '$2 == name { count++ } END { print count + 0 }' "${assets_dir}/checksums.txt")"
+          if [[ "$checksum_entries" != 1 ]]; then
+            printf 'Expected exactly one checksum entry for %s, found %s\n' "$archive_name" "$checksum_entries" >&2
+            exit 1
+          fi
+          (cd "$assets_dir" && sha256sum --check --strict checksums.txt)
+          mkdir -p cli-publish
+          tar -xzf "$archive" -C cli-publish forge-ci
+          ./cli-publish/forge-ci release publish-self-runtime-cli \
+            --repository "$REPO" --source-ref "${GITHUB_REF}" --commit "$SHA" \
+            --assets-dir "$assets_dir"

@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: Checkout consumer repository
+description: >-
+  Git-based, sha256-aware checkout for jobs running inside containers that have git but no node (where the JavaScript actions/checkout cannot run). Delegates to the pinned forge-ci binary so consumers don't reimplement it.
+inputs:
+  ref:
+    description: Branch, tag, or commit SHA to check out. Defaults to the triggering commit.
+    required: false
+    default: ${{ github.sha }}
+  fetch-base:
+    description: Optional extra branch to also fetch (e.g. main) for diff/commit-range checks.
+    required: false
+    default: ''
+  object-format:
+    description: Repository object format (sha1 or sha256). Set it to skip the curl-based API detection in containers without curl.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout consumer repository (git, no node)
+      shell: bash
+      env:
+        FORGEJO_REPOSITORY: ${{ github.repository }}
+        FORGEJO_SERVER_URL: ${{ github.server_url }}
+        FORGEJO_TOKEN: ${{ github.token }}
+        CHECKOUT_REF: ${{ inputs.ref }}
+        CHECKOUT_FETCH_BASE: ${{ inputs.fetch-base }}
+        CHECKOUT_OBJECT_FORMAT: ${{ inputs.object-format }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        FORGE_CI_PROVIDER=forgejo run_forge_ci platform checkout \
+          --ref "${CHECKOUT_REF}" \
+          --fetch-base "${CHECKOUT_FETCH_BASE}" \
+          --object-format "${CHECKOUT_OBJECT_FORMAT}"

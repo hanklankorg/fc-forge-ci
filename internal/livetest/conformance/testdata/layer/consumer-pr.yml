@@ -1,0 +1,133 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Live-tier fixture of TestForgejoLayer_ConsumerPullRequest. A template: the
+# test renders it into a scratch repository on the lab, beside a small Go
+# module and this repository's own examples/go-cli/forgejo/release.yml, and opens a
+# pull request there. The pull request is the trigger.
+name: Forgejo layer consumer pull request
+
+on:
+  pull_request:
+    branches: [main]
+
+# permissions: is a GitHub field Forgejo ignores (warning per run) --
+# kept for Scorecard Token-Permissions and GitHub portability. Real
+# restriction is Forgejo's repo-scoped read-default token.
+permissions:
+  contents: read
+
+env:
+  ACCEPTANCE_SERVER_URL: RENDER_ACCEPTANCE_SERVER_URL
+  ACCEPTANCE_REPOSITORY: RENDER_ACCEPTANCE_REPOSITORY
+  ACCEPTANCE_BASE_REF: main
+  ACCEPTANCE_HEAD_REF: layer-pull-request
+
+jobs:
+  # The layer's Go build as a pull-request job has it: the tests and one
+  # binary, stamped with what the caller passes and not with the runner's ref.
+  # The job brings its own Go, as the minimal release build does and for the
+  # same reason: the lab's generic runner image is Node. No Build SBOM, so the
+  # image needs nothing beside Go.
+  # The job is first in this file and first by name, so the run's job list has
+  # one order whichever of the two the provider reports.
+  consumer-build:
+    name: Build consumer pull request
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    container:
+      image: docker.io/library/golang:1.27.2-trixie@sha256:e58d6f83b3416618d8bcac2b3dde1b7f7e3c4a77d25e88637f8bbae81536c48d
+    timeout-minutes: 10
+    steps:
+      - name: Set up forge-ci
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA
+        with:
+          expected-sha256: RENDER_FORGE_CI_SHA256
+
+      - name: Checkout pull request
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout --depth 1
+
+      - name: Build and test with the layer's Go build
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/build-go@PIN_FORGE_CI_SHA
+        with:
+          version: 0.0.0-pr
+          commit: ${{ forgejo.event.pull_request.head.sha }}
+          build-sbom: 'false'
+
+      - name: Verify the built binary reports the version it was given
+        run: |
+          set -euo pipefail
+          test "$(./dist/linux-amd64/consumer-pr-canary-linux-amd64)" = 'consumer-pr-canary 0.0.0-pr'
+
+  consumer-test:
+    name: Test consumer pull request
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 10
+    steps:
+      - name: Set up forge-ci
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA
+        with:
+          expected-sha256: RENDER_FORGE_CI_SHA256
+
+      - name: Checkout pull request
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout --depth 1
+
+      - name: Verify pull request identity and canary
+        env:
+          OBSERVED_SERVER_URL: ${{ forgejo.server_url }}
+          OBSERVED_REPOSITORY: ${{ forgejo.repository }}
+          OBSERVED_EVENT: ${{ forgejo.event_name }}
+          OBSERVED_BASE_REF: ${{ forgejo.event.pull_request.base.ref }}
+          OBSERVED_HEAD_REF: ${{ forgejo.event.pull_request.head.ref }}
+          OBSERVED_HEAD_SHA: ${{ forgejo.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          observed_server_url=${OBSERVED_SERVER_URL%/}
+          checkout_sha=$(git rev-parse HEAD)
+          if [ "${observed_server_url}" != "${ACCEPTANCE_SERVER_URL}" ] ||
+            [ "${OBSERVED_REPOSITORY}" != "${ACCEPTANCE_REPOSITORY}" ] ||
+            [ "${OBSERVED_EVENT}" != pull_request ] ||
+            [ "${OBSERVED_BASE_REF}" != "${ACCEPTANCE_BASE_REF}" ] ||
+            [ "${OBSERVED_HEAD_REF}" != "${ACCEPTANCE_HEAD_REF}" ] ||
+            [ "${checkout_sha}" != "${OBSERVED_HEAD_SHA}" ]; then
+            printf 'ERROR: consumer PR acceptance identity mismatch\n' >&2
+            exit 1
+          fi
+          test "$(cat consumer-pr-canary.txt)" = consumer-pr-feature
+
+  trust-boundary:
+    name: Verify consumer release isolation
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 10
+    steps:
+      - name: Set up forge-ci
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA
+        with:
+          expected-sha256: RENDER_FORGE_CI_SHA256
+
+      - name: Checkout pull request
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout --depth 1
+
+      - name: Verify pull request checkout
+        env:
+          OBSERVED_HEAD_SHA: ${{ forgejo.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${OBSERVED_HEAD_SHA}"
+
+      - name: Verify release isolation boundaries
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/check-l3-isolation@PIN_FORGE_CI_SHA
+        with:
+          workflow: .forgejo/workflows/release.yml
+          build-job: build
+          sign-job: sign-and-publish
+          prepare-job: prepare
+          dist-digest-output: dist-digest
+          # No single-pin-subject: the action takes the repository the runner
+          # fetched it from, which is the one release.yml names.

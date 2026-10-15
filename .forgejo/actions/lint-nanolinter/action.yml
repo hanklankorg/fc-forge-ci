@@ -1,0 +1,54 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: 'Lint with nanolinter'
+description: >-
+  The pull-request lint gate: run the repository's nanolinter plan with a mandated floor of checks that its nanolinter.toml cannot switch off. The step runs the nanolinter the job already has, so run the job in a nanolinter image, or on a runner that provides the pinned nanolinter and its tools. It installs nothing and needs no secret; a blocking finding fails the step.
+inputs:
+  required-lints:
+    description: >-
+      Mandated lint floor: comma-separated check ids passed to `nanolinter verify --require`. These checks run and block whatever the repository's nanolinter.toml says, and disable-checks cannot remove them. Empty disables the floor.
+    required: false
+    default: secrets,sast
+  disable-checks:
+    description: >-
+      Comma-separated check ids to leave out of this run, for example the network-backed scans a separate job owns.
+    required: false
+    default: ''
+  offline:
+    description: >-
+      'true' passes --offline: checks that need the network are skipped and tools use their caches. For a runner or job image without network access.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Run nanolinter verify
+      shell: bash
+      env:
+        LINT_REQUIRED_LINTS: ${{ inputs.required-lints }}
+        LINT_DISABLE_CHECKS: ${{ inputs.disable-checks }}
+        LINT_OFFLINE: ${{ inputs.offline }}
+      run: |
+        set -euo pipefail
+        case "${LINT_OFFLINE}" in
+          true | false) ;;
+          *) echo "ERROR: offline must be true or false" >&2; exit 1 ;;
+        esac
+        if ! command -v nanolinter >/dev/null 2>&1; then
+          echo "ERROR: nanolinter is not on PATH: run this job in a nanolinter image, or on a runner that provides it" >&2
+          exit 69
+        fi
+        arguments=()
+        if [ -n "${LINT_REQUIRED_LINTS}" ]; then
+          arguments+=(--require "${LINT_REQUIRED_LINTS}")
+        fi
+        if [ -n "${LINT_DISABLE_CHECKS}" ]; then
+          arguments+=(--disable-check "${LINT_DISABLE_CHECKS}")
+        fi
+        if [ "${LINT_OFFLINE}" = true ]; then
+          arguments+=(--offline)
+        fi
+        nanolinter verify "${arguments[@]}"

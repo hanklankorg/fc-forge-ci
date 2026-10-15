@@ -1,0 +1,256 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: 'Setup toolchain'
+description: >-
+  Bootstrap mise + mise-managed tools onto a Forgejo Actions runner. If the consumer has go.mod at the workspace root, Go is installed once: by mise when the consumer's mise config declares go (from mise.lock under mise-locked), and otherwise by actions/setup-go, the version go.mod names. Handles caching so subsequent runs skip the tool-install phase. Use after the caller's pinned checkout step - the cache key hashes the consumer's mise config, mise.lock, and tools/go.{mod,sum} from the working tree. The bootstrap version/checksum pin (versions.env) and forge-ci binary are bundled with this action via the action path; consumers don't need to maintain their own copies.
+inputs:
+  cache-key-suffix:
+    description: >-
+      Distinguishes the cache between distinct jobs (e.g. prepare vs build vs sign vs lint). Same suffix across runs of the same job → cache hit. Different suffix → cold install, full cache write.
+    required: true
+  mise-locked:
+    description: >-
+      Run mise install with --locked. Requires the consumer repository to commit mise.lock for the runner platform. Use only in trusted jobs that install tools; untrusted PR jobs must use pre-provisioned runner tools and install nothing, even when a lock file is available.
+    required: false
+    default: 'false'
+  mise-github-token:
+    description: >-
+      Token used by mise when installing tools from GitHub releases (avoids anonymous rate limits). Required for repositories with .mise.toml or mise.toml unless mise-locked is true. Read-only is sufficient. Sourced from the caller's repo/org secrets — secret masking is preserved across the composite-action input boundary in modern Forgejo Actions.
+    required: false
+    default: ''
+  mise-forgejo-token:
+    description: >-
+      Token used by mise when installing tools from Forgejo releases. Same rate-limit-avoidance purpose as mise-github-token.
+    required: false
+    default: ''
+  mise-http-timeout-seconds:
+    description: >-
+      Seconds mise waits for a connection or between two reads of a download before it gives the attempt up, set as MISE_HTTP_TIMEOUT for the tool install. mise's own default is 30 seconds, which a slow or briefly stalled link to a tool's download host exceeds ("HTTP timed out after 30.00s"). The whole download stays bounded by mise's http_download_timeout (30 minutes).
+    required: false
+    default: '120'
+  tools:
+    description: >-
+      Whitespace-separated mise tool selectors (any backend, e.g. "aqua:goreleaser/goreleaser cargo:cargo-auditable npm:typescript") to install instead of the consumer's entire mise config. Versions still come from the consumer config — list selectors, not versions. Empty (default) installs everything, so existing callers are unaffected. Use it to scope a job (e.g. a release build) to just the tools it needs, regardless of the project's language.
+    required: false
+    default: ''
+  install-dev-tools:
+    description: >-
+      Run the consumer's compile-from-source dev-tools installer if present (scripts/dev/install-dev-tools.sh, or the legacy install-go-dev-tools.sh). Default 'true' preserves current behavior; set 'false' for minimal jobs (e.g. release builds) that don't need the dev/lint tool set.
+    required: false
+    default: 'true'
+  cache:
+    description: >-
+      Release-isolation switch, not just a cache toggle. 'true' (default) caches and restores the mise tool trees + Go binaries between runs. 'false' is the isolation mode for token-bearing release/signing jobs that must not trust runner-global tool state: the cache step is skipped, setup-go caching is disabled, AND mise's data/cache/state dirs are isolated under RUNNER_TEMP. There is deliberately no "no cache but shared dirs" mode.
+    required: false
+    default: 'true'
+  extra-cache-paths:
+    description: >-
+      Additional newline-separated paths to include in the tool cache, for ecosystem caches this action doesn't know about (e.g. ~/.m2/repository for a Maven consumer). Appended to the built-in path list; no effect when cache is 'false'.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    # A job downloads Go once. When the consumer's mise config declares go, the
+    # tool install below brings it (provider "mise") and setup-go does not run;
+    # this step then writes what setup-go wrote beside its install,
+    # GOTOOLCHAIN=local and GOPATH/bin on PATH, in setup-go's place in the
+    # PATH order.
+    - name: Choose the Go provider
+      id: go
+      if: hashFiles('go.mod') != ''
+      shell: bash
+      run: |
+        set -euo pipefail
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        run_forge_ci toolchain setup-go-env \
+          --path-file "${FORGEJO_PATH:?}" \
+          --env-file "${FORGEJO_ENV:-${GITHUB_ENV:-}}"
+
+    - name: Setup Go from go.mod
+      if: hashFiles('go.mod') != '' && steps.go.outputs.provider != 'mise'
+      uses: https://code.forgejo.org/actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+      with:
+        go-version-file: go.mod
+        cache: ${{ inputs.cache != 'false' }}
+
+    # setup-go's module and build cache, for the jobs where it does not run.
+    - name: Cache Go modules and builds
+      if: hashFiles('go.mod') != '' && steps.go.outputs.provider == 'mise' && inputs.cache != 'false'
+      uses: https://code.forgejo.org/actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+      with:
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+        key: ci-go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.mod', 'go.sum') }}
+
+    - name: Derive tool-set cache discriminator
+      id: toolset
+      shell: bash
+      env:
+        TOOLSET_TOOLS: ${{ inputs.tools }}
+        TOOLSET_DEV: ${{ inputs.install-dev-tools }}
+        TOOLSET_EXTRA_PATHS: ${{ inputs.extra-cache-paths }}
+      run: |
+        set -euo pipefail
+        # The selected tool subset must be part of the cache key; forge-ci
+        # owns the exact discriminator so cache policy cannot drift from tests.
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        run_forge_ci toolchain cache-discriminator \
+          --tools "${TOOLSET_TOOLS}" \
+          --install-dev-tools "${TOOLSET_DEV}" \
+          --extra-cache-paths "${TOOLSET_EXTRA_PATHS}"
+
+    - name: Cache CI tools
+      id: cache-tools
+      if: ${{ inputs.cache != 'false' }}
+      uses: https://code.forgejo.org/actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+      with:
+        # Go module + build caches are owned by the steps above (keyed on the
+        # module files). Listing ~/go/pkg/mod here too would
+        # make a second writer for the same path under a coarser key. Cache only
+        # the mise-managed tool trees plus Go *binaries* (~/go/bin), which
+        # setup-go does not manage.
+        # EXTENSION POINT (new ecosystems): built-in paths cover the Go/Rust
+        # tool trees; consumers add ecosystem caches (e.g. ~/.m2/repository)
+        # via extra-cache-paths instead of editing this list.
+        path: |
+          ~/go/bin
+          ~/.local/share/mise
+          ~/.cargo/bin
+          ~/.rustup
+          ${{ inputs.extra-cache-paths }}
+        key: ci-tools-${{ inputs.cache-key-suffix }}-${{ steps.toolset.outputs.hash }}-${{ hashFiles('.mise.toml', 'mise.toml', 'mise.lock', 'mise.local.lock', 'tools/go.mod', 'tools/go.sum') }}
+        # On a lockfile or tool-set change the exact key misses; restore the
+        # previous tool trees as a warm base so the install steps only fetch the
+        # delta. Safe because those steps run whenever cache-hit != 'true', and a
+        # restore-keys (prefix) hit does NOT set cache-hit — so they always
+        # reconcile to the requested tools rather than trusting a partial restore.
+        restore-keys: |
+          ci-tools-${{ inputs.cache-key-suffix }}-${{ steps.toolset.outputs.hash }}-
+          ci-tools-${{ inputs.cache-key-suffix }}-
+
+    - name: Install bootstrap system dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        run_forge_ci toolchain install-system-dependencies \
+          --packages 'gettext libxml2-utils' \
+          --skip-if-missing-apt
+
+    - name: Bootstrap mise (checksum-verified)
+      shell: bash
+      env:
+        SETUP_CACHE: ${{ inputs.cache }}
+      # ${GITHUB_ACTION_PATH} points at this action's directory inside
+      # the runner. versions.env is bundled adjacent and forge-ci is bundled
+      # at the repository root, regardless of what the consumer has in its tree.
+      run: |
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        source "${GITHUB_ACTION_PATH}/versions.env"
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        run_forge_ci toolchain install-mise \
+          --version "${MISE_VERSION:?}" \
+          --linux-x64-sha256 "${MISE_LINUX_X64_MUSL_TAR_GZ_SHA256:?}" \
+          --linux-arm64-sha256 "${MISE_LINUX_ARM64_MUSL_TAR_GZ_SHA256:?}"
+        run_forge_ci toolchain setup-mise-env \
+          --cache "${SETUP_CACHE}" \
+          --path-file "${FORGEJO_PATH:?}" \
+          --env-file "${FORGEJO_ENV:-${GITHUB_ENV:-}}"
+
+    - name: Trust consumer mise config
+      shell: bash
+      run: |
+        set -euo pipefail
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        run_forge_ci toolchain trust-mise-config \
+          --mise-bin "$HOME/.local/bin/mise"
+
+    - name: Validate mise install mode
+      shell: bash
+      env:
+        MISE_LOCKED_INSTALL: ${{ inputs.mise-locked }}
+        MISE_GITHUB_TOKEN: ${{ inputs.mise-github-token }}
+      run: |
+        set -euo pipefail
+        github_token_present=false
+        if [ -n "${MISE_GITHUB_TOKEN:-}" ]; then
+          github_token_present=true
+        fi
+        unset MISE_GITHUB_TOKEN
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        run_forge_ci toolchain validate-mise-install \
+          --locked "${MISE_LOCKED_INSTALL:?}" \
+          --github-token-present="${github_token_present}"
+
+    - name: Install tools (cache miss)
+      if: steps.cache-tools.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        MISE_YES: "1"
+        MISE_GITHUB_TOKEN: ${{ inputs.mise-github-token }}
+        MISE_FORGEJO_TOKEN: ${{ inputs.mise-forgejo-token }}
+        MISE_LOCKED_INSTALL: ${{ inputs.mise-locked }}
+        MISE_INSTALL_HTTP_TIMEOUT_SECONDS: ${{ inputs.mise-http-timeout-seconds }}
+        TOOLS_SUBSET: ${{ inputs.tools }}
+        GITHUB_TOKEN: ''
+        GH_TOKEN: ''
+        FORGEJO_TOKEN: ''
+        GITEA_TOKEN: ''
+      run: |
+        set -euo pipefail
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        run_forge_ci toolchain install-mise-tools \
+          --locked "${MISE_LOCKED_INSTALL:?}" \
+          --tools "${TOOLS_SUBSET}" \
+          --http-timeout-seconds "${MISE_INSTALL_HTTP_TIMEOUT_SECONDS:?}" \
+          --mise-bin "$HOME/.local/bin/mise"
+
+    # Exposure is per-run runner state (symlinks in ~/.local/bin, FORGEJO_PATH
+    # entries); the cache only restores the tool trees. So this step is
+    # deliberately UNCONDITIONAL — gating it on cache-hit would leave tools
+    # installed but unreachable by bare name on every warm-cache run.
+    - name: Expose installed tools
+      shell: bash
+      env:
+        MISE_LOCKED_INSTALL: ${{ inputs.mise-locked }}
+      run: |
+        set -euo pipefail
+        export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        run_forge_ci toolchain expose-mise-tools \
+          --path-file "${FORGEJO_PATH:?}" \
+          --locked "${MISE_LOCKED_INSTALL:?}"
+
+    - name: Install consumer dev tools (cache miss)
+      if: steps.cache-tools.outputs.cache-hit != 'true' && inputs.install-dev-tools != 'false'
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Project-specific dev tools (if the consumer ships an installer) are the
+        # consumer's responsibility — e.g. a Go project's tools/go.mod compile, a
+        # Rust project's cargo helpers. Language-neutral name first, with the
+        # legacy Go-specific name as a fallback. Kept separate from the
+        # token-bearing mise install step, and after the job's Go is on PATH.
+        # Skipped when install-dev-tools=false.
+        for installer in \
+          ./scripts/dev/install-dev-tools.sh \
+          ./scripts/dev/install-go-dev-tools.sh; do
+          if [ -x "${installer}" ]; then
+            "${installer}"
+            break
+          fi
+        done

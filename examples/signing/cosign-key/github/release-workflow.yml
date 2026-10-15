@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+name: Release Workflow
+on:
+  push:
+    tags:
+      - "release-request/v*"
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  release:
+    uses: diggsweden/forge-ci/.github/workflows/release-orchestrator.yml@v0.90.0
+    permissions:
+      contents: write
+      packages: write
+      # Required by the orchestrator's permission ceiling; a Cosign key signs
+      # without minting an OIDC token.
+      id-token: write
+      actions: read
+    secrets:
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_GPG_PUBLIC_KEY: ${{ secrets.RELEASE_GPG_PUBLIC_KEY }}
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+    with:
+      branch: main
+      forge-ci-binary-ref: v0.90.0
+      artifacts-config: .forge-ci/artifacts.yml
+      changelog-creator: git-cliff
+      release-publisher: github-cli
+      # The trusted public key comes from a variable; its digest is written
+      # here, so changing the variable alone cannot swap the trusted key.
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: 0000000000000000000000000000000000000000000000000000000000000000 # sha256sum cosign.pub

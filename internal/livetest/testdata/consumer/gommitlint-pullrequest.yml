@@ -1,0 +1,182 @@
+# SPDX-FileCopyrightText: The Gommitlint Authors
+#
+# SPDX-License-Identifier: CC0-1.0
+name: Pull Request
+on:
+  pull_request:
+    branches:
+      - main
+# permissions: is a GitHub field Forgejo ignores (warning per run) --
+# kept for Scorecard Token-Permissions and GitHub portability. Real
+# restriction is Forgejo's repo-scoped read-default token.
+permissions:
+  contents: read
+env:
+  GIT_DEFAULT_HASH: sha256
+  GOTOOLCHAIN: local
+  # Trust the checked-out tree regardless of the job-container mount owner.
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: safe.directory
+  GIT_CONFIG_VALUE_0: "*"
+  LANG: C.UTF-8
+  LC_ALL: C.UTF-8
+jobs:
+  lint:
+    name: Lint
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    # Run inside nanolinter's prebuilt go-flavour image (as its non-root user):
+    # it ships nanolinter, the shared linters and Go, so `nanolinter verify`
+    # runs with no toolchain install or source compile. The image has git but
+    # no node, so checkout uses forge-ci's git-based checkout-consumer action
+    # instead of the JS actions/checkout.
+    #
+    # CYCLE (deliberate, bootstrap-style): the base image also SHIPS gommitlint,
+    # so this repo is gate-checked by a tool embedding its previous release.
+    # Both edges pin released artifacts (image digest here, version in
+    # nanolinter's .mise.toml), so upgrades roll in either order.
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 15
+    steps:
+      # No-node, sha256-aware checkout via the shared forge-ci composite action
+      # (the JS actions/checkout can't run in this node-less image). fetch-base
+      # pulls main for the commit-range/diff checks.
+      - name: Checkout repository
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/checkout-consumer@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          ref: ${{ forgejo.sha }}
+          fetch-base: main
+          object-format: sha256
+      - name: Download Go modules with bounded retries
+        run: bash .forgejo/scripts/download-go-modules.sh
+      # `nanolinter verify` with the image's own nanolinter, through the shared
+      # forge-ci action: it adds the mandated floor (secrets and sast run
+      # and block whatever nanolinter.toml says). The dedicated security job
+      # owns the three network-backed checks left out here, so the parallel
+      # quality plan does not duplicate downloads and scan results.
+      - name: Run lint suite (nanolinter verify)
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/lint-nanolinter@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          disable-checks: go-vulncheck,osv,trivy-fs
+  # Repo-specific gates that aren't nanolinter linting: the embedded JSON Schema
+  # drift check, gettext catalogs, and the SLSA Build L3 isolation invariant.
+  # The consumer-owned image supplies their exact Go and OS-tool contract.
+  repo-gates:
+    name: Repo gates
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 10
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+      - name: Checkout repository
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout --object-format sha256 --fetch-all-refs
+      - name: Download Go modules with bounded retries
+        run: bash .forgejo/scripts/download-go-modules.sh
+      - name: Enforce static workflow policy
+        run: bash .forgejo/scripts/check-workflow-policy.sh
+      # Drift gate for the embedded JSON Schema — keeps the committed
+      # schemas/gommitlint.schema.json and the Go config types in lockstep.
+      - name: Check config JSON Schema drift
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp)
+          go run ./internal/tools/schemagen "${tmp}"
+          diff -u schemas/gommitlint.schema.json "${tmp}"
+      - name: Check gettext catalog drift and syntax
+        run: |
+          set -euo pipefail
+          command -v msgmerge >/dev/null || { echo "ERROR: msgmerge is required by the PR runner contract" >&2; exit 1; }
+          command -v msgen >/dev/null || { echo "ERROR: msgen is required by the PR runner contract" >&2; exit 1; }
+          command -v msgattrib >/dev/null || { echo "ERROR: msgattrib is required by the PR runner contract" >&2; exit 1; }
+          command -v msgfmt >/dev/null || { echo "ERROR: msgfmt is required by the PR runner contract" >&2; exit 1; }
+          ./scripts/lint/translation-drift.sh
+          msgfmt -c -o /dev/null locale/gommitlint.pot
+          for po in locale/*/gommitlint.po; do msgfmt -c -o /dev/null "${po}"; done
+      # The version-stamp contract (-X main.*) exists in two toolchains:
+      # GoReleaser builds (.goreleaser.yaml, single anchored definition) and
+      # the musl PIE step (release.yml). They cannot share text, so this gate
+      # keeps the stamped variable sets in lockstep — a stamp added to one
+      # but not the other would make the Alpine binaries report differently.
+      # The gate compares NAMES; value FORMATS are convention: main.date is
+      # unix epoch on both sides ({{.CommitTimestamp}} / git log %ct).
+      - name: Check version-stamp ldflags lockstep
+        run: |
+          set -euo pipefail
+          goreleaser_stamps=$(grep -ohE -- '-X main\.[a-zA-Z]+' .goreleaser.yaml | sort -u)
+          musl_stamps=$(grep -ohE -- '-X main\.[a-zA-Z]+' .forgejo/workflows/release.yml | sort -u)
+          if [ "${goreleaser_stamps}" != "${musl_stamps}" ]; then
+            echo "ERROR: version-stamp ldflags drifted between .goreleaser.yaml and release.yml" >&2
+            diff <(echo "${goreleaser_stamps}") <(echo "${musl_stamps}") >&2 || true
+            exit 1
+          fi
+          echo "Version-stamp ldflags in lockstep: $(echo "${goreleaser_stamps}" | tr '\n' ' ')"
+      # SLSA Build L3 isolation invariant — verifies release.yml hasn't drifted
+      # in a way that would let the build-and-release job reach the cosign/GPG
+      # signing keys. Shared forge-ci gate; the job names and signing-secret
+      # defaults match this repo, while the internal digest output uses the
+      # runner-safe underscore spelling configured below.
+      # See docs/modules/ROOT/pages/security-posture.adoc.
+      - name: Verify SLSA L3 isolation invariants
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/check-l3-isolation@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          dist-digest-output: dist_digest
+  security:
+    name: Security
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    # Same go-flavour image as lint: it ships nanolinter plus govulncheck,
+    # osv-scanner and trivy, so the quick security scans run with no toolchain
+    # compile. Checkout via the no-node forge-ci helper.
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/checkout-consumer@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          ref: ${{ forgejo.sha }}
+          object-format: sha256
+      - name: Download Go modules with bounded retries
+        run: bash .forgejo/scripts/download-go-modules.sh
+      - name: Run quick security scans
+        run: |
+          set -euo pipefail
+          nanolinter lint go-vulncheck
+          nanolinter lint osv
+          nanolinter lint trivy-fs
+  test:
+    name: Test
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 15
+    needs: [lint, security]
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+      - name: Checkout repository
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout --object-format sha256 --depth 1
+      - name: Download Go modules with bounded retries
+        run: bash .forgejo/scripts/download-go-modules.sh
+      - name: Run unit tests and fuzz seeds with the race detector
+        run: |
+          set -euo pipefail
+          go list ./... | grep -v generated | xargs go test -count=1 -race -buildvcs=false
+      # The step above, `go build` and the linters all walk past a build-tagged
+      # file as if it were not there, and the tiers those tags select run in no
+      # workflow: they need a built product, a git fixture and the local
+      # sandbox. So they can stop compiling with nothing going red, and one
+      # already had. Vet compiles them and executes nothing, which is why the
+      # workflow-policy guard admits it where running those tags is refused.
+      # This is the CI half of `just _test-tags-compile`; keep both tag lists
+      # the same.
+      - name: Compile-check the build-tagged test tiers
+        run: |
+          set -euo pipefail
+          go vet -tags integration ./...
+          go vet -tags blackbox ./...

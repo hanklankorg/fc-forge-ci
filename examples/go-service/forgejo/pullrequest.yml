@@ -1,0 +1,118 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# PRE-RELEASE: do not copy or pin this template from a mutable branch. No
+# tagged forge-ci release carries the Forgejo layer yet. Use it only from a
+# release you have authenticated, and pin that exact commit.
+#
+# Minimal PR workflow for a Go service consumer of forge-ci's Forgejo layer,
+# the same as the Go CLI one (examples/go-cli/forgejo/): the image is built
+# only by release.yml. Copy to
+# your repo as .forgejo/workflows/pullrequest.yml and replace the placeholders
+# with the SAME values as in release.yml: FORGE_HOST (host of your Forgejo
+# instance), OWNER (who hosts forge-ci there) and PIN_FORGE_CI_SHA:
+#
+#   sed 's/PIN_FORGE_CI_SHA/<sha>/g' .forgejo/workflows/pullrequest.yml \
+#     > .forgejo/workflows/pullrequest.yml.new &&
+#   mv .forgejo/workflows/pullrequest.yml.new .forgejo/workflows/pullrequest.yml
+#
+# Three jobs, none of which receives a secret or installs anything:
+#
+#   lint            the repository's nanolinter plan, with a floor of checks
+#                   its nanolinter.toml cannot switch off
+#   trust-boundary  the release-isolation gate: it statically verifies
+#                   release.yml's secret boundaries on every PR (the build job
+#                   holds no signing keys, the signer call site enumerates its
+#                   secrets, and every forge-ci ref carries one identical
+#                   pin)
+#   build           the tests and a build, with the action the release uses
+#
+# lint and build run in the image named by the variable CI_JOB_IMAGE: a
+# nanolinter image of your ecosystem's flavour (it carries nanolinter, its
+# check tools and the Go toolchain), pinned by digest. PR jobs use the runner
+# selected by CI_RUNNER_LABEL and the tools of that image: never pass secrets
+# or rate-limit tokens, install packages, or execute a shipped-product
+# black-box test here. Add your own static, unit or component-test jobs
+# alongside these.
+name: Pull Request
+
+on:
+  pull_request:
+    branches: [main]
+
+# permissions: is a GitHub field Forgejo ignores (warning per run) --
+# kept for Scorecard Token-Permissions and GitHub portability. Real
+# restriction is Forgejo's repo-scoped read-default token.
+permissions:
+  contents: read
+
+env:
+  # Trust the checked-out tree whoever owns the job container's workspace
+  # mount: the image runs as its own user.
+  GIT_CONFIG_COUNT: '1'
+  GIT_CONFIG_KEY_0: safe.directory
+  GIT_CONFIG_VALUE_0: '*'
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 15
+    steps:
+      # Checkout without Node, which the image does not have. fetch-base
+      # brings main for the commit-range and diff checks.
+      - name: Checkout repository
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/checkout-consumer@PIN_FORGE_CI_SHA
+        with:
+          fetch-base: main
+
+      # The default floor is secrets,sast. Forgejo ingests no SARIF, so the
+      # findings are in this step's log.
+      - name: Lint
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/lint-nanolinter@PIN_FORGE_CI_SHA
+
+  trust-boundary:
+    name: Release isolation gate
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 10
+    steps:
+      - name: Set up forge-ci
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA
+
+      # Engine checkout: sha256-aware, node-free, never persists credentials.
+      - name: Checkout repository
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout --depth 1
+
+      - name: Verify release isolation boundaries
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/check-l3-isolation@PIN_FORGE_CI_SHA
+        with:
+          # The build job hands dist/ (and its digest) to the signer directly
+          # via upload-dist's output in this shape.
+          build-job: build
+          dist-digest-output: dist-digest
+
+  build:
+    name: Build and test
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 15
+    env:
+      # The image's Go is the toolchain; a pull request downloads no other.
+      GOTOOLCHAIN: local
+    steps:
+      - name: Checkout repository
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/checkout-consumer@PIN_FORGE_CI_SHA
+
+      # `go test ./...` and a build for the runner's platform, by the action
+      # the release build uses. No Build SBOM: nothing is published from here.
+      - name: Build and test
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/build-go@PIN_FORGE_CI_SHA
+        with:
+          version: 0.0.0-pr
+          commit: ${{ forgejo.sha }}
+          build-sbom: 'false'

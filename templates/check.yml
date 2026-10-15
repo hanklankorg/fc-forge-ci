@@ -1,0 +1,109 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# GitLab 18.7+: checksum-bound engine checkout followed by consumer-owned checks.
+# Signing and publication credentials must be scoped to their separate jobs.
+spec:
+  component: [sha, reference]
+  inputs:
+    engine-project:
+      description: Project serving this component and its public engine package, including any subgroups.
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
+    job-image:
+      description: Digest-pinned image containing Bash, Git, curl, sha256sum and the consumer's pinned check tools.
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    job-name:
+      default: check
+      description: Name of the generated check job.
+    stage:
+      default: test
+      description: Pipeline stage for the check job.
+    commands:
+      type: array
+      description: Consumer check commands; their failures fail this job.
+---
+"$[[ inputs.job-name ]]":
+  stage: $[[ inputs.stage ]]
+  # A consumer's image may start a tool of its own. The Docker executor would
+  # run the job's shell through that entrypoint; the Kubernetes one ignores it.
+  image:
+    name: $[[ inputs.job-image ]]
+    entrypoint: [""]
+  needs: []
+  cache: []
+  variables:
+    GIT_STRATEGY: empty
+    GIT_SUBMODULE_STRATEGY: none
+    RC_ENGINE_PROJECT: "$[[ inputs.engine-project ]]"
+  before_script:
+    - |
+      set -euo pipefail
+      # Check before any checkout or consumer command, not after unsetting a
+      # misplaced key. GitLab protected variables also need environment scopes.
+      for name in RELEASE_SSH_SIGNING_KEY RELEASE_COSIGN_PRIVATE_KEY \
+        RELEASE_COSIGN_PASSPHRASE RELEASE_GPG_PRIVATE_KEY RELEASE_GPG_PASSPHRASE \
+        RELEASE_TOKEN RELEASE_REGISTRY_TOKEN SSH_SIGNING_KEY COSIGN_KEY \
+        COSIGN_PASSWORD GPG_SIGNING_KEY GPG_SIGNING_PASSWORD GITLAB_TOKEN; do
+        if [ -n "${!name:-}" ]; then
+          echo "ERROR: ${name} must not be available to a source-check job." >&2
+          exit 1
+        fi
+      done
+      expected='$[[ component.sha ]]'
+      reference='$[[ component.reference ]]'
+      if [ "${reference}" != "${expected}" ]; then
+        echo 'ERROR: pin the check component by its full commit SHA.' >&2
+        exit 1
+      fi
+      # The pipeline SHA identifies the consumer's object format without a
+      # project-metadata API call, which private projects deny to job tokens.
+      if [[ "${CI_COMMIT_SHA:?}" =~ ^[0-9a-f]{40}$ ]]; then
+        consumer_object_format=sha1
+      elif [[ "${CI_COMMIT_SHA}" =~ ^[0-9a-f]{64}$ ]]; then
+        consumer_object_format=sha256
+      else
+        echo 'ERROR: CI_COMMIT_SHA must be a full SHA-1 or SHA-256 commit.' >&2
+        exit 1
+      fi
+      export FORGE_CI_PACKAGE_PROVIDER=gitlab
+      export FORGE_CI_REPOSITORY_URL="${CI_SERVER_URL:?}/${RC_ENGINE_PROJECT:?}.git"
+      RC_HELPERS_DIR=$(mktemp -d /tmp/forge-ci-helpers.XXXXXXXX)
+      readonly RC_HELPERS_DIR
+      trap 'rm -rf -- "${RC_HELPERS_DIR}"' EXIT
+      git_options=(-c core.hooksPath=/dev/null -c credential.helper=)
+      checkout_environment=(env)
+      if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+        git_options+=(-c "http.sslCAInfo=${CI_SERVER_TLS_CA_FILE}")
+        checkout_environment+=("GIT_SSL_CAINFO=${CI_SERVER_TLS_CA_FILE}" "SSL_CERT_FILE=${CI_SERVER_TLS_CA_FILE}")
+      fi
+      # The consumer may default Git to SHA-256. The helper repository has
+      # its own object format, independent of that consumer setting.
+      object_format=sha1
+      if [ "${#expected}" -eq 64 ]; then object_format=sha256; fi
+      git init --quiet --object-format="${object_format}" "${RC_HELPERS_DIR}"
+      git -C "${RC_HELPERS_DIR}" remote add origin "${FORGE_CI_REPOSITORY_URL}"
+      GIT_TERMINAL_PROMPT=0 git "${git_options[@]}" -C "${RC_HELPERS_DIR}" \
+        fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin "${expected}"
+      git "${git_options[@]}" -C "${RC_HELPERS_DIR}" checkout --quiet --detach "${expected}"
+      test "$(git -C "${RC_HELPERS_DIR}" rev-parse HEAD)" = "${expected}"
+      # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+      source "${RC_HELPERS_DIR}/.forgejo/bin/lib-forge-ci.sh"
+      if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+        CURL_CA_BUNDLE="${CI_SERVER_TLS_CA_FILE}" fetch_forge_ci
+      else
+        fetch_forge_ci
+      fi
+      SIGNER_STRICT=1 verify_forge_ci
+      export FORGE_CI_BIN="${HELPERS_ENGINE_VERIFIED}"
+      export PATH="${HELPERS_ROOT}/bin:${PATH}"
+      export FORGE_CI_PROVIDER=gitlab
+      export CI_OUTPUT="${RC_HELPERS_DIR}/outputs.env"
+      # Limit custom trust to checkout; consumer tools retain their normal
+      # public roots for module downloads, links and vulnerability databases.
+      "${checkout_environment[@]}" "${FORGE_CI_BIN}" platform checkout --workspace "${CI_PROJECT_DIR:?}" \
+        --server-url "${CI_SERVER_URL:?}" --repository "${CI_PROJECT_PATH:?}" \
+        --ref "${CI_COMMIT_SHA}" --object-format "${consumer_object_format}" \
+        --fetch-base "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-${CI_DEFAULT_BRANCH:?}}"
+      cd "${CI_PROJECT_DIR}"
+  script: $[[ inputs.commands ]]

@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# actionlint reads its configuration from this path only, also for the
+# workflows under .forgejo/workflows. It does not model Forgejo's `forgejo`
+# context, which those workflows use; the ignore is scoped to them so a
+# misspelled context in a GitHub workflow is still reported.
+paths:
+  .forgejo/workflows/**/*.yml:
+    ignore:
+      - 'undefined variable "forgejo"'

@@ -1,0 +1,78 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# nanolinter verify plan.
+#
+# Generated via `nanolinter init --profile strict`. Strict means every
+# check listed in [verify].checks also appears in [policy].block — any
+# failure fails `nanolinter verify` (and therefore `just verify`).
+#
+# Re-derive with: `nanolinter init --profile strict --print`
+# Inspect plan:   `nanolinter dry-run-plan`
+# Tool health:    `nanolinter doctor`
+
+[detect]
+auto = true
+
+[verify]
+checks = [
+  "version-control",
+  "commits",
+  "secrets",
+  "osv",
+  "sast",
+  "typos",
+  "toml",
+  "links",
+  "yaml",
+  "markdown",
+  "license",
+  "container",
+  "xml",
+  "go-vulncheck",
+  "go-golangci",
+  "go-wsl",
+  "go-format",
+  "shell",
+  "shell-format",
+  "actions",
+  "trivy-fs",
+  "security-scorecard",
+]
+
+[policy]
+block = [
+  "version-control",
+  "commits",
+  "secrets",
+  "osv",
+  "sast",
+  "typos",
+  "toml",
+  "links",
+  "yaml",
+  "markdown",
+  "license",
+  "container",
+  "xml",
+  "go-vulncheck",
+  "go-golangci",
+  "go-wsl",
+  "go-format",
+  "shell",
+  "shell-format",
+  "actions",
+  "trivy-fs",
+  "security-scorecard",
+]
+
+# A build-context ignore file named after its Containerfile is discovered as a
+# Containerfile (the name starts with "Containerfile."), and is not one.
+[verify.filters.container]
+exclude = '\.containerignore$'
+
+# Match .golangci.yml's bounded five-minute budget for cold-cache analysis.
+# The wrapper's default 60 seconds otherwise kills it before it can report.
+[linters.go-golangci]
+timeout_secs = 300

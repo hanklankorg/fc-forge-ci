@@ -1,0 +1,150 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Description:
+# Default PR lint surface — runs `nanolinter verify` against the consumer
+# repository and uploads nanolinter's security findings (OpenGrep SAST, OSV
+# dependency scan, secrets, trivy-fs) to GitHub Code Scanning as SARIF.
+#
+# Runs the nanolinter FLAVOUR image (e.g. codefloe.com/itiquette/nanolinter:java),
+# which bakes nanolinter and its whole check toolchain (opengrep, osv-scanner,
+# java checkstyle/pmd/spotbugs, ...), the way nanolinter documents it: the
+# checkout mounted at /workspace.
+#
+# The job itself runs on the runner, not in the image. A job container would
+# run every step, GitHub's own actions included, as that user, which cannot
+# write the runner's file-command files ($GITHUB_OUTPUT, $GITHUB_STEP_SUMMARY,
+# ...), and GitHub mounts the Docker socket into job containers, so running it
+# as root instead would hand the linted code the runner. Here only the lint runs
+# in the image, as the runner's unprivileged user with no capabilities;
+# checkout, summary and SARIF steps run on the runner like any other job.
+#
+# How to use:
+# 1. Ensure your project has a nanolinter.toml verify plan.
+# 2. It is called automatically by pullrequest-orchestrator.yml when
+#    lint-engine is nanolinter (the default), which picks the flavour image
+#    from project-type. Direct callers set `nanolinter-image` to the flavour
+#    matching their ecosystem; the default is the ecosystem-neutral core.
+name: Lint Nanolinter
+on:
+  workflow_call: # yamllint disable-line rule:truthy
+    inputs:
+      nanolinter-image:
+        description: "nanolinter flavour image to lint in (pin by @sha256): core, go, java, kotlin, javascript-typescript, rust or swift, e.g. codefloe.com/itiquette/nanolinter:java"
+        required: false
+        default: "codefloe.com/itiquette/nanolinter:core"
+        type: string
+      required-lints:
+        description: "Mandated lint floor — comma-separated check ids passed to `nanolinter verify --require`. These checks are forced to run AND block regardless of the consumer's nanolinter.toml, so a project cannot silently skip them. Empty disables the floor."
+        required: false
+        default: "secrets,sast"
+        type: string
+      forge-ci-binary-ref:
+        description: "forge-ci version installed (cosign-verified) for the SARIF enrich/upload commands. Use a published release tag (vN.N.N or vN.N.N-pre) so the bootstrap scripts + signature resolve."
+        required: false
+        default: "v0.90.0"
+        type: string
+      upload-sarif:
+        description: "Upload nanolinter's security SARIF to GitHub Code Scanning"
+        required: false
+        default: true
+        type: boolean
+      sarif-category:
+        description: "Code Scanning category label for the nanolinter security SARIF"
+        required: false
+        default: "nanolinter-security"
+        type: string
+    secrets:
+      CODE_SCANNING_TOKEN:
+        description: "Token with security-events:write for SARIF upload"
+        required: false
+permissions:
+  contents: read
+jobs:
+  nanolinter-lint:
+    name: Nanolinter
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      NANOLINTER_IMAGE: ${{ inputs['nanolinter-image'] }}
+    steps:
+      - name: Checkout forge-ci bootstrap installers
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
+          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          path: .github-shared
+          sparse-checkout: scripts/bootstrap
+      - name: Install forge-ci binary
+        env:
+          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
+        run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
+      - name: Checkout repository
+        # Full history and the base branch, for nanolinter's git-based checks.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CHECKOUT_PATH: src
+          CHECKOUT_FETCH_ALL_REFS: "true"
+        run: forge-ci platform checkout
+      - name: Run nanolinter (security gate)
+        # verify runs the full plan and gates on every check; --report
+        # sarif-security only selects what the SARIF holds. The step fails on a
+        # blocking finding, next to the per-check output; the SARIF steps below
+        # still run (if: always()). --require is the mandated lint floor: those
+        # checks run and block whatever the consumer's nanolinter.toml says.
+        #
+        # The image runs as the runner's user, so the checkout it reads and
+        # writes (builds) and the reports it leaves are all that user's. This
+        # is the Docker counterpart of the --userns=keep-id mapping nanolinter
+        # documents for Podman. The image keeps HOME=/home/nanolinter, where its
+        # tool manager expects it, on a private empty tmpfs; the container has
+        # no capabilities and cannot gain privileges. The token stays out of
+        # the container; the run context nanolinter reads is passed by name.
+        env:
+          REQUIRED_LINTS: ${{ inputs['required-lints'] }}
+          NL_OUT: ${{ runner.temp }}/nanolinter
+        run: |
+          set -eu
+          mkdir -p "$NL_OUT"
+          set --
+          if [ -n "$REQUIRED_LINTS" ]; then set -- --require "$REQUIRED_LINTS"; fi
+          rc=0
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /home/nanolinter:rw,exec,mode=1777 \
+            -v "$GITHUB_WORKSPACE/src:/workspace" -v "$NL_OUT:/out" \
+            -e CI -e GITHUB_ACTIONS -e GITHUB_EVENT_NAME -e GITHUB_REF -e GITHUB_SHA \
+            -e GITHUB_BASE_REF -e GITHUB_HEAD_REF -e GITHUB_REPOSITORY -e GITHUB_SERVER_URL \
+            -e GITHUB_STEP_SUMMARY=/out/step-summary.md \
+            "$NANOLINTER_IMAGE" verify "$@" --report sarif-security --out /out/nanolinter-security.sarif || rc=$?
+          if [ -f "$NL_OUT/step-summary.md" ]; then
+            cat "$NL_OUT/step-summary.md" >>"$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$rc" -ne 0 ]; then
+            printf '::error::nanolinter found blocking lint issues — see the per-check summary above (this is a lint gate on your code, not a workflow error).\n'
+          fi
+          exit "$rc"
+      - name: Enrich nanolinter SARIF for GitHub dedupe
+        if: always() && inputs.upload-sarif
+        env:
+          SARIF_FILE: ${{ runner.temp }}/nanolinter/nanolinter-security.sarif
+        run: |
+          set -eu
+          [ -f "$SARIF_FILE" ] || exit 0
+          forge-ci security report enrich-sarif
+      - name: Upload nanolinter SARIF to Code Scanning
+        # Uses CODE_SCANNING_TOKEN (not GITHUB_TOKEN); continue-on-error so a
+        # transient Code Scanning API failure doesn't turn the lint gate red.
+        if: always() && inputs.upload-sarif
+        continue-on-error: true
+        env:
+          CODE_SCANNING_TOKEN: ${{ secrets.CODE_SCANNING_TOKEN }}
+          SARIF_CATEGORY: ${{ inputs.sarif-category }}
+          SARIF_FILE: ${{ runner.temp }}/nanolinter/nanolinter-security.sarif
+        run: |
+          set -eu
+          [ -f "$SARIF_FILE" ] || exit 0
+          forge-ci security report upload-sarif

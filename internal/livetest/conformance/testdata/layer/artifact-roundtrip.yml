@@ -1,0 +1,183 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Live-tier fixture of TestForgejoLayer_ArtifactRoundTrip. It is a template and
+# not a workflow of this repository: the test renders the placeholders, which
+# are the ones the Forgejo examples use plus the facts of one run, and
+# commits the result to the default branch of a scratch repository on the lab.
+# That commit is the trigger. The layer under test is served from another
+# branch of the same repository, and pushing that branch starts nothing.
+name: Forgejo layer artifact round trip
+
+on:
+  push:
+    branches: [main]
+
+env:
+  ACCEPTANCE_SERVER_URL: RENDER_ACCEPTANCE_SERVER_URL
+  ACCEPTANCE_REPOSITORY: RENDER_ACCEPTANCE_REPOSITORY
+  ARTIFACT_NAME_PREFIX: layer-artifact-roundtrip
+
+jobs:
+  artifact-roundtrip-upload:
+    name: Upload deterministic artifact fixture
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 10
+    outputs:
+      artifact-name: ${{ steps.upload.outputs.artifact-name }}
+      engine-digest: ${{ steps.setup.outputs.sha256 }}
+    steps:
+      - name: Verify fixed acceptance identity
+        env:
+          OBSERVED_SERVER_URL: ${{ forgejo.server_url }}
+          OBSERVED_REPOSITORY: ${{ forgejo.repository }}
+        run: |
+          set -euo pipefail
+          observed_server_url=${OBSERVED_SERVER_URL%/}
+          if [ "${observed_server_url}" != "${ACCEPTANCE_SERVER_URL}" ] ||
+            [ "${OBSERVED_REPOSITORY}" != "${ACCEPTANCE_REPOSITORY}" ]; then
+            printf 'ERROR: live acceptance identity mismatch\n' >&2
+            exit 1
+          fi
+
+      - name: Verify the exact forge-ci binary
+        id: setup
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA
+        with:
+          expected-sha256: RENDER_FORGE_CI_SHA256
+          add-to-path: 'false'
+
+      - name: Upload the deterministic dist-like tree
+        id: upload
+        env:
+          FORGE_CI_BIN: ${{ steps.setup.outputs.binary-path }}
+          FORGE_CI_PROVIDER: forgejo
+        run: |
+          set -euo pipefail
+          case "${FORGEJO_RUN_ID:?}" in (*[!0-9]*|'') exit 1 ;; esac
+          case "${FORGEJO_RUN_ATTEMPT:?}" in (*[!0-9]*|'') exit 1 ;; esac
+          artifact_name="${ARTIFACT_NAME_PREFIX}-${FORGEJO_RUN_ID}-${FORGEJO_RUN_ATTEMPT}"
+          src=$(mktemp -d "${RUNNER_TEMP:-/tmp}/artifact-roundtrip-src.XXXXXX")
+          trap 'rm -rf -- "${src}"' EXIT
+          mkdir -p "${src}/nanolinter-pie_x86_64-unknown-linux-gnu" \
+                   "${src}/nanolinter-pie-musl_aarch64-unknown-linux-musl"
+          head -c 3000000 /dev/zero >"${src}/nanolinter-pie_x86_64-unknown-linux-gnu/nanolinter"
+          head -c 2500000 /dev/zero >"${src}/nanolinter-pie-musl_aarch64-unknown-linux-musl/nanolinter"
+          printf 'sha256  artifact\n' >"${src}/nanolinter_9.9.9_checksums.txt"
+          printf 'cosign-bundle\n' >"${src}/nanolinter_9.9.9_checksums.txt.bundle"
+          head -c 40000 /dev/zero >"${src}/nanolinter_9.9.9_amd64.deb"
+          printf '{"bomFormat":"CycloneDX"}\n' >"${src}/nanolinter-9.9.9-linux-x86_64.tar.gz.sbom.json"
+          printf 'hidden\n' >"${src}/.hidden-manifest"
+          : >"${src}/empty-marker"
+
+          "${FORGE_CI_BIN}" artifact upload \
+            --name "${artifact_name}" \
+            --dir "${src}" \
+            --retention-days 1 \
+            --include-hidden
+
+      - name: Verify the kebab-case artifact output
+        env:
+          ARTIFACT_NAME_OUTPUT: ${{ steps.upload.outputs.artifact-name }}
+        run: |
+          set -euo pipefail
+          case "${FORGEJO_RUN_ID:?}" in (*[!0-9]*|'') exit 1 ;; esac
+          case "${FORGEJO_RUN_ATTEMPT:?}" in (*[!0-9]*|'') exit 1 ;; esac
+          expected_artifact_name="${ARTIFACT_NAME_PREFIX}-${FORGEJO_RUN_ID}-${FORGEJO_RUN_ATTEMPT}"
+          if [ "${ARTIFACT_NAME_OUTPUT}" != "${expected_artifact_name}" ]; then
+            printf 'ERROR: forge-ci kebab-case artifact output mismatch\n' >&2
+            exit 1
+          fi
+
+      - name: Deliberately fail forge-ci validation
+        id: cli-failure
+        continue-on-error: true
+        env:
+          FORGE_CI_BIN: ${{ steps.setup.outputs.binary-path }}
+        run: |
+          set -euo pipefail
+          "${FORGE_CI_BIN}" validate tag release-guard --tag not-a-semver-release
+
+      - name: Verify runner failure propagation
+        if: always()
+        env:
+          CLI_FAILURE_OUTCOME: ${{ steps.cli-failure.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "${CLI_FAILURE_OUTCOME}" != failure ]; then
+            printf 'ERROR: runner did not report the deliberate CLI failure\n' >&2
+            exit 1
+          fi
+
+  artifact-roundtrip-download:
+    name: Download and independently compare artifact fixture
+    needs: artifact-roundtrip-upload
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 10
+    steps:
+      - name: Verify fixed acceptance identity
+        env:
+          OBSERVED_SERVER_URL: ${{ forgejo.server_url }}
+          OBSERVED_REPOSITORY: ${{ forgejo.repository }}
+        run: |
+          set -euo pipefail
+          observed_server_url=${OBSERVED_SERVER_URL%/}
+          if [ "${observed_server_url}" != "${ACCEPTANCE_SERVER_URL}" ] ||
+            [ "${OBSERVED_REPOSITORY}" != "${ACCEPTANCE_REPOSITORY}" ]; then
+            printf 'ERROR: live acceptance identity mismatch\n' >&2
+            exit 1
+          fi
+
+      - name: Independently verify the exact forge-ci binary
+        id: setup
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA
+        with:
+          expected-sha256: RENDER_FORGE_CI_SHA256
+          add-to-path: 'false'
+
+      - name: Verify cross-job engine digest propagation
+        env:
+          UPLOAD_ENGINE_DIGEST: ${{ needs.artifact-roundtrip-upload.outputs.engine-digest }}
+          DOWNLOAD_ENGINE_DIGEST: ${{ steps.setup.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${UPLOAD_ENGINE_DIGEST}" ] ||
+            [ "${UPLOAD_ENGINE_DIGEST}" != "${DOWNLOAD_ENGINE_DIGEST}" ]; then
+            printf 'ERROR: cross-job forge-ci engine digest mismatch\n' >&2
+            exit 1
+          fi
+
+      - name: Download and compare the tree byte-for-byte
+        env:
+          FORGE_CI_BIN: ${{ steps.setup.outputs.binary-path }}
+          FORGE_CI_PROVIDER: forgejo
+          UPLOADED_ARTIFACT_NAME: ${{ needs.artifact-roundtrip-upload.outputs.artifact-name }}
+        run: |
+          set -euo pipefail
+          case "${FORGEJO_RUN_ID:?}" in (*[!0-9]*|'') exit 1 ;; esac
+          case "${FORGEJO_RUN_ATTEMPT:?}" in (*[!0-9]*|'') exit 1 ;; esac
+          expected_artifact_name="${ARTIFACT_NAME_PREFIX}-${FORGEJO_RUN_ID}-${FORGEJO_RUN_ATTEMPT}"
+          if [ "${UPLOADED_ARTIFACT_NAME}" != "${expected_artifact_name}" ]; then
+            printf 'ERROR: cross-job artifact name mismatch\n' >&2
+            exit 1
+          fi
+
+          want=$(mktemp -d "${RUNNER_TEMP:-/tmp}/artifact-roundtrip-want.XXXXXX")
+          out=$(mktemp -d "${RUNNER_TEMP:-/tmp}/artifact-roundtrip-out.XXXXXX")
+          trap 'rm -rf -- "${want}" "${out}"' EXIT
+          mkdir -p "${want}/nanolinter-pie_x86_64-unknown-linux-gnu" \
+                   "${want}/nanolinter-pie-musl_aarch64-unknown-linux-musl"
+          head -c 3000000 /dev/zero >"${want}/nanolinter-pie_x86_64-unknown-linux-gnu/nanolinter"
+          head -c 2500000 /dev/zero >"${want}/nanolinter-pie-musl_aarch64-unknown-linux-musl/nanolinter"
+          printf 'sha256  artifact\n' >"${want}/nanolinter_9.9.9_checksums.txt"
+          printf 'cosign-bundle\n' >"${want}/nanolinter_9.9.9_checksums.txt.bundle"
+          head -c 40000 /dev/zero >"${want}/nanolinter_9.9.9_amd64.deb"
+          printf '{"bomFormat":"CycloneDX"}\n' >"${want}/nanolinter-9.9.9-linux-x86_64.tar.gz.sbom.json"
+          printf 'hidden\n' >"${want}/.hidden-manifest"
+          : >"${want}/empty-marker"
+
+          "${FORGE_CI_BIN}" artifact download \
+            --name "${UPLOADED_ARTIFACT_NAME}" \
+            --dir "${out}"
+          diff -r "${want}" "${out}"

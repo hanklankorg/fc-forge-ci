@@ -1,0 +1,338 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# GitHub Release Creator
+# 
+# Purpose: Stages planned release artifacts, generates integrity evidence, and
+# creates the GitHub Release through forge-ci's provider integration.
+#
+# How it works:
+# 1. Downloads all artifacts from the workflow run
+# 2. Generates checksums (SHA-256) for all artifacts
+# 3. Creates SBOM in multiple formats (CycloneDX, SPDX) if enabled
+# 4. Signs artifacts with the configured GPG, Sigstore, or KMS backend
+# 5. Creates the GitHub release with its changelog
+# 6. Uploads all artifacts, checksums, signatures, and SBOMs to release
+#
+# Security controls:
+# - Configurable GPG, Sigstore-keyless, or KMS signing
+# - Checksum generation for integrity verification
+# - SBOM for supply chain transparency
+# - Support for attestation attachment
+#
+# Required Secrets:
+#   RELEASE_GPG_PRIVATE_KEY: Required only for GPG signing
+#   RELEASE_GPG_PASSPHRASE: Required only for passphrase-protected GPG keys
+#   RELEASE_TOKEN: For release creation and asset upload
+#
+# Required Permissions:
+#   actions: read     # Download workflow artifacts
+#   contents: write   # Create releases + upload assets
+#   packages: read    # Pull a private runtime image when configured
+#   id-token: write   # Sigstore-keyless signing when configured
+#
+# Generated Files:
+#   - checksums.sha256: SHA-256 checksums for all artifacts
+#   - *.asc or *.bundle: GPG or cosign signature sidecars
+#   - <project>-<version>-sboms.zip: bundled CycloneDX/SPDX SBOMs
+name: Create GitHub Release
+on:
+  workflow_call: # yamllint disable-line rule:truthy
+    inputs:
+      release-name:
+        description: "Release title shown in GitHub Releases"
+        required: false
+        default: ""
+        type: string
+      checkout-ref:
+        description: "Explicit Git ref to checkout and release (branch, tag, or SHA)"
+        required: true
+        type: string
+      attach-artifacts:
+        description: "Glob patterns for artifacts to attach (newline or comma separated)"
+        required: false
+        type: string
+      sboms:
+        description: "SBOMs to generate and attach: all | none | comma-list of build,analyzed-artifact,analyzed-container (default: all)"
+        required: false
+        default: "all"
+        type: string
+      sign-artifacts:
+        description: "Sign release artifacts with the backend selected by config-plan-json"
+        required: false
+        default: true
+        type: boolean
+      draft:
+        description: "Create as draft release"
+        required: false
+        default: false
+        type: boolean
+      config-plan-json:
+        description: "Typed config-plan-json emitted by config parse-artifacts. SBOM generation uses it to preserve per-artifact working directories."
+        required: true
+        type: string
+      artifact-transfer-plan-json:
+        description: "Typed artifact transfer plan emitted by plan release."
+        required: true
+        type: string
+      changelog-config:
+        description: "Path to changelog configuration file"
+        required: false
+        default: ".github-templates/templates/gitcliff/default.toml"
+        type: string
+      make-latest:
+        description: "Mark as latest release (true, false, legacy)"
+        required: false
+        default: "true"
+        type: string
+      egress-policy:
+        description: "Egress policy for the Harden Runner step. Default `audit` (visibility-only). Promote to `block` for strict posture — pair with `egress-allowed-endpoints` covering at minimum: api.github.com:443, objects.githubusercontent.com:443, *.actions.githubusercontent.com:443, github.com:443, codeload.github.com:443. Whether you also need Sigstore endpoints is precomputed as `sign.requires_sigstore_egress` in config-plan-json — read that rather than re-deriving it here. When it is true, add rekor.sigstore.dev:443 + tuf-repo-cdn.sigstore.dev:443; sign.method=sigstore additionally needs fulcio.sigstore.dev:443 + token.actions.githubusercontent.com:443 for the keyless OIDC exchange. Note that sign.method=kms reaches Rekor too unless sign.transparency=none — cosign publishes to the transparency log on every method it signs with, and a blocked Rekor fails the signing step hard. Add your KMS provider (e.g. *.amazonaws.com, *.googleapis.com, *.vault.azure.net) when sign.method=kms."
+        required: false
+        default: "audit"
+        type: string
+      egress-allowed-endpoints:
+        description: "Multi-line space/newline-separated list of `host:port` endpoints permitted under `egress-policy: block`. Ignored when policy is `audit`. See the egress-policy description for the recommended baseline."
+        required: false
+        default: ""
+        type: string
+      runtime-image:
+        description: "forge-ci runtime image (full — needs syft for SBOM generation). Optional override; default uses the matching v0.90.0 runtime image."
+        required: false
+        default: "ghcr.io/diggsweden/forge-ci-runtime:v0.90.0"
+        type: string
+      cosign-public-key:
+        description: "The trusted Cosign public key, PEM, when artifacts.yml signs with sign.key env://COSIGN_KEY. Pass the COSIGN_PUBLIC_KEY repository or organization variable: each job that receives the key secret refuses to sign unless the key derives this public key."
+        required: false
+        default: ""
+        type: string
+      cosign-public-key-sha256:
+        description: "SHA-256 of cosign-public-key as `sha256sum cosign.pub` prints it, written out in the calling workflow, so a changed variable alone cannot swap the trusted key."
+        required: false
+        default: ""
+        type: string
+      release-asset-retention:
+        description: "How many of the newest published releases keep every file. After publishing, each older release keeps its checksums, signatures and SBOMs and loses its archives, binaries and packages; the releases and tags stay, and an immutable release is kept whole. Empty, the default, deletes nothing."
+        required: false
+        default: ""
+        type: string
+    # All `required: false` — `secrets: inherit` callers unchanged.
+    secrets:
+      RELEASE_GPG_PRIVATE_KEY:
+        description: "Armored OpenPGP private key (used when sign.method=gpg in artifacts.yml)"
+        required: false
+      RELEASE_GPG_PASSPHRASE:
+        description: "Passphrase for RELEASE_GPG_PRIVATE_KEY"
+        required: false
+      RELEASE_TOKEN:
+        description: "Token with contents:write permission for creating the GitHub Release"
+        required: false
+      RELEASE_COSIGN_PRIVATE_KEY:
+        description: "Cosign private key, when artifacts.yml signs with sign.key env://COSIGN_KEY. Reaches only the steps that sign with it."
+        required: false
+      RELEASE_COSIGN_PASSPHRASE:
+        description: "Passphrase for RELEASE_COSIGN_PRIVATE_KEY"
+        required: false
+permissions:
+  contents: read # Default permission; release creation uses RELEASE_TOKEN.
+jobs:
+  generate-changelog:
+    name: Generate Release Changelog
+    permissions:
+      contents: read
+    uses: ./.github/workflows/generate-changelog.yml
+    with:
+      branch: ${{ inputs['checkout-ref'] }}
+      runtime-image: ${{ inputs['runtime-image'] }}
+      git-cliff-args: "--latest"
+      output-file: "ReleasenotesTmp"
+      upload-as-artifact: true
+      artifact-name: "release-changelog"
+      changelog-config: ${{ inputs['changelog-config'] }}
+  create-release:
+    name: Create GitHub Release
+    needs: [generate-changelog]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      actions: read
+      contents: write
+      packages: read
+      id-token: write
+    steps:
+      - name: Harden GitHub runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: ${{ inputs['egress-policy'] }}
+          allowed-endpoints: ${{ inputs['egress-allowed-endpoints'] }}
+      # Defense-in-depth: refuse PR-context triggers. RELEASE_TOKEN +
+      # RELEASE_GPG_PRIVATE_KEY land in env on this job and must
+      # never run with PR-HEAD code. forge-ci is pre-baked.
+      - name: Refuse PR-context trigger (publish/release secrets in scope)
+        run: forge-ci validate event-context
+      - name: Checkout repository with moved tag
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CHECKOUT_REF: ${{ inputs['checkout-ref'] }}
+          CHECKOUT_FETCH_ALL_REFS: "true" # full history + all tags
+        run: forge-ci platform checkout
+      - name: Set deterministic release epoch
+        run: printf 'SOURCE_DATE_EPOCH=%s\n' "$(git log -1 --format=%ct HEAD)" >> "$GITHUB_ENV"
+      - name: Import GPG key
+        # GPG agent setup is only needed when artifact signing uses the
+        # GPG backend. Sigstore (keyless OIDC) and KMS (cosign + external
+        # provider) don't read $GPG_PRIVATE_KEY at all — running this
+        # step with no secret would fail loud, and running it with the
+        # secret would needlessly decrypt a key the flow doesn't use.
+        # The plan precomputes sign.imports_gpg_key so this gate carries the
+        # intent ("import the key") rather than hard-coding the method name.
+        if: ${{ inputs['sign-artifacts'] && fromJSON(inputs['config-plan-json']).sign.imports_gpg_key }}
+        id: import-gpg
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+          GIT_USER_SIGNINGKEY: "true"
+        run: forge-ci release gpg import
+      - name: Download Release Changelog
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: release-changelog
+          ARTIFACT_DIR: .
+        run: forge-ci artifact download
+      - name: Download planned release artifacts
+        env:
+          ARTIFACT_TRANSFER_PLAN_JSON: ${{ inputs['artifact-transfer-plan-json'] }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: forge-ci release download-artifacts
+      - name: Compute effective attach-artifacts (auto-include extracted binaries)
+        # If extract.binary produced any files under ./release-artifacts/binaries/,
+        # append a glob so they get checksummed, signed, and attached to the
+        # GitHub Release alongside the user-specified globs. Without this,
+        # callers who declare extract.binary in artifacts.yml would see binaries
+        # only as run-page CI artefacts (90-day retention) but not on the
+        # permanent Release page — silent footgun. The append is non-destructive
+        # to the user's own attach-artifacts input.
+        id: attach-effective
+        env:
+          USER_ATTACH: ${{ inputs['attach-artifacts'] }}
+        run: forge-ci release attachments plan
+      - name: Resolve release metadata
+        id: release-metadata
+        env:
+          VERSION: ${{ inputs['release-name'] }}
+          REPOSITORY: ${{ github.repository }}
+        run: forge-ci release resolve metadata
+      - name: Generate CISA-layer SBOMs
+        if: &if_has_sboms ${{ inputs.sboms != 'none' }}
+        env:
+          CONFIG_PLAN_JSON: ${{ inputs['config-plan-json'] }}
+          VERSION: ${{ steps.release-metadata.outputs.version-no-v }}
+          SBOMS: ${{ inputs.sboms }}
+        run: forge-ci sbom assemble
+      - name: Assemble release files
+        env:
+          CONFIG_PLAN_JSON: ${{ inputs['config-plan-json'] }}
+          ARTIFACT_TRANSFER_PLAN_JSON: ${{ inputs['artifact-transfer-plan-json'] }}
+          ATTACH_ARTIFACTS: ${{ steps.attach-effective.outputs.attach-artifacts }}
+          PROJECT_NAME: ${{ steps.release-metadata.outputs.project-name }}
+          VERSION: ${{ steps.release-metadata.outputs.version }}
+          RELEASE_ASSEMBLY: .forge-ci/release-assembly.json
+        run: forge-ci release assemble
+      - name: Create SBOM ZIP
+        if: *if_has_sboms
+        env:
+          PROJECT_NAME: ${{ steps.release-metadata.outputs.project-name }}
+          VERSION: ${{ steps.release-metadata.outputs.version }}
+          RELEASE_ASSEMBLY: .forge-ci/release-assembly.json
+        run: forge-ci release sbom-zip
+      - name: Generate checksums
+        env:
+          RELEASE_ASSEMBLY: .forge-ci/release-assembly.json
+        run: forge-ci release checksums
+      - name: Bind Cosign signing key to trusted public key
+        # The caller supplies the trust root; the layer ships none. The
+        # engine refuses an empty key, an empty digest and a mismatch, before
+        # the key signs anything in this job.
+        if: ${{ inputs['sign-artifacts'] && fromJSON(inputs['config-plan-json']).sign.uses_key_secret }}
+        env:
+          COSIGN_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+          TRUSTED_KEY_INPUT: ${{ inputs['cosign-public-key'] }}
+          TRUSTED_KEY_SHA256_INPUT: ${{ inputs['cosign-public-key-sha256'] }}
+        run: |
+          set -euo pipefail
+          trusted_key="${RUNNER_TEMP:?}/cosign.pub"
+          # $(...) drops the input's trailing newlines in any shell, so the
+          # file is the key and one newline, as `sha256sum cosign.pub` hashed it.
+          trusted_public_key=$(printf '%s' "${TRUSTED_KEY_INPUT}")
+          printf '%s\n' "${trusted_public_key}" >"${trusted_key}"
+          printf '%s\n' "${TRUSTED_KEY_SHA256_INPUT}" >"${trusted_key}.sha256"
+          forge-ci validate signing-key --key env://COSIGN_KEY \
+            --trusted-public-key "${trusted_key}" --trusted-public-key-digest "${trusted_key}.sha256"
+      - name: Sign artifacts
+        if: ${{ inputs['sign-artifacts'] }}
+        # Backend selected by sign.method in artifacts.yml:
+        #   gpg      → reads $GPG_PRIVATE_KEY / $GPG_PASSPHRASE (in-process openpgp signer)
+        #   sigstore → cosign + GHA OIDC (no secret; needs id-token: write — granted above)
+        #   kms      → cosign + $SIGN_KEY URI (KMS auth handled by cosign + KMS provider),
+        #              or env://COSIGN_KEY: the key secret, bound in the step above
+        # Secrets scoped to this step so they don't leak to later steps.
+        env:
+          SIGN_METHOD: ${{ fromJSON(inputs['config-plan-json']).sign.method }}
+          SIGN_KEY: ${{ fromJSON(inputs['config-plan-json']).sign.key }}
+          SIGN_OIDC_ISSUER: ${{ fromJSON(inputs['config-plan-json']).sign.oidc_issuer }}
+          # sign.transparency reaches cosign only through this variable.
+          FORGE_CI_COSIGN_TRANSPARENCY: ${{ fromJSON(inputs['config-plan-json']).sign.transparency }}
+          GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+          GPG_KEY_ID: ${{ steps.import-gpg.outputs.keyid }}
+          # The Cosign key secret reaches only a step that signs with it.
+          COSIGN_KEY: ${{ fromJSON(inputs['config-plan-json']).sign.uses_key_secret && secrets.RELEASE_COSIGN_PRIVATE_KEY || '' }}
+          COSIGN_PASSWORD: ${{ fromJSON(inputs['config-plan-json']).sign.uses_key_secret && secrets.RELEASE_COSIGN_PASSPHRASE || '' }}
+          RELEASE_ASSEMBLY: .forge-ci/release-assembly.json
+        run: forge-ci release sign
+      - name: Prepare release notes
+        env:
+          SOURCE_FILE: ReleasenotesTmp
+          TARGET_FILE: release-notes.md
+          RELEASE_VERSION: ${{ inputs['release-name'] }}
+          RELEASE_COMMIT: ${{ inputs['checkout-ref'] }}
+        run: forge-ci release notes
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          TAG_NAME: ${{ inputs['release-name'] }}
+          RELEASE_NAME: ${{ inputs['release-name'] }}
+          REPOSITORY: ${{ github.repository }}
+          DRAFT: ${{ inputs.draft }}
+          MAKE_LATEST: ${{ inputs['make-latest'] }}
+          RELEASE_ASSEMBLY: .forge-ci/release-assembly.json
+          RELEASE_NOTES_FILE: release-notes.md
+        run: forge-ci release publish --strategy=recreate
+      - name: Trim older releases to their checksums and signatures
+        if: ${{ inputs['release-asset-retention'] != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          KEEP_RELEASES: ${{ inputs['release-asset-retention'] }}
+        run: forge-ci release asset-retention --keep "${KEEP_RELEASES}" --dry-run=false
+      - name: Upload release artifacts summary
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-artifacts-${{ github.run_id }}
+          path: |
+            .forge-ci/release-assembly.json
+            release-files/
+            ReleasenotesTmp
+            release-notes.md
+          retention-days: "30"
+          if-no-files-found: ignore
+      - name: Cleanup GPG key
+        if: always()
+        env:
+          GPG_FINGERPRINT: ${{ steps.import-gpg.outputs.fingerprint }}
+        run: forge-ci release gpg cleanup

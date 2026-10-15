@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: Pull Request Workflow
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-checks:
+    uses: diggsweden/forge-ci/.github/workflows/pullrequest-orchestrator.yml@v0.90.0
+    secrets:
+      # Optional: uploads lint security findings (SARIF) to Code Scanning.
+      CODE_SCANNING_TOKEN: ${{ secrets.CODE_SCANNING_TOKEN }}
+    permissions:
+      contents: read
+      packages: read
+    with:
+      forge-ci-binary-ref: v0.90.0
+      project-type: gradle
+      # Default lint engine: nanolinter (runs `nanolinter verify` from your nanolinter.toml)
+      lint-engine: nanolinter
+
+  # Project-specific test jobs remain caller-owned.

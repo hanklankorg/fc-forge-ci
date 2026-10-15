@@ -1,0 +1,365 @@
+# SPDX-FileCopyrightText: The Gommitlint Authors
+#
+# SPDX-License-Identifier: CC0-1.0
+name: Release
+on:
+  push:
+    tags:
+      # Human-pushed request tags are immutable release triggers. Forgejo matches
+      # tag filters with glob (gobwas/glob), so the prepare workflow validates
+      # exact stable SemVer before creating the final release tag once.
+      - release-request/v[0-9]*.[0-9]*.[0-9]*
+# Tool versions are pinned by the setup-toolchain action itself — its
+# contract, not this workflow's concern.
+permissions:
+  contents: read
+env:
+  GIT_DEFAULT_HASH: sha256
+  FORGEJO_SERVER: ${{ forgejo.server_url }}
+  FORGEJO_REPO: ${{ forgejo.repository }}
+jobs:
+  # =============================================================================
+  # JOB 1: preflight
+  # Fails a release with a missing or mis-scoped Codefloe token before the
+  # prepare workflow pushes anything. It is a job of its own because no token
+  # may enter the job that holds the SSH signing key.
+  # =============================================================================
+  preflight:
+    name: Verify Forgejo package token
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 5
+    steps:
+      - name: Verify Forgejo package token
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/verify-forgejo-token@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          token: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
+  # =============================================================================
+  # JOB 2: prepare (cross-repo reusable workflow)
+  # forge-ci's exact-SHA prepare workflow: it checks that every secret the
+  # whole pipeline needs is configured before any checkout, validates the
+  # request tag, admits the request only as an annotated tag at the head of
+  # main, renders CHANGELOG.md, signs the release commit and creates the final
+  # tag once. No code of this repository runs in it. The action-free trust job
+  # above must pass before action code or secrets enter the release path.
+  #
+  # The workflow reads the two tokens under its own names; this repository
+  # keeps them as RELEASE_API_TOKEN and PACKAGE_PUBLISH_TOKEN.
+  # =============================================================================
+  prepare:
+    needs: preflight
+    name: Prepare release
+    uses: itiquette/forge-ci/.forgejo/workflows/prepare-release.yml@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+    with:
+      runner-label: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-repository: itiquette/forge-ci
+      forge-ci-sha: b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+      bot-name: Gommitlint Release Bot
+      bot-email: itiquette-release-bot@pm.me
+      release-git-url: ${{ vars.RELEASE_GIT_URL }}
+      release-git-host-key-fingerprint: ${{ vars.RELEASE_GIT_HOST_KEY_FINGERPRINT }}
+    secrets:
+      RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_API_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
+  # =============================================================================
+  # JOB 3: build-and-release
+  # Builds unsigned files and container images, scans them, and hands dist/ to
+  # the separately privileged signer. It does not create or sign the release.
+  # =============================================================================
+  build-and-release:
+    needs: prepare
+    permissions:
+      contents: read
+    name: Build and hand off release artifacts
+    timeout-minutes: 30
+    outputs:
+      # The signer takes images from the dist/release-images.json ledger; the
+      # only cross-job output it needs is the tamper-evidence digest.
+      # underscore output name avoids runner expression bugs; the public signer
+      # input remains dist-digest.
+      dist_digest: ${{ steps.handoff.outputs.digest }}
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    env:
+      RELEASE_TAG: ${{ needs.prepare.outputs.release-tag }}
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+      - name: Checkout prepared release
+        env:
+          CHECKOUT_REF: ${{ needs.prepare.outputs.release-sha }}
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout --object-format sha256 --fetch-all-refs
+      - name: Verify Forgejo package token
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/verify-forgejo-token@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          token: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
+      - name: Setup toolchain
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-toolchain@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          cache-key-suffix: build
+          # SLSA isolation mode: no restored cache as unverified input into
+          # this token-bearing job (gate-enforced by check-l3-isolation).
+          cache: false
+          # Install exactly what mise.lock records: the tools are fetched by
+          # their locked URLs and checksums, so the job needs no GitHub API
+          # token and cannot be throttled into failing.
+          mise-locked: 'true'
+          mise-github-token: ${{ secrets.DEPENDENCY_GITHUB_TOKEN }}
+          mise-forgejo-token: ${{ secrets.DEPENDENCY_FORGE_TOKEN }}
+          # The release build only builds + packages; it doesn't lint. Scope mise
+          # to the build/package tools (goreleaser + syft for SBOMs, git-chglog for
+          # release notes, trivy for the image scans) and skip the tools/go.mod
+          # dev-tool compile. go-md2man (the one dev tool the man page needs) is
+          # built on demand below.
+          tools: aqua:goreleaser/goreleaser aqua:anchore/syft aqua:git-chglog/git-chglog aqua:aquasecurity/trivy
+          install-dev-tools: false
+      - name: Set up Buildah
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-buildah@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          extra-packages: jq gettext
+      - name: Login to container registry
+        id: registry-login
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/registry-login@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          username: ${{ forgejo.repository_owner }}
+          token: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
+          create-auth-file: 'true'
+      # Generate shell completions and man page (needed by GoReleaser for packaging)
+      - name: Generate shell completions
+        run: |
+          go build -o ./bin/gommitlint ./cmd/gommitlint
+          ./scripts/docs/completions.sh
+      # The dev-tools compile is skipped for the release build, so build just the
+      # one tools/go.mod tool the man page needs, at its pinned version, and make
+      # sure GOPATH/bin is on PATH so manpage.sh finds it via `command -v`.
+      - name: Install man-page generator (go-md2man)
+        run: |
+          set -euo pipefail
+          # Install into ~/.local/bin, which setup-toolchain already adds to PATH,
+          # so manpage.sh finds go-md2man via `command -v` (GOPATH/bin is not on
+          # PATH in this job, and the GITHUB_PATH file isn't honored here).
+          GOBIN="$HOME/.local/bin" go install -C tools github.com/cpuguy83/go-md2man/v2
+          command -v go-md2man  # fail fast here if the binary name/location is off
+      - name: Generate man page
+        run: ./scripts/docs/manpage.sh
+      - name: Generate translations
+        run: ./bin/gommitlint translations compile
+      - name: Generate changelog
+        run: |
+          mkdir -p generated
+          gzip -9 -n -c CHANGELOG.md > generated/changelog.gz
+      # Generate and verify release notes (the signer creates the release and
+      # uses dist/release-notes.md for the body — no pre-delete needed).
+      - name: Generate release notes
+        run: ./.forgejo/scripts/generate-release-notes.sh "${RELEASE_TAG}"
+      - name: Verify release notes
+        run: |
+          if [ ! -f "release-notes.md" ]; then
+            echo "ERROR: release-notes.md does not exist!"
+            exit 1
+          fi
+          FILESIZE=$(wc -c < release-notes.md)
+          if [ "$FILESIZE" -lt 100 ]; then
+            echo "ERROR: release-notes.md is too small (${FILESIZE} bytes)"
+            exit 1
+          fi
+          echo "✓ release-notes.md: ${FILESIZE} bytes, $(wc -l < release-notes.md) lines"
+          head -5 release-notes.md
+      # Build unsigned release files with GoReleaser
+      - name: Run GoReleaser
+        # Builds binaries, archives, packages, and SBOMs into dist/ only.
+        # `--skip=publish` means this job never creates the Forgejo release or
+        # receives signing keys/release-API credentials. The downstream
+        # forge-ci signer owns those operations.
+        env:
+          GITHUB_TOKEN: ""
+        run: |
+          set -euo pipefail
+          goreleaser release --clean --verbose --skip=publish --release-notes "$PWD/release-notes.md"
+          cp release-notes.md dist/release-notes.md
+      # The stamped version is only as good as the build that stamped it: a
+      # `-X main.version` that stops reaching the linker, or a GoReleaser
+      # `{{.Version}}` that stops deriving from the tag, ships a binary
+      # reporting something else and nothing before this step would notice.
+      # Ask the artifact itself. Only the amd64 PIE binary is executed: it is
+      # a CGO-free PIE that names the glibc loader this runner has, while the
+      # musl binaries built further down name an Alpine loader it does not.
+      - name: Verify the built binary reports the release tag
+        run: |
+          set -euo pipefail
+          expected="${RELEASE_TAG#v}"
+          reported=$(dist/gommitlint-pie_linux_amd64_v1/gommitlint --version |
+            sed -n 's/^gommitlint version \(.*\) (Build date: .*)$/\1/p')
+          if [ "${reported}" != "${expected}" ]; then
+            echo "ERROR: the release binary reports version '${reported}', expected '${expected}'" >&2
+            exit 1
+          fi
+          echo "Release binary reports ${reported}"
+      # The minimal image: no shell and no Git, so it validates SHA-1
+      # repositories only. It carries the -distroless tag; the plain release
+      # tag belongs to the Alpine image below, which reads both object formats.
+      # One step builds both platforms, pushes the manifest list, scans each
+      # pushed platform from the registry digest -- a multi-arch manifest
+      # scanned once is only scanned for one architecture -- and records the
+      # image in the dist/release-images.json ledger the signer reads.
+      # candidate/moving tags stay unset: gommitlint pushes final tags directly.
+      - name: Build, scan and record distroless container images
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/build-release-image@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          role: distroless
+          tag: ${{ env.RELEASE_TAG }}-distroless
+          release-tag: ${{ env.RELEASE_TAG }}
+          version: ${{ env.RELEASE_TAG }}
+          ref-name: ${{ env.RELEASE_TAG }}-distroless
+          containerfile: Containerfile
+          auth-file: ${{ steps.registry-login.outputs.auth-file }}
+          builds: >-
+            [{"platform":"linux/amd64","build-args":["DIRPATH=dist/gommitlint-pie_linux_amd64_v1/"]},
+             {"platform":"linux/arm64","build-args":["DIRPATH=dist/gommitlint-pie_linux_arm64_v8.0/"]}]
+          scan-output: dist/trivy-results-distroless-{arch}.json
+          sbom: dist/image-sbom.cyclonedx.json
+          title: gommitlint
+          description: "Git commit message linter and validator"
+          licenses: "EUPL-1.2 OR GPL-3.0-or-later"
+          vendor: "Itiquette"
+          authors: "Josef Andersson <janderssonse@proton.me>"
+      # Build musl PIE binaries for Alpine container (not part of GoReleaser to avoid
+      # duplicate binary names for the same OS/arch). Uses the Go linker -I flag to set
+      # the musl ELF interpreter so the binary runs natively on Alpine without libc6-compat.
+      - name: Build musl PIE binaries for Alpine container
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          # The checkout HEAD, NOT forgejo.sha: prepare moved the release tag to
+          # the changelog commit, so the trigger SHA is stale. This keeps the
+          # musl binaries' main.commit consistent with GoReleaser's {{ .Commit }}
+          # and the images' org.opencontainers.image.revision label.
+          COMMIT=$(git rev-parse HEAD)
+          # %ct (unix epoch) matches GoReleaser's {{.CommitTimestamp}} exactly,
+          # so main.date renders identically across the distroless and Alpine
+          # binaries (it previously mixed epoch and ISO 8601 per flavor).
+          DATE=$(git log -1 --format=%ct)
+          LDFLAGS_COMMON="all=-w -buildid= -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}"
+          mkdir -p dist/musl-amd64 dist/musl-arm64
+          echo "Building musl PIE binary for linux/amd64..."
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -buildmode=pie -trimpath -buildvcs=false \
+              -tags "netgo osusergo" \
+              -ldflags "${LDFLAGS_COMMON} -I /lib/ld-musl-x86_64.so.1" \
+              -o dist/musl-amd64/gommitlint ./cmd/gommitlint
+          echo "Building musl PIE binary for linux/arm64..."
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+            go build -buildmode=pie -trimpath -buildvcs=false \
+              -tags "netgo osusergo" \
+              -ldflags "${LDFLAGS_COMMON} -I /lib/ld-musl-aarch64.so.1" \
+              -o dist/musl-arm64/gommitlint ./cmd/gommitlint
+          echo "Musl PIE binaries built"
+      # The default image, published under the plain release tag: Alpine with
+      # Git, so it validates SHA-1 and SHA-256 repositories (musl-native binary,
+      # no libc6-compat needed).
+      - name: Build, scan and record Alpine container images
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/build-release-image@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          role: alpine
+          tag: ${{ env.RELEASE_TAG }}
+          release-tag: ${{ env.RELEASE_TAG }}
+          containerfile: Containerfile.alpine
+          auth-file: ${{ steps.registry-login.outputs.auth-file }}
+          builds: >-
+            [{"platform":"linux/amd64","build-args":["DIRPATH=dist/musl-amd64/"]},
+             {"platform":"linux/arm64","build-args":["DIRPATH=dist/musl-arm64/"]}]
+          scan-output: dist/trivy-results-alpine-{arch}.json
+          sbom: dist/image-sbom-alpine.cyclonedx.json
+          title: gommitlint
+          description: "Git commit message linter and validator"
+          licenses: "EUPL-1.2 OR GPL-3.0-or-later"
+          vendor: "Itiquette"
+          authors: "Josef Andersson <janderssonse@proton.me>"
+      # The unsigned hand-off the signer takes: dist/release-files.json, the
+      # manifest that declares the public files, written from GoReleaser's own
+      # metadata. The signer validates it before anything is signed and
+      # publishes what it names; the Trivy results, the image SBOMs and the
+      # image ledger ride along in dist/ without being release files.
+      - name: Declare the release files
+        run: |
+          set -euo pipefail
+          forge-ci release files import-goreleaser --dist-dir dist --manifest dist/release-files.json
+      # Hand the dist/ tree to sign-and-publish via the shared forge-ci action:
+      # forge-ci prunes GoReleaser's raw binary dirs and computes the canonical
+      # digest during prepare-dist; the signer independently recomputes it during
+      # validate-dist. The upload uses the signer-compatible artifact transport,
+      # and the digest output feeds the build-and-release job output below.
+      - name: Hand off dist/ to sign-and-publish
+        id: handoff
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/upload-dist@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          artifact-name: build-dist
+          path: dist/
+          prune-dirs: true
+  # =============================================================================
+  # JOB 4: sign-and-publish (cross-repo reusable workflow)
+  #
+  # The signing logic lives in itiquette/forge-ci — a separate repository
+  # with its own review process. This call site is the explicit hand-off of
+  # signing material; the `secrets:` block enumerates exactly what crosses the
+  # boundary. The build-and-release job above does NOT receive any of these.
+  #
+  # The target SLSA Build L3 design requires three isolation mechanisms. These
+  # comments describe the guarded release shape, not published L3 evidence:
+  #   1. Cross-repo separation — modifying signing logic requires a PR to
+  #      itiquette/forge-ci, not this repo.
+  #   2. Immutable ref pinning — every forge-ci reference must use one
+  #      immutable commit, reviewed on the protected branch the release
+  #      request tag must point at.
+  #   3. PR-time forge-ci check-l3-isolation action — invokes the exact-SHA
+  #      forge-ci validator over the build job, signer call, secret hand-off,
+  #      release identity, digest channel, and forge-ci pins.
+  #
+  # See docs/modules/ROOT/pages/security-posture.adoc for the full threat model.
+  # =============================================================================
+  sign-and-publish:
+    needs: [prepare, build-and-release]
+    name: Sign release assets and promote images
+    # Cosign-signs checksums, SBOMs, provenance, and the images listed in
+    # dist/release-images.json; GPG-signs distro package sidecars; then promotes
+    # image tags and publishes the Forgejo release in separately scoped jobs.
+    # Runs inside Itiquette's digest-pinned signer image, which release-ci
+    # publishes; no rate-limit tokens are needed here because the image ships
+    # its tools (no mise resolution).
+    uses: itiquette/forge-ci/.forgejo/workflows/sign-and-publish-release.yml@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+    with:
+      runner-label: ${{ vars.CI_RUNNER_LABEL }}
+      release-tag: ${{ needs.prepare.outputs.release-tag }}
+      release-sha: ${{ needs.prepare.outputs.release-sha }}
+      # The commit the request tag pushed, from the event context: the signer
+      # binds the release commit to it, so it is not routed through a job
+      # output.
+      release-request-sha: ${{ forgejo.sha }}
+      dist-digest: ${{ needs.build-and-release.outputs['dist_digest'] }}
+      artifact-name: build-dist
+      artifact-path: dist/
+      release-images-path: dist/release-images.json
+      caller-workflow: release.yml
+      forge-ci-repository: itiquette/forge-ci
+      forge-ci-sha: b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+      signer-image: codefloe.com/itiquette/forge-ci-signer@sha256:9a51d9f761cd269cadb2066710c9d2dd293f4e1020e229ff4f47ee1e6bce6234
+      # Itiquette's Cosign trust root. The key is public and comes from a
+      # variable; the digest is release-policy's keys/cosign.pub.sha256, written
+      # out so a changed variable cannot replace the key without a reviewed
+      # commit here.
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: 0a118a651aac6f751385aeaeb4242996ecc5b1b30c272d8da4a75369abd6b630
+    secrets:
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_API_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}

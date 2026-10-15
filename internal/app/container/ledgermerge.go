@@ -1,0 +1,139 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+// SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
+
+package container
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+
+	"github.com/diggsweden/forge-ci/internal/cliio"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
+)
+
+// MergeLedgers is the `ledger merge` use case, moved verbatim from
+// cli/commands/container/ledgermerge.go: merge the ledger documents found at
+// paths (files, or directories searched for imageledger.DefaultBasename),
+// write the result to ledgerPath and report the outcome on status. Nothing is
+// created or written unless the merge produced at least one entry.
+func MergeLedgers(paths []string, ledgerPath string, status io.Writer) error {
+	out, sources, err := mergeLedgerDocs(paths)
+	if err != nil {
+		return err
+	}
+
+	path := ledgerPath
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { //nolint:gosec,mnd // dist dir; 0755 is conventional.
+		return fmt.Errorf("ledger: create dir for %s: %w", path, err)
+	}
+
+	if err := cliio.WriteFile(path, out, 0o644); err != nil { //nolint:gosec // ledger is public release metadata, not a secret.
+		return err
+	}
+
+	_, _ = fmt.Fprintf(status, "ledger: merged %d source(s) → %s\n", sources, path)
+
+	return nil
+}
+
+func mergeLedgerDocs(paths []string) ([]byte, int, error) {
+	docs, err := readLedgerDocs(paths)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, 0, fmt.Errorf("ledger merge input: %w: %w", err, errs.ErrMissingInput)
+		}
+
+		return nil, 0, err
+	}
+
+	out, err := imageledger.Merge(docs)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	entries, err := imageledger.Parse(out)
+	if err != nil {
+		return nil, 0, fmt.Errorf("ledger merge: validate merged ledger: %w", err)
+	}
+
+	if len(entries) == 0 {
+		return nil, 0, fmt.Errorf("ledger merge: no release-image entries found under %v: %w", paths, errs.ErrMissingInput)
+	}
+
+	return out, len(docs), nil
+}
+
+// readLedgerDocs reads ledger JSON from each path: a file is read directly, a
+// directory is walked for files named release-images.json (the per-container
+// artifacts the promotion job downloads). Missing inputs are an error so a
+// silent empty merge can't mask a broken hand-off.
+func readLedgerDocs(paths []string) ([][]byte, error) {
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("ledger merge: at least one input path is required: %w", errs.ErrMissingInput)
+	}
+
+	var docs [][]byte
+
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, fmt.Errorf("ledger merge: %s: %w", path, err)
+		}
+
+		if info.IsDir() {
+			found, walkErr := readLedgerDir(path)
+			if walkErr != nil {
+				return nil, walkErr
+			}
+
+			docs = append(docs, found...)
+
+			continue
+		}
+
+		data, readErr := cliio.ReadFile(path)
+		if readErr != nil {
+			return nil, fmt.Errorf("ledger merge: read %s: %w", path, readErr)
+		}
+
+		docs = append(docs, data)
+	}
+
+	return docs, nil
+}
+
+// readLedgerDir walks dir and reads every file named
+// imageledger.DefaultBasename — the per-container ledger artifacts the
+// promotion job downloads into one directory tree.
+func readLedgerDir(dir string) ([][]byte, error) {
+	var docs [][]byte
+
+	walkErr := filepath.WalkDir(dir, func(filePath string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if entry.IsDir() || entry.Name() != imageledger.DefaultBasename {
+			return nil
+		}
+
+		data, readErr := os.ReadFile(filePath) //nolint:gosec // operator-supplied ledger directory.
+		if readErr != nil {
+			return fmt.Errorf("read %s: %w", filePath, readErr)
+		}
+
+		docs = append(docs, data)
+
+		return nil
+	})
+	if walkErr != nil {
+		return nil, fmt.Errorf("ledger merge: walk %s: %w", dir, walkErr)
+	}
+
+	return docs, nil
+}

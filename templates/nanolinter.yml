@@ -1,0 +1,140 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# GitLab CI/CD Catalog component: the default PR lint gate (nanolinter).
+#
+# nanolinter is the project lint gate used on the GitHub pull-request quality
+# stage; it bakes a whole check toolchain (opengrep SAST, osv-scanner, secrets,
+# trivy-fs, ecosystem linters) into a flavour image and runs `nanolinter verify`.
+# We do NOT run opengrep standalone — it ships inside nanolinter.
+#
+# This is the thin GitLab adapter around that gate (the analog of
+# .github/workflows/lint-nanolinter.yml). Two things happen:
+#   1. `nanolinter verify` runs the full toolchain and fails the job on blocking
+#      findings — that exit IS the lint gate.
+#   2. The security SARIF is converted to the GitLab SAST schema and published as
+#      `artifacts:reports:sast`, so blocking findings land on the merge-request
+#      Security tab (the GitLab analog of GitHub Code Scanning). The conversion
+#      uses `forge-ci security report to-gitlab-sast`; forge-ci is not baked
+#      into the flavour image, so the job checks out engine-project at this
+#      component's commit and runs the engine binary that commit records,
+#      downloaded from that project's generic packages and checked against the
+#      recorded checksum, as the check component does.
+#
+# Consume (pin a released version):
+#   include:
+#     - component: $CI_SERVER_FQDN/diggsweden/forge-ci/nanolinter@0.90.0
+#       inputs:
+#         engine-project: diggsweden/forge-ci
+#         nanolinter-image: "codefloe.com/itiquette/nanolinter:java"
+spec:
+  component: [sha]
+  inputs:
+    stage:
+      default: test
+      description: Pipeline stage the lint gate runs in.
+    job-name:
+      default: nanolinter
+      description: Name of the generated job.
+    nanolinter-image:
+      default: "codefloe.com/itiquette/nanolinter:core"
+      description: >-
+        nanolinter flavour image matching the project's ecosystem (pin by @sha256): core, go, java, kotlin, javascript-typescript, rust or swift. The default core flavour carries only the ecosystem-neutral checks.
+    required-lints:
+      default: "secrets,sast"
+      description: >-
+        Mandated lint floor — comma-separated check ids passed to `nanolinter verify --require`. These checks are forced to run AND block regardless of the project's nanolinter.toml, so they cannot be silently skipped. Empty disables the floor.
+    enable-gitlab-sast:
+      type: boolean
+      default: true
+      description: >-
+        Convert nanolinter's SARIF to a GitLab SAST report and publish it as artifacts:reports:sast (populates the MR Security tab; display needs GitLab Ultimate). When false, the SARIF is kept as a plain artifact only.
+    engine-project:
+      description: >-
+        Project serving this component and its public engine package, including any subgroups. The SARIF to GitLab-SAST conversion runs the engine binary that this component's commit records, downloaded from that project's generic packages and checked against the recorded checksum. May name $CI_PROJECT_PATH: lib-forge-ci.sh refuses an expanded path that is not a project on CI_SERVER_URL before any download.
+---
+"$[[ inputs.job-name ]]":
+  stage: $[[ inputs.stage ]]
+  image: $[[ inputs.nanolinter-image ]]
+  variables:
+    # opengrep (inside nanolinter) hardcodes paths under the image's home; the
+    # flavour image's /home/nanolinter is writable, so cosign's sigstore cache
+    # needs no redirection either.
+    HOME: /home/nanolinter
+    REQUIRED_LINTS: "$[[ inputs.required-lints ]]"
+    ENABLE_GITLAB_SAST: "$[[ inputs.enable-gitlab-sast ]]"
+    RC_ENGINE_PROJECT: "$[[ inputs.engine-project ]]"
+    SARIF_FILE: nanolinter-security.sarif
+    GL_SAST_FILE: gl-sast-report.json
+  script:
+    - |
+      set -uo pipefail
+
+      # --- Lint gate --------------------------------------------------------
+      # `nanolinter verify` runs the full plan and exits non-zero on blocking
+      # findings. Capture the exit but keep going, so the SAST report is still
+      # produced + published even when the gate is red (artifacts: when: always).
+      #
+      # Mandated lint floor: --require forces these checks to run AND block
+      # regardless of the project's nanolinter.toml, so they cannot be skipped
+      # (e.g. secrets, sast). Empty input → no floor.
+      require_args=()
+      [ -n "$REQUIRED_LINTS" ] && require_args=(--require "$REQUIRED_LINTS")
+      gate=0
+      nanolinter verify "${require_args[@]}" --report sarif-security --out "$SARIF_FILE" || gate=$?
+      if [ "$gate" -ne 0 ]; then
+        echo "nanolinter found blocking lint issues — see the per-check output above (a lint gate on your code, not a pipeline error)."
+      fi
+
+      # --- SARIF -> GitLab SAST --------------------------------------------
+      # Convert nanolinter's unified SARIF to the GitLab SAST schema for the MR
+      # Security tab with the engine of engine-project at this component's
+      # commit; the binary must match the checksum that commit records.
+      # Best-effort: a SARIF tooling failure must not turn the lint gate red,
+      # so it never changes the exit code (the gate below is the only thing
+      # that gates).
+      if [ "$ENABLE_GITLAB_SAST" = "true" ] && [ -f "$SARIF_FILE" ]; then
+        (
+          set -euo pipefail
+          expected='$[[ component.sha ]]'
+          export FORGE_CI_PACKAGE_PROVIDER=gitlab
+          export FORGE_CI_REPOSITORY_URL="${CI_SERVER_URL:?}/${RC_ENGINE_PROJECT:?}.git"
+          helpers=$(mktemp -d /tmp/forge-ci-helpers.XXXXXXXX)
+          trap 'rm -rf -- "${helpers}"' EXIT
+          git_options=(-c core.hooksPath=/dev/null -c credential.helper=)
+          if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+            git_options+=(-c "http.sslCAInfo=${CI_SERVER_TLS_CA_FILE}")
+            export CURL_CA_BUNDLE="${CI_SERVER_TLS_CA_FILE}"
+          fi
+          object_format=sha1
+          if [ "${#expected}" -eq 64 ]; then object_format=sha256; fi
+          git init --quiet --object-format="${object_format}" "${helpers}"
+          git -C "${helpers}" remote add origin "${FORGE_CI_REPOSITORY_URL}"
+          GIT_TERMINAL_PROMPT=0 git "${git_options[@]}" -C "${helpers}" \
+            fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin "${expected}"
+          git "${git_options[@]}" -C "${helpers}" checkout --quiet --detach "${expected}"
+          test "$(git -C "${helpers}" rev-parse HEAD)" = "${expected}"
+          # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+          source "${helpers}/.forgejo/bin/lib-forge-ci.sh"
+          fetch_forge_ci
+          SIGNER_STRICT=1 verify_forge_ci
+          run_forge_ci security report to-gitlab-sast --input "$SARIF_FILE" --output "$GL_SAST_FILE"
+        )
+        # Read the status afterwards, not with `||` or `if !`: errexit is
+        # ignored inside a subshell in either context, so a failed step would
+        # not stop the conversion.
+        converted=$?
+        if [ "$converted" -ne 0 ]; then
+          echo "WARN: GitLab-SAST conversion skipped (engine checkout, download or conversion failed); SARIF kept as plain artifact."
+        fi
+      fi
+
+      # The lint gate is the only thing that decides the job result.
+      exit "$gate"
+  artifacts:
+    when: always
+    paths:
+      - nanolinter-security.sarif
+    reports:
+      sast: gl-sast-report.json

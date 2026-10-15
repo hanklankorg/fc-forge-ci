@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: 'Setup forge-ci'
+description: >-
+  Download the forge-ci binary this commit of the layer records, from the generic packages of the forge that serves the layer and without credentials, verify it against the recorded checksum and put it on the job PATH. The layer owns the pin and checksum policy; the binary owns CI behavior.
+inputs:
+  expected-sha256:
+    description: >-
+      Optional caller-owned pin for the binary. When set, it must match both the recorded checksum file and the actual binary digest.
+    required: false
+    default: ''
+  add-to-path:
+    description: Add the directory of the verified binary to the current job PATH.
+    required: false
+    default: 'true'
+
+outputs:
+  binary-path:
+    description: Absolute path to the verified forge-ci binary.
+    value: ${{ steps.setup.outputs.binary-path }}
+  sha256:
+    description: SHA-256 digest of the verified forge-ci binary.
+    value: ${{ steps.setup.outputs.sha256 }}
+  version:
+    description: forge-ci --version output. The same for every build of the layer; sha256 identifies the build.
+    value: ${{ steps.setup.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch and verify forge-ci binary
+      id: setup
+      shell: bash
+      env:
+        EXPECTED_SHA256: ${{ inputs.expected-sha256 }}
+        ADD_TO_PATH: ${{ inputs.add-to-path }}
+      run: |
+        set -euo pipefail
+        layer_root=$(CDPATH='' cd -- "${GITHUB_ACTION_PATH}/../.." && pwd)
+        "${GITHUB_ACTION_PATH}/setup-forge-ci.sh" "${layer_root}"

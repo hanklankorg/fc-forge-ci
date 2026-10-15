@@ -1,0 +1,51 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# Install the forge-ci binary on plain/macOS runners (where the runtime
+# container — which ships the binary pre-baked — is not used).
+#
+# This is a thin wrapper over scripts/bootstrap/install-forge-ci.sh. Because
+# the whole forge-ci repository is fetched when this action is resolved, the
+# script and its reviewed helper set are present under github.action_path.
+#
+# MUST be referenced by full path with a STATIC ref (a `uses:` ref cannot be a
+# ${{ }} expression, and a local `./` ref inside a reusable workflow resolves
+# against the *caller's* checkout, not forge-ci's):
+#
+#   - name: Install forge-ci
+#     uses: diggsweden/forge-ci/.github/actions/install-forge-ci@v0.90.0
+#     with:
+#       ref: ${{ inputs['forge-ci-binary-ref'] }}
+#
+# The action version (the @ref above) pins the install *script*; `ref` selects
+# the binary. GitHub does not allow expressions in `uses:`, so reusable
+# workflows that support branch-revision testing must not use this action: they
+# sparse-checkout `scripts/bootstrap` from the selected repository/ref and run
+# the script there. That checkout is the single repository/ref boundary; adding
+# separate action-ref inputs would still leave a static `uses:` pin.
+#
+# Ref resolution (see the wrapped script for detail):
+#   vX.Y.Z[(-suffix)] → cosign + SHA-256 verified release tarball (no Go needed)
+#   local / .         → go install ./cmd/forge-ci (working copy)
+#   SHA / branch      → go install github.com/diggsweden/forge-ci/...@<ref>
+name: Install forge-ci
+description: "Install the cosign/SHA-256-verified forge-ci binary onto a plain or macOS runner."
+inputs:
+  ref:
+    description: "forge-ci version/ref to install (vX.Y.Z release tag, a SHA/branch for go install, or local). Defaults to v0.90.0."
+    required: false
+    default: "v0.90.0"
+runs:
+  using: composite
+  steps:
+    # Tagged refs (vN.N.N) install from GitHub Releases with cosign + SHA-256
+    # verification — no Go toolchain needed. Branch/SHA refs require Go on the
+    # runner; the script errors with an actionable message if it is absent. The
+    # script prepends its install dir to GITHUB_PATH, so the binary is on PATH
+    # for every later step in the job.
+    - name: Install forge-ci binary
+      shell: bash
+      env:
+        FORGE_CI_BINARY_REF: ${{ inputs.ref }}
+      run: bash "${GITHUB_ACTION_PATH}/../../../scripts/bootstrap/install-forge-ci.sh" "$FORGE_CI_BINARY_REF"

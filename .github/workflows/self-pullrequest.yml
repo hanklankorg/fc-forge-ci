@@ -1,0 +1,215 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# ⚠️ INTERNAL USE ONLY - PR validation workflow for forge-ci itself
+# This workflow validates pull requests to forge-ci using pullrequest-orchestrator.
+# For templates to use in YOUR project, see examples/ directory.
+name: Self Pull Request
+on:
+  # No branch filter: a pull request into any branch is validated, so a fork
+  # can work from whichever branch it treats as primary.
+  pull_request:
+concurrency:
+  group: pr-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  validate:
+    uses: ./.github/workflows/pullrequest-orchestrator.yml
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+    with:
+      project-type: npm
+      # The PR head commit is reachable in this repository even for a PR from a
+      # fork (refs/pull/*), unlike the head branch name.
+      forge-ci-binary-ref: ${{ github.event.pull_request.head.sha }}
+      # Released 0.90.0 images do not exist before the first release; use the
+      # repository's rolling pre-release image line.
+      runtime-image: ${{ vars.FORGE_CI_IMAGE_NAMESPACE || format('ghcr.io/{0}', github.repository_owner) }}/forge-ci-runtime-base:v0.90.0-pre
+      # This repo dogfoods nanolinter via the dedicated `lint` job below,
+      # which sets up Go for the go-* checks. Disable the orchestrator
+      # lint engine so it doesn't run a second, Go-less `nanolinter verify`
+      # that would fail. Consumer projects take the default (lint-engine: nanolinter).
+      lint-engine: none
+  lint:
+    name: Lint (nanolinter verify)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          # gitleaks and commits checks walk full history; default
+          # shallow checkout would yield false negatives.
+          fetch-depth: 0
+      - name: Install mise and project tools
+        run: |
+          source ./scripts/bootstrap/install-mise.sh
+          install_mise
+          mise install
+          # Expose mise-managed binaries to subsequent steps.
+          printf '%s\n' "${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims" >>"$GITHUB_PATH"
+          dirname "$(command -v mise)" >>"$GITHUB_PATH"
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: nanolinter doctor (tool health)
+        run: nanolinter doctor
+      - name: nanolinter verify (full plan from nanolinter.toml)
+        run: just lint
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Install mise and project tools
+        run: |
+          source ./scripts/bootstrap/install-mise.sh
+          install_mise
+          mise install
+          # Expose mise-managed binaries to subsequent steps.
+          printf '%s\n' "${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims" >>"$GITHUB_PATH"
+          dirname "$(command -v mise)" >>"$GITHUB_PATH"
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Validate reusable workflow input defaults
+        run: go run ./cmd/forge-ci validate workflow input-defaults
+      - name: Run tests
+        run: just test
+  forgejo-layer-binary:
+    # The Forgejo layer tracks the checksum of its binary, not the binary:
+    # .forgejo/bin/forge-ci.sha256, by which every job downloads it.
+    # TestRecordedEngineChecksumIsABuildOfThisTree is the one check that ties
+    # that line to the sources beside it. The test needs exactly the Go
+    # release go.mod names (another one writes other bytes); without it the
+    # test reports "not proven" and passes, which is right on a workstation
+    # and wrong for a gate. This job gives it that release and runs it in the
+    # strict profile, where "not proven" is a failure.
+    name: Forgejo layer binary (the checksum is a build of this tree)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          # The exact release of go.mod, and no newer one: no check-latest.
+          go-version-file: go.mod
+      - name: Fill the module cache
+        # The reproducible build reads the module cache only (GOPROXY=off), so
+        # an ordinary build of the same package fetches what it needs first.
+        run: go build -o /dev/null ./cmd/forge-ci
+      - name: Prove the recorded checksum is a build of this tree
+        env:
+          FORGE_CI_TEST_PROFILE: strict
+        run: go test -count=1 -buildvcs=false -run '^TestRecordedEngineChecksum' ./test/forgejobehavior
+  integration-testsuite:
+    # Gate every engine change on the companion black-box suite
+    # (diggsweden/forge-ci-blackbox-tests): real toolchains, real git/gpg/ssh,
+    # externally-observable behaviour. Without this edge the suite only ran
+    # on its own pushes plus a daily drift schedule — an engine commit could
+    # land green here and break the suite a day later.
+    #
+    # The suite is pinned by commit and bumped deliberately (same follow
+    # philosophy as consumers pinning this repo); its own CI keeps floating
+    # against this repo's default branch for drift detection, so the two
+    # directions stay deliberately asymmetric — no circular pin.
+    name: Integration testsuite (black-box)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          path: forge-ci
+          persist-credentials: false
+      - name: Checkout companion testsuite (pinned)
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ vars.FORGE_CI_TESTSUITE_REPOSITORY || 'diggsweden/forge-ci-blackbox-tests' }}
+          ref: fc8c13fc4b948c3c8928d4181be3dfa78e5d1944
+          path: forge-ci-blackbox-tests
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: forge-ci/go.mod
+          check-latest: true
+      - name: Validate strict companion behavioral contract
+        working-directory: forge-ci-blackbox-tests
+        run: ./scripts/validate-strict-profile-contract.sh
+
+      - name: Ensure distro toolchains
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq buildah
+      - name: Install the companion's pinned Maven
+        # Not Ubuntu's maven package: it is 3.8, which ignores MAVEN_ARGS
+        # (3.9+), so the harness's settings isolation and reproducible-build
+        # checks fail. Only Maven's own bin directory goes on PATH, so the
+        # companion's other mise pins do not shadow setup-go.
+        working-directory: forge-ci-blackbox-tests
+        run: |
+          source ../forge-ci/scripts/bootstrap/install-mise.sh
+          install_mise
+          mise trust .mise.toml
+          mise install maven
+          mise bin-paths maven >>"$GITHUB_PATH"
+
+      - name: Install cargo-cyclonedx
+        run: cargo install --locked cargo-cyclonedx --version 0.5.9
+
+      - name: Install cyclonedx-gomod
+        run: go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0
+
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          syft-version: "v1.49.0"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: "v3.1.3"
+
+      - name: Run the black-box suite against this checkout
+        env:
+          FORGE_CI_BLACKBOX_PROFILE: strict
+          FORGE_CI_PROC_SWAPS: "/dev/null"
+        run: go test -tags=blackbox -count=1 -timeout 45m ./tests/blackbox/...
+        working-directory: forge-ci-blackbox-tests
+
+  go:
+    name: Go (build, test, lint)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: go build
+        run: go build -o /tmp/forge-ci ./cmd/forge-ci
+      - name: go test
+        run: go test -race -timeout 120s ./...
+      - name: go test smoke
+        run: just test-smoke
+      - name: go test fuzz seed corpora
+        run: just test-fuzz
+      - name: go vet
+        run: go vet ./...
+      - name: smoke — --version
+        run: /tmp/forge-ci --version

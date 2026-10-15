@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# Trivy findings this repository accepts. Every entry states why the finding
+# does not apply here and when to look again; anything without both does not
+# belong in this file.
+vulnerabilities:
+  - id: GO-2026-5932
+    statement: >-
+      golang.org/x/crypto/openpgp is unmaintained and has no fixed version. This repository never imports golang.org/x/crypto; the module is a transitive dependency only, and OpenPGP goes through github.com/ProtonMail/go-crypto/openpgp, the maintained fork the advisory points at. govulncheck reports no reachable path. Revisit if the main module ever imports golang.org/x/crypto directly.
+    expired_at: 2027-04-15

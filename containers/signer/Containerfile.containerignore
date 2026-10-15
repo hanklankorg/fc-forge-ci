@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# The build context of the signer image is the repository root, and the image
+# copies one file from it. Buildah and Podman read this file because it is
+# named after the Containerfile beside it; it applies to that build alone, so
+# the runtime images, which are built from the same root, are not affected.
+# Without it the context holds the Git history and the layer's binary.
+*
+!.forgejo/scripts/verify-signer-toolchain.sh

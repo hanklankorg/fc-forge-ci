@@ -1,0 +1,98 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: 'Assemble release dist/ hand-off'
+description: >-
+  Download named current-run artifacts or a typed transfer plan into one hand-off tree, optionally merge per-image release ledgers into dist/release-images.json, compute the canonical hand-off digest, and upload the signer artifact through forge-ci.
+inputs:
+  artifact-transfer-plan-json:
+    description: >-
+      Optional forge-ci artifact transfer plan JSON. When set, artifact-names must be empty and each plan item is downloaded to its own path.
+    required: false
+    default: ''
+  artifact-names:
+    description: Newline-separated current-run artifact names to download into path. Leave empty when artifact-transfer-plan-json is set.
+    required: false
+    default: ''
+  path:
+    description: Directory to assemble and hand off.
+    required: false
+    default: dist/
+  ledger-files:
+    description: Newline-separated ledger files to merge after artifact download. Empty skips ledger assembly.
+    required: false
+    default: ''
+  ledger-expected-count:
+    description: Expected number of merged release-image ledger entries. Zero disables the check.
+    required: false
+    default: '0'
+  release-images-path:
+    description: Merged release image ledger path. Defaults to <path>/release-images.json.
+    required: false
+    default: ''
+  artifact-name:
+    description: Artifact name the sign-and-publish job downloads.
+    required: false
+    default: build-dist
+  prune-dirs:
+    description: Passed to the canonical dist preparation step; defaults to false.
+    required: false
+    default: 'false'
+  retention-days:
+    description: Artifact retention in days.
+    required: false
+    default: '1'
+
+outputs:
+  digest:
+    description: Canonical sha256 hand-off digest; pass to sign-and-publish as dist-digest.
+    value: ${{ steps.assemble.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+    - name: Download artifacts, merge ledgers, and digest dist/
+      id: assemble
+      shell: bash
+      env:
+        ARTIFACT_NAMES: ${{ inputs['artifact-names'] }}
+        ARTIFACT_TRANSFER_PLAN_JSON: ${{ inputs['artifact-transfer-plan-json'] }}
+        DIST_DIR: ${{ inputs.path }}
+        LEDGER_FILES: ${{ inputs['ledger-files'] }}
+        LEDGER_EXPECTED_COUNT: ${{ inputs['ledger-expected-count'] }}
+        RELEASE_IMAGES_PATH: ${{ inputs['release-images-path'] }}
+        PRUNE_DIRS: ${{ inputs['prune-dirs'] }}
+      run: |
+        set -euo pipefail
+        release_images_path="${RELEASE_IMAGES_PATH}"
+        if [ -z "${release_images_path}" ]; then
+          release_images_path="${DIST_DIR%/}/release-images.json"
+        fi
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        FORGE_CI_PROVIDER=forgejo run_forge_ci release assemble-dist \
+          --artifact-transfer-plan-json "${ARTIFACT_TRANSFER_PLAN_JSON}" \
+          --artifact-names "${ARTIFACT_NAMES}" \
+          --path "${DIST_DIR}" \
+          --ledger-files "${LEDGER_FILES}" \
+          --ledger-expected-count "${LEDGER_EXPECTED_COUNT}" \
+          --release-images-path "${release_images_path}" \
+          --prune-dirs "${PRUNE_DIRS}"
+
+    - name: Upload artifact
+      shell: bash
+      env:
+        ASSEMBLE_UPLOAD_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        ASSEMBLE_UPLOAD_PATH: ${{ inputs.path }}
+        ASSEMBLE_UPLOAD_RETENTION_DAYS: ${{ inputs.retention-days }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        FORGE_CI_PROVIDER=forgejo run_forge_ci artifact upload \
+          --name "${ASSEMBLE_UPLOAD_ARTIFACT_NAME}" \
+          --dir "${ASSEMBLE_UPLOAD_PATH}" \
+          --retention-days "${ASSEMBLE_UPLOAD_RETENTION_DAYS}" \
+          --if-no-files error \
+          --include-hidden

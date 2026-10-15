@@ -1,0 +1,217 @@
+# SPDX-FileCopyrightText: The nanolinter Authors
+#
+# SPDX-License-Identifier: CC0-1.0
+name: Pull Request
+on:
+  pull_request:
+    branches:
+      - main
+permissions:
+  contents: read
+env:
+  GIT_DEFAULT_HASH: sha256
+jobs:
+  # PR jobs use the repository's established runner and perform static/library
+  # checks without executing nanolinter as an external binary.
+  lint:
+    name: Lint
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 25
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          expected-sha256: f43d7a4ac43046a5fe3aac36259edec1f1361a3e076fa75d6aef76b61fc1227b
+      - name: Checkout repository
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout --object-format sha256 --depth 1
+      - name: Run static and library checks
+        run: |
+          set -euo pipefail
+          export CARGO_TARGET_DIR="${RUNNER_TEMP:-/tmp}/nanolinter-target-lint"
+          mkdir -p "${CARGO_TARGET_DIR}"
+          git config --global --add safe.directory "$PWD"
+          cargo fmt --all -- --check
+          cargo check --locked --workspace --all-targets
+          reuse lint
+  security:
+    name: Security
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 10
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          expected-sha256: f43d7a4ac43046a5fe3aac36259edec1f1361a3e076fa75d6aef76b61fc1227b
+      - name: Checkout repository (full history)
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout --object-format sha256 --fetch-all-refs
+      - name: Run direct dependency security scans
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$PWD"
+          cargo audit --deny warnings
+          osv-scanner scan source --recursive --verbosity warn .
+  # Keep repository policy jobs composed here; generic mechanics remain in
+  # forge-ci.
+  test:
+    name: Test
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 15
+    needs: [lint, security]
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          expected-sha256: f43d7a4ac43046a5fe3aac36259edec1f1361a3e076fa75d6aef76b61fc1227b
+      - name: Checkout repository
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout --object-format sha256 --depth 1
+      # Module-isolated tests for CI shell policy with stubbed collaborators.
+      - name: Run CI shell tests
+        run: |
+          set -euo pipefail
+          shellcheck -x \
+            .forgejo/scripts/base-tool-material.sh \
+            .forgejo/scripts/test-base-tool-material.sh \
+            .forgejo/scripts/blackbox-podman-lib.sh \
+            .forgejo/scripts/test-blackbox-podman-lib.sh \
+            .forgejo/scripts/build-shared-core-base-arch.sh \
+            .forgejo/scripts/assemble-shared-core-base.sh \
+            .forgejo/scripts/build-container-base-group.sh \
+            .forgejo/scripts/assemble-container-base-group.sh
+          bash ./.forgejo/scripts/test-base-tool-material.sh
+          bash ./.forgejo/scripts/test-blackbox-podman-lib.sh
+          bash ./.forgejo/scripts/test-release-image-lib.sh
+      # One fact per pin: forge-ci uses@ SHA, forge-ci-sha, and the engine
+      # expected-sha256 must be uniform across workflows — a half-done bump
+      # fails here instead of inside a release job.
+      - name: Pins are uniform
+        run: bash ./.forgejo/scripts/test-pin-uniformity.sh
+      - name: Run Rust checks and tests
+        run: |
+          set -euo pipefail
+          export CARGO_TARGET_DIR="${RUNNER_TEMP:-/tmp}/nanolinter-target-test"
+          mkdir -p "${CARGO_TARGET_DIR}"
+          git config --global --add safe.directory "$PWD"
+          cargo clippy --all-targets --message-format=short -- -D warnings
+          # Keep deterministic in-process product tests and the isolated
+          # nanolinter-ci policy CLI tests on PRs. The bin tests also compare
+          # the generated reference docs with their in-process renderers.
+          # Product black-box targets remain local-only.
+          cargo test --locked --workspace --bins
+          cargo test --locked --package nanolinter-ci --tests
+          cargo test --locked --package nanolinter \
+            --test architecture_guards \
+            --test configuration_doc_schema \
+            --test dependency_guards \
+            --test docs_workflow_guards \
+            --test workflow_policy
+  web-preview:
+    # workflow_dispatch-only: the job-level event guard prevents PR runs from
+    # starting the Node container or building the site.
+    if: ${{ forgejo.event_name == 'workflow_dispatch' }}
+    # This job builds the Hugo landing site, runs contrast and HTML checks, and
+    # uploads `public/` without pushing to `pages`.
+    name: Web Preview (landing site)
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 10
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          expected-sha256: f43d7a4ac43046a5fe3aac36259edec1f1361a3e076fa75d6aef76b61fc1227b
+      - name: Checkout
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout --object-format sha256 --depth 1
+      - name: Detect web changes
+        id: web-changes
+        run: |
+          set -euo pipefail
+          base="${{ forgejo.event.pull_request.base.sha }}"
+          git fetch --no-tags --depth=1 origin "${base}"
+          if git diff --quiet "${base}" HEAD -- \
+            web \
+            assets/logo.png \
+            assets/logo-animated.svg \
+            assets/apple-touch-icon.png \
+            assets/favicon-32.png \
+            .forgejo/workflows/pullrequest.yml
+          then
+            printf 'changed=false\n' >> "$FORGEJO_OUTPUT"
+            printf 'No web-facing changes; skipping web preview.\n'
+          else
+            printf 'changed=true\n' >> "$FORGEJO_OUTPUT"
+          fi
+      - name: Setup Node
+        if: steps.web-changes.outputs.changed == 'true'
+        uses: https://code.forgejo.org/actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: '24'
+      - name: Install Hugo (extended)
+        if: steps.web-changes.outputs.changed == 'true'
+        run: ./.forgejo/scripts/install-hugo.sh
+      - name: Mirror brand assets into web/static
+        if: steps.web-changes.outputs.changed == 'true'
+        run: |
+          install -m 0644 assets/logo.png             web/static/logo.png
+          install -m 0644 assets/logo-animated.svg    web/static/logo-animated.svg
+          install -m 0644 assets/apple-touch-icon.png web/static/apple-touch-icon.png
+          install -m 0644 assets/favicon-32.png       web/static/favicon-32.png
+      - name: Verify WCAG contrast ratios
+        if: steps.web-changes.outputs.changed == 'true'
+        run: node web/scripts/check-contrast.mjs
+      - name: Build site
+        if: steps.web-changes.outputs.changed == 'true'
+        run: hugo --minify --source web --destination ../public
+      - name: Install QA tooling
+        if: steps.web-changes.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          npm install --prefix /tmp/qa --no-save --silent html-validate@9.7.1
+      - name: Validate HTML structure
+        if: steps.web-changes.outputs.changed == 'true'
+        run: /tmp/qa/node_modules/.bin/html-validate --config web/.htmlvalidate.json 'public/**/*.html'
+      # The available runner does not provide reliable Chromium, so this gate
+      # is limited to contrast and static HTML checks.
+      - name: Upload rendered site as preview artifact
+        if: steps.web-changes.outputs.changed == 'true'
+        env:
+          PR_NUMBER: ${{ forgejo.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          forge-ci artifact upload --name "web-preview-${PR_NUMBER}" \
+            --retention-days 2 \
+            --dir public
+  # Static release-isolation gate: the `dist` job references no signing-key
+  # secrets, and the cross-repo signer remains pinned with explicit secrets and
+  # the dist-digest hand-off. Nanolinter's build job is `dist` with digest output
+  # `dist_digest`.
+  release-gate:
+    name: Release isolation gate
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 10
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          expected-sha256: f43d7a4ac43046a5fe3aac36259edec1f1361a3e076fa75d6aef76b61fc1227b
+      - name: Checkout repository
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout --object-format sha256 --depth 1
+      - name: Verify release isolation boundaries
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/check-l3-isolation@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          build-job: dist
+          dist-digest-output: dist_digest

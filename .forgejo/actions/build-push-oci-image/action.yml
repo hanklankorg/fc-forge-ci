@@ -1,0 +1,131 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: 'Build and push multi-arch OCI image'
+description: >-
+  Build every platform with Buildah, export one OCI index, and publish it through the OCI registry adapter with digest read-back verification. Uses the commit timestamp and OCI labels for reproducibility. Assumes registry login already happened; this action never handles tokens. Outputs image/digest for downstream ledger or signing steps. Use build-release-image when every platform must pass a scan before any upload.
+inputs:
+  tag:
+    description: Image tag to build and push (e.g. v1.2.3 or v1.2.3-alpine).
+    required: true
+  containerfile:
+    description: Path to the Containerfile/Dockerfile.
+    required: true
+  builds:
+    description: >-
+      JSON array of per-platform builds, each {"platform": "linux/amd64", "build-args": ["KEY=VALUE", ...]}. Every entry is built into the same manifest list; build-args may differ per platform (e.g. arch-specific artifact dirs).
+    required: true
+  image:
+    description: >-
+      Image base (registry/owner/name). Defaults to <host of github.server_url>/<lowercased github.repository>.
+    required: false
+    default: ''
+  context:
+    description: Build context directory.
+    required: false
+    default: '.'
+  title:
+    description: org.opencontainers.image.title.
+    required: true
+  description:
+    description: org.opencontainers.image.description.
+    required: false
+    default: ''
+  licenses:
+    description: org.opencontainers.image.licenses (SPDX expression).
+    required: false
+    default: ''
+  vendor:
+    description: org.opencontainers.image.vendor.
+    required: false
+    default: ''
+  authors:
+    description: org.opencontainers.image.authors.
+    required: false
+    default: ''
+  documentation:
+    description: org.opencontainers.image.documentation. Defaults to <source url>#readme.
+    required: false
+    default: ''
+  ref-name:
+    description: org.opencontainers.image.ref.name. Defaults to the tag.
+    required: false
+    default: ''
+  version:
+    description: >-
+      org.opencontainers.image.version. Defaults to the tag. Set it when the release version differs from the tag (e.g. tag v1.2.3-alpine, version v1.2.3).
+    required: false
+    default: ''
+  revision:
+    description: >-
+      org.opencontainers.image.revision. Defaults to `git rev-parse HEAD` of the checkout — NOT github.sha, which is the release-request trigger SHA in the immutable request-tag flow. Provenance must describe the sources actually built. Only set this if you build from something other than the checked-out HEAD.
+    required: false
+    default: ''
+  auth-file:
+    description: >-
+      Registry credentials file (--authfile semantics) used for the base-image pulls and the manifest push, e.g. the auth-file output of registry-login with create-auth-file. Empty (default) uses the client's ambient default auth location.
+    required: false
+    default: ''
+  tls-verify:
+    description: >-
+      Verify registry TLS certificates ('true', default). Set 'false' only for plain-HTTP registries (e.g. a localhost test registry).
+    required: false
+    default: 'true'
+
+outputs:
+  image:
+    description: The image base that was pushed (registry/owner/name).
+    value: ${{ steps.build.outputs.image }}
+  digest:
+    description: The pushed manifest-list digest (sha256:...).
+    value: ${{ steps.build.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build and push image
+      id: build
+      shell: bash
+      env:
+        IMAGE_TAG: ${{ inputs.tag }}
+        CONTAINER_FILE: ${{ inputs.containerfile }}
+        BUILDS_JSON: ${{ inputs.builds }}
+        IMAGE_NAME: ${{ inputs.image }}
+        BUILD_CONTEXT: ${{ inputs.context }}
+        OCI_LABEL_TITLE: ${{ inputs.title }}
+        OCI_LABEL_DESCRIPTION: ${{ inputs.description }}
+        OCI_LABEL_LICENSES: ${{ inputs.licenses }}
+        OCI_LABEL_VENDOR: ${{ inputs.vendor }}
+        OCI_LABEL_AUTHORS: ${{ inputs.authors }}
+        OCI_LABEL_DOCUMENTATION: ${{ inputs.documentation }}
+        OCI_LABEL_REF_NAME: ${{ inputs.ref-name }}
+        OCI_LABEL_VERSION: ${{ inputs.version }}
+        OCI_LABEL_REVISION: ${{ inputs.revision }}
+        FORGE_CI_REGISTRY_AUTH_FILE: ${{ inputs.auth-file }}
+        BUILD_PUSH_TLS_VERIFY: ${{ inputs.tls-verify }}
+        SERVER_URL: ${{ github.server_url }}
+        REPOSITORY: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        FORGE_CI_PROVIDER=forgejo run_forge_ci container build-push-oci-image \
+          --tag "${IMAGE_TAG}" \
+          --containerfile "${CONTAINER_FILE}" \
+          --builds-json "${BUILDS_JSON}" \
+          --image "${IMAGE_NAME}" \
+          --context "${BUILD_CONTEXT}" \
+          --title "${OCI_LABEL_TITLE}" \
+          --description "${OCI_LABEL_DESCRIPTION}" \
+          --licenses "${OCI_LABEL_LICENSES}" \
+          --vendor "${OCI_LABEL_VENDOR}" \
+          --authors "${OCI_LABEL_AUTHORS}" \
+          --documentation "${OCI_LABEL_DOCUMENTATION}" \
+          --ref-name "${OCI_LABEL_REF_NAME}" \
+          --version "${OCI_LABEL_VERSION}" \
+          --revision "${OCI_LABEL_REVISION}" \
+          --auth-file "${FORGE_CI_REGISTRY_AUTH_FILE:-${REGISTRY_AUTH_FILE:-}}" \
+          --tls-verify "${BUILD_PUSH_TLS_VERIFY}" \
+          --server-url "${SERVER_URL}" \
+          --repository "${REPOSITORY}"

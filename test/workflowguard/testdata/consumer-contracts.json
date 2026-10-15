@@ -1,0 +1,373 @@
+{
+  "pullrequest-orchestrator.yml": {
+    "inputs": {
+      "base-branch": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "forge-ci-binary-ref": {
+        "required": false,
+        "type": "string",
+        "default": "v0.90.0"
+      },
+      "lint-engine": {
+        "required": false,
+        "type": "string",
+        "default": "nanolinter"
+      },
+      "linters.swiftformat": {
+        "required": false,
+        "type": "boolean",
+        "default": false
+      },
+      "linters.swiftlint": {
+        "required": false,
+        "type": "boolean",
+        "default": false
+      },
+      "megalinter-image": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "nanolinter-image": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "project-type": {
+        "required": true,
+        "type": "string"
+      },
+      "required-lints": {
+        "required": false,
+        "type": "string",
+        "default": "secrets,sast"
+      },
+      "runtime-image": {
+        "required": false,
+        "type": "string",
+        "default": "ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0"
+      }
+    },
+    "secrets": [
+      "CODE_SCANNING_TOKEN"
+    ],
+    "required_secrets": [],
+    "outputs": {}
+  },
+  "release-orchestrator.yml": {
+    "inputs": {
+      "artifacts-config": {
+        "required": false,
+        "type": "string",
+        "default": ".forge-ci/artifacts.yml"
+      },
+      "branch": {
+        "required": true,
+        "type": "string"
+      },
+      "changelog-creator": {
+        "required": false,
+        "type": "string",
+        "default": "git-cliff"
+      },
+      "changelog.config": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "changelog.skipversionbump": {
+        "required": false,
+        "type": "boolean",
+        "default": false
+      },
+      "committer-email": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "committer-name": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "cosign-public-key": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "cosign-public-key-sha256": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "file-pattern": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "forge-ci-binary-ref": {
+        "required": false,
+        "type": "string",
+        "default": "v0.90.0"
+      },
+      "promote-release-environment": {
+        "required": false,
+        "type": "string",
+        "default": "production"
+      },
+      "promote-release-registry": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "promote-release-registry-username": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "promote-release-repo": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "promote-staging-environment": {
+        "required": false,
+        "type": "string",
+        "default": "staging"
+      },
+      "release-asset-retention": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "release-publisher": {
+        "required": false,
+        "type": "string"
+      },
+      "release-type": {
+        "required": false,
+        "type": "string"
+      },
+      "release.attachartifacts": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "release.draft": {
+        "required": false,
+        "type": "boolean",
+        "default": false
+      },
+      "release.requireallowlistedsigner": {
+        "required": false,
+        "type": "boolean",
+        "default": false
+      },
+      "release.sboms": {
+        "required": false,
+        "type": "string",
+        "default": "all"
+      },
+      "release.signartifacts": {
+        "required": false,
+        "type": "boolean",
+        "default": true
+      },
+      "runtime-image": {
+        "required": false,
+        "type": "string",
+        "default": "ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0"
+      },
+      "runtime-image-android": {
+        "required": false,
+        "type": "string",
+        "default": "ghcr.io/diggsweden/forge-ci-runtime-android-35:v0.90.0"
+      },
+      "runtime-image-full": {
+        "required": false,
+        "type": "string",
+        "default": "ghcr.io/diggsweden/forge-ci-runtime:v0.90.0"
+      },
+      "runtime-image-go": {
+        "required": false,
+        "type": "string",
+        "default": "ghcr.io/diggsweden/forge-ci-runtime-go-1.27:v0.90.0"
+      },
+      "runtime-image-java": {
+        "required": false,
+        "type": "string",
+        "default": "ghcr.io/diggsweden/forge-ci-runtime-java-25:v0.90.0"
+      },
+      "runtime-image-node": {
+        "required": false,
+        "type": "string",
+        "default": "ghcr.io/diggsweden/forge-ci-runtime-node-24:v0.90.0"
+      },
+      "runtime-image-rust": {
+        "required": false,
+        "type": "string",
+        "default": "ghcr.io/diggsweden/forge-ci-runtime-rust-stable:v0.90.0"
+      }
+    },
+    "secrets": [
+      "ANDROID_KEYSTORE",
+      "ANDROID_KEYSTORE_PASSWORD",
+      "ANDROID_KEY_ALIAS",
+      "ANDROID_KEY_PASSWORD",
+      "APP_STORE_CONNECT_API_KEY_ID",
+      "APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64",
+      "APP_STORE_CONNECT_ISSUER_ID",
+      "CODE_SCANNING_TOKEN",
+      "FORGE_CI_BUILD_SECRETS_JSON",
+      "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON",
+      "IOS_SIGNING_CERTIFICATE_BASE64",
+      "IOS_SIGNING_CERTIFICATE_PASSPHRASE",
+      "KEYCHAIN_PASSWORD",
+      "MAVEN_CENTRAL_PASSWORD",
+      "MAVEN_CENTRAL_USERNAME",
+      "NPM_TOKEN",
+      "PROMOTE_RELEASE_REGISTRY_PASSWORD",
+      "PROVISIONING_PROFILE_BASE64",
+      "RELEASE_COSIGN_PASSPHRASE",
+      "RELEASE_COSIGN_PRIVATE_KEY",
+      "RELEASE_GPG_PASSPHRASE",
+      "RELEASE_GPG_PRIVATE_KEY",
+      "RELEASE_GPG_PUBLIC_KEY",
+      "RELEASE_SSH_SIGNING_KEY",
+      "RELEASE_TOKEN",
+      "SECRETS_PROPERTIES_BASE64",
+      "XCCONFIG_BASE64"
+    ],
+    "required_secrets": [],
+    "outputs": {}
+  },
+  "release-snapshot-orchestrator.yml": {
+    "inputs": {
+      "artifacts-config": {
+        "required": false,
+        "type": "string",
+        "default": ".forge-ci/artifacts.yml"
+      },
+      "branch": {
+        "required": true,
+        "type": "string"
+      },
+      "forge-ci-binary-ref": {
+        "required": false,
+        "type": "string",
+        "default": "v0.90.0"
+      },
+      "java-version": {
+        "required": false,
+        "type": "string",
+        "default": "25"
+      },
+      "node-version": {
+        "required": false,
+        "type": "string",
+        "default": "24"
+      },
+      "npm-registry": {
+        "required": false,
+        "type": "string",
+        "default": "https://npm.pkg.github.com"
+      },
+      "package-scope": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "project-type": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "publish-npm": {
+        "required": false,
+        "type": "boolean",
+        "default": true
+      },
+      "registry": {
+        "required": false,
+        "type": "string",
+        "default": "ghcr.io"
+      },
+      "runtime-image": {
+        "required": false,
+        "type": "string",
+        "default": "ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0"
+      },
+      "runtime-image-android": {
+        "required": false,
+        "type": "string",
+        "default": "ghcr.io/diggsweden/forge-ci-runtime-android-35:v0.90.0"
+      },
+      "runtime-image-full": {
+        "required": false,
+        "type": "string",
+        "default": "ghcr.io/diggsweden/forge-ci-runtime:v0.90.0"
+      },
+      "runtime-image-go": {
+        "required": false,
+        "type": "string",
+        "default": "ghcr.io/diggsweden/forge-ci-runtime-go-1.27:v0.90.0"
+      },
+      "runtime-image-java": {
+        "required": false,
+        "type": "string",
+        "default": "ghcr.io/diggsweden/forge-ci-runtime-java-25:v0.90.0"
+      },
+      "runtime-image-node": {
+        "required": false,
+        "type": "string",
+        "default": "ghcr.io/diggsweden/forge-ci-runtime-node-24:v0.90.0"
+      },
+      "runtime-image-rust": {
+        "required": false,
+        "type": "string",
+        "default": "ghcr.io/diggsweden/forge-ci-runtime-rust-stable:v0.90.0"
+      },
+      "rust-toolchain": {
+        "required": false,
+        "type": "string",
+        "default": "stable"
+      },
+      "sboms": {
+        "required": false,
+        "type": "string",
+        "default": "none"
+      },
+      "use-ci-token": {
+        "required": false,
+        "type": "boolean",
+        "default": true
+      },
+      "working-directory": {
+        "required": false,
+        "type": "string",
+        "default": "."
+      }
+    },
+    "secrets": [
+      "ANDROID_KEYSTORE",
+      "ANDROID_KEYSTORE_PASSWORD",
+      "ANDROID_KEY_ALIAS",
+      "ANDROID_KEY_PASSWORD",
+      "IOS_SIGNING_CERTIFICATE_BASE64",
+      "IOS_SIGNING_CERTIFICATE_PASSPHRASE",
+      "KEYCHAIN_PASSWORD",
+      "PROVISIONING_PROFILE_BASE64",
+      "SECRETS_PROPERTIES_BASE64",
+      "XCCONFIG_BASE64",
+      "registry-password"
+    ],
+    "required_secrets": [],
+    "outputs": {
+      "npm-package-name": "${{ fromJson(jobs.execute-snapshot-publish-stage.outputs['artifacts-json'] || '{}').npm_package_name }}",
+      "npm-package-version": "${{ fromJson(jobs.execute-snapshot-publish-stage.outputs['artifacts-json'] || '{}').npm_package_version }}"
+    }
+  }
+}

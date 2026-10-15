@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# Example: a Maven application's merge-request gate and build on GitLab
+# CI/CD, from the components under templates/ (docs/gitlab.md). Copy to the
+# project's .gitlab-ci.yml and replace the placeholders, all literal so that
+# `git grep` finds them:
+#
+#   gitlab.example.com                   your instance
+#   team/ci/forge-ci (engine-project)    the project on it that serves
+#                                        forge-ci, including subgroups
+#   PIN_FORGE_CI_SHA                     the engine commit you authenticated:
+#                                        `check` is checksum-bound and must be
+#                                        included by full commit SHA
+#   PIN_DIGEST, PIN_IMAGE_DIGEST         digests of the reviewed images
+#
+# The pipeline status is the gate: GitLab fails the pipeline, and the merge
+# request, when any job fails. Require successful pipelines and refuse merging
+# on skipped ones in the project settings.
+#
+# No component builds or publishes the container image. In a release, it is
+# built by the `build` commands of the separate, pinned policy project that
+# includes the `release` component; see
+# docs/gitlab.md#native-release-policy-under-acceptance. A Maven library goes
+# to Maven Central with publish-maven-central or to the project's package
+# registry with publish-forge-packages; see docs/gitlab.md#package-publication.
+#
+# Once the release policy is the project's CI configuration path, GitLab runs
+# it instead of this file, so the policy includes this gate for merge
+# requests; see docs/gitlab.md#the-merge-request-gate-under-a-policy.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+stages:
+  - test
+  - build
+
+include:
+  # The lint gate: the project's nanolinter.toml plan in the java flavour,
+  # with the secrets,sast floor, and its findings as a SAST report.
+  - component: gitlab.example.com/team/ci/forge-ci/nanolinter@0.90.0
+    inputs:
+      engine-project: team/ci/forge-ci
+      nanolinter-image: "codefloe.com/itiquette/nanolinter:java@sha256:PIN_DIGEST"
+
+  # The consumer's own checks at the pipeline commit, in an image that carries
+  # Bash, Git, curl, sha256sum, a JDK and Maven.
+  - component: gitlab.example.com/team/ci/forge-ci/check@PIN_FORGE_CI_SHA
+    inputs:
+      engine-project: team/ci/forge-ci
+      job-image: registry.example.com/team/check-tools@sha256:PIN_IMAGE_DIGEST
+      commands:
+        - mvn --batch-mode --no-transfer-progress verify
+
+  # `forge-ci build maven run` with the application lifecycle (clean
+  # package): the JAR under target/ and the Build SBOM, kept as job
+  # artifacts.
+  - component: gitlab.example.com/team/ci/forge-ci/build-maven@0.90.0
+    inputs:
+      build-type: app
+      java-version: "25"

@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Example: Android App Build Workflow (for development/CI builds)
+# This builds Android variants during development
+name: Build Workflow
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    uses: diggsweden/forge-ci/.github/workflows/build-gradle-android.yml@v0.90.0
+    permissions:
+      contents: read
+      packages: write
+    # No secrets: this build is unsigned. With enable-signing: true, pass
+    # ANDROID_KEYSTORE, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and
+    # ANDROID_KEY_PASSWORD in an explicit `secrets:` mapping.
+    with:
+      build-module: "app"
+      product-flavor: "demo"
+      build-types: "debug,release"
+      include-aab: true
+      artifact-name-prefix: "testing_store"
+      include-date-stamp: true
+      enable-signing: false # Set to true for signed builds

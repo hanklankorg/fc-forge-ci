@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Example: a Go CLI signed with a Cosign key pair held as secrets.
+#
+# `sign.key: env://COSIGN_KEY` is the one environment reference the layer
+# accepts. The release workflow passes RELEASE_COSIGN_PRIVATE_KEY and
+# RELEASE_COSIGN_PASSPHRASE, and each job that receives them first checks the
+# key derives the trusted public key the caller supplies. GitLab and Forgejo
+# sign the same way, so one key serves an organization on every forge.
+#
+# With transparency disabled, signing contacts no public Sigstore endpoint;
+# verify with the public key and --insecure-ignore-tlog.
+#
+# See docs/github.md#signing.
+artifacts:
+  - name: my-cli
+    project-type: go
+    working-directory: .
+    config:
+      build-mode: artifact-first
+      main-package: ./cmd/my-cli
+      binary-name: my-cli
+      platforms: linux/amd64,linux/arm64
+
+sign:
+  method: kms
+  key: env://COSIGN_KEY
+  transparency: none

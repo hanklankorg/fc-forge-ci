@@ -1,0 +1,200 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: 'Prepare release'
+description: >-
+  Sign a pre-rendered CHANGELOG.md, push main and create the final release tag once. Call prepare-release.yml: project-controlled rendering must run in a separate job that never receives the SSH key.
+inputs:
+  bot-name:
+    description: Git author name for the release bump commit. No default; the engine refuses an empty one.
+    required: true
+  bot-email:
+    description: Git author email for the release bump commit. No default; the engine refuses an empty one.
+    required: true
+  forgejo-repo:
+    description: Consumer repository in owner/name form.
+    required: true
+  forgejo-ref-name:
+    description: Release request tag name, for example release-request/v1.2.3.
+    required: true
+  release-request-sha:
+    description: >-
+      Exact peeled commit OID authorized by the release-request event. When omitted for a direct action call, the action uses forgejo.sha.
+    required: false
+    default: ''
+  verify-release-request-signature:
+    description: >-
+      Verify the human release-request tag with SSH allowedSignersFile before loading the release SSH key. Disabled by default until consumers have a committed allowlist policy.
+    required: false
+    default: 'false'
+  release-request-allowed-signers:
+    description: SSH allowed signers file used when verify-release-request-signature is true.
+    required: false
+    default: .forgejo/release-allowed-signers
+  release-git-url:
+    description: >-
+      Exact SSH URL used to push the signed release commit and tag, in ssh://git@host[:port]/owner/repository.git form. Required and deliberately not derived from the Forgejo web URL because HTTPS and SSH routes may differ.
+    required: true
+  release-git-host-key-fingerprint:
+    description: >-
+      SSH host-key fingerprint of the release URL's host and port, as the trusted Forgejo operator reports it. Required, and deliberately not defaulted: a fingerprint fetched from the host it is meant to verify verifies nothing, so the caller pins it.
+    required: true
+  ssh-signing-key:
+    description: SSH private key used only by the final commit/tag step.
+    required: true
+
+  release-branch:
+    description: Branch the release lands on, the one the release request was checked to be the head of. Validated by prepare-release.yml.
+    required: true
+outputs:
+  release-tag:
+    description: Final stable release tag derived from the request tag.
+    value: ${{ steps.derive-release-context.outputs.release-tag }}
+  version:
+    description: Version without the leading v, derived from the request tag.
+    value: ${{ steps.derive-release-context.outputs.version }}
+  release-request:
+    description: Immutable request tag that authorized the release.
+    value: ${{ steps.derive-release-context.outputs.release-request }}
+  release-sha:
+    description: Final commit SHA that the release tag points to after preparation.
+    value: ${{ steps.validate-release.outputs.release-sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Derive release context
+      id: derive-release-context
+      shell: bash
+      env:
+        RELEASE_CONTEXT_REF: ${{ inputs.forgejo-ref-name }}
+        RELEASE_REQUEST_SHA_INPUT: ${{ inputs.release-request-sha }}
+        RELEASE_REQUEST_EVENT_SHA: ${{ forgejo.sha }}
+        VERIFY_RELEASE_REQUEST_SIGNATURE: ${{ inputs.verify-release-request-signature }}
+      run: |
+        set -euo pipefail
+        case "${VERIFY_RELEASE_REQUEST_SIGNATURE}" in
+          true|false) ;;
+          *) echo "ERROR: verify-release-request-signature must be true or false" >&2; exit 1 ;;
+        esac
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        run_forge_ci version derive-release \
+          --ref-name "${RELEASE_CONTEXT_REF:?}" \
+          --require-release-request \
+          --require-stable \
+          --trailer-mode coauthor-only
+        expected_release_request_sha=${RELEASE_REQUEST_SHA_INPUT:-${RELEASE_REQUEST_EVENT_SHA:?}}
+        if [[ ! "${expected_release_request_sha}" =~ ^([0123456789abcdef]{40}|[0123456789abcdef]{64})$ ]]; then
+          echo "ERROR: release-request-sha must be a 40- or 64-character lowercase commit hex digest" >&2
+          exit 1
+        fi
+        checked_out_sha=$(git rev-parse --verify 'HEAD^{commit}')
+        request_tag_sha=$(git rev-parse --verify "refs/tags/${RELEASE_CONTEXT_REF}^{commit}")
+        if [ "${checked_out_sha}" != "${expected_release_request_sha}" ] || [ "${request_tag_sha}" != "${expected_release_request_sha}" ]; then
+          echo "ERROR: release request source does not match the event commit" >&2
+          echo "  expected: ${expected_release_request_sha}" >&2
+          echo "  checkout: ${checked_out_sha}" >&2
+          echo "  tag:      ${request_tag_sha}" >&2
+          exit 1
+        fi
+
+    - name: Prepare verified signing executable
+      id: prepare-signing
+      shell: bash
+      run: |
+        set -euo pipefail
+        unset SSH_SIGNING_KEY
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        # Verify before the signing key is loaded; the key-holding step then
+        # runs this exact path without sourcing any library code.
+        verify_forge_ci
+        printf 'signing-executable=%s\n' "${HELPERS_ENGINE_VERIFIED}" >>"${FORGEJO_OUTPUT:?}"
+
+    # A release whose final tag already exists is not resumed: validate-request
+    # refuses it here, before the signing key is loaded, and the operator
+    # releases the next version (README: "If a release fails partway").
+    - name: Revalidate release request before loading signing key
+      shell: bash
+      env:
+        RELEASE_REQUEST: ${{ steps.derive-release-context.outputs.release-request }}
+        RELEASE_TAG: ${{ steps.derive-release-context.outputs.release-tag }}
+        RELEASE_REQUEST_SHA_INPUT: ${{ inputs.release-request-sha }}
+        RELEASE_REQUEST_EVENT_SHA: ${{ forgejo.sha }}
+        VERIFY_RELEASE_REQUEST_SIGNATURE: ${{ inputs.verify-release-request-signature }}
+        RELEASE_REQUEST_ALLOWED_SIGNERS: ${{ inputs.release-request-allowed-signers }}
+      run: |
+        set -euo pipefail
+        unset SSH_SIGNING_KEY
+        expected_release_request_sha=${RELEASE_REQUEST_SHA_INPUT:-${RELEASE_REQUEST_EVENT_SHA:?}}
+        signature_options=(--allowed-signers-file "${RELEASE_REQUEST_ALLOWED_SIGNERS:?}")
+        if [ "${VERIFY_RELEASE_REQUEST_SIGNATURE}" != true ]; then
+          signature_options=(--skip-signature)
+        fi
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        run_forge_ci release validate-request \
+          --release-request "${RELEASE_REQUEST:?}" \
+          --tag "${RELEASE_TAG:?}" \
+          --expected-commit "${expected_release_request_sha}" \
+          "${signature_options[@]}"
+
+    - name: Sign changelog commit and create release tag
+      id: sign-release
+      shell: bash
+      env:
+        SSH_SIGNING_KEY: ${{ inputs.ssh-signing-key }}
+        GIT_USER_NAME: ${{ inputs.bot-name }}
+        GIT_USER_EMAIL: ${{ inputs.bot-email }}
+        # Trust anchors. The engine ships no org default, since a three-forge
+        # binary must not assume one forge's host or key, so this shell supplies
+        # them and the engine fails loudly if either goes missing.
+        #
+        # The exact SSH write destination and its independently supplied host
+        # key pin are separate inputs. Neither is inferred from the HTTPS URL.
+        RELEASE_GIT_URL: ${{ inputs.release-git-url }}
+        RELEASE_GIT_HOST_KEY_FINGERPRINT: ${{ inputs.release-git-host-key-fingerprint }}
+        FORGEJO_REF_NAME: ${{ steps.derive-release-context.outputs.release-tag }}
+        FORGEJO_REPO: ${{ inputs.forgejo-repo }}
+        SIGNING_EXECUTABLE: ${{ steps.prepare-signing.outputs.signing-executable }}
+        TARGET_BRANCH: ${{ inputs.release-branch }}
+      run: |
+        set -euo pipefail
+        export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        unset BASH_ENV ENV
+        for name in "${!GIT_CONFIG_@}"; do
+          unset "${name}"
+        done
+        # --branch matches the head check in prepare-release.yml; left out,
+        # the engine reads RELEASE_BRANCH or BRANCH from the environment.
+        "${SIGNING_EXECUTABLE:?}" version commit-changelog-release \
+          --tag "${FORGEJO_REF_NAME}" \
+          --branch "${TARGET_BRANCH:?}" \
+          --repository "${FORGEJO_REPO}" \
+          --git-url "${RELEASE_GIT_URL}"
+
+    - name: Validate prepared release without signing key
+      id: validate-release
+      shell: bash
+      env:
+        FORGEJO_REF_NAME: ${{ steps.derive-release-context.outputs.release-tag }}
+        RELEASE_REQUEST_SHA_INPUT: ${{ inputs.release-request-sha }}
+        RELEASE_REQUEST_EVENT_SHA: ${{ forgejo.sha }}
+        SIGNED_RELEASE_SHA: ${{ steps.sign-release.outputs.release-sha }}
+      run: |
+        set -euo pipefail
+        unset SSH_SIGNING_KEY
+        expected_release_request_sha=${RELEASE_REQUEST_SHA_INPUT:-${RELEASE_REQUEST_EVENT_SHA:?}}
+        release_sha=${SIGNED_RELEASE_SHA:?}
+        read -r release_commit release_parent extra_parent < <(git rev-list --parents -n 1 "${release_sha}")
+        release_tag_sha=$(git rev-parse --verify "refs/tags/${FORGEJO_REF_NAME}^{commit}")
+        if [ "${release_commit}" != "${release_sha}" ] || \
+          [ "${release_parent}" != "${expected_release_request_sha}" ] || \
+          [ -n "${extra_parent}" ] || [ "${release_tag_sha}" != "${release_sha}" ]; then
+          echo "ERROR: prepared release is not the single-child commit of the authorized request source" >&2
+          exit 1
+        fi
+        echo "release-sha=${release_sha}" >> "${FORGEJO_OUTPUT}"
+        echo "Release SHA: ${release_sha}"

@@ -1,0 +1,61 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# Example: a Go CLI's merge-request gate and build on GitLab CI/CD, from the
+# components under templates/ (docs/gitlab.md). Copy to the project's
+# .gitlab-ci.yml and replace the placeholders, all literal so that
+# `git grep` finds them:
+#
+#   gitlab.example.com                   your instance
+#   team/ci/forge-ci (engine-project)    the project on it that serves
+#                                        forge-ci, including subgroups
+#   PIN_FORGE_CI_SHA                     the engine commit you authenticated:
+#                                        `check` is checksum-bound and must be
+#                                        included by full commit SHA
+#   PIN_DIGEST, PIN_IMAGE_DIGEST         digests of the reviewed images
+#
+# The pipeline status is the gate: GitLab fails the pipeline, and the merge
+# request, when any job fails. Require successful pipelines and refuse merging
+# on skipped ones in the project settings.
+#
+# Releases do not run from this file. The native release runs from a separate,
+# pinned policy project that includes the `release` component; see
+# docs/gitlab.md#native-release-policy-under-acceptance. Once that policy is the
+# project's CI configuration path, GitLab runs it instead of this file, so the
+# policy includes this gate for merge requests; see
+# docs/gitlab.md#the-merge-request-gate-under-a-policy.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+stages:
+  - test
+  - build
+
+include:
+  # The lint gate: the project's nanolinter.toml plan in the go flavour, with
+  # the secrets,sast floor, and its findings as a SAST report.
+  - component: gitlab.example.com/team/ci/forge-ci/nanolinter@0.90.0
+    inputs:
+      engine-project: team/ci/forge-ci
+      nanolinter-image: "codefloe.com/itiquette/nanolinter:go@sha256:PIN_DIGEST"
+
+  # The consumer's own checks at the pipeline commit, in an image that carries
+  # Bash, Git, curl, sha256sum and Go.
+  - component: gitlab.example.com/team/ci/forge-ci/check@PIN_FORGE_CI_SHA
+    inputs:
+      engine-project: team/ci/forge-ci
+      job-image: registry.example.com/team/check-tools@sha256:PIN_IMAGE_DIGEST
+      commands:
+        - go vet ./...
+        - go test ./...
+
+  # `forge-ci build go run`: go test, the Build SBOM and one binary per
+  # platform under dist/, kept as job artifacts. The main package is the one
+  # in working-directory: the component has no main-package input.
+  - component: gitlab.example.com/team/ci/forge-ci/build-go@0.90.0
+    inputs:
+      artifact-name: my-cli
+      platforms: "linux/amd64,linux/arm64,darwin/amd64,darwin/arm64"

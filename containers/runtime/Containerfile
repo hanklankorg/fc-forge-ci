@@ -1,0 +1,326 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# Shared runtime container for forge-ci.
+#
+# Multi-stage image. Each stage publishes its own image. Jobs pull only
+# the stage they need:
+#
+#   base    — bash, ca-certificates, curl, git, gnupg, gzip, jq, tar, unzip,
+#             xz, zip, yq, git-cliff, gh, glab, mise, publiccode-parser, cosign,
+#             and the matching architecture's forge-ci binary from this
+#             runtime run's cli-dist artifact. Used by config / plan / release /
+#             orchestrator / changelog / provider-dispatch / publiccode-lint
+#             jobs.
+#   full    — base + syft + trivy. Used by security and SBOM jobs.
+#   rust    — base + Rust stable toolchain + cargo-cyclonedx. Used by
+#             build-cargo and sbom-cargo.
+#   go      — base + Go 1.27 toolchain + cyclonedx-gomod. Used by build-go
+#             and sbom-go.
+#   node    — base + Node 24 LTS + npm + corepack. Used by build-npm,
+#             publish-snapshot-npm.
+#   java    — base + Eclipse Temurin JDK 25 LTS + Maven + Gradle. Used by
+#             build-maven, build-gradle-app, publish-maven-central.
+#   android — java + Android cmdline-tools + platform-tools + build-tools 35
+#             + android-35. NDK is intentionally NOT included (see
+#             docs/runtime-images.md).
+#
+# Scripts are baked at /opt/forge-ci/scripts and templates at
+# /opt/forge-ci/templates. The Go binary lives at /usr/local/bin/
+# forge-ci. WORKDIR is /workspace.
+# Tool versions are pinned via Renovate (datasource comments below or in
+# the install-*.sh helpers).
+
+# DEBIAN_VERSION lives in the global ARG scope (before any FROM) because a
+# FROM line can only reference ARGs declared globally — a stage-scoped ARG is
+# invisible to a later FROM. See the pinning rationale at the base stage below.
+# renovate: datasource=docker depName=debian versioning=docker
+ARG DEBIAN_VERSION=13-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
+
+# =============================================================================
+# Base stage
+# =============================================================================
+
+# Pinned by tag and OCI index digest. The renovate comment on the global ARG
+# keeps both values current, while TestRuntimeContainerfileExternalFromImagesAreDigestPinned
+# rejects any external base that loses its digest.
+FROM debian:${DEBIAN_VERSION} AS base
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# hadolint ignore=DL3008
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    bash \
+    ca-certificates \
+    curl \
+    git \
+    gnupg \
+    gzip \
+    jq \
+    tar \
+    unzip \
+    xz-utils \
+    zip \
+  && rm -rf /var/lib/apt/lists/*
+
+# Bootstrap helpers install tools at image build time and in plain-runner jobs.
+# Keep their pinned tool versions in the shared helpers where applicable.
+COPY scripts/bootstrap /opt/forge-ci/scripts/bootstrap
+COPY templates /opt/forge-ci/templates
+
+# The verify/publish jobs extract the matching Linux architecture's binary from
+# this run's build-cli artifact to cli-prebuilt/forge-ci. COPY preserves those
+# bytes. The rolling CLI publisher consumes the same archives; stable release
+# archives are built separately by release-binary.yml.
+COPY cli-prebuilt/forge-ci /usr/local/bin/forge-ci
+
+# Install binary tools via the shared helpers, then promote them to /usr/local/bin
+# and clean up temporary files. PATH reuse is helper-specific: cosign always
+# bootstraps the repository-pinned verifier.
+# hadolint ignore=SC1091
+RUN bash -c 'set -euo pipefail \
+  && source /opt/forge-ci/scripts/bootstrap/install-yq.sh && install_yq \
+  && install -m 0755 "$(command -v yq)" /usr/local/bin/yq \
+  && source /opt/forge-ci/scripts/bootstrap/install-git-cliff.sh && install_git_cliff \
+  && install -m 0755 "$(command -v git-cliff)" /usr/local/bin/git-cliff \
+  && source /opt/forge-ci/scripts/bootstrap/install-gh.sh && install_gh \
+  && install -m 0755 "$(command -v gh)" /usr/local/bin/gh \
+  && source /opt/forge-ci/scripts/bootstrap/install-glab.sh && install_glab \
+  && install -m 0755 "$(command -v glab)" /usr/local/bin/glab \
+  && source /opt/forge-ci/scripts/bootstrap/install-mise.sh && install_mise \
+  && install -m 0755 "$(command -v mise)" /usr/local/bin/mise \
+  && source /opt/forge-ci/scripts/bootstrap/install-publiccode-parser.sh && install_publiccode_parser \
+  && install -m 0755 "$(command -v publiccode-parser)" /usr/local/bin/publiccode-parser \
+  && source /opt/forge-ci/scripts/bootstrap/install-cosign.sh && install_cosign \
+  && install -m 0755 "$(command -v cosign)" /usr/local/bin/cosign' \
+  && rm -rf /tmp/yq-bin /tmp/git-cliff-bin /tmp/gh-bin /tmp/glab-bin /tmp/mise-bin /tmp/publiccode-parser-bin /tmp/cosign-bin \
+  && yq --version \
+  && git-cliff --version \
+  && gh --version \
+  && glab --version \
+  && mise --version \
+  && publiccode-parser --version \
+  && cosign version \
+  && forge-ci --version
+
+# Git aborts operations on a repository whose on-disk owner differs from the
+# invoking process UID ("detected dubious ownership"). In every container-based
+# job the workspace is checked out on the host runner and bind-mounted into this
+# image, so its owner never matches the in-container UID. The workspace path is
+# assigned per repository at run time and is therefore unknown at build time, so
+# the exception is scoped to all paths. This image is an ephemeral, single-tenant
+# CI sandbox; the broadened scope introduces no multi-tenant exposure.
+RUN git config --system --add safe.directory '*'
+
+WORKDIR /workspace
+
+FROM base AS full
+
+# hadolint ignore=SC1091
+RUN bash -c 'set -euo pipefail \
+  && source /opt/forge-ci/scripts/bootstrap/install-syft.sh && install_syft \
+  && install -m 0755 "$(command -v syft)" /usr/local/bin/syft \
+  && source /opt/forge-ci/scripts/bootstrap/install-trivy.sh && install_trivy \
+  && install -m 0755 "$(command -v trivy)" /usr/local/bin/trivy' \
+  && rm -rf /tmp/syft-bin /tmp/trivy-bin \
+  && syft version \
+  && trivy --version
+
+# =============================================================================
+# Rust toolchain (sbom-cargo and any future cargo-driven workflow)
+# =============================================================================
+
+FROM base AS rust
+
+ENV CARGO_HOME=/usr/local/cargo \
+    RUSTUP_HOME=/usr/local/rustup \
+    PATH=/usr/local/cargo/bin:$PATH
+
+# renovate: datasource=github-releases depName=rust-lang/rust extractVersion=^(?<version>.*)$
+ARG RUST_VERSION=1.90.0
+# renovate: datasource=crate depName=cargo-cyclonedx
+ARG CARGO_CYCLONEDX_VERSION=0.5.9
+
+# Install rustup + the linkers needed for the artifact-first cross-compile
+# matrix the build-cargo.yml workflow defaults to (linux/amd64 + linux/arm64).
+# Adopters wanting darwin/windows must extend this image or run the build
+# on a host that already carries the matching cross-linker — cargo will
+# error with a clear `linker not found for target …` message otherwise.
+# hadolint ignore=DL3008
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends gcc libc6-dev gcc-aarch64-linux-gnu \
+  && rm -rf /var/lib/apt/lists/* \
+  && curl --proto '=https' --tlsv1.2 -sSf --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 https://sh.rustup.rs -o /tmp/rustup-init.sh \
+  && sh /tmp/rustup-init.sh -y --no-modify-path \
+       --default-toolchain "${RUST_VERSION}" \
+       --profile minimal \
+  && rm -f /tmp/rustup-init.sh \
+  && rustup target add aarch64-unknown-linux-gnu \
+  && cargo install --locked cargo-cyclonedx --version "${CARGO_CYCLONEDX_VERSION}" \
+  && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git" \
+  && rustc --version \
+  && cargo --version \
+  && cargo cyclonedx --version
+
+# Point cargo at the cross-linker for aarch64. Without this the
+# x86_64 default linker is used and aarch64 compiles fail with
+# "wrong architecture" link errors.
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+
+# =============================================================================
+# Go toolchain (build-go, sbom-go)
+# =============================================================================
+
+FROM base AS go
+
+# renovate: datasource=golang-version depName=go
+ARG GO_VERSION=1.27.2
+# renovate: datasource=github-releases depName=CycloneDX/cyclonedx-gomod
+ARG CYCLONEDX_GOMOD_VERSION=v1.10.0
+
+ENV GOROOT=/usr/local/go \
+    GOPATH=/go \
+    PATH=/usr/local/go/bin:/go/bin:$PATH
+
+# Every download in this file retries transient failures, a refused connection
+# or a brief 404 from a mirror among them: one image build makes a dozen of
+# them on two architectures, and one lost request failed the whole release.
+# A pinned `go install` asks sum.golang.org, which go itself does not retry.
+# The toolchains are fetched over HTTPS from each project's own host and are
+# not pinned by digest, unlike the signer image's tools: that image holds the
+# signing keys, and Renovate bumps these versions, which a stale digest would
+# fail.
+RUN arch="$(dpkg --print-architecture)" \
+  && case "$arch" in \
+       amd64) go_arch=amd64 ;; \
+       arm64) go_arch=arm64 ;; \
+       *) printf 'unsupported arch: %s\n' "$arch" >&2; exit 1 ;; \
+     esac \
+  && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 "https://go.dev/dl/go${GO_VERSION}.linux-${go_arch}.tar.gz" \
+       -o /tmp/go.tar.gz \
+  && tar -C /usr/local -xzf /tmp/go.tar.gz \
+  && rm -f /tmp/go.tar.gz \
+  && mkdir -p "$GOPATH" \
+  && for attempt in 1 2 3 4 5; do \
+       GOBIN=/usr/local/bin go install "github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@${CYCLONEDX_GOMOD_VERSION}" && break; \
+       if [ "$attempt" -eq 5 ]; then exit 1; fi; \
+       sleep $((attempt * 5)); \
+     done \
+  && rm -rf "$GOPATH/pkg/mod" "$GOPATH/pkg/sumdb" /root/.cache/go-build \
+  && go version \
+  && cyclonedx-gomod version
+
+# =============================================================================
+# Node toolchain (build-npm, publish-dev-npm)
+# =============================================================================
+
+FROM base AS node
+
+# renovate: datasource=node-version depName=node
+ARG NODE_VERSION=24.10.0
+
+# hadolint ignore=DL3008,SC2155
+RUN arch="$(dpkg --print-architecture)" \
+  && case "$arch" in \
+       amd64) node_arch=x64 ;; \
+       arm64) node_arch=arm64 ;; \
+       *) printf 'unsupported arch: %s\n' "$arch" >&2; exit 1 ;; \
+     esac \
+  && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${node_arch}.tar.xz" \
+       -o /tmp/node.tar.xz \
+  && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+       --exclude='*.md' --exclude='LICENSE' --exclude='share/doc' --exclude='share/man' \
+  && rm -f /tmp/node.tar.xz \
+  && corepack enable \
+  && node --version \
+  && npm --version \
+  && corepack --version
+
+# =============================================================================
+# Java toolchain (build-maven, build-gradle-app, publish-maven-central)
+# Inherits from base; runtime-android extends this stage further.
+# =============================================================================
+
+FROM base AS java
+
+# renovate: datasource=adoptium-java depName=temurin
+ARG JDK_VERSION=25.0.3+9
+# renovate: datasource=maven depName=org.apache.maven:apache-maven extractVersion=^(?<version>.*)$
+ARG MAVEN_VERSION=3.9.11
+# renovate: datasource=gradle-version depName=gradle
+ARG GRADLE_VERSION=8.14
+
+ENV JAVA_HOME=/usr/local/jdk \
+    MAVEN_HOME=/usr/local/maven \
+    GRADLE_HOME=/usr/local/gradle \
+    PATH=/usr/local/jdk/bin:/usr/local/maven/bin:/usr/local/gradle/bin:$PATH
+
+# hadolint ignore=DL3008,DL4006
+RUN arch="$(dpkg --print-architecture)" \
+  && case "$arch" in \
+       amd64) jdk_arch=x64 ;; \
+       arm64) jdk_arch=aarch64 ;; \
+       *) printf 'unsupported arch: %s\n' "$arch" >&2; exit 1 ;; \
+     esac \
+  && jdk_version_url="$(printf '%s' "$JDK_VERSION" | sed 's/+/%2B/g')" \
+  && jdk_version_file="$(printf '%s' "$JDK_VERSION" | tr '+' '_')" \
+  && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 \
+       "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-${jdk_version_url}/OpenJDK25U-jdk_${jdk_arch}_linux_hotspot_${jdk_version_file}.tar.gz" \
+       -o /tmp/jdk.tar.gz \
+  && mkdir -p "$JAVA_HOME" \
+  && tar -xzf /tmp/jdk.tar.gz -C "$JAVA_HOME" --strip-components=1 \
+  && rm -f /tmp/jdk.tar.gz \
+  && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 \
+       "https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
+       -o /tmp/maven.tar.gz \
+  && mkdir -p "$MAVEN_HOME" \
+  && tar -xzf /tmp/maven.tar.gz -C "$MAVEN_HOME" --strip-components=1 \
+  && rm -f /tmp/maven.tar.gz \
+  && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 \
+       "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" \
+       -o /tmp/gradle.zip \
+  && unzip -q /tmp/gradle.zip -d /usr/local \
+  && mv "/usr/local/gradle-${GRADLE_VERSION}" "$GRADLE_HOME" \
+  && rm -f /tmp/gradle.zip \
+  && java -version \
+  && mvn -version \
+  && gradle --version
+
+# =============================================================================
+# Android toolchain (build-gradle-android, publish-google-play)
+# Inherits from java; intentionally NO NDK (build runtime-android-ndk
+# variant when a JNI consumer needs it — see docs/runtime-images.md).
+# =============================================================================
+
+FROM java AS android
+
+# renovate: datasource=github-tags depName=android/cmdline-tools-version
+ARG ANDROID_CMDLINE_VERSION=11076708
+# renovate: datasource=custom.android-platform
+ARG ANDROID_PLATFORM=android-35
+# renovate: datasource=custom.android-build-tools
+ARG ANDROID_BUILD_TOOLS_VERSION=35.0.0
+
+ENV ANDROID_HOME=/opt/android-sdk \
+    ANDROID_SDK_ROOT=/opt/android-sdk \
+    PATH=/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:$PATH
+
+# The licence pipe needs no pipefail: `yes` always dies of SIGPIPE, and
+# sdkmanager's status is the one that counts.
+# hadolint ignore=DL3008,DL4006
+RUN mkdir -p "$ANDROID_HOME/cmdline-tools" \
+  && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 \
+       "https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_CMDLINE_VERSION}_latest.zip" \
+       -o /tmp/cmdline-tools.zip \
+  && unzip -q /tmp/cmdline-tools.zip -d "$ANDROID_HOME/cmdline-tools" \
+  && mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest" \
+  && rm -f /tmp/cmdline-tools.zip \
+  && { yes 2>/dev/null || true; } | sdkmanager --licenses >/dev/null \
+  && sdkmanager --install \
+       "platform-tools" \
+       "platforms;${ANDROID_PLATFORM}" \
+       "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" \
+  && rm -rf "$ANDROID_HOME/.android" \
+  && sdkmanager --version \
+  && adb --version

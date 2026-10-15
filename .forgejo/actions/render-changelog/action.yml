@@ -1,0 +1,103 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+name: Render release changelog
+description: Render project-controlled changelog configuration in a job without signing secrets. Call prepare-release.yml for the isolated render/sign flow.
+inputs:
+  changelog-config:
+    description: Renderer config used to generate CHANGELOG.md.
+    default: .chglog/config-keepachangelog.yml
+  commit-body-config:
+    description: Renderer config used for the release commit body.
+    default: .chglog/config-minimal.yml
+  changelog-backend:
+    description: Changelog renderer backend, git-chglog or git-cliff, pinned in versions.env.
+    default: git-chglog
+  repository-url:
+    description: Canonical HTTPS web URL used for generated changelog links.
+    required: true
+  forgejo-ref-name:
+    description: Immutable release request tag, for example release-request/v1.2.3.
+    required: true
+  release-branch:
+    description: Branch the release lands on, the one the release request was checked to be the head of. Validated by prepare-release.yml.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Derive release context
+      id: derive-release-context
+      shell: bash
+      env:
+        RELEASE_CONTEXT_REF: ${{ inputs.forgejo-ref-name }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        run_forge_ci version derive-release \
+          --ref-name "${RELEASE_CONTEXT_REF:?}" \
+          --require-release-request \
+          --require-stable \
+          --trailer-mode coauthor-only
+
+    # The renderer can execute commands from the consumer's configuration.
+    # This job never receives a signing key, even after rendering has finished.
+    - name: Install changelog renderer
+      shell: bash
+      env:
+        CHANGELOG_BACKEND: ${{ inputs.changelog-backend }}
+      run: |
+        set -euo pipefail
+        unset GITHUB_TOKEN GH_TOKEN FORGEJO_TOKEN GITEA_TOKEN SSH_SIGNING_KEY
+        # shellcheck source=.forgejo/actions/render-changelog/versions.env
+        source "${GITHUB_ACTION_PATH}/versions.env"
+        case "${CHANGELOG_BACKEND:?}" in
+          git-chglog)
+            version=${GIT_CHGLOG_VERSION:?}
+            linux_x64_sha256=${GIT_CHGLOG_LINUX_X64_SHA256:?}
+            linux_arm64_sha256=${GIT_CHGLOG_LINUX_ARM64_SHA256:?}
+            ;;
+          git-cliff)
+            version=${GIT_CLIFF_VERSION:?}
+            linux_x64_sha256=${GIT_CLIFF_LINUX_X64_SHA256:?}
+            linux_arm64_sha256=${GIT_CLIFF_LINUX_ARM64_SHA256:?}
+            ;;
+          *)
+            echo "ERROR: changelog-backend must be git-chglog or git-cliff" >&2
+            exit 1
+            ;;
+        esac
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        run_forge_ci toolchain install-changelog-renderer \
+          --backend "${CHANGELOG_BACKEND}" \
+          --version "${version}" \
+          --linux-x64-sha256 "${linux_x64_sha256}" \
+          --linux-arm64-sha256 "${linux_arm64_sha256}" \
+          --path-file "${FORGEJO_PATH:?}"
+
+    - name: Generate changelog without SSH key
+      shell: bash
+      env:
+        CHANGELOG_BACKEND: ${{ inputs.changelog-backend }}
+        CHANGELOG_CONFIG: ${{ inputs.changelog-config }}
+        COMMIT_BODY_CONFIG: ${{ inputs.commit-body-config }}
+        CHANGELOG_REPOSITORY_URL: ${{ inputs.repository-url }}
+        FORGEJO_REF_NAME: ${{ steps.derive-release-context.outputs.release-tag }}
+        COMMIT_TRAILERS: ${{ steps.derive-release-context.outputs.commit-trailers }}
+        TARGET_BRANCH: ${{ inputs.release-branch }}
+      run: |
+        set -euo pipefail
+        unset SSH_SIGNING_KEY
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        # --branch matches the head check in prepare-release.yml; left out,
+        # the engine reads RELEASE_BRANCH or BRANCH from the environment.
+        run_forge_ci version render-changelog \
+          --branch "${TARGET_BRANCH:?}" \
+          --backend "${CHANGELOG_BACKEND:?}" \
+          --tag "${FORGEJO_REF_NAME:?}" \
+          --repository-url "${CHANGELOG_REPOSITORY_URL:?}" \
+          --changelog-config "${CHANGELOG_CONFIG:?}" \
+          --commit-body-config "${COMMIT_BODY_CONFIG:?}" \
+          --commit-trailers "${COMMIT_TRAILERS}"

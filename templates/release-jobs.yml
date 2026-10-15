@@ -1,0 +1,294 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+# Include only from the project's independently controlled, pinned external
+# CI configuration. Consumer-owned YAML is not a signing-policy boundary.
+spec:
+  inputs:
+    engine-sha:
+      regex: '^([0-9a-f]{40}|[0-9a-f]{64})$'
+    engine-reference:
+      type: string
+    engine-project:
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
+    consumer-project:
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
+    job-image:
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    build-image:
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    signer-image:
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    publication-project:
+      description: Separate GitLab project owning final container images; source job tokens must not write it.
+    publication-image-repository:
+      description: Exact registry repository in the publication project, without tag or digest.
+    cosign-public-key-sha256:
+      regex: '^[0-9a-f]{64}$'
+    release-git-url:
+      description: Repository SSH write URL; the prepare key must be a scoped deploy key.
+    release-git-host-key-fingerprint:
+      description: Independently supplied SSH host key fingerprint.
+    request-allowed-signers:
+      description: Trusted OpenSSH allowed-signers text for human release-request tags; supplied by the external policy.
+    bot-name:
+      type: string
+    bot-email:
+      type: string
+    checks:
+      type: array
+      description: Required checks on the request commit, without signing or publication secrets.
+    build:
+      type: array
+      description: Consumer build commands producing dist/release-files.json and release-notes.md.
+    changelog-backend:
+      options: [git-chglog, git-cliff]
+    changelog-config:
+      type: string
+    commit-body-config:
+      type: string
+    sign-distro-packages:
+      type: boolean
+    release-asset-retention:
+      regex: '^$|^[1-9][0-9]*$'
+    base-images:
+      type: boolean
+    transparency-log:
+      options: [none, public]
+    release-branch:
+      regex: '^$|^[A-Za-z0-9_][A-Za-z0-9_./-]*$'
+---
+stages: [test, build, deploy]
+.forge-ci-release:
+  # As in the check component: a consumer's image runs the job's shell, not
+  # its own entrypoint, on every executor.
+  image:
+    name: $[[ inputs.job-image ]]
+    entrypoint: [""]
+  cache: []
+  interruptible: false
+  variables:
+    GIT_STRATEGY: empty
+    GIT_SUBMODULE_STRATEGY: none
+    RC_ENGINE_PROJECT: $[[ inputs.engine-project ]]
+    RC_CONSUMER_PROJECT: $[[ inputs.consumer-project ]]
+    RC_SIGNER_IMAGE: $[[ inputs.signer-image ]]
+    RC_PUBLICATION_PROJECT: $[[ inputs.publication-project ]]
+    RC_PUBLICATION_IMAGE_REPOSITORY: $[[ inputs.publication-image-repository ]]
+    RC_PUBLIC_KEY_SHA256: $[[ inputs.cosign-public-key-sha256 ]]
+    RC_GIT_URL: $[[ inputs.release-git-url ]]
+    RC_GIT_HOST_KEY: $[[ inputs.release-git-host-key-fingerprint ]]
+    RC_REQUEST_ALLOWED_SIGNERS: $[[ inputs.request-allowed-signers ]]
+    RC_BOT_NAME: $[[ inputs.bot-name ]]
+    RC_BOT_EMAIL: $[[ inputs.bot-email ]]
+    RC_CHANGELOG_BACKEND: $[[ inputs.changelog-backend ]]
+    RC_CHANGELOG_CONFIG: $[[ inputs.changelog-config ]]
+    RC_COMMIT_BODY_CONFIG: $[[ inputs.commit-body-config ]]
+    RC_SIGN_DISTRO_PACKAGES: '$[[ inputs.sign-distro-packages ]]'
+    RC_RELEASE_ASSET_RETENTION: '$[[ inputs.release-asset-retention ]]'
+    RC_BASE_IMAGES: '$[[ inputs.base-images ]]'
+    FORGE_CI_COSIGN_TRANSPARENCY: $[[ inputs.transparency-log ]]
+    RC_RELEASE_BRANCH_INPUT: $[[ inputs.release-branch ]]
+  before_script:
+    - |
+      set -euo pipefail
+      umask 077
+      expected='$[[ inputs.engine-sha ]]'
+      reference='$[[ inputs.engine-reference ]]'
+      test "${reference}" = "${expected}"
+      test "${CI_PROJECT_PATH:?}" = "${RC_CONSUMER_PROJECT:?}"
+      test "${CI_COMMIT_REF_PROTECTED:?}" = true
+      test "${CI_PIPELINE_SOURCE:?}" = parent_pipeline
+      case "${CI_COMMIT_TAG:?}" in release-request/v*) ;; *) exit 1 ;; esac
+      unset BASH_ENV ENV
+      RC_WORK=$(mktemp -d /tmp/forge-ci-release.XXXXXXXX)
+      readonly RC_WORK
+      trap 'rm -rf -- "${RC_WORK}"' EXIT
+      case "${CI_JOB_NAME}" in
+        release-check | release-render | release-build) ;;
+        *)
+          export HOME="${RC_WORK}/home"
+          mkdir -m 0700 "${HOME}"
+          export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+          ;;
+      esac
+      export RC_HELPERS_DIR="${RC_WORK}/helpers"
+      export CI_OUTPUT="${RC_WORK}/outputs.env"
+      export FORGE_CI_PLAN="${RC_WORK}/plan.json"
+      export SIGN_AND_PUBLISH_STATE_DIR="${RC_WORK}/state"
+      mkdir -m 0700 "${SIGN_AND_PUBLISH_STATE_DIR}"
+      export FORGE_CI_PACKAGE_PROVIDER=gitlab
+      export FORGE_CI_REPOSITORY_URL="${CI_SERVER_URL:?}/${RC_ENGINE_PROJECT:?}.git"
+      git_options=(-c core.hooksPath=/dev/null -c credential.helper=)
+      if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+        for bundle in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; do
+          if [ -f "${bundle}" ]; then break; fi
+        done
+        test -f "${bundle}"
+        cat -- "${bundle}" "${CI_SERVER_TLS_CA_FILE}" > "${RC_WORK}/ca-bundle.crt"
+        export CURL_CA_BUNDLE="${RC_WORK}/ca-bundle.crt"
+        export GIT_SSL_CAINFO="${CURL_CA_BUNDLE}" SSL_CERT_FILE="${CURL_CA_BUNDLE}"
+        git_options+=(-c "http.sslCAInfo=${GIT_SSL_CAINFO}")
+      fi
+      object_format=sha1
+      if [ "${#expected}" -eq 64 ]; then object_format=sha256; fi
+      git init --quiet --object-format="${object_format}" "${RC_HELPERS_DIR}"
+      git -C "${RC_HELPERS_DIR}" remote add origin "${FORGE_CI_REPOSITORY_URL}"
+      GIT_TERMINAL_PROMPT=0 git "${git_options[@]}" -C "${RC_HELPERS_DIR}" fetch --quiet --depth=1 --no-tags origin "${expected}"
+      git "${git_options[@]}" -C "${RC_HELPERS_DIR}" checkout --quiet --detach "${expected}"
+      test "$(git -C "${RC_HELPERS_DIR}" rev-parse HEAD)" = "${expected}"
+      source "${RC_HELPERS_DIR}/.forgejo/bin/lib-forge-ci.sh"
+      fetch_forge_ci
+      SIGNER_STRICT=1 verify_forge_ci
+      export FORGE_CI_BIN="${HELPERS_ENGINE_VERIFIED}"
+      export PATH="${HELPERS_ROOT}/bin:${PATH}"
+      export FORGE_CI_PROVIDER=gitlab
+      source "${RC_HELPERS_DIR}/.gitlab/bin/release.sh"
+      rc_release_context
+  after_script:
+    - |
+      set -eu
+      cd -- "${CI_PROJECT_DIR:?}"
+      # The uploader and the next job can run as different users. Publish
+      # readable data only; never follow links into the private workspace.
+      case "${CI_JOB_NAME:?}" in
+        release-render|release-build|release-sign|release-promote)
+          handoff="_${CI_JOB_NAME}"
+          if [ -d "${handoff}" ] && [ ! -L "${handoff}" ]; then
+            find "${handoff}" \( -type d -o -type f \) -exec chmod u=rwX,go=rX -- {} +
+          fi
+          ;;
+      esac
+release-signing-preflight:
+  extends: .forge-ci-release
+  stage: test
+  image: $[[ inputs.signer-image ]]
+  needs: []
+  environment:
+    name: release/registry/signing
+    action: prepare
+  script:
+    - rc_signing_preflight
+release-publish-preflight:
+  extends: .forge-ci-release
+  stage: test
+  image: $[[ inputs.signer-image ]]
+  needs: []
+  environment:
+    name: release/publish
+    action: prepare
+  script:
+    - printf '%s' "${RELEASE_TOKEN:?}" | rc_engine validate auth token --repository "${CI_PROJECT_PATH}" --token-file -
+release-registry-preflight:
+  extends: .forge-ci-release
+  stage: test
+  image: $[[ inputs.signer-image ]]
+  needs: []
+  environment:
+    name: release/registry/preflight
+    action: prepare
+  script:
+    - printf '%s' "${RELEASE_REGISTRY_TOKEN:?}" | rc_engine validate auth token --repository "${RC_PUBLICATION_PROJECT}" --token-file -
+release-check:
+  extends: .forge-ci-release
+  stage: test
+  needs: [release-signing-preflight, release-publish-preflight, release-registry-preflight]
+  script:
+    - rc_request_checkout
+    - $[[ inputs.checks ]]
+release-render:
+  extends: .forge-ci-release
+  stage: build
+  needs: [release-check]
+  script:
+    - rc_render_changelog
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-render/]
+release-prepare:
+  extends: .forge-ci-release
+  stage: build
+  resource_group: release-prepare
+  environment:
+    name: release/prepare
+    action: prepare
+  needs:
+    - job: release-render
+      artifacts: true
+  script:
+    - rc_prepare_release
+release-build:
+  extends: .forge-ci-release
+  stage: build
+  image:
+    name: $[[ inputs.build-image ]]
+    entrypoint: [""]
+  needs:
+    - job: release-prepare
+      artifacts: false
+  script:
+    - rc_release_checkout
+    - $[[ inputs.build ]]
+    - rc_build_handoff
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-build/]
+release-sign:
+  extends: .forge-ci-release
+  stage: deploy
+  image: $[[ inputs.signer-image ]]
+  environment:
+    name: release/registry/signing
+    action: prepare
+  needs:
+    - job: release-build
+      artifacts: true
+  script:
+    - rc_sign_release
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-sign/]
+release-promote:
+  extends: .forge-ci-release
+  stage: deploy
+  image: $[[ inputs.signer-image ]]
+  environment:
+    name: release/registry/promote
+    action: prepare
+  needs:
+    - job: release-sign
+      artifacts: true
+  script:
+    - rc_promote_release
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths: [_release-promote/]
+release-publish:
+  extends: .forge-ci-release
+  stage: deploy
+  image: $[[ inputs.signer-image ]]
+  environment:
+    name: release/publish
+    action: prepare
+  needs:
+    - job: release-sign
+      artifacts: true
+    - job: release-promote
+      artifacts: false
+  script:
+    - rc_publish_release
+release-cleanup:
+  extends: .forge-ci-release
+  stage: deploy
+  image: $[[ inputs.signer-image ]]
+  environment:
+    name: release/registry/cleanup
+    action: prepare
+  needs:
+    - job: release-sign
+      artifacts: true
+    - job: release-publish
+      artifacts: false
+  script:
+    - rc_cleanup_release

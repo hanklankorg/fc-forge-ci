@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# Example: an Android application's merge-request gate and build on GitLab
+# CI/CD, from the components under templates/ (docs/gitlab.md). Copy to the
+# project's .gitlab-ci.yml and replace the placeholders, all literal so that
+# `git grep` finds them:
+#
+#   gitlab.example.com                   your instance
+#   team/ci/forge-ci (engine-project)    the project on it that serves
+#                                        forge-ci, including subgroups
+#   PIN_FORGE_CI_SHA                     the engine commit you authenticated:
+#                                        `check` is checksum-bound and must be
+#                                        included by full commit SHA
+#   PIN_DIGEST, PIN_IMAGE_DIGEST         digests of the reviewed images
+#
+# The pipeline status is the gate: GitLab fails the pipeline, and the merge
+# request, when any job fails. Require successful pipelines and refuse merging
+# on skipped ones in the project settings.
+#
+# The build is unsigned. A signed build sets enable-signing: true and reads
+# ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
+# ANDROID_KEY_PASSWORD and SECRETS_PROPERTIES_BASE64 as masked, protected
+# variables; keep it out of merge-request pipelines. There is no Google Play
+# component on GitLab and no snapshot flow. The Android runtime image is
+# linux/amd64 only.
+#
+# Once the release policy is the project's CI configuration path, GitLab runs
+# it instead of this file, so the policy includes this gate for merge
+# requests; see docs/gitlab.md#the-merge-request-gate-under-a-policy.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+stages:
+  - test
+  - build
+
+include:
+  # The lint gate: the project's nanolinter.toml plan in the kotlin flavour,
+  # with the secrets,sast floor, and its findings as a SAST report.
+  - component: gitlab.example.com/team/ci/forge-ci/nanolinter@0.90.0
+    inputs:
+      engine-project: team/ci/forge-ci
+      nanolinter-image: "codefloe.com/itiquette/nanolinter:kotlin@sha256:PIN_DIGEST"
+
+  # The consumer's own checks at the pipeline commit, in an image that carries
+  # Bash, Git, curl, sha256sum, a JDK and the Android SDK.
+  - component: gitlab.example.com/team/ci/forge-ci/check@PIN_FORGE_CI_SHA
+    inputs:
+      engine-project: team/ci/forge-ci
+      job-image: registry.example.com/team/check-tools@sha256:PIN_IMAGE_DIGEST
+      commands:
+        - ./gradlew --no-daemon lintDemoDebug testDemoDebugUnitTest
+
+  # `forge-ci build gradle-android run` for the demo flavour: the APKs and the
+  # release AAB under app/build/outputs/ and the Build SBOM, kept as job
+  # artifacts.
+  - component: gitlab.example.com/team/ci/forge-ci/build-gradle-android@0.90.0
+    inputs:
+      build-module: app
+      product-flavor: demo
+      build-types: "debug,release"
+      include-aab: true

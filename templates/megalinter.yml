@@ -1,0 +1,122 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# GitLab CI/CD Catalog component: the MegaLinter PR lint gate.
+#
+# This component runs MegaLinter's bundled linters using the project's
+# `.mega-linter.yml`. The image input is mandatory and accepts only a digest
+# reference. GitLab validates that input before creating the job because the job
+# container receives the checkout, CI variables (including CI_JOB_TOKEN), and
+# any runner-provided mounts.
+#
+# The component provides two capabilities:
+#   1. MegaLinter runs enabled linters and fails the job on blocking findings
+#      (DISABLE_ERRORS=false); that exit is the lint gate.
+#   2. MegaLinter's SARIF is converted to the GitLab SAST schema and published as
+#      `artifacts:reports:sast`, so blocking findings land on the merge-request
+#      Security tab. The conversion uses `forge-ci security report
+#      to-gitlab-sast`, run from the engine binary this component's commit
+#      records, as the check component runs it. It is best-effort, so an image
+#      without Git, curl or sha256sum leaves the SARIF as a plain artifact
+#      rather than failing the lint gate.
+spec:
+  component: [sha]
+  inputs:
+    stage:
+      default: test
+      description: Pipeline stage the lint gate runs in.
+    job-name:
+      default: megalinter
+      description: Name of the generated job.
+    megalinter-image:
+      regex: '^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$'
+      description: Required trusted MegaLinter image reference pinned by @sha256:<64 lowercase hex>.
+    enable-gitlab-sast:
+      type: boolean
+      default: true
+      description: >-
+        Convert MegaLinter's SARIF to a GitLab SAST report and publish it as artifacts:reports:sast (populates the MR Security tab; display needs GitLab Ultimate). When false, the SARIF is kept as a plain artifact only.
+    engine-project:
+      description: >-
+        Project serving this component and its public engine package, including any subgroups. The SARIF to GitLab-SAST conversion runs the engine binary that this component's commit records, downloaded from that project's generic packages and checked against the recorded checksum. May name $CI_PROJECT_PATH: lib-forge-ci.sh refuses an expanded path that is not a project on CI_SERVER_URL before any download.
+---
+"$[[ inputs.job-name ]]":
+  stage: $[[ inputs.stage ]]
+  image: $[[ inputs.megalinter-image ]]
+  variables:
+    # MegaLinter lints the checked-out project and writes its reports here.
+    DEFAULT_WORKSPACE: $CI_PROJECT_DIR
+    SARIF_REPORTER: "true"
+    DISABLE_ERRORS: "false"
+    ENABLE_GITLAB_SAST: "$[[ inputs.enable-gitlab-sast ]]"
+    RC_ENGINE_PROJECT: "$[[ inputs.engine-project ]]"
+    SARIF_FILE: megalinter-reports/megalinter-report.sarif
+    GL_SAST_FILE: gl-sast-report.json
+  script:
+    - |
+      set -uo pipefail
+
+      # --- Lint gate --------------------------------------------------------
+      # Run MegaLinter's entrypoint over $DEFAULT_WORKSPACE. SARIF_REPORTER emits
+      # the SARIF the conversion below consumes; DISABLE_ERRORS=false makes a
+      # blocking finding exit non-zero (the gate). Capture the exit but keep
+      # going so the SAST report is still produced when the gate is red
+      # (artifacts: when: always).
+      gate=0
+      bash /entrypoint.sh || gate=$?
+      if [ "$gate" -ne 0 ]; then
+        echo "MegaLinter found blocking lint issues — see the MegaLinter output above (a lint gate on your code, not a pipeline error)."
+      fi
+
+      # --- SARIF -> GitLab SAST --------------------------------------------
+      # Convert MegaLinter's SARIF to the GitLab SAST schema for the MR Security
+      # tab. The engine comes from engine-project at this component's commit:
+      # the checkout records the binary's checksum, and the binary is
+      # downloaded from that project's generic packages and checked against
+      # it. Conversion is best-effort and does not change the lint gate's exit
+      # code.
+      if [ "$ENABLE_GITLAB_SAST" = "true" ] && [ -f "$SARIF_FILE" ]; then
+        (
+          set -euo pipefail
+          expected='$[[ component.sha ]]'
+          export FORGE_CI_PACKAGE_PROVIDER=gitlab
+          export FORGE_CI_REPOSITORY_URL="${CI_SERVER_URL:?}/${RC_ENGINE_PROJECT:?}.git"
+          helpers=$(mktemp -d /tmp/forge-ci-helpers.XXXXXXXX)
+          trap 'rm -rf -- "${helpers}"' EXIT
+          git_options=(-c core.hooksPath=/dev/null -c credential.helper=)
+          if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+            git_options+=(-c "http.sslCAInfo=${CI_SERVER_TLS_CA_FILE}")
+            export CURL_CA_BUNDLE="${CI_SERVER_TLS_CA_FILE}"
+          fi
+          object_format=sha1
+          if [ "${#expected}" -eq 64 ]; then object_format=sha256; fi
+          git init --quiet --object-format="${object_format}" "${helpers}"
+          git -C "${helpers}" remote add origin "${FORGE_CI_REPOSITORY_URL}"
+          GIT_TERMINAL_PROMPT=0 git "${git_options[@]}" -C "${helpers}" \
+            fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin "${expected}"
+          git "${git_options[@]}" -C "${helpers}" checkout --quiet --detach "${expected}"
+          test "$(git -C "${helpers}" rev-parse HEAD)" = "${expected}"
+          # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+          source "${helpers}/.forgejo/bin/lib-forge-ci.sh"
+          fetch_forge_ci
+          SIGNER_STRICT=1 verify_forge_ci
+          run_forge_ci security report to-gitlab-sast --input "$SARIF_FILE" --output "$GL_SAST_FILE"
+        )
+        # Read the status afterwards, not with `||` or `if !`: errexit is
+        # ignored inside a subshell in either context, so a failed step would
+        # not stop the conversion.
+        converted=$?
+        if [ "$converted" -ne 0 ]; then
+          echo "WARN: GitLab-SAST conversion skipped (engine checkout, download or conversion failed); SARIF kept as plain artifact."
+        fi
+      fi
+
+      # The lint gate is the only thing that decides the job result.
+      exit "$gate"
+  artifacts:
+    when: always
+    paths:
+      - megalinter-reports/megalinter-report.sarif
+    reports:
+      sast: gl-sast-report.json

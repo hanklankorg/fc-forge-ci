@@ -1,0 +1,94 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: Record release image
+description: >-
+  Append one validated entry to the release image ledger (dist/release-images.json) consumed by sign-and-publish-release.yml. Call once per image you pushed. The signer re-validates and remains the sole authority.
+inputs:
+  role:
+    description: Image role recorded in the ledger and SLSA predicate, e.g. distroless, alpine, base.
+    required: true
+  image:
+    description: Registry path without tag or digest, e.g. forge.example/owner/repo.
+    required: true
+  digest:
+    description: "Image digest from your push, sha256:<64 hex>."
+    required: true
+  tag:
+    description: Final tag this image carries at release (the tag portion, e.g. v1.2.3 or v1.2.3-alpine). Must be scoped to the release tag.
+    required: true
+  release-tag:
+    description: Stable release tag that scopes immutable image tags, e.g. v1.2.3.
+    required: false
+    default: ''
+  sbom:
+    description: SBOM path (dist/image-sbom*.cyclonedx.json). Defaults to dist/image-sbom-<flavor|role>.cyclonedx.json; the signer generates it if absent.
+    required: false
+    default: ''
+  candidate-tag:
+    description: Optional staging tag portion (e.g. staging-v1.2.3) for promotion flows; empty for direct-push.
+    required: false
+    default: ''
+  candidate:
+    description: Derive candidate-tag as staging-<tag>. Mutually exclusive with candidate-tag; useful when the build step only needs to signal that it pushed a candidate.
+    required: false
+    default: 'false'
+  moving-tag:
+    description: Optional moving tag portion (e.g. latest); empty if unused.
+    required: false
+    default: ''
+  flavor:
+    description: Optional base-image flavour; empty for single-image releases.
+    required: false
+    default: ''
+  base-ref:
+    description: Optional digest-pinned base image this was built from, for SLSA lineage.
+    required: false
+    default: ''
+  base-input-id:
+    description: Optional base-image input identifier, for SLSA lineage.
+    required: false
+    default: ''
+  ledger:
+    description: Ledger path under dist/.
+    required: false
+    default: dist/release-images.json
+
+runs:
+  using: composite
+  steps:
+    - name: Record release image in ledger
+      shell: bash
+      env:
+        INPUT_ROLE: ${{ inputs.role }}
+        INPUT_IMAGE: ${{ inputs.image }}
+        INPUT_DIGEST: ${{ inputs.digest }}
+        INPUT_TAG: ${{ inputs.tag }}
+        INPUT_RELEASE_TAG: ${{ inputs['release-tag'] }}
+        INPUT_SBOM: ${{ inputs.sbom }}
+        INPUT_CANDIDATE_TAG: ${{ inputs['candidate-tag'] }}
+        INPUT_CANDIDATE: ${{ inputs.candidate }}
+        INPUT_MOVING_TAG: ${{ inputs['moving-tag'] }}
+        INPUT_FLAVOR: ${{ inputs.flavor }}
+        INPUT_BASE_REF: ${{ inputs['base-ref'] }}
+        INPUT_BASE_INPUT_ID: ${{ inputs['base-input-id'] }}
+        INPUT_LEDGER: ${{ inputs.ledger }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        LEDGER_DERIVE_CANDIDATE_TAG="${INPUT_CANDIDATE:-false}" run_forge_ci container ledger add \
+          --ledger "${INPUT_LEDGER:-dist/release-images.json}" \
+          --role "${INPUT_ROLE:?role is required}" \
+          --image-name "${INPUT_IMAGE:?image is required}" \
+          --digest "${INPUT_DIGEST:?digest is required}" \
+          --final-tag-name "${INPUT_TAG:?tag is required}" \
+          --sbom "${INPUT_SBOM}" \
+          --default-sbom \
+          --tag "${INPUT_RELEASE_TAG}" \
+          --flavor "${INPUT_FLAVOR}" \
+          --candidate-tag-name "${INPUT_CANDIDATE_TAG}" \
+          --moving-tag-name "${INPUT_MOVING_TAG}" \
+          --base-ref "${INPUT_BASE_REF}" \
+          --base-input-id "${INPUT_BASE_INPUT_ID}"

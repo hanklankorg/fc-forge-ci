@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# Trivy reads only a plain .trivyignore by default; the accepted findings,
+# each with a statement and an expiry, are in .trivyignore.yaml.
+ignorefile: .trivyignore.yaml
