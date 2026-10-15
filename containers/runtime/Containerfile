@@ -256,6 +256,9 @@ ENV JAVA_HOME=/usr/local/jdk \
     GRADLE_HOME=/usr/local/gradle \
     PATH=/usr/local/jdk/bin:/usr/local/maven/bin:/usr/local/gradle/bin:$PATH
 
+# Maven comes from Maven Central, the same file the Apache archive serves
+# (and the source Renovate already reads): archive.apache.org throttles CI
+# runners, and its timeouts failed a runtime image build.
 # hadolint ignore=DL3008,DL4006
 RUN arch="$(dpkg --print-architecture)" \
   && case "$arch" in \
@@ -272,7 +275,7 @@ RUN arch="$(dpkg --print-architecture)" \
   && tar -xzf /tmp/jdk.tar.gz -C "$JAVA_HOME" --strip-components=1 \
   && rm -f /tmp/jdk.tar.gz \
   && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 \
-       "https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
+       "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${MAVEN_VERSION}/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
        -o /tmp/maven.tar.gz \
   && mkdir -p "$MAVEN_HOME" \
   && tar -xzf /tmp/maven.tar.gz -C "$MAVEN_HOME" --strip-components=1 \
