@@ -24,7 +24,7 @@ the table below summarizes the shipped families.
 
 | Image | Inherits from | Adds |
 |---|---|---|
-| `forge-ci-runtime-base` | `debian:13-slim` (Trixie) | `forge-ci`, `bash`, `ca-certificates`, `curl`, `git`, `gnupg`, `gzip`, `jq`, `tar`, `unzip`, `xz`, `zip`, `yq`, `git-cliff`, `gh`, `glab`, `mise`, `publiccode-parser`, `cosign`, `templates/`, bootstrap installers |
+| `forge-ci-runtime-base` | `debian:13-slim` (Trixie) | `forge-ci`, `bash`, `ca-certificates`, `curl`, `git`, `gnupg`, `gzip`, `jq`, `openssh-client` (`ssh-keygen` verifies SSH-signed tags), `tar`, `unzip`, `xz`, `zip`, `yq`, `git-cliff`, `gh`, `glab`, `mise`, `publiccode-parser`, `cosign`, `templates/`, bootstrap installers |
 | `forge-ci-runtime` (full) | `runtime-base` | `syft`, `trivy` |
 | `forge-ci-runtime-rust-stable` | `runtime-base` | Pinned Rust stable release + `cargo-cyclonedx` |
 | `forge-ci-runtime-go-1.27` | `runtime-base` | Go 1.27 toolchain + `cyclonedx-gomod` |

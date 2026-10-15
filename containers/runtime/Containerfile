@@ -6,8 +6,8 @@
 # Multi-stage image. Each stage publishes its own image. Jobs pull only
 # the stage they need:
 #
-#   base    — bash, ca-certificates, curl, git, gnupg, gzip, jq, tar, unzip,
-#             xz, zip, yq, git-cliff, gh, glab, mise, publiccode-parser, cosign,
+#   base    — bash, ca-certificates, curl, git, gnupg, gzip, jq, openssh-client
+#             (ssh-keygen, for SSH tag verification), tar, unzip, xz, zip, yq, git-cliff, gh, glab, mise, publiccode-parser, cosign,
 #             and the matching architecture's forge-ci binary from this
 #             runtime run's cli-dist artifact. Used by config / plan / release /
 #             orchestrator / changelog / provider-dispatch / publiccode-lint
@@ -58,6 +58,7 @@ RUN apt-get update \
     gnupg \
     gzip \
     jq \
+    openssh-client \
     tar \
     unzip \
     xz-utils \

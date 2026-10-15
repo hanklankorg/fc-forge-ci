@@ -814,6 +814,13 @@ func (r *Repo) VerifyTagSSHAgainstAllowedSigners(ctx context.Context, tag, allow
 	// ssh-keygen -Y verify message when the signature is valid but the
 	// signer isn't in allowed_signers — distinct from "no signature".
 	msg := err.Error()
+	// git verifies SSH signatures through ssh-keygen. Without it git prints
+	// "cannot run ssh-keygen: No such file or directory", which is no
+	// missing allowed_signers file and must not read as one.
+	if strings.Contains(msg, "cannot run ssh-keygen") {
+		return false, msg, fmt.Errorf("verify SSH signature of tag %q: ssh-keygen is not installed (install openssh-client): %w", tag, errs.ErrDependencyUnavailable)
+	}
+
 	if strings.Contains(msg, "Unable to open allowed keys file") || strings.Contains(msg, "No such file or directory") {
 		return false, msg, fmt.Errorf("read SSH allowed_signers file for tag %q: %w: %w", tag, err, errs.ErrMissingInput)
 	}

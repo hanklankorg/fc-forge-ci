@@ -164,6 +164,14 @@ func TestVerifyTagSSHAgainstAllowedSigners_ClassifiesEachFailure(t *testing.T) {
 			wantMsg: "read SSH allowed_signers file",
 		},
 		{
+			// The v0.90.0 release request hit this in a runtime image
+			// without openssh-client; it read as a missing allowlist.
+			name:    "ssh-keygen is not installed",
+			stderr:  "error: cannot run ssh-keygen: No such file or directory\n",
+			want:    errs.ErrDependencyUnavailable,
+			wantMsg: "install openssh-client",
+		},
+		{
 			name:    "the signature is valid but the signer is not listed",
 			stderr:  "Good \"git\" signature with ED25519 key SHA256:abc\nNo principal matched.\n",
 			want:    errs.ErrPermissionDenied,
