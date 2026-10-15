@@ -40,7 +40,7 @@ footer = """
                 https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}\
                     /compare/{{ release.previous.version }}..{{ release.version }}
         {% endif -%}
-    {% else -%}
+    {% elif release.previous.version -%}
         [unreleased]: https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}\
             /compare/{{ release.previous.version }}..HEAD
     {% endif -%}
