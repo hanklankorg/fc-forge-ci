@@ -111,6 +111,11 @@ jobs:
         with:
           go-version-file: forge-ci/go.mod
           check-latest: true
+          # The checkouts sit in subdirectories, so the cache key needs
+          # their paths; setup-go looks for go.sum at the workspace root.
+          cache-dependency-path: |
+            forge-ci/go.sum
+            forge-ci-blackbox-tests/go.sum
       - name: Validate strict companion behavioral contract
         working-directory: forge-ci-blackbox-tests
         run: ./scripts/validate-strict-profile-contract.sh
@@ -171,6 +176,11 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
       - name: Install mise and project tools
         run: |
           source ./scripts/bootstrap/install-mise.sh
@@ -179,11 +189,6 @@ jobs:
           # Expose mise-managed binaries to subsequent steps.
           printf '%s\n' "${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims" >>"$GITHUB_PATH"
           dirname "$(command -v mise)" >>"$GITHUB_PATH"
-      - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version-file: go.mod
-          check-latest: true
       - name: Install buildah and podman
         run: bash scripts/bootstrap/install-buildah.sh
       - name: Run the integration tier, refusing to skip evidence
