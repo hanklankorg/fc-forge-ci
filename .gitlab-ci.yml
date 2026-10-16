@@ -23,7 +23,7 @@ include:
       job-name: selftest-nanolinter
       engine-project: $CI_PROJECT_PATH
       # forge-ci is a Go + just project; use the Go flavour to self-test.
-      nanolinter-image: "codefloe.com/itiquette/nanolinter:go"
+      nanolinter-image: "ghcr.io/itiquette/nanolinter:go"
       # Keep the self-test hermetic: the SAST step needs this commit's engine
       # binary in the project's generic packages, which an unpublished commit
       # does not have. The conversion itself is covered by

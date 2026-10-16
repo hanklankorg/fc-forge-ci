@@ -84,7 +84,7 @@ own package registry.
      - component: gitlab.example.com/team/ci/forge-ci/nanolinter@0.90.0
        inputs:
          engine-project: team/ci/forge-ci
-         nanolinter-image: "codefloe.com/itiquette/nanolinter:go@sha256:PIN_DIGEST"
+         nanolinter-image: "ghcr.io/itiquette/nanolinter:go@sha256:PIN_DIGEST"
      - component: gitlab.example.com/team/ci/forge-ci/check@PIN_FORGE_CI_SHA
        inputs:
          engine-project: team/ci/forge-ci
@@ -104,7 +104,11 @@ own package registry.
 6. **Release** by pushing a protected, SSH-signed `release-request/vX.Y.Z` tag
    at the head of the release branch. The flow creates the final `vX.Y.Z` tag once.
 
-Replace every pin with a reviewed immutable value. Component inputs are
+Replace every pin with a reviewed immutable value. The Nanolinter GHCR
+coordinates are the migration destination: confirm the image is published and
+readable, then use its served digest or an available mirror. See
+[lint images](components.md#lint-nanolinteryml-default).
+Component inputs are
 documented on each component's Catalog page, which GitLab renders from its
 `spec:`.
 
@@ -787,8 +791,8 @@ What does not follow the fork, and must be overridden:
 
 - Catalog runtime-image defaults name `ghcr.io/diggsweden`; set
   `runtime-image`.
-- The lint components default to Nanolinter's public image
-  `codefloe.com/itiquette/nanolinter`; `nanolinter-image` overrides it.
+- The lint components select `ghcr.io/itiquette/nanolinter`; pass a verified,
+  available digest through `nanolinter-image`, including for a mirror.
 
 `engine-project` and `consumer-project` are the fork's and the consumer's
 paths; nothing else in the checksum-bound components or the lint components'

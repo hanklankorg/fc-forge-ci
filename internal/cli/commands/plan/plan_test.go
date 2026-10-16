@@ -138,7 +138,7 @@ func TestPRCmd_EmitsPlanAndQualityStagePlan(t *testing.T) {
 		t.Errorf("quality-stage-plan-json = %s", got)
 	}
 
-	if got := env.Output("pr-plan-json"); !strings.Contains(got, `"nanolinter_image":"codefloe.com/itiquette/nanolinter:go"`) {
+	if got := env.Output("pr-plan-json"); !strings.Contains(got, `"nanolinter_image":"ghcr.io/itiquette/nanolinter:go"`) {
 		t.Errorf("pr-plan-json lacks the derived go flavour: %s", got)
 	}
 }

@@ -404,10 +404,16 @@ upload to GitHub Code Scanning as SARIF.
 ```yaml
 uses: diggsweden/forge-ci/.github/workflows/lint-nanolinter.yml@v0.90.0
 with:
-  nanolinter-image: codefloe.com/itiquette/nanolinter:java  # default: core
+  nanolinter-image: ghcr.io/itiquette/nanolinter:java@sha256:PIN_DIGEST
 ```
 
-**Flavour image.** nanolinter publishes one image per ecosystem; there is no
+**Flavour image.** The configured repository is `ghcr.io/itiquette/nanolinter`.
+The GHCR migration must be published and verified before activating these
+defaults. Replace `PIN_DIGEST` with a reviewed, registry-served digest for the
+required platform, or pass an available mirror through `nanolinter-image`.
+The repository name and placeholder alone are not availability evidence.
+
+Nanolinter's image layout has one image per ecosystem; there is no
 image that carries every toolchain. Through the orchestrator, `forge-ci plan
 pr` picks the flavour from `project-type`:
 

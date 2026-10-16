@@ -58,7 +58,7 @@ The PR orchestrator produces typed JSON payloads that drive the quality stage:
 | `context.project_type` | `inputs.project-type` | Project ecosystem (`maven`, `npm`, `gradle`, `gradle-android`, `xcode-ios`, `cargo`, or `go`) |
 | `context.base_branch` | `inputs.base-branch` or PR target | Base branch for commit linting |
 | `context.forge_ci_binary_ref` | `inputs.forge-ci-binary-ref` | `forge-ci` binary revision used by plain-runner jobs |
-| `policy.nanolinter_image` | `inputs.nanolinter-image`, or derived from `project-type` | Image the nanolinter job runs in (`codefloe.com/itiquette/nanolinter:<flavour>`; `core` when the type has no flavour) |
+| `policy.nanolinter_image` | `inputs.nanolinter-image`, or derived from `project-type` | Image the nanolinter job runs in (`ghcr.io/itiquette/nanolinter:<flavour>`; `core` when the type has no flavour). Verify publication and pin the served digest before activation; see [lint images](components.md#lint-nanolinteryml-default). |
 
 **`quality-stage-plan-json`**: quality check target plan:
 

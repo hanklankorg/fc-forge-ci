@@ -17,17 +17,17 @@ func TestNanolinterImage_DerivesFlavourFromProjectType(t *testing.T) {
 		projectType projecttype.Type
 		want        string
 	}{
-		{projecttype.Go, "codefloe.com/itiquette/nanolinter:go"},
-		{projecttype.Maven, "codefloe.com/itiquette/nanolinter:java"},
-		{projecttype.Gradle, "codefloe.com/itiquette/nanolinter:kotlin"},
-		{projecttype.GradleAndroid, "codefloe.com/itiquette/nanolinter:kotlin"},
-		{projecttype.NPM, "codefloe.com/itiquette/nanolinter:javascript-typescript"},
-		{projecttype.Cargo, "codefloe.com/itiquette/nanolinter:rust"},
-		{projecttype.XcodeIOS, "codefloe.com/itiquette/nanolinter:swift"},
-		{projecttype.Python, "codefloe.com/itiquette/nanolinter:core"},
-		{projecttype.Meta, "codefloe.com/itiquette/nanolinter:core"},
-		{projecttype.Unknown, "codefloe.com/itiquette/nanolinter:core"},
-		{"", "codefloe.com/itiquette/nanolinter:core"},
+		{projecttype.Go, "ghcr.io/itiquette/nanolinter:go"},
+		{projecttype.Maven, "ghcr.io/itiquette/nanolinter:java"},
+		{projecttype.Gradle, "ghcr.io/itiquette/nanolinter:kotlin"},
+		{projecttype.GradleAndroid, "ghcr.io/itiquette/nanolinter:kotlin"},
+		{projecttype.NPM, "ghcr.io/itiquette/nanolinter:javascript-typescript"},
+		{projecttype.Cargo, "ghcr.io/itiquette/nanolinter:rust"},
+		{projecttype.XcodeIOS, "ghcr.io/itiquette/nanolinter:swift"},
+		{projecttype.Python, "ghcr.io/itiquette/nanolinter:core"},
+		{projecttype.Meta, "ghcr.io/itiquette/nanolinter:core"},
+		{projecttype.Unknown, "ghcr.io/itiquette/nanolinter:core"},
+		{"", "ghcr.io/itiquette/nanolinter:core"},
 	} {
 		if got := pipeline.NanolinterImage("", tc.projectType); got != tc.want {
 			t.Errorf("NanolinterImage(%q) = %q, want %q", tc.projectType, got, tc.want)
@@ -43,7 +43,7 @@ func TestNanolinterImage_OverrideWins(t *testing.T) {
 		t.Errorf("override = %q, want %q", got, pinned)
 	}
 
-	if got := pipeline.NanolinterImage("   ", projecttype.Cargo); got != "codefloe.com/itiquette/nanolinter:rust" {
+	if got := pipeline.NanolinterImage("   ", projecttype.Cargo); got != "ghcr.io/itiquette/nanolinter:rust" {
 		t.Errorf("blank override = %q, want the derived rust flavour", got)
 	}
 }

@@ -27,7 +27,7 @@
 #     - component: $CI_SERVER_FQDN/diggsweden/forge-ci/nanolinter@0.90.0
 #       inputs:
 #         engine-project: diggsweden/forge-ci
-#         nanolinter-image: "codefloe.com/itiquette/nanolinter:java"
+#         nanolinter-image: "ghcr.io/itiquette/nanolinter:java@sha256:PIN_DIGEST"
 spec:
   component: [sha]
   inputs:
@@ -38,7 +38,7 @@ spec:
       default: nanolinter
       description: Name of the generated job.
     nanolinter-image:
-      default: "codefloe.com/itiquette/nanolinter:core"
+      default: "ghcr.io/itiquette/nanolinter:core"
       description: >-
         nanolinter flavour image matching the project's ecosystem (pin by @sha256): core, go, java, kotlin, javascript-typescript, rust or swift. The default core flavour carries only the ecosystem-neutral checks.
     required-lints:

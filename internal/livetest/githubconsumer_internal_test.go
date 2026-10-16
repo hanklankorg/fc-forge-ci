@@ -26,7 +26,7 @@ const fixturePullRequest = `jobs:
       forge-ci-binary-ref: v0.90.0
       runtime-image: ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0
       runtime-image-go: "ghcr.io/diggsweden/forge-ci-runtime-go-1.27:v0.90.0"
-      nanolinter-image: codefloe.com/itiquette/nanolinter:go
+      nanolinter-image: ghcr.io/itiquette/nanolinter:go
   test:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -48,7 +48,7 @@ func TestRenderGitHubConsumer_PinsTheEngineUnderTest(t *testing.T) {
 		"forge-ci-binary-ref: v0.90.0-pre",
 		"runtime-image: ghcr.io/hanklankorg/forge-ci-runtime-base:sha-aaaaaaa",
 		`"ghcr.io/hanklankorg/forge-ci-runtime-go-1.27:sha-aaaaaaa"`,
-		"nanolinter-image: codefloe.com/itiquette/nanolinter:go",
+		"nanolinter-image: ghcr.io/itiquette/nanolinter:go",
 		"uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
 	} {
 		if !strings.Contains(got, want) {

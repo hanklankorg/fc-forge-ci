@@ -26,7 +26,7 @@ func TestNewPRPlan_BuildsQualityStagePlan(t *testing.T) {
 		t.Errorf("quality targets = %+v", plan.Stages.Quality.Targets)
 	}
 
-	if plan.Policy.NanolinterImage != "codefloe.com/itiquette/nanolinter:go" {
+	if plan.Policy.NanolinterImage != "ghcr.io/itiquette/nanolinter:go" {
 		t.Errorf("nanolinter image = %q, want the go flavour", plan.Policy.NanolinterImage)
 	}
 

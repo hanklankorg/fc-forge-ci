@@ -6,7 +6,7 @@
 # repository and uploads nanolinter's security findings (OpenGrep SAST, OSV
 # dependency scan, secrets, trivy-fs) to GitHub Code Scanning as SARIF.
 #
-# Runs the nanolinter FLAVOUR image (e.g. codefloe.com/itiquette/nanolinter:java),
+# Runs the nanolinter FLAVOUR image (e.g. ghcr.io/itiquette/nanolinter:java),
 # which bakes nanolinter and its whole check toolchain (opengrep, osv-scanner,
 # java checkstyle/pmd/spotbugs, ...), the way nanolinter documents it: the
 # checkout mounted at /workspace.
@@ -30,9 +30,9 @@ on:
   workflow_call: # yamllint disable-line rule:truthy
     inputs:
       nanolinter-image:
-        description: "nanolinter flavour image to lint in (pin by @sha256): core, go, java, kotlin, javascript-typescript, rust or swift, e.g. codefloe.com/itiquette/nanolinter:java"
+        description: "nanolinter flavour image to lint in (pin by @sha256): core, go, java, kotlin, javascript-typescript, rust or swift, e.g. ghcr.io/itiquette/nanolinter:java"
         required: false
-        default: "codefloe.com/itiquette/nanolinter:core"
+        default: "ghcr.io/itiquette/nanolinter:core"
         type: string
       required-lints:
         description: "Mandated lint floor — comma-separated check ids passed to `nanolinter verify --require`. These checks are forced to run AND block regardless of the consumer's nanolinter.toml, so a project cannot silently skip them. Empty disables the floor."

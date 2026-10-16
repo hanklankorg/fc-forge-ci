@@ -11,7 +11,7 @@ import (
 
 // NanolinterImageRepository is the registry repository of the nanolinter
 // flavour images. Each flavour tag bakes the check toolchain of one ecosystem.
-const NanolinterImageRepository = "codefloe.com/itiquette/nanolinter"
+const NanolinterImageRepository = "ghcr.io/itiquette/nanolinter"
 
 // NanolinterCoreFlavour is the ecosystem-neutral flavour: the checks every
 // repository gets (secrets, SAST, dependency scans, text and CI files). It is

@@ -1099,8 +1099,10 @@ is the repository the runner fetched the action from. So does the binary: an
 action downloads it from the owner of the repository the runner fetched the
 action from, and a workflow from the owner of the repository it cloned.
 
-The GitHub and GitLab lint workflows default to Nanolinter's public image
-`codefloe.com/itiquette/nanolinter`; their `nanolinter-image` input overrides it.
+The GitHub and GitLab lint workflows select Nanolinter images from
+`ghcr.io/itiquette/nanolinter`. Verify the chosen image is published and readable
+and pass its digest through `nanolinter-image`; see
+[lint images](components.md#lint-nanolinteryml-default) for migration status.
 
 What a copy cannot do yet, such as a non-amd64 runner, is listed under
 [Limits](#limits).

@@ -45,7 +45,7 @@ include:
   - component: gitlab.example.com/team/ci/forge-ci/nanolinter@0.90.0
     inputs:
       engine-project: team/ci/forge-ci
-      nanolinter-image: "codefloe.com/itiquette/nanolinter:javascript-typescript@sha256:PIN_DIGEST"
+      nanolinter-image: "ghcr.io/itiquette/nanolinter:javascript-typescript@sha256:PIN_DIGEST"
 
   # The consumer's own checks at the pipeline commit, in an image that carries
   # Bash, Git, curl, sha256sum and Node.
