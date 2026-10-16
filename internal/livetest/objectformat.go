@@ -37,7 +37,7 @@ func SeedObjectFormatFixture(tb TB, target Target, repo, format, directory strin
 
 	facts, err := seedObjectFormatFixture(ctx, git, directory, format)
 	if err == nil {
-		_, err = git.run(ctx, directory, "push", gitQuiet, scratchRemote(target, repo), "refs/heads/main:refs/heads/main", "refs/tags/"+facts.Tag+":refs/tags/"+facts.Tag)
+		err = git.runPush(ctx, directory, scratchRemote(target, repo), "refs/heads/main:refs/heads/main", "refs/tags/"+facts.Tag+":refs/tags/"+facts.Tag)
 	}
 
 	if err != nil {

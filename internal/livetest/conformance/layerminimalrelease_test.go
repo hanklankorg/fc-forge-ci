@@ -306,14 +306,14 @@ func requireReleaseJobs(t *testing.T, jobs []livetest.RunJob, runID int64, label
 
 	want := []string{
 		"Build minimal binary release",
-		"Clean up release candidate tags",
-		"Prepare release",
-		"Promote signed release images",
-		"Publish release assets",
-		"Render release changelog",
-		"Sign release assets and images",
-		"Validate helper repository coordinate",
-		"Validate sign-and-publish trust coordinates",
+		"Check: release settings",
+		"Check: signing settings",
+		"Prepare: changelog",
+		"Prepare: release commit and tag",
+		"Publish: images",
+		"Publish: release",
+		"Publish: tidy up",
+		"Sign: files and images",
 	}
 
 	onRunner, wrappers := requireJobsOnRunner(t, jobs, runID, label)

@@ -113,7 +113,7 @@ func TestParseTrialSettings_RefusesWhatItCannotMean(t *testing.T) {
 		"lowercase variable":          {event: TrialRelease, words: []string{"ci_job_image=x"}},
 		"workflow outside directory":  {event: TrialRelease, words: []string{"workflow=../release.yml"}},
 		"workflow not YAML":           {event: TrialRelease, words: []string{"workflow=release.sh"}},
-		"version with a v":            {event: TrialRelease, words: []string{"version=v1.2.3"}},
+		"version with a v and more":   {event: TrialRelease, words: []string{"version=vv1.2.3"}},
 		"prerelease version":          {event: TrialRelease, words: []string{"version=1.2.3-rc.1"}},
 		"version for a pull request":  {event: TrialPullRequest, words: []string{"version=1.2.3"}},
 		"token named twice":           {event: TrialRelease, words: []string{"token=A", "token=A"}},

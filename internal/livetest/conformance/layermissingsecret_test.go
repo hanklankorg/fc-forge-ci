@@ -45,7 +45,7 @@ func runLayerMissingSecret(t *testing.T, private bool) {
 	const (
 		workflow     = "layer-missing-secret"
 		absentSecret = "RELEASE_REGISTRY_TOKEN"
-		prepareJob   = "Render release changelog"
+		prepareJob   = "Prepare: changelog"
 	)
 
 	scenario := newLayerScenario(t, "layer-missing-secret", private, "sha1")
@@ -69,15 +69,15 @@ func runLayerMissingSecret(t *testing.T, private bool) {
 	}
 
 	onRunner, wrappers := requireJobsOnRunner(t, jobs, run.ID, scenario.label)
-	if !slices.Contains(onRunner, prepareJob) || !slices.Contains(onRunner, "Validate helper repository coordinate") ||
+	if !slices.Contains(onRunner, prepareJob) || !slices.Contains(onRunner, "Check: release settings") ||
 		!slices.Contains(wrappers, "prepare-release-missing-secret") {
 		t.Fatalf("the run's jobs are %v on the runner and %v without one, want the render and coordinate jobs under one caller", onRunner, wrappers)
 	}
-	if status := statuses["Prepare release"]; status != "skipped" && status != "blocked" {
+	if status := statuses["Prepare: release commit and tag"]; status != "skipped" && status != "blocked" {
 		t.Errorf("the signing job ended %q after a missing secret, want skipped or blocked", status)
 	}
 
-	if statuses["Validate helper repository coordinate"] != jobSuccess || statuses[prepareJob] != jobFailure ||
+	if statuses["Check: release settings"] != jobSuccess || statuses[prepareJob] != jobFailure ||
 		statuses["prepare-release-missing-secret"] != "blocked" && statuses["prepare-release-missing-secret"] != jobFailure {
 		t.Errorf("job statuses are %v, want the coordinate job successful and the prepare job failed", statuses)
 	}

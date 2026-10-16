@@ -202,6 +202,10 @@ func Accept(tb TB, forge provider.ForgeAPI) Target {
 		tb.Fatalf("livetest: destructive guard refused this run: %v", err)
 	}
 
+	if err = requireAccountMode(target.Owner, DemoName()); err != nil {
+		tb.Fatalf("livetest: destructive guard refused this run: %v", err)
+	}
+
 	target, err = captureTargetCA(target)
 	if err != nil {
 		tb.Fatalf("livetest: contract ca_file refused this run: %v", err)

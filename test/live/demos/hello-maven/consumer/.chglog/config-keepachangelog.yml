@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# git-chglog configuration - Keep a Changelog format
+# https://github.com/git-chglog/git-chglog
+# Based on: https://keepachangelog.com/en/1.0.0/
+style: ""
+template: CHANGELOG-keepachangelog.tpl
+info:
+  title: CHANGELOG
+  repository_url: https://forgejo.compose.forgelab:8443/demo/demo-hello-maven
+options:
+  tag_filter_pattern: '^v'
+  sort: semver
+  commits:
+    sort_by: Scope
+  commit_groups:
+    group_by: Type
+    sort_by: Title
+    title_order:
+      - Added
+      - Changed
+      - Deprecated
+      - Removed
+      - Fixed
+      - Security
+    title_maps:
+      feat: Added
+      fix: Fixed
+      perf: Changed
+      refactor: Changed
+      docs: Changed
+      style: Changed
+      test: Changed
+      build: Changed
+      ci: Changed
+      chore: Changed
+      sec: Security
+      security: Security
+      revert: Changed
+  header:
+    # Pattern matches: type(scope): subject or type!: subject (breaking) or type(scope)!: subject
+    pattern: "^(\\w*)(?:\\(([\\w$\\.\\-\\*\\s]*)\\))?!?\\:\\s(.*)$"
+    pattern_maps:
+      - Type
+      - Scope
+      - Subject
+  notes:
+    keywords:
+      - BREAKING CHANGE

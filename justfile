@@ -741,17 +741,17 @@ clean-caches:
 # Run the live-forge conformance tier against real Forgejo and GitLab instances.
 #
 # Gated by the `live` build tag, so `just test` never reaches it. It needs one
-# input: a neutral live-target contract for this suite's lab account, `rc`,
+# input: a neutral live-target contract for this suite's lab account, `forgeci`,
 # which the lab writes to the contract module's default path,
-# $XDG_STATE_HOME/forge-lab/targets/rc.json (~/.local/state when unset):
+# $XDG_STATE_HOME/forge-lab/targets/forgeci.json (~/.local/state when unset):
 #
 #   just lab --account forgeci --fixtures --runners gitlab forgejo  # in Forge Lab
 #   just test-live                                  # here: the complete profile
 #   just test-live 'TestRegistry_.*'                # an explicitly partial profile
 #
 # First follow docs/testing.md, Running it: human host setup, durable fixtures,
-# runners and Fulcio on the selected road, then fresh rc targets. Bare just lab
-# neither selects rc nor prepares fixtures, runners or Fulcio. Full requires
+# runners and Fulcio on the selected road, then fresh forgeci targets. Bare just lab
+# neither selects forgeci nor prepares fixtures, runners or Fulcio. Full requires
 # both GitLab and Forgejo with workflow-runs and Fulcio issuer mappings.
 #
 # LAB_TARGETS_FILE overrides the path. No confirmation is typed: on lab hosts
@@ -780,12 +780,12 @@ test-live scenario="":
 # The release scenarios of the live tier run their signer jobs in the image a
 # consumer's organization would build: containers/signer/Containerfile of this
 # checkout. A test does not build it. This recipe does, once per commit, and
-# publishes it through Forge Lab's own image command, under the `rc` account:
+# publishes it through Forge Lab's own image command, under the `forgeci` account:
 #
-#   export RC_LIVE_SIGNER_IMAGE="$(just test-live-signer-image ~/src/forge-lab)"
+#   export FORGE_CI_LIVE_SIGNER_IMAGE="$(just test-live-signer-image ~/src/forge-lab)"
 #   just test-live 'TestForgejoLayer_MinimalBinaryRelease'
 #
-# It needs podman, the rc contract `just test-live` needs, and a Forge Lab
+# It needs podman, the forgeci contract `just test-live` needs, and a Forge Lab
 # checkout to run `just publish-image` in. Standard output is the one
 # digest-pinned reference; everything else goes to standard error. A second
 # run at the same commit reuses the local build and publishes the same digest.
@@ -843,6 +843,157 @@ test-live-consumer checkout event *settings:
     @FORGE_CI_LIVE_CONSUMER="$1" FORGE_CI_LIVE_CONSUMER_EVENT="$2" FORGE_CI_LIVE_CONSUMER_SETTINGS="$(shift 2; printf '%s\n' "$@")" \
         exec bash scripts/ci/run-live-tests.sh focused '^TestForgejoLayer_ConsumerTrial$'
 
+# Show a consumer and keep it: a demo. `just demo-list` finds demos and
+# `just demo-delete` removes one.
+#
+# The consumer's release, then a pull or merge request on the released main,
+# kept as demo-<name>: demo/demo-<name> on the lab (account `demo`), or
+# <prefix>demo-<name> in the GitHub test organization. Nothing is deleted, an
+# existing demo is refused, the consumer's history is pushed, and the
+# repository secrets the run set are deleted when it ends.
+#
+# The consumer is the built-in demo test/live/demos/<name>, committed as one
+# commit, or any clean checkout named by checkout=/absolute/path. Settings
+# are the release trial's, plus per forge:
+#
+#   forgejo  version=<X.Y.Z>, CI_JOB_IMAGE= and other repository variables
+#   gitlab   job-archive=, build-archive=, signer-archive= (the image archives;
+#            lint-archive= too when the merge-request gate lints),
+#            version=<X.Y.Z>, version-bump=maven and KEY=value variables for
+#            the release build
+#   github   org=<numeric organization ID>, run inside Forge Lab's
+#            `just github run ... -- just --justfile <this> demo github ...`
+#
+#   just lab --account demo --runners gitlab forgejo    # in Forge Lab, first
+#   just demo forgejo hello-maven version=0.2.0 CI_JOB_IMAGE=<reference>
+#   just demo gitlab wallet-provider checkout=/abs/wallet-provider \
+#     job-archive=/abs/job.tar build-archive=/abs/build.tar signer-archive=/abs/signer.tar
+#   just targets-revoke ~/.local/state/forge-lab/targets/demo.json   # when over
+#
+# docs/testing.md, Showing a consumer, lists the images each forge needs.
+[arg('name', help='Demo name: a directory of test/live/demos, or the name for checkout=')]
+[arg('forge', help='forgejo, gitlab or github')]
+[arg('settings', help='checkout=/abs for another consumer; release-trial key=value settings; gitlab: job-archive=, build-archive=, signer-archive=, lint-archive=; github: org=<id>')]
+[doc('▪ Live; show a consumer and keep it')]
+[group('live')]
+demo forge name *settings:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    forge=$1 name=$2
+    shift 2
+    case "$forge" in
+    forgejo) scenario='^TestForgejoLayer_ConsumerTrial$' ;;
+    gitlab) scenario='^TestGitLabRelease_ConsumerTrial$' ;;
+    github) scenario='^TestGitHubLayer_ConsumerTrial$' ;;
+    *) printf 'forge must be forgejo, gitlab or github, got %q\n' "$forge" >&2 && exit 2 ;;
+    esac
+    if [[ ! "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+        printf 'demo name must be lowercase letters, digits and hyphens, got %q\n' "$name" >&2
+        exit 2
+    fi
+    checkout='' settings=()
+    for word in "$@"; do
+        case "$forge:$word" in
+        *:checkout=*) checkout="${word#*=}" ;;
+        gitlab:job-archive=*) export FORGE_CI_LIVE_JOB_IMAGE_ARCHIVE="${word#*=}" ;;
+        gitlab:build-archive=*) export FORGE_CI_LIVE_BUILD_IMAGE_ARCHIVE="${word#*=}" ;;
+        gitlab:signer-archive=*) export FORGE_CI_LIVE_SIGNER_IMAGE_ARCHIVE="${word#*=}" ;;
+        gitlab:lint-archive=*) export FORGE_CI_LIVE_LINT_IMAGE_ARCHIVE="${word#*=}" ;;
+        github:org=*) export FORGE_CI_LIVE_GITHUB_ORG_ID="${word#*=}" ;;
+        *) settings+=("$word") ;;
+        esac
+    done
+    # A built-in demo becomes a repository of one commit, which the trial
+    # reads like any consumer checkout and the run removes when it ends.
+    if [[ -z "$checkout" ]]; then
+        builtin={{ quote(justfile_directory() / "test" / "live" / "demos") }}/"$name"/consumer
+        if [[ ! -d "$builtin" ]]; then
+            printf 'no demo %q in test/live/demos; name another consumer with checkout=/absolute/path\n' "$name" >&2
+            exit 2
+        fi
+        checkout=$(mktemp -d "${TMPDIR:-/tmp}/forge-ci-demo.XXXXXXXX")
+        trap 'rm -rf -- "$checkout"' EXIT
+        cp -R -- "$builtin/." "$checkout/"
+        git -C "$checkout" init --quiet --object-format=sha1 --initial-branch=main
+        git -C "$checkout" add --all
+        git -C "$checkout" -c user.name='Forge CI demo' -c user.email=demo@forge-ci.invalid \
+            -c commit.gpgsign=false -c core.hooksPath=/dev/null commit --quiet -m "feat: add the $name demo"
+    fi
+    export FORGE_CI_LIVE_DEMO="$name" FORGE_CI_LIVE_CONSUMER="$checkout" FORGE_CI_LIVE_CONSUMER_EVENT=release
+    FORGE_CI_LIVE_CONSUMER_SETTINGS="$(printf '%s\n' "${settings[@]}")"
+    export FORGE_CI_LIVE_CONSUMER_SETTINGS
+    if [[ "$forge" != github ]]; then
+        bash scripts/ci/run-live-tests.sh focused "$scenario"
+        exit
+    fi
+    if [[ -n "${FORGE_LAB_GITHUB_CONTEXT:-}" && "$FORGE_LAB_GITHUB_CONTEXT" != /* ]]; then
+        export FORGE_LAB_GITHUB_CONTEXT="{{ invocation_directory() }}/$FORGE_LAB_GITHUB_CONTEXT"
+    fi
+    GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -tags=live -count=1 -buildvcs=false -timeout=5h -v \
+        -run="$scenario" ./internal/livetest/githubconsumer/
+
+# Build a demo's job image from test/live/demos/<name>/job.Containerfile and
+# save it as <directory>/<name>-job.tar, the archive `just demo gitlab` takes
+# as job-archive= and build-archive=. Prints the archive's path.
+[arg('name', help='Demo name: a directory of test/live/demos with a job.Containerfile')]
+[arg('directory', help='Absolute directory to write the archive to')]
+[doc('Build a demo job image archive; network')]
+[group('live')]
+demo-image name directory:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    name=$1 directory=$2
+    demo={{ quote(justfile_directory() / "test" / "live" / "demos") }}/"$name"
+    if [[ ! "$name" =~ ^[a-z0-9][a-z0-9-]*$ || ! -f "$demo/job.Containerfile" ]]; then
+        printf 'no job image for demo %q: test/live/demos/<name>/job.Containerfile\n' "$name" >&2
+        exit 2
+    fi
+    if [[ "$directory" != /* ]]; then
+        printf 'the archive directory must be an absolute path, got %q\n' "$directory" >&2
+        exit 2
+    fi
+    image="localhost/forge-ci-demo-$name-job:latest"
+    podman build --file "$demo/job.Containerfile" --tag "$image" "$demo" >&2
+    mkdir -p -- "$directory"
+    archive="$directory/$name-job.tar"
+    rm -f -- "$archive"
+    podman save --quiet --format docker-archive --output "$archive" "$image"
+    printf '%s\n' "$archive"
+
+# List the demos `just demo` made: each demo with its repositories, IDs and
+# links. On the lab it reads lab account demo's contract; on GitHub it runs
+# inside Forge Lab's `just github run` and takes org=<id>.
+[arg('forge', help='forgejo, gitlab or github')]
+[arg('settings', help='github: org=<numeric organization ID>')]
+[doc('▪ Live; list the kept demos')]
+[group('live')]
+demo-list forge *settings:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # A relative context path is the caller's; just runs this in the justfile's directory.
+    if [[ -n "${FORGE_LAB_GITHUB_CONTEXT:-}" && "$FORGE_LAB_GITHUB_CONTEXT" != /* ]]; then
+        export FORGE_LAB_GITHUB_CONTEXT="{{ invocation_directory() }}/$FORGE_LAB_GITHUB_CONTEXT"
+    fi
+    GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off exec go run -buildvcs=false ./internal/livetest/demoadmin list "$@"
+
+# Delete one demo for good. It shows exactly what goes, then asks for the
+# demo's name (or takes confirm=<name>); each repository is deleted by the ID
+# it was listed with. When the lab has no demo left it says how to retire the
+# account's token in Forge Lab.
+[arg('name', help='The demo, as `just demo-list` names it, for example wallet-provider')]
+[arg('forge', help='forgejo, gitlab or github')]
+[arg('settings', help='confirm=<name> instead of typing it; github: org=<numeric organization ID>')]
+[doc('▪ Live; delete a kept demo')]
+[group('live')]
+demo-delete forge name *settings:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # A relative context path is the caller's; just runs this in the justfile's directory.
+    if [[ -n "${FORGE_LAB_GITHUB_CONTEXT:-}" && "$FORGE_LAB_GITHUB_CONTEXT" != /* ]]; then
+        export FORGE_LAB_GITHUB_CONTEXT="{{ invocation_directory() }}/$FORGE_LAB_GITHUB_CONTEXT"
+    fi
+    GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off exec go run -buildvcs=false ./internal/livetest/demoadmin delete "$@"
+
 # Try a consumer repository against this engine checkout, on hosted GitHub.
 #
 # Runs inside Forge Lab's hosted session (`just github run --org ... --prefix ...
@@ -854,7 +1005,7 @@ test-live-consumer checkout event *settings:
 # organization, which builds its runtime images and moves v0.90.0-pre. The
 # consumer's GitHub fixture workflows, pinned to that engine, then run in a
 # disposable <prefix><name>-<visibility>-<session> repository, deleted afterwards. A
-# setting is key=value: workflow=<file>, fixtures=<dir>, version=vX.Y.Z and
+# setting is key=value: workflow=<file>, fixtures=<dir>, version=X.Y.Z and
 # image=<name> (release), nanolinter-image= and megalinter-image=<reference>.
 # docs/testing.md, Trying a consumer on GitHub, has the prerequisites.
 [arg('event', help='Consumer workflow kind: pull-request or release')]
@@ -867,7 +1018,7 @@ test-live-github-consumer organization_id checkout event *settings:
     #!/usr/bin/env bash
     set -euo pipefail
     if [[ -n "${FORGE_LAB_GITHUB_CONTEXT:-}" && "$FORGE_LAB_GITHUB_CONTEXT" != /* ]]; then
-        export FORGE_LAB_GITHUB_CONTEXT="$PWD/$FORGE_LAB_GITHUB_CONTEXT"
+        export FORGE_LAB_GITHUB_CONTEXT="{{ invocation_directory() }}/$FORGE_LAB_GITHUB_CONTEXT"
     fi
     FORGE_CI_LIVE_GITHUB_ORG_ID="$1" FORGE_CI_LIVE_CONSUMER="$2" FORGE_CI_LIVE_CONSUMER_EVENT="$3" \
         FORGE_CI_LIVE_CONSUMER_SETTINGS="$(shift 3; printf '%s\n' "$@")" \

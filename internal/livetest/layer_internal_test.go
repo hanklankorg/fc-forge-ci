@@ -9,8 +9,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/goccy/go-yaml"
 
@@ -246,7 +248,7 @@ func TestLayerGitEnvironment_ScopesTheCredentialToTheLabGitRoot(t *testing.T) {
 		t.Errorf("credential header key = %q, want %q so git sends it to no other host", got, want)
 	}
 
-	pair := base64.StdEncoding.EncodeToString([]byte("rc:synthetic-token"))
+	pair := base64.StdEncoding.EncodeToString([]byte("forgeci:synthetic-token"))
 	if env["GIT_CONFIG_VALUE_0"] != "Authorization: Basic "+pair {
 		t.Error("credential header is not the Basic pair of the contract's credential")
 	}
@@ -462,5 +464,45 @@ func TestRequestSigner_SignsATagItsAllowedSignersLineVerifies(t *testing.T) {
 
 	if err := verify(allowed); err == nil {
 		t.Error("git verifies the tag against another signer's line")
+	}
+}
+
+// A push is retried only when the connection broke: the forge's own refusal
+// would come back the same way every time.
+func TestBrokenConnection_RetriesTransportFailuresOnly(t *testing.T) {
+	t.Parallel()
+
+	for message, broken := range map[string]bool{
+		"fatal: unable to access 'https://gitlab.compose.forgelab:8443/demo/demo-hello-maven.git/': GnuTLS recv error (-110): The TLS connection was non-properly terminated.": true,
+		"error: RPC failed; curl 56 Recv failure: Connection reset by peer":                                                                                                    true,
+		"fatal: unable to access 'https://forge.invalid/x.git/': The requested URL returned error: 503":                                                                        true,
+		"fatal: unable to access 'https://forge.invalid/x.git/': The requested URL returned error: 403":                                                                        false,
+		" ! [rejected]        main -> main (non-fast-forward)":                                                                                                                 false,
+		" ! [remote rejected] refs/tags/v1.0.0 -> refs/tags/v1.0.0 (pre-receive hook declined)":                                                                                false,
+		"fatal: 'refs/tags/missing' does not appear to be a git repository":                                                                                                    false,
+	} {
+		if got := brokenConnection(message); got != broken {
+			t.Errorf("brokenConnection(%q) = %v, want %v", message, got, broken)
+		}
+	}
+}
+
+// A commit on a consumer's own history is dated when it is made; everything
+// else in git's closed environment, the credential header included, stays.
+func TestLayerGitDated_ReplacesOnlyTheCommitDates(t *testing.T) {
+	t.Parallel()
+
+	fixed := layerGit{env: []string{"GIT_AUTHOR_DATE=2000-01-01T00:00:00Z", "GIT_CONFIG_VALUE_0=Authorization: Basic x", "GIT_COMMITTER_DATE=2000-01-01T00:00:00Z"}}
+	when := time.Date(2026, 10, 16, 2, 10, 12, 0, time.UTC)
+
+	got := fixed.dated(when).env
+	want := []string{"GIT_CONFIG_VALUE_0=Authorization: Basic x", "GIT_AUTHOR_DATE=2026-10-16T02:10:12Z", "GIT_COMMITTER_DATE=2026-10-16T02:10:12Z"}
+
+	if !slices.Equal(got, want) {
+		t.Fatalf("dated().env = %q, want %q", got, want)
+	}
+
+	if fixed.env[0] != "GIT_AUTHOR_DATE=2000-01-01T00:00:00Z" {
+		t.Fatal("dated changed the receiver's environment")
 	}
 }

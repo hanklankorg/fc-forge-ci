@@ -23,8 +23,8 @@ import (
 // file the caller owns, never from a setting, and reaches the run only as the
 // consumer's registry secret.
 const (
-	externalRegistryTokenFileEnv = "RC_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE"
-	externalRegistryUserEnv      = "RC_LIVE_EXTERNAL_REGISTRY_USER"
+	externalRegistryTokenFileEnv = "FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE" //nolint:gosec // G101: env var names, not values.
+	externalRegistryUserEnv      = "FORGE_CI_LIVE_EXTERNAL_REGISTRY_USER"
 )
 
 // ExternalRegistry is the user and token an external image registry takes.

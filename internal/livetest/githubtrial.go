@@ -22,6 +22,8 @@ import (
 	"codefloe.com/itiquette/forge-lab-contract/githubclient"
 	"codefloe.com/itiquette/forge-lab-contract/githubcontext"
 	"github.com/google/go-github/v91/github"
+
+	"github.com/diggsweden/forge-ci/internal/retry"
 )
 
 // GitHubContextEnv names the private context Forge Lab's hosted session
@@ -34,6 +36,8 @@ const GitHubRunTimeout = 90 * time.Minute
 const (
 	githubPoll           = 20 * time.Second
 	githubEngineTimeout  = 75 * time.Minute
+	githubRunAppears     = 5 * time.Minute
+	githubIndexTimeout   = 5 * time.Minute
 	githubIssuer         = "https://token.actions.githubusercontent.com"
 	githubEngineWorkflow = "self-runtime-container.yml"
 	githubTrialAuthor    = "Forge Lab Trial"
@@ -50,6 +54,9 @@ type GitHubTrial struct {
 	prefix  string
 	session string
 	token   string
+	// history makes PushConsumer push the consumer's own history under the
+	// rendered commit: WithHistory.
+	history bool
 }
 
 // OpenGitHubTrial loads Forge Lab's hosted context and authorizes exactly the
@@ -109,7 +116,7 @@ func (trial *GitHubTrial) EnsureEngine(root string) GitHubEngine {
 		trial.tb.Fatalf("livetest: the engine checkout must be SHA-1 for GitHub; HEAD is %q", commit)
 	}
 
-	trial.git(root, "push", "--force", trial.remote(name), "HEAD:refs/heads/main")
+	trial.push(root, "--force", trial.remote(name), "HEAD:refs/heads/main")
 	trial.SetVariable(name, "FORGE_CI_REPOSITORY", trial.org+"/"+name)
 	trial.ensurePrerelease(name)
 
@@ -127,6 +134,53 @@ func (trial *GitHubTrial) EnsureEngine(root string) GitHubEngine {
 	return engine
 }
 
+// WithHistory returns the trial pushing the consumer's own history under the
+// rendered commit, as a demo does. A trial pushes one parentless commit.
+func (trial *GitHubTrial) WithHistory() *GitHubTrial {
+	shown := *trial
+	shown.history = true
+
+	return &shown
+}
+
+// NewDemoRepository creates the public repository <prefix>demo-<name> for a demo and
+// registers nothing to delete it. The client refuses a name that exists, so an
+// earlier demo is never adopted or replaced; Forge Lab's session cleanup
+// deletes only the repositories it created itself, by their IDs.
+func (trial *GitHubTrial) NewDemoRepository(name string) string {
+	trial.tb.Helper()
+
+	if !validDemoName(name) {
+		trial.tb.Fatalf("livetest: %q cannot name a demo (lowercase letters, digits and inner hyphens)", name)
+	}
+
+	repoName := trial.prefix + DemoRepo(name)
+
+	if _, err := trial.client.CreateRepository(trial.tb.Context(), repoName, false); err != nil {
+		trial.tb.Fatalf("livetest: create the demo repository %s (an existing one is never replaced): %v", repoName, err)
+	}
+
+	return repoName
+}
+
+// DeleteSecretsAfter removes, whatever the outcome, the repository secrets
+// named, so a repository that is kept holds no credential once the run is over.
+func (trial *GitHubTrial) DeleteSecretsAfter(repo string, names []string) {
+	trial.tb.Helper()
+
+	trial.tb.Cleanup(func() {
+		ctx, cancel := cleanupContext(timeoutAPI)
+		defer cancel()
+
+		for _, name := range names {
+			response, err := trial.api.Actions.DeleteRepoSecret(ctx, trial.org, repo, name)
+			if err != nil && (response == nil || response.StatusCode != http.StatusNotFound) {
+				trial.tb.Errorf("livetest: delete secret %s of %s: %v", name, repo, err)
+			}
+		}
+	})
+}
+
 // NewConsumerRepository creates <prefix><name>-<session> and removes it when
 // the test ends. The container packages it published stay: a fine-grained
 // token cannot reach GitHub's packages API, so they are left to the
@@ -135,6 +189,11 @@ func (trial *GitHubTrial) EnsureEngine(root string) GitHubEngine {
 // is denied a push to the package the old one created.
 func (trial *GitHubTrial) NewConsumerRepository(name string, private bool) string {
 	trial.tb.Helper()
+
+	// demo- names belong to demos, which a trial must never be mistaken for.
+	if strings.HasPrefix(name, demoRepoPrefix) {
+		trial.tb.Fatalf("livetest: trial repository names may not start %s, which marks demos", demoRepoPrefix)
+	}
 
 	repoName := trial.prefix + name + "-" + trial.session
 
@@ -166,10 +225,23 @@ func (trial *GitHubTrial) PushConsumer(repo, root, fixtures string, engine GitHu
 	trial.tb.Helper()
 
 	dir := trial.tempDir("consumer")
-	archive := filepath.Join(trial.tempDir("archive"), "head.tar")
+	message := consumerBaseMessage
 
-	trial.git(root, "archive", "--format=tar", "-o", archive, "HEAD")
-	trial.run(dir, nil, "tar", "-xf", archive, "-C", dir)
+	if trial.history {
+		// The consumer's own history, with its rendered workflows one commit on
+		// top. GitHub has no SHA-256 repositories, so only a SHA-1 one can come.
+		trial.git(dir, "init", gitQuiet, "--object-format=sha1", "--initial-branch=main", ".")
+		trial.git(dir, "fetch", gitQuiet, root, "HEAD")
+		trial.git(dir, "checkout", gitQuiet, "-B", "main", "FETCH_HEAD")
+
+		message = demoBaseMessage
+	} else {
+		archive := filepath.Join(trial.tempDir("archive"), "head.tar")
+
+		trial.git(root, "archive", "--format=tar", "-o", archive, "HEAD")
+		trial.run(dir, nil, "tar", "-xf", archive, "-C", dir)
+		trial.git(dir, "init", gitQuiet, "--object-format=sha1", "--initial-branch=main", ".")
+	}
 
 	workflows := filepath.Join(dir, ".github", "workflows")
 	if err := os.RemoveAll(workflows); err != nil {
@@ -182,10 +254,10 @@ func (trial *GitHubTrial) PushConsumer(repo, root, fixtures string, engine GitHu
 
 	trial.renderFixtures(filepath.Join(root, fixtures, "workflows"), workflows, engine, overrides)
 
-	trial.git(dir, "init", gitQuiet, "--object-format=sha1", "--initial-branch=main", ".")
 	trial.git(dir, "add", "--all")
-	trial.commit(dir, consumerBaseMessage, "")
-	trial.git(dir, "push", trial.remote(repo), "HEAD:refs/heads/main")
+	trial.commit(dir, message, "")
+	trial.push(dir, trial.remote(repo), "HEAD:refs/heads/main")
+	trial.waitWorkflows(repo, workflows)
 
 	return GitHubConsumerTree{Dir: dir, Main: strings.TrimSpace(trial.git(dir, "rev-parse", "HEAD"))}
 }
@@ -208,7 +280,7 @@ func (trial *GitHubTrial) PushChange(repo string, tree GitHubConsumerTree, branc
 
 	trial.git(tree.Dir, "add", "--", consumerCanary)
 	trial.commit(tree.Dir, consumerChangeMessage, filepath.Join(keyDir, sshKeyFile))
-	trial.git(tree.Dir, "push", trial.remote(repo), "HEAD:refs/heads/"+branch)
+	trial.push(tree.Dir, trial.remote(repo), "HEAD:refs/heads/"+branch)
 
 	head := strings.TrimSpace(trial.git(tree.Dir, "rev-parse", "HEAD"))
 	trial.git(tree.Dir, "checkout", gitQuiet, "main")
@@ -275,13 +347,17 @@ func (trial *GitHubTrial) Token() string { return trial.token }
 func (trial *GitHubTrial) WaitRun(repo, workflow, event, headSHA string, timeout time.Duration) *github.WorkflowRun {
 	trial.tb.Helper()
 
-	deadline := time.Now().Add(timeout)
+	started := time.Now()
+	deadline := started.Add(timeout)
+	appeared := false
 
 	for {
 		runs, _, err := trial.api.Actions.ListWorkflowRunsByFileName(trial.tb.Context(), trial.org, repo, workflow,
 			&github.ListWorkflowRunsOptions{HeadSHA: headSHA, Event: event})
 		if err == nil {
 			for _, run := range runs.WorkflowRuns {
+				appeared = true
+
 				if run.GetConclusion() == "cancelled" {
 					continue
 				}
@@ -292,6 +368,12 @@ func (trial *GitHubTrial) WaitRun(repo, workflow, event, headSHA string, timeout
 
 				break
 			}
+		}
+
+		// GitHub creates a run within seconds of its event, or never.
+		if !appeared && time.Since(started) > githubRunAppears {
+			trial.tb.Fatalf("livetest: GitHub created no %s run of %s for %s at %s within %s: it starts no run for an event it dropped",
+				event, workflow, repo, headSHA, githubRunAppears)
 		}
 
 		if time.Now().After(deadline) {
@@ -517,7 +599,7 @@ func (trial *GitHubTrial) PushReleaseRequest(repo string, tree GitHubConsumerTre
 	trial.git(tree.Dir, "-c", "user.name="+githubTrialAuthor, "-c", "user.email="+githubTrialEmail,
 		"-c", "gpg.format=openpgp", "-c", "gpg.program="+program, "-c", "user.signingkey="+key.Fingerprint,
 		"tag", "-s", request, "-m", "Release "+version, tree.Main)
-	trial.git(tree.Dir, "push", trial.remote(repo), "refs/tags/"+request)
+	trial.push(tree.Dir, trial.remote(repo), "refs/tags/"+request)
 }
 
 // CheckRelease checks what the engine promises of a GitHub release beyond a
@@ -575,6 +657,52 @@ func (trial *GitHubTrial) CheckImage(repo, image, final string, engine GitHubEng
 	}
 
 	trial.tb.Errorf("no promoted tag of %s for %s verifies", reference, final)
+}
+
+// waitWorkflows waits until GitHub lists every workflow just pushed to a new
+// repository. GitHub indexes them after the push, and an event that comes
+// before, such as the release-request tag pushed seconds later, starts no run
+// and is not replayed.
+func (trial *GitHubTrial) waitWorkflows(repo, workflows string) {
+	trial.tb.Helper()
+
+	entries, err := os.ReadDir(workflows)
+	if err != nil {
+		trial.tb.Fatalf("livetest: list the rendered workflows: %v", err)
+	}
+
+	deadline := time.Now().Add(githubIndexTimeout)
+
+	for {
+		listed, _, err := trial.api.Actions.ListWorkflows(trial.tb.Context(), trial.org, repo, &github.ListOptions{PerPage: 100})
+		if err == nil && githubListsAll(listed, entries) {
+			return
+		}
+
+		if time.Now().After(deadline) {
+			trial.tb.Fatalf("livetest: GitHub did not list the workflows of %s within %s (last error: %v)", repo, githubIndexTimeout, err)
+		}
+
+		trial.sleep()
+	}
+}
+
+// githubListsAll reports whether GitHub lists an active workflow for each
+// file in the workflow directory.
+func githubListsAll(listed *github.Workflows, entries []os.DirEntry) bool {
+	active := map[string]bool{}
+
+	for _, workflow := range listed.Workflows {
+		active[workflow.GetPath()] = workflow.GetState() == "active"
+	}
+
+	for _, entry := range entries {
+		if !active[".github/workflows/"+entry.Name()] {
+			return false
+		}
+	}
+
+	return true
 }
 
 // renderFixtures writes each fixture workflow of source into workflows,
@@ -775,6 +903,29 @@ func (trial *GitHubTrial) git(dir string, args ...string) string {
 	trial.tb.Helper()
 
 	return trial.run(dir, trial.gitEnv(), "git", append([]string{"-C", dir}, args...)...)
+}
+
+// push runs `git push` with args, retrying a broken connection as the lab's
+// pushes do (runPush): pushing an exact ref again lands it or finds it there,
+// and the forge's own refusal is not retried.
+func (trial *GitHubTrial) push(dir string, args ...string) {
+	trial.tb.Helper()
+
+	var output string
+
+	err := retry.Run(trial.tb.Context(), nil, 4, 5*time.Second, func() error {
+		out, err := trial.outputEnv(dir, trial.gitEnv(), "git", append([]string{"-C", dir, eventPush}, args...)...)
+		output = out
+
+		if err != nil && !brokenConnection(out) {
+			return retry.Permanent(err)
+		}
+
+		return err
+	})
+	if err != nil {
+		trial.tb.Fatalf("livetest: git push: %v\n%s", err, output)
+	}
 }
 
 // commit commits the index as the identity the trial's sign-off names, signed

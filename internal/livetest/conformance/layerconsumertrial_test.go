@@ -7,7 +7,9 @@
 package conformance_test
 
 import (
+	"maps"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -89,6 +91,18 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 
 	const name = "consumer-trial"
 
+	// A demo shows the whole flow in one repository it keeps: the release,
+	// then a pull request on the released main.
+	demo := livetest.DemoName()
+	repoName := livetest.ScratchRepo(name)
+
+	if demo != "" {
+		requireDemoReady(t, settings, workflows)
+
+		repoName = livetest.DemoRepo(demo)
+		consumer = consumer.WithHistory()
+	}
+
 	release := settings.Event == livetest.TrialRelease
 	facts := livetest.ConsumerFacts{Inputs: map[string]string{}, Secrets: map[string]string{}}
 
@@ -97,17 +111,13 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 	external := externalRegistry(t, settings)
 
 	if release {
-		keys = trialReleaseFacts(t, target, livetest.ScratchRepo(name), &facts)
+		keys = trialReleaseFacts(t, target, repoName, &facts)
 		useExternalRegistry(t, external, &facts)
 	}
 
 	scenario := layerScenario{target: target, label: livetest.RunnerLabel(t, target)}
-	scenario.layer = livetest.PushLayer(t, target, livetest.NewScratchRepo(t, target, name+"-layer"))
-	scenario.repo = livetest.NewBareScratchRepo(t, target, name, consumer.ObjectFormat, private)
+	scenario.layer, scenario.repo = newConsumerRepos(t, target, consumer, name, private)
 	repo := scenario.repo
-
-	// A consumer's release publishes under names of its own choosing.
-	livetest.SweepPackagesAfter(t, target, repo)
 
 	facts.Inputs["forge-ci-repository"] = scenario.layer.Repository
 
@@ -160,6 +170,11 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 		livetest.SetRepoVariable(t, target, repo, variable, value)
 	}
 
+	// A kept demo holds no credential once the run is over.
+	if demo != "" {
+		livetest.DeleteSecretsAfter(t, target, repo, slices.Sorted(maps.Keys(plan.Secrets)))
+	}
+
 	for secret, value := range plan.Secrets {
 		livetest.SetRepoSecret(t, target, repo, secret, value)
 	}
@@ -193,6 +208,68 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 		requireReleaseGit(t, target, repo, keys, main, "release-request/v"+settings.Version, "v"+settings.Version)
 		requireSignedRelease(t, target, repo, keys, "v"+settings.Version)
 		requireExternalImages(t, external, keys, settings)
+	}
+
+	if demo != "" {
+		runDemoPullRequest(t, scenario, consumer, main)
+	}
+}
+
+// newConsumerRepos makes the layer's and the consumer's repositories: fixed
+// scratch ones a trial resets and deletes, or in demo mode kept ones under the
+// demo's name that nothing deletes.
+func newConsumerRepos(t *testing.T, target livetest.Target, consumer livetest.Consumer, name string, private bool) (livetest.Layer, string) {
+	t.Helper()
+
+	if demo := livetest.DemoName(); demo != "" {
+		layer := livetest.PushLayer(t, target, livetest.NewDemoRepo(t, target, livetest.DemoLayerRepo(demo), "sha1", true))
+
+		return layer, livetest.NewDemoRepo(t, target, livetest.DemoRepo(demo), consumer.ObjectFormat, false)
+	}
+
+	layer := livetest.PushLayer(t, target, livetest.NewScratchRepo(t, target, name+"-layer"))
+	repo := livetest.NewBareScratchRepo(t, target, name, consumer.ObjectFormat, private)
+
+	// A consumer's release publishes under names of its own choosing.
+	livetest.SweepPackagesAfter(t, target, repo)
+
+	return layer, repo
+}
+
+// requireDemoReady refuses a demo that could not show both halves.
+func requireDemoReady(t *testing.T, settings livetest.TrialSettings, workflows map[string]string) {
+	t.Helper()
+
+	if settings.Event != livetest.TrialRelease {
+		t.Fatalf("a demo runs the release and then a pull request; start it with the release event")
+	}
+
+	if _, found := workflows[demoPullRequestWorkflow]; !found {
+		t.Fatalf("a demo also opens a pull request, and the consumer has no workflow %s", demoPullRequestWorkflow)
+	}
+}
+
+// demoPullRequestWorkflow is the workflow a demo's pull request is judged by.
+const demoPullRequestWorkflow = "pullrequest.yml"
+
+// runDemoPullRequest opens a demo's pull request into the main its release
+// left, and requires the consumer's own pull-request workflow to pass on it.
+// The change is one commit on pushed, the commit whose tree the trial staged:
+// on the released main it would carry that tree and undo the release commit.
+func runDemoPullRequest(t *testing.T, scenario layerScenario, consumer livetest.Consumer, pushed string) {
+	t.Helper()
+
+	target, repo := scenario.target, scenario.repo
+	released := livetest.BranchCommitSHA(t, target, repo, layerMain)
+	head := consumer.PushChange(t, repo, trialBranch, pushed)
+
+	requirePullRequest(t, livetest.OpenPullRequest(t, target, repo, trialBranch, layerMain, "test: consumer trial"), trialBranch, head, released)
+
+	run := livetest.WaitForConsumerRun(t, target, repo, demoPullRequestWorkflow, "pull_request", "")
+	scenario.logJobs(t, livetest.RunJobs(t, target, repo, run.ID))
+
+	if run.Status != jobSuccess {
+		t.Fatalf("pull-request run %d of %s ended %q, want %s", run.ID, run.WorkflowID, run.Status, jobSuccess)
 	}
 }
 

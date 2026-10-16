@@ -56,7 +56,7 @@ func forgetContract(t *testing.T, path string) {
 	})
 }
 
-// installDefaultContract writes body where the lab writes the rc account's
+// installDefaultContract writes body where the lab writes the forgeci account's
 // contract under an owned state directory, unsets the override, and returns
 // that path.
 func installDefaultContract(t *testing.T, body string) string {
@@ -215,7 +215,7 @@ func TestCurrentLabContract_DetectsMutationAfterFirstLoad(t *testing.T) {
 // the suite looked and how to get one there.
 func TestCurrentLabContract_LocatesByAccount(t *testing.T) {
 	path := installDefaultContract(t, composeFixtureBody(t))
-	if !strings.HasSuffix(path, filepath.Join("forge-lab", "targets", "rc.json")) {
+	if !strings.HasSuffix(path, filepath.Join("forge-lab", "targets", "forgeci.json")) {
 		t.Fatalf("default path = %s", path)
 	}
 

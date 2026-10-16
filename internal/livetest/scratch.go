@@ -41,7 +41,13 @@ import (
 // forges, so a scenario never has to ask which one it got.
 const defaultBranch = "main"
 
-const fieldPrivate = "private"
+// Field names of the forges' repository-creating requests.
+const (
+	fieldName          = "name"
+	fieldPrivate       = "private"
+	fieldDefaultBranch = "default_branch"
+	fieldPath          = "path"
+)
 
 // labClients caches one module client per accepted target. Construction makes
 // no request, but it builds a transport, and each lifecycle step of each
@@ -137,9 +143,19 @@ func NewBareScratchRepo(tb TB, target Target, scenario, objectFormat string, pri
 		tb.Fatalf("livetest: reset %s/%s: %v", target.Owner, repo, err)
 	}
 
+	createBareRepo(ctx, tb, target, repo, objectFormat, private)
+
+	return repo
+}
+
+// createBareRepo makes the one creating request for an empty repository of
+// the object format given, and checks the visibility the forge recorded.
+func createBareRepo(ctx context.Context, tb TB, target Target, repo, objectFormat string, private bool) {
+	tb.Helper()
+
 	if target.Forge == provider.ForgeGitLab {
 		body := map[string]any{
-			"name": repo, "path": repo, "visibility": visibilityName(private), "default_branch": defaultBranch,
+			fieldName: repo, fieldPath: repo, "visibility": visibilityName(private), fieldDefaultBranch: defaultBranch,
 			"initialize_with_readme": false, "repository_object_format": objectFormat,
 			"auto_devops_enabled": false, "only_allow_merge_if_pipeline_succeeds": true,
 			"allow_merge_on_skipped_pipeline": false,
@@ -158,11 +174,11 @@ func NewBareScratchRepo(tb TB, target Target, scenario, objectFormat string, pri
 
 		requireScratchVisibility(ctx, tb, target, repo, private)
 
-		return repo
+		return
 	}
 
 	body := map[string]any{
-		"name": repo, "default_branch": defaultBranch, fieldPrivate: private, "auto_init": false, "object_format_name": objectFormat,
+		fieldName: repo, fieldDefaultBranch: defaultBranch, fieldPrivate: private, "auto_init": false, "object_format_name": objectFormat,
 	}
 	if err := discard(ctx, target, http.MethodPost, target.BaseURL()+"/api/v1/user/repos", body, http.StatusCreated); err != nil {
 		tb.Fatalf("livetest: create %s/%s with object format %s: %v", target.Owner, repo, objectFormat, err)
@@ -170,8 +186,6 @@ func NewBareScratchRepo(tb TB, target Target, scenario, objectFormat string, pri
 
 	setActions(ctx, tb, target, repo, false)
 	requireScratchVisibility(ctx, tb, target, repo, private)
-
-	return repo
 }
 
 // Verify the provider's persisted visibility before any consumer source is
@@ -321,6 +335,10 @@ func DeleteScratchRepo(ctx context.Context, target Target, repo string) error {
 func SweepPackagesAfter(tb TB, target Target, repo string) {
 	tb.Helper()
 	requireAccepted(tb, target)
+
+	if err := refuseDemoDeletion(target); err != nil {
+		tb.Fatalf("livetest: %v", err)
+	}
 
 	tb.Cleanup(func() {
 		if os.Getenv("FORGE_CI_LIVE_KEEP_SCRATCH") == "1" {
@@ -488,6 +506,10 @@ func sweepScratchRepos(tb TB, target Target, prefix string) {
 func scratchRepos(target Target) (*labclient.Repositories, error) {
 	if !target.accepted {
 		return nil, fmt.Errorf("refusing scratch lifecycle through an unaccepted target: %w", errs.ErrValidation)
+	}
+
+	if err := refuseDemoDeletion(target); err != nil {
+		return nil, err
 	}
 
 	client, err := scratchClient(target)

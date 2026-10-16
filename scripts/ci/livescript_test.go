@@ -301,7 +301,7 @@ func TestRunLiveTests_HappyPathRunsTheSuiteAndKeepsARedactedLog(t *testing.T) {
 
 			// A consumer recipe's inputs are in the log, so the run can be repeated from it.
 			logPath := requireRedactedLog(t, run, stdout, "profile="+tc.args[0], tc.scenario, fakePreflightReport+"\n",
-				"rc_live_consumer=/absolute/consumer\n", "rc_live_consumer_event=release\n", "rc_live_consumer_visibility=private\n")
+				"forge_ci_live_consumer=/absolute/consumer\n", "forge_ci_live_consumer_event=release\n", "forge_ci_live_consumer_visibility=private\n")
 			if !strings.HasPrefix(stdout, fakePreflightReport+"\n") {
 				t.Fatalf("stdout does not start with the preflight report:\n%s", stdout)
 			}
@@ -423,9 +423,26 @@ func TestRunLiveTests_PropagatesTheSuiteStatus(t *testing.T) {
 	}
 }
 
+// A run whose scenarios all skipped is not a pass: go test passes a test whose
+// subtests skipped, so the verdict reads the results, not the exit status.
+func TestRunLiveTests_ReportsARunInWhichNothingRanAsSkipped(t *testing.T) {
+	t.Parallel()
+	run := newLiveRun(t, "FAKE_GO_TEST_OUTPUT==== RUN   TestTrial\n=== RUN   TestTrial/public\n"+
+		"    --- SKIP: TestTrial/public (0.00s)\n--- PASS: TestTrial (0.00s)\nPASS")
+
+	stdout, stderr, status := run.exec(t, "focused", "TestTrial")
+	if status != 1 {
+		t.Fatalf("status %d\nstdout:\n%s\nstderr:\n%s", status, stdout, stderr)
+	}
+
+	if !strings.Contains(stdout, "Live result: skipped: no scenario ran; the log says why\n") {
+		t.Fatalf("stdout lacks the skipped verdict:\n%s", stdout)
+	}
+}
+
 func TestRunLiveTests_PrunesOnlyOldRunDirectories(t *testing.T) {
 	t.Parallel()
-	run := newLiveRun(t)
+	run := newLiveRun(t, "FAKE_GO_TEST_OUTPUT="+fakeSuiteOutput)
 	old := filepath.Join(run.evidenceRoot, "20200101T000000Z-1")
 	recent := filepath.Join(run.evidenceRoot, "20200101T000000Z-2")
 

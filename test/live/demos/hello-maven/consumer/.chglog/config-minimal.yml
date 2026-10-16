@@ -1,0 +1,70 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# git-chglog configuration - Minimal format for commit messages
+# https://github.com/git-chglog/git-chglog
+style: ""
+template: CHANGELOG-minimal.tpl
+info:
+  title: CHANGELOG
+  repository_url: https://forgejo.compose.forgelab:8443/demo/demo-hello-maven
+options:
+  tag_filter_pattern: '^v'
+  sort: semver
+  commits:
+    filters:
+      Type:
+        - feat
+        - fix
+        - perf
+        - refactor
+        - docs
+        - style
+        - test
+        - build
+        - ci
+        - chore
+        - sec
+        - security
+        - revert
+    sort_by: Scope
+  commit_groups:
+    group_by: Type
+    sort_by: Title
+    title_order:
+      - feat
+      - fix
+      - sec
+      - security
+      - perf
+      - refactor
+      - docs
+      - test
+      - build
+      - ci
+      - chore
+      - revert
+    title_maps:
+      feat: Features
+      fix: Bug Fixes
+      sec: Security
+      security: Security
+      perf: Performance
+      refactor: Refactor
+      docs: Documentation
+      style: Styling
+      test: Testing
+      build: Build
+      ci: CI
+      chore: Other
+      revert: Revert
+  header:
+    # Pattern matches: type(scope): subject or type!: subject (breaking) or type(scope)!: subject
+    pattern: "^(\\w*)(?:\\(([\\w$\\.\\-\\*\\s]*)\\))?!?\\:\\s(.*)$"
+    pattern_maps:
+      - Type
+      - Scope
+      - Subject
+  notes:
+    keywords:
+      - BREAKING CHANGE

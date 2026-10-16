@@ -74,6 +74,10 @@ func RenderGitHubConsumer(name, text string, engine GitHubEngine, overrides map[
 		return "", nil, fmt.Errorf("the engine under test needs an owner, a repository and a full commit: %w", errs.ErrValidation)
 	}
 
+	if err := requireOrchestratorImages(name, text); err != nil {
+		return "", nil, err
+	}
+
 	rendered := githubWorkflowUse.ReplaceAllString(text, "${1}"+engine.Owner+"/"+engine.Repository+"${2}@"+engine.Commit)
 	rendered = githubBinaryRef.ReplaceAllString(rendered, "${1}"+GitHubPrerelease)
 	rendered = githubRuntimeRef.ReplaceAllString(rendered, engine.Registry()+"/${1}:"+engine.ImageTag())
@@ -99,6 +103,28 @@ func RenderGitHubConsumer(name, text string, engine GitHubEngine, overrides map[
 
 	return rendered, applied, nil
 }
+
+// requireOrchestratorImages refuses a fixture that calls an orchestrator
+// without passing runtime-image. An orchestrator's image inputs default to the
+// released images, which an unreleased engine has not built; only an image a
+// fixture names can be pointed at the organization's build of it.
+func requireOrchestratorImages(name, text string) error {
+	if !githubOrchestratorUse.MatchString(text) || githubRuntimeImageInput.MatchString(text) {
+		return nil
+	}
+
+	return fmt.Errorf("%s calls a forge-ci orchestrator without passing runtime-image; pass it, and the image of each "+
+		"project type the workflow builds (runtime-image-java for maven), as ghcr.io/diggsweden/forge-ci-runtime-*:<tag>, "+
+		"so the trial can point them at the engine under test: %w", name, errs.ErrValidation)
+}
+
+var (
+	// githubOrchestratorUse is a call of one of the engine's orchestrators,
+	// whose runtime-image inputs default to released images.
+	githubOrchestratorUse = regexp.MustCompile(`uses:[ \t]*['"]?diggsweden/forge-ci/\.github/workflows/[a-z-]+-orchestrator\.yml@`)
+	// githubRuntimeImageInput is the base runtime image passed as an input.
+	githubRuntimeImageInput = regexp.MustCompile(`(?m)^[ \t]+runtime-image:[ \t]*\S`)
+)
 
 // SealGitHubSecret encrypts a secret value for GitHub's Actions secrets API:
 // a libsodium sealed box to the repository's public key, base64 encoded.
@@ -168,7 +194,7 @@ func ParseGitHubTrialSettings(event string, words []string) (GitHubTrialSettings
 	for _, word := range words {
 		key, value, found := strings.Cut(word, "=")
 		if !found || value == "" || !settings.set(key, value) {
-			return GitHubTrialSettings{}, fmt.Errorf("setting %q: want workflow=<file>, fixtures=<dir>, version=vX.Y.Z or image=<name> (release), "+
+			return GitHubTrialSettings{}, fmt.Errorf("setting %q: want workflow=<file>, fixtures=<dir>, version=X.Y.Z or image=<name> (release), "+
 				"or nanolinter-image=/megalinter-image=<reference>: %w", word, errs.ErrValidation)
 		}
 	}
@@ -189,9 +215,10 @@ func (settings *GitHubTrialSettings) set(key, value string) bool {
 
 		return !strings.HasPrefix(value, "/") && !strings.Contains("/"+value+"/", "/../")
 	case key == settingVersion:
-		settings.Version = value
+		version, valid := trialVersionValue(value)
+		settings.Version = "v" + version
 
-		return release && releaseVersionShape.MatchString(value)
+		return release && valid
 	case key == "image":
 		settings.Image = value
 

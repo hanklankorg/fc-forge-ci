@@ -49,7 +49,7 @@ func TestGitLabReleaseBranchUpdatesDefaultProtectionWithoutAnUnprotectedWindow(t
 
 				w.Header().Set("Content-Type", "application/json")
 
-				if !strings.HasPrefix(request.URL.EscapedPath(), "/api/v4/projects/rc%2Frc-release-consumer/protected_branches") {
+				if !strings.HasPrefix(request.URL.EscapedPath(), "/api/v4/projects/forgeci%2Ffci-release-consumer/protected_branches") {
 					t.Errorf("unexpected project route: %s", request.URL.EscapedPath())
 				}
 

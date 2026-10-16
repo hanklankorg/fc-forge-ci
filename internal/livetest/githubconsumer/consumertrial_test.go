@@ -12,6 +12,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -70,6 +71,10 @@ func TestGitHubLayer_ConsumerTrial(t *testing.T) {
 	fixtures := fixtureDir(t, root, settings.Fixtures)
 	visibilities := livetest.ConsumerVisibilities(t)
 
+	if livetest.DemoName() != "" && settings.Event != livetest.TrialRelease {
+		t.Fatal("a demo runs the release and then a pull request; start it with the release event")
+	}
+
 	trial := livetest.OpenGitHubTrial(t, organizationID)
 	engine := trial.EnsureEngine(reporoot.Path(t))
 
@@ -83,8 +88,16 @@ func TestGitHubLayer_ConsumerTrial(t *testing.T) {
 func runTrial(t *testing.T, trial *livetest.GitHubTrial, engine livetest.GitHubEngine, root, fixtures string, settings livetest.GitHubTrialSettings, visibility livetest.ConsumerVisibility) {
 	t.Helper()
 
-	name := filepath.Base(filepath.Clean(root)) + "-" + visibility.Name
-	repo := trial.NewConsumerRepository(name, visibility.Private)
+	demo := livetest.DemoName()
+
+	var repo string
+
+	if demo != "" {
+		trial = trial.WithHistory()
+		repo = trial.NewDemoRepository(demo)
+	} else {
+		repo = trial.NewConsumerRepository(filepath.Base(filepath.Clean(root))+"-"+visibility.Name, visibility.Private)
+	}
 
 	overrides := maps.Clone(settings.Overrides)
 	trust := livetest.KeylessTrust(engine)
@@ -116,18 +129,28 @@ func runTrial(t *testing.T, trial *livetest.GitHubTrial, engine livetest.GitHubE
 	}
 
 	key := trial.NewTrialGPGKey()
-	for secret, value := range map[string]string{
+	secrets := map[string]string{
 		"RELEASE_GPG_PRIVATE_KEY": key.Private,
 		"RELEASE_GPG_PASSPHRASE":  key.Passphrase,
 		"RELEASE_GPG_PUBLIC_KEY":  key.Public,
 		"RELEASE_TOKEN":           trial.Token(),
-	} {
+	}
+
+	if cosignKey != nil {
+		secrets["RELEASE_COSIGN_PRIVATE_KEY"] = cosignKey.Private
+		secrets["RELEASE_COSIGN_PASSPHRASE"] = cosignKey.Passphrase
+	}
+
+	// A kept demo holds no credential once the run is over.
+	if demo != "" {
+		trial.DeleteSecretsAfter(repo, slices.Sorted(maps.Keys(secrets)))
+	}
+
+	for secret, value := range secrets {
 		trial.SetSecret(repo, secret, value)
 	}
 
 	if cosignKey != nil {
-		trial.SetSecret(repo, "RELEASE_COSIGN_PRIVATE_KEY", cosignKey.Private)
-		trial.SetSecret(repo, "RELEASE_COSIGN_PASSPHRASE", cosignKey.Passphrase)
 		trial.SetVariable(repo, "COSIGN_PUBLIC_KEY", cosignKey.Public)
 	}
 
@@ -146,6 +169,19 @@ func runTrial(t *testing.T, trial *livetest.GitHubTrial, engine livetest.GitHubE
 		t.Logf("image %s of private %s not verified: its package needs registry credentials", settings.Image, repo)
 	default:
 		trial.CheckImage(repo, settings.Image, final, engine, trust)
+	}
+
+	// A demo then shows a pull request, judged by the consumer's own
+	// pull-request workflow.
+	if demo != "" {
+		pullRequest, err := livetest.ParseGitHubTrialSettings(livetest.TrialPullRequest, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		head := trial.PushChange(repo, tree, trialBranch)
+		trial.OpenPullRequest(repo, trialBranch)
+		judge(t, trial, repo, pullRequest.Workflow, "pull_request", head)
 	}
 }
 
@@ -172,7 +208,12 @@ func judge(t *testing.T, trial *livetest.GitHubTrial, repo, workflow, event, hea
 	t.Logf("%s run %d of %s: %s", workflow, run.GetID(), repo, run.GetConclusion())
 	trial.ReportRun(repo, run)
 
-	if run.GetConclusion() != "success" {
+	switch run.GetConclusion() {
+	case "success":
+	case "startup_failure":
+		t.Fatalf("GitHub refused the consumer's %s before any job ran (startup_failure): most often a calling job grants less "+
+			"than the called workflow's jobs ask for (permissions:), or names an input or secret it does not declare", workflow)
+	default:
 		t.Fatalf("the consumer's %s ended %s", workflow, run.GetConclusion())
 	}
 }

@@ -1,0 +1,143 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# Isolated Forge CI release for a Maven application:
+#
+#   prepare (forge-ci)  ->  build (ours)  ->  sign-and-publish (forge-ci)
+#
+# Push an annotated release-request/vX.Y.Z tag on main. forge-ci's prepare
+# workflow renders the changelog, signs the release commit and creates the
+# final vX.Y.Z tag. The build job runs mvn and hands dist/ over; signing keys
+# never enter it. sign-and-publish signs and publishes the Forgejo release.
+name: Release
+
+on:
+  push:
+    tags:
+      - release-request/v[0-9]*.[0-9]*.[0-9]*
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare
+    if: success() && startsWith(forgejo.ref, 'refs/tags/')
+    uses: itiquette/forge-ci/.forgejo/workflows/prepare-release.yml@2f4e845cee96973d1082bf00a5a18689c1482148
+    with:
+      runner-label: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-repository: diggsweden/forge-ci
+      forge-ci-sha: 2f4e845cee96973d1082bf00a5a18689c1482148
+      signer-image: forgejo.example/diggsweden/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      bot-name: Hello Maven Release Bot
+      bot-email: hello-release-bot@lab.invalid
+      release-git-url: ${{ vars.RELEASE_GIT_URL }}
+      release-git-host-key-fingerprint: ${{ vars.RELEASE_GIT_HOST_KEY_FINGERPRINT }}
+      verify-release-request-signature: 'false'
+      release-request-allowed-signers: .forgejo/release-allowed-signers
+      # The release commit carries the version: a key-free job runs
+      # `mvn versions:set` and the signing job checks and applies its patch.
+      version-bump: maven
+      version-bump-image: docker.io/library/maven@sha256:96f175708f766ea049ab6c794a85335d238894c75f8eb364bddd98086a5b7cfd
+      sign-distro-packages: 'false'
+      publish-container-images: 'false'
+    secrets:
+      RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+
+  # Ours: tests, jar and Build SBOM into dist/. No signing key reaches it.
+  build:
+    name: "Build: release files"
+    needs: prepare
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    container:
+      image: docker.io/library/maven:3.9-eclipse-temurin-25@sha256:96f175708f766ea049ab6c794a85335d238894c75f8eb364bddd98086a5b7cfd
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      ARTIFACT_NAME: hello-maven
+    outputs:
+      dist-digest: ${{ steps.dist.outputs.digest }}
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@2f4e845cee96973d1082bf00a5a18689c1482148
+
+      - name: Checkout prepared release
+        env:
+          CHECKOUT_REF: ${{ needs.prepare.outputs.release-sha }}
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout
+
+      # The prepared release's version into pom.xml, so the jar carries it.
+      - name: Build and test
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/build-maven@2f4e845cee96973d1082bf00a5a18689c1482148
+        with:
+          version: ${{ needs.prepare.outputs.release-tag }}
+          commit: ${{ needs.prepare.outputs.release-sha }}
+          build-type: app
+
+      - name: Declare the release files
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release-tag }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.release-sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp -- "target/${ARTIFACT_NAME}-${RELEASE_TAG#v}.jar" dist/
+          cp -- target/bom.json "dist/${ARTIFACT_NAME}.cdx.json"
+          # The release body: this version's section of the CHANGELOG.md
+          # that prepare rendered, else a stub naming the tag.
+          if ! forge-ci release notes --changelog-file CHANGELOG.md \
+            --release-version "${RELEASE_TAG}" --target-file dist/release-notes.md; then
+            echo "WARNING: no ${RELEASE_TAG} section in CHANGELOG.md; the release body is a stub" >&2
+            forge-ci release notes --source-file /nonexistent --target-file dist/release-notes.md \
+              --release-version "${RELEASE_TAG}" --release-commit "${RELEASE_SHA}"
+          fi
+          forge-ci release files declare \
+            --asset 'dist/*.jar' \
+            --sbom "dist/${ARTIFACT_NAME}.cdx.json"
+
+      - name: Upload dist/ with hand-off digest
+        id: dist
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/upload-dist@2f4e845cee96973d1082bf00a5a18689c1482148
+        with:
+          artifact-name: build-dist
+          path: dist/
+
+  sign-and-publish:
+    name: Sign and publish
+    needs: [prepare, build]
+    # job-graph-guard: allow reason="reads needs.prepare.outputs but is gated on needs.build.result=='success'; build needs prepare, so build can only succeed if prepare succeeded, making prepare.outputs always present"
+    if: ${{ always() && needs.build.result == 'success' }}
+    uses: itiquette/forge-ci/.forgejo/workflows/sign-and-publish-release.yml@2f4e845cee96973d1082bf00a5a18689c1482148
+    with:
+      runner-label: ${{ vars.CI_RUNNER_LABEL }}
+      release-tag: ${{ needs.prepare.outputs.release-tag }}
+      release-sha: ${{ needs.prepare.outputs.release-sha }}
+      release-request-sha: ${{ forgejo.sha }}
+      dist-digest: ${{ needs.build.outputs.dist-digest }}
+      artifact-name: build-dist
+      artifact-path: dist/
+      caller-workflow: release.yml
+      forge-ci-repository: diggsweden/forge-ci
+      forge-ci-sha: 2f4e845cee96973d1082bf00a5a18689c1482148
+      sign-distro-packages: 'false'
+      signer-image: forgejo.example/diggsweden/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: 1111111111111111111111111111111111111111111111111111111111111111
+    secrets:
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}

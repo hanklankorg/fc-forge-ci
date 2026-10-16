@@ -20,9 +20,11 @@ import (
 	gitlabapi "gitlab.com/gitlab-org/api/client-go"
 	"gopkg.in/yaml.v3"
 
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
 	"github.com/diggsweden/forge-ci/internal/livetest"
+	"github.com/diggsweden/forge-ci/internal/retry"
 )
 
 func TestGitLabRelease_MinimalSignedArtifacts(t *testing.T) {
@@ -162,68 +164,65 @@ func runGitLabRelease(t *testing.T, consumerRoot string, private bool) {
 	runGitLabReleaseScenario(t, consumerRoot, false, private)
 }
 
-func gitlabConsumerBuildCommand(t *testing.T, consumerRoot string) string {
+// gitlabConsumerSettings returns the caller's settings and the consumer's build
+// command, with its variables scoped to the build.
+func gitlabConsumerSettings(t *testing.T, consumerRoot string) (livetest.GitLabReleaseSettings, string) {
 	t.Helper()
 
-	variables, err := livetest.ParseTrialVariables(os.Getenv(consumerSettingsEnv))
+	settings, err := livetest.ParseGitLabReleaseSettings(os.Getenv(consumerSettingsEnv))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if consumerRoot == "" && len(variables) != 0 {
-		t.Fatal("consumer variables require a consumer release trial")
+	if consumerRoot == "" && (len(settings.Variables) != 0 || settings.VersionBump != "" || settings.Version != "") {
+		t.Fatal("consumer settings require a consumer release trial")
 	}
 
-	buildCommand, err := livetest.GitLabConsumerBuildCommand(variables)
+	buildCommand, err := livetest.GitLabConsumerBuildCommand(settings.Variables)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	return buildCommand
+	return settings, buildCommand
 }
 
 func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private bool) {
 	t.Helper()
 
-	buildCommand := gitlabConsumerBuildCommand(t, consumerRoot)
+	settings, buildCommand := gitlabConsumerSettings(t, consumerRoot)
 
-	jobArchive, signerArchive := os.Getenv("RC_LIVE_JOB_IMAGE_ARCHIVE"), os.Getenv("RC_LIVE_SIGNER_IMAGE_ARCHIVE")
-	if jobArchive == "" || signerArchive == "" {
-		livetest.NotCoveredf(t, "signed GitLab release requires reviewed job and signer image archives")
+	requestTag, finalTag := releaseRequestTag, releaseFinalTag
+	if settings.Version != "" {
+		requestTag, finalTag = "release-request/v"+settings.Version, "v"+settings.Version
 	}
-	buildArchive := os.Getenv("RC_LIVE_BUILD_IMAGE_ARCHIVE")
-	if (consumerRoot != "" || bases) && buildArchive == "" {
-		livetest.NotCoveredf(t, "consumer release requires a reviewed build image archive beside the non-root check image")
-	}
+
+	archives := gitlabReleaseArchiveInputs(t, consumerRoot != "" || bases)
 	if !livetest.Requires(t, provider.ForgeGitLab, livetest.NeedsInRunner) {
 		livetest.NotCoveredf(t, "signed GitLab release requires a deployed runner")
 	}
+
+	requireGitLabDemoScenario(t, consumerRoot, bases)
 
 	target := livetest.Accept(t, provider.ForgeGitLab)
 	var consumer *livetest.Consumer
 	if consumerRoot != "" {
 		opened := livetest.OpenConsumer(t, target, consumerRoot)
+		if livetest.DemoName() != "" {
+			opened = opened.WithHistory()
+		}
 		consumer = &opened
 	}
 
-	engineRepo := livetest.NewScratchRepo(t, target, "release-engine")
-	layer := livetest.PushLayer(t, target, engineRepo)
-	jobRepo := livetest.NewScratchRepo(t, target, "release-job-image")
-	jobImage := livetest.PushJobImage(t, target, jobRepo, jobArchive)
-	buildImage := jobImage
-	if consumer != nil || bases {
-		buildRepo := livetest.NewScratchRepo(t, target, "release-build-image")
-		buildImage = livetest.PushJobImage(t, target, buildRepo, buildArchive)
-	}
-	signerRepo := livetest.NewScratchRepo(t, target, "release-signer-image")
-	signerImage := livetest.PushJobImage(t, target, signerRepo, signerArchive)
-	publication := livetest.NewScratchRepo(t, target, "release-publication")
-	policyRepo := livetest.NewScratchRepo(t, target, "release-owned-policy")
+	layer := livetest.PushLayer(t, target, gitlabReleaseRepo(t, target, "release-engine"))
+	images := pushGitLabReleaseImages(t, target, archives)
+	jobImage, buildImage, signerImage := images.job, images.build, images.signer
+	publication := gitlabReleaseRepo(t, target, "release-publication")
+	policyRepo := gitlabReleaseRepo(t, target, "release-owned-policy")
 	objectFormat := "sha1"
 	if consumer != nil {
 		objectFormat = consumer.ObjectFormat
 	}
-	repo := livetest.NewBareScratchRepo(t, target, "release-consumer", objectFormat, private)
+	repo := gitlabReleaseConsumerRepo(t, target, objectFormat, private)
 	project := livetest.RepoSlug(target, repo)
 
 	client, err := gitlabapi.NewClient(target.Token, gitlabapi.WithBaseURL(target.BaseURL()+"/api/v4/"),
@@ -260,6 +259,10 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 		t.Fatal(protectErr)
 	}
 
+	// A kept demo holds no key or token once the run is over.
+	if livetest.DemoName() != "" {
+		livetest.DeleteSecretsAfter(t, target, repo, gitlabReleaseSecrets)
+	}
 	configureGitLabReleaseVariables(t, target, client, project, keys, consumer != nil)
 
 	registry, err := livetest.RegistryHost(target)
@@ -286,11 +289,19 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 			"request-allowed-signers": "livetest@localhost " + requestPublic,
 			"bot-name":                "Layer acceptance", "bot-email": releaseBotEmail,
 			"sign-distro-packages": consumer != nil,
+			"version-bump":         settings.VersionBump,
 			"base-images":          bases,
 			"checks":               checks,
 			"build":                build,
 		},
 	}}
+	// The consumer's own merge-request gate, for merge-request pipelines only,
+	// read at the merge request's commit: docs/gitlab.md, The merge-request
+	// gate under a policy. Release-request tag pipelines stay policy-only.
+	gate := consumer != nil && consumer.HasGitLabGate(t)
+	if gate {
+		policyIncludes = append([]any{gitlabGateInclude(project)}, policyIncludes...)
+	}
 	policyConfig := map[string]any{}
 	if bases {
 		policyIncludes = append(policyIncludes, map[string]any{
@@ -328,28 +339,169 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 	// fixture also needs one commit: later API writes cannot bypass protection.
 	livetest.RestrictGitLabReleaseBranch(t, target, repo, deploy.ID)
 	if consumer != nil {
-		request = consumer.PushSnapshot(t, repo)
+		request = consumer.PushGitLabRelease(t, repo, layer, livetest.GitLabGateImages{Job: jobImage, Lint: images.lint})
 	} else {
 		request = seedGitLabReleaseCanary(t, ctx, client, project, files)
 	}
 	requireObjectFormats(t, objectFormat, request, layer.Commit)
-	livetest.SignGitLabRequest(t, target, repo, request, releaseRequestTag, filepath.Join(requestKeyDir, "lab-ssh"))
-	run := waitGitLabTagPipeline(t, ctx, client, project, releaseRequestTag, request)
+	livetest.SignGitLabRequest(t, target, repo, request, requestTag, filepath.Join(requestKeyDir, "lab-ssh"))
+	run := waitGitLabTagPipeline(t, ctx, client, project, requestTag, request)
 	child := requireGitLabReleaseChild(t, ctx, client, project, run)
 	if consumer != nil {
 		logGitLabReleaseInventory(t, ctx, client, project, child)
 	}
-	requireReleaseGit(t, target, repo, keys, request, releaseRequestTag, releaseFinalTag)
-	verified := requireGitLabReleaseBundles(t, target, repo, keys, releaseFinalTag)
+	requireReleaseGit(t, target, repo, keys, request, requestTag, finalTag)
+	verified := requireGitLabReleaseBundles(t, target, repo, keys, finalTag)
 	t.Logf("verified %d published Cosign bundles", verified)
 	if consumer != nil {
-		requireGitLabPackageSignatures(t, target, repo, keys)
+		requireGitLabPackageSignatures(t, target, repo, keys, finalTag)
 		requireGitLabPublishedImages(t, client, target, repo, publication, child, keys)
 	}
-	t.Logf("GitLab release %s: parent %d, child %d, %d verified bundles", releaseFinalTag, run.ID, child, verified)
+	t.Logf("GitLab release %s: parent %d, child %d, %d verified bundles", finalTag, run.ID, child, verified)
 	if bases {
 		requireGitLabBaseReuse(t, client, target, repo, publication, keys, requestKeyDir)
 	}
+	if gate {
+		requireGitLabPolicyMergeRequest(t, client, project, repo, *consumer, request)
+	}
+}
+
+// requireGitLabPolicyMergeRequest opens a merge request into the main the
+// release left and requires the consumer's gate, admitted by the policy for
+// merge-request pipelines, to pass on it. The change is one commit on pushed,
+// the commit whose tree the trial staged: on the released main it would carry
+// that tree and undo the release commit.
+func requireGitLabPolicyMergeRequest(t *testing.T, client *gitlabapi.Client, project, repo string, consumer livetest.Consumer, pushed string) {
+	t.Helper()
+
+	head := consumer.PushChange(t, repo, trialBranch, pushed)
+
+	ctx, cancel := context.WithTimeout(livetest.Context(t), 30*time.Minute)
+	defer cancel()
+
+	if waitErr := retry.Run(ctx, nil, 30, 2*time.Second, func() error {
+		branch, _, readErr := client.Branches.GetBranch(project, trialBranch, gitlabapi.WithContext(ctx))
+		if readErr != nil || branch.Commit == nil || branch.Commit.ID != head {
+			return fmt.Errorf("branch %s is not at %s yet: %w", trialBranch, head, errs.ErrDependencyUnavailable)
+		}
+
+		return nil
+	}, retry.WithBackoff(retry.Constant)); waitErr != nil {
+		t.Fatal(waitErr)
+	}
+
+	mr, _, err := client.MergeRequests.CreateMergeRequest(project, &gitlabapi.CreateMergeRequestOptions{
+		SourceBranch: gitlabapi.Ptr(trialBranch), TargetBranch: gitlabapi.Ptr("main"), Title: gitlabapi.Ptr("test: consumer trial"),
+	}, gitlabapi.WithContext(ctx))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pipeline := waitGitLabMRPipeline(t, ctx, client, project, mr.IID, head, 0)
+	t.Logf("GitLab MR !%d at %s under the release policy: pipeline %d ended %s", mr.IID, head, pipeline.ID, pipeline.Status)
+
+	if pipeline.Status != "success" {
+		logGitLabTrace(t, gitlabTrialTrace(t, ctx, client, project, pipeline.ID))
+		t.Fatalf("the consumer's gate under the release policy ended %s", pipeline.Status)
+	}
+}
+
+// gitlabReleaseArchives are the prepared image archives of a release's jobs;
+// build is empty when the release builds with the job image, lint when the
+// consumer's merge-request gate has no nanolinter component.
+type gitlabReleaseArchives struct{ job, build, signer, lint string }
+
+// gitlabReleaseArchiveInputs reads the archives the recipe names, and reports
+// the scenario not covered when one it needs is missing.
+func gitlabReleaseArchiveInputs(t *testing.T, needBuild bool) gitlabReleaseArchives {
+	t.Helper()
+
+	archives := gitlabReleaseArchives{
+		job: os.Getenv("FORGE_CI_LIVE_JOB_IMAGE_ARCHIVE"), signer: os.Getenv("FORGE_CI_LIVE_SIGNER_IMAGE_ARCHIVE"),
+		lint: os.Getenv("FORGE_CI_LIVE_LINT_IMAGE_ARCHIVE"),
+	}
+	if archives.job == "" || archives.signer == "" {
+		livetest.NotCoveredf(t, "signed GitLab release requires reviewed job and signer image archives")
+	}
+
+	if needBuild {
+		archives.build = os.Getenv("FORGE_CI_LIVE_BUILD_IMAGE_ARCHIVE")
+		if archives.build == "" {
+			livetest.NotCoveredf(t, "consumer release requires a reviewed build image archive beside the non-root check image")
+		}
+	}
+
+	return archives
+}
+
+// gitlabReleaseImages are the image references of a release's jobs.
+type gitlabReleaseImages struct{ job, build, signer, lint string }
+
+// pushGitLabReleaseImages pushes each archive to a project of its own and
+// returns the image references.
+func pushGitLabReleaseImages(t *testing.T, target livetest.Target, archives gitlabReleaseArchives) gitlabReleaseImages {
+	t.Helper()
+
+	images := gitlabReleaseImages{job: livetest.PushJobImage(t, target, gitlabReleaseRepo(t, target, "release-job-image"), archives.job)}
+	images.build = images.job
+	if archives.build != "" {
+		images.build = livetest.PushJobImage(t, target, gitlabReleaseRepo(t, target, "release-build-image"), archives.build)
+	}
+	images.signer = livetest.PushJobImage(t, target, gitlabReleaseRepo(t, target, "release-signer-image"), archives.signer)
+	if archives.lint != "" {
+		images.lint = livetest.PushJobImage(t, target, gitlabReleaseRepo(t, target, "release-lint-image"), archives.lint)
+	}
+
+	return images
+}
+
+// requireGitLabDemoScenario refuses demo mode for anything but a consumer's
+// release.
+func requireGitLabDemoScenario(t *testing.T, consumerRoot string, bases bool) {
+	t.Helper()
+
+	if livetest.DemoName() != "" && (consumerRoot == "" || bases) {
+		t.Fatal("demo mode shows a consumer's release; use `just demo gitlab <name>`")
+	}
+}
+
+// gitlabGateInclude admits the consumer's merge-request gate into the policy,
+// for merge-request pipelines only, at the merge request's commit.
+func gitlabGateInclude(project string) map[string]any {
+	return map[string]any{
+		"project": project, "ref": "$CI_COMMIT_SHA", "file": livetest.GitLabGateFile,
+		"rules": []any{map[string]string{"if": `$CI_PIPELINE_SOURCE == "merge_request_event"`}},
+	}
+}
+
+// gitlabReleaseSecrets are the release project's variables that hold a key, a
+// passphrase or a token.
+var gitlabReleaseSecrets = []string{ //nolint:gochecknoglobals // Fixed list shared by setup and the demo's cleanup.
+	"RELEASE_SSH_SIGNING_KEY", "RELEASE_COSIGN_PRIVATE_KEY", "RELEASE_COSIGN_PASSPHRASE", "RELEASE_TOKEN",
+	"RELEASE_REGISTRY_TOKEN", "RELEASE_GPG_PRIVATE_KEY", "RELEASE_GPG_FINGERPRINT", "RELEASE_GPG_PASSPHRASE",
+}
+
+// gitlabReleaseRepo makes one of a release's helper projects: a scratch one a
+// trial resets and deletes, or in demo mode a kept one named after the demo.
+func gitlabReleaseRepo(t *testing.T, target livetest.Target, scenario string) string {
+	t.Helper()
+
+	if demo := livetest.DemoName(); demo != "" {
+		return livetest.NewDemoRepo(t, target, livetest.DemoHelperRepo(demo, strings.TrimPrefix(scenario, "release-")), "sha1", true)
+	}
+
+	return livetest.NewScratchRepo(t, target, scenario)
+}
+
+// gitlabReleaseConsumerRepo makes the empty project the consumer is pushed to.
+func gitlabReleaseConsumerRepo(t *testing.T, target livetest.Target, objectFormat string, private bool) string {
+	t.Helper()
+
+	if demo := livetest.DemoName(); demo != "" {
+		return livetest.NewDemoRepo(t, target, livetest.DemoRepo(demo), objectFormat, false)
+	}
+
+	return livetest.NewBareScratchRepo(t, target, "release-consumer", objectFormat, private)
 }
 
 func seedGitLabReleaseCanary(t *testing.T, ctx context.Context, client *gitlabapi.Client, project string, files map[string]string) string {
@@ -411,7 +563,7 @@ func configureGitLabReleaseVariables(t *testing.T, target livetest.Target, clien
 func logGitLabReleaseInventory(t *testing.T, ctx context.Context, client *gitlabapi.Client, project string, child int64) {
 	t.Helper()
 
-	trace := gitlabTrialTrace(t, ctx, client, project, child, "release-build")
+	trace := gitlabTrialTrace(t, ctx, client, project, child, "Build: release files")
 	const marker = "Release handoff files (bytes, path relative to dist):"
 	_, inventory, found := strings.Cut(trace, marker)
 	if found {
@@ -420,13 +572,16 @@ func logGitLabReleaseInventory(t *testing.T, ctx context.Context, client *gitlab
 	}
 }
 
-func requireGitLabPackageSignatures(t *testing.T, target livetest.Target, repo string, keys releaseKeys) {
+// requireGitLabPackageSignatures verifies the GPG signature of every distro
+// package the release published; a release of no package, such as a jar's,
+// has none to verify.
+func requireGitLabPackageSignatures(t *testing.T, target livetest.Target, repo string, keys releaseKeys, tag string) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(livetest.Context(t), 5*time.Minute)
 	defer cancel()
 
-	release := mustReadRelease(ctx, t, target, repo, releaseFinalTag)
+	release := mustReadRelease(ctx, t, target, repo, tag)
 	verified := 0
 	for _, asset := range release.AssetNames() {
 		if !strings.HasSuffix(asset, ".deb") && !strings.HasSuffix(asset, ".rpm") && !strings.HasSuffix(asset, ".apk") {
@@ -437,7 +592,7 @@ func requireGitLabPackageSignatures(t *testing.T, target livetest.Target, repo s
 		}
 		dir := t.TempDir()
 		for _, item := range []struct{ asset, file string }{{asset, "package"}, {asset + ".sig", "signature"}} {
-			body := livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, releaseFinalTag, item.asset), maxReleaseFile)
+			body := livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, tag, item.asset), maxReleaseFile)
 			if err := os.WriteFile(filepath.Join(dir, item.file), body, 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -448,9 +603,6 @@ func requireGitLabPackageSignatures(t *testing.T, target livetest.Target, repo s
 			t.Fatalf("package signature failed for %s: %v\n%s", asset, err, output)
 		}
 		verified++
-	}
-	if verified == 0 {
-		t.Fatal("consumer release published no signed distro packages")
 	}
 	t.Logf("verified %d published GPG package sidecars", verified)
 }
@@ -471,7 +623,7 @@ func requireGitLabPublishedImages(t *testing.T, client *gitlabapi.Client, target
 		if job.ArtifactsFile.Size > 0 {
 			t.Logf("job %s: native artifact archive %d bytes", job.Name, job.ArtifactsFile.Size)
 		}
-		if job.Name == "release-sign" && job.Status == "success" {
+		if job.Name == "Sign: files and images" && job.Status == "success" {
 			signerID = job.ID
 		}
 	}
@@ -479,7 +631,15 @@ func requireGitLabPublishedImages(t *testing.T, client *gitlabapi.Client, target
 		t.Fatal("the consumer release has no successful signer artifact")
 	}
 	address := fmt.Sprintf("%s/api/v4/projects/%s/jobs/%d/artifacts/_release-sign/dist/release-images-publication.json", target.BaseURL(), url.PathEscape(project), signerID)
-	entries, err := imageledger.Parse(livetest.Download(t, target, address, 1<<20))
+	// A release that built no image leaves no publication ledger; one that
+	// did must publish every image it records.
+	ledger, found := livetest.DownloadIfPresent(t, target, address, 1<<20)
+	if !found {
+		t.Log("the consumer release published no container images")
+
+		return
+	}
+	entries, err := imageledger.Parse(ledger)
 	if err != nil || len(entries) == 0 {
 		t.Fatalf("consumer publication ledger: %v", err)
 	}
@@ -555,7 +715,7 @@ func requireGitLabReleaseChild(t *testing.T, ctx context.Context, client *gitlab
 
 		// Missing handoffs can originate in a successful producer whose artifact
 		// upload only warned. Keep those traces with the downstream failure.
-		logGitLabTrace(t, gitlabTrialTrace(t, ctx, client, project, child, "release-render", "release-build", "release-sign"))
+		logGitLabTrace(t, gitlabTrialTrace(t, ctx, client, project, child, "Prepare: changelog", "Build: release files", "Sign: files and images"))
 		t.Fatalf("native release pipeline ended %s", run.Status)
 	}
 

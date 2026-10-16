@@ -10,6 +10,14 @@ path = "LICENSE"
 SPDX-FileCopyrightText = "2026 Digg - Agency for Digital Government"
 SPDX-License-Identifier = "CC0-1.0"
 
+# Demo consumers: whole projects `just demo` publishes as they are, some
+# files of which (Java sources, a POM, templates) carry no header.
+[[annotations]]
+path = "test/live/demos/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Digg - Agency for Digital Government"
+SPDX-License-Identifier = "CC0-1.0"
+
 # Markdown documentation.
 [[annotations]]
 path = [

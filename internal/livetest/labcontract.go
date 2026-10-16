@@ -61,15 +61,26 @@ var activeContracts = struct { //nolint:gochecknoglobals // Process cache detect
 	byPath map[string][sha256.Size]byte
 }{byPath: map[string][sha256.Size]byte{}}
 
-// currentLabContract reads the contract for this suite's lab account, under
-// the module's private-file policy, and refuses bytes that differ from the
-// first read of the same path in this process. Every call decodes afresh, so
-// callers own every nested value they get back.
+// currentLabContract reads the contract for this run's lab account, labAccount
+// or in demo mode demoAccount, under the module's private-file policy, and
+// refuses bytes that differ from the first read of the same path in this
+// process. Every call decodes afresh, so callers own every nested value they
+// get back.
 //
 // The path is the module's: PathEnv when set, otherwise the account's default
 // under the state directory, where the lab writes it.
 func currentLabContract() (*labcontract.Contract, error) {
-	path, err := labcontract.Locate(labAccount)
+	account, err := liveAccount()
+	if err != nil {
+		return nil, err
+	}
+
+	return labContractFor(account)
+}
+
+// labContractFor is currentLabContract for a named account.
+func labContractFor(account string) (*labcontract.Contract, error) {
+	path, err := labcontract.Locate(account)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +89,7 @@ func currentLabContract() (*labcontract.Contract, error) {
 	// full validation; the bytes are then read once more so the digest and
 	// the returned value describe the same document.
 	if _, loadErr := labcontract.Load(path); loadErr != nil {
-		return nil, describeMissingContract(path, loadErr)
+		return nil, describeMissingContract(path, account, loadErr)
 	}
 
 	body, err := os.ReadFile(path) //nolint:gosec // The located document Load just accepted.
@@ -108,12 +119,12 @@ func currentLabContract() (*labcontract.Contract, error) {
 // describeMissingContract turns an absent contract into a message that says
 // where the suite looked and how to get one there; every other Load failure
 // passes through as the module reports it.
-func describeMissingContract(path string, err error) error {
+func describeMissingContract(path, account string, err error) error {
 	if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 
-	source := labcontract.PathEnv + " is unset, so the default for lab account " + strconv.Quote(labAccount)
+	source := labcontract.PathEnv + " is unset, so the default for lab account " + strconv.Quote(account)
 	if os.Getenv(labcontract.PathEnv) != "" {
 		source = "named by " + labcontract.PathEnv
 	}

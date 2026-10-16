@@ -34,6 +34,15 @@ func ConsumerVisibilities(tb TB) []ConsumerVisibility {
 		tb.Fatalf("livetest: %v", err)
 	}
 
+	// A demo is public, so anyone it is shown to can follow it.
+	if DemoName() != "" {
+		if len(selected) != 2 && selected[0].Private {
+			tb.Fatalf("livetest: a demo is public; leave %s unset or public", consumerVisibilityEnv)
+		}
+
+		return []ConsumerVisibility{{Name: visibilityPublic}}
+	}
+
 	return selected
 }
 

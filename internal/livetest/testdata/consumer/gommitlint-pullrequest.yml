@@ -40,12 +40,12 @@ jobs:
     steps:
       # No-node, sha256-aware checkout via the shared forge-ci composite action
       # (the JS actions/checkout can't run in this node-less image). fetch-base
-      # pulls main for the commit-range/diff checks.
+      # brings the pull request's base branch for the commit-range/diff checks.
       - name: Checkout repository
         uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/checkout-consumer@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
         with:
           ref: ${{ forgejo.sha }}
-          fetch-base: main
+          fetch-base: ${{ forgejo.base_ref }}
           object-format: sha256
       - name: Download Go modules with bounded retries
         run: bash .forgejo/scripts/download-go-modules.sh

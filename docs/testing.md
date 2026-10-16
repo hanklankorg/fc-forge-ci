@@ -230,8 +230,8 @@ untagged manifests while GitLab keeps them.
 #### Running it
 
 The tier needs one input: a neutral live-target contract, version 4, for this
-suite's lab account, `rc`. Forge Lab writes it to the contract module's default
-path, `$XDG_STATE_HOME/forge-lab/targets/rc.json` (`~/.local/state` when
+suite's lab account, `forgeci`. Forge Lab writes it to the contract module's default
+path, `$XDG_STATE_HOME/forge-lab/targets/forgeci.json` (`~/.local/state` when
 unset), as JSON data, never sourced, owner-only on disk. Everything else is
 read from it.
 
@@ -306,7 +306,7 @@ the fresh credential batch afterward; do not report interruption as a release
 or whole-suite pass.
 
 Fixtures and runners belong to the road, not to an account, so they are
-prepared once per road; every account on that road (this suite's `rc`, and the
+prepared once per road; every account on that road (this suite's `forgeci`, and the
 other suites' own) then only mints its contract. A mint replaces, and
 revokes, the generation already at its destination, and a contract names one
 road's hosts: to hold one per road, set `LAB_TARGETS_FILE` to a separate
@@ -466,7 +466,7 @@ just test-live 'TestForgejoLayer_.*'
 ```
 
 The recipe builds `containers/signer/Containerfile` at the current commit and
-publishes it under the `rc` account with Forge Lab's `publish-image`. Without
+publishes it under the `forgeci` account with Forge Lab's `publish-image`. Without
 the variable the release scenarios skip and name the recipe.
 
 `TestForgejoLayer_RegistrySignerSmoke` is the one scenario that builds an
@@ -793,6 +793,103 @@ that the pull-request gate stays permissive.
 Only the GitHub definition runs this repository's own tests: `.gitlab-ci.yml`
 and the workflows under `.forgejo/` do not run them.
 
+#### Showing a consumer
+
+A trial answers a question and leaves nothing. A demo shows a consumer's
+release and pull request to people and keeps them, until a person deletes it.
+The demos ship in `test/live/demos/<name>`: a small consumer for each
+ecosystem or feature worth showing, rendered for all three forges by `just
+test-unit` so none drifts out of what the live tier accepts.
+[test/live/demos/README.md](../test/live/demos/README.md) says how one is
+laid out. `checkout=/absolute/path` shows any other consumer instead.
+
+Each forge runs the demo's jobs in images the lab must have. For the
+`hello-maven` demo:
+
+```text
+# The Java lint image, built in a Nanolinter checkout and published to the lab
+# in Forge Lab; it prints the reference to pass as CI_JOB_IMAGE on Forgejo.
+NANOLINTER_CONTAINER_FLAVOR=java just build-image-local          # in Nanolinter
+just publish-image --account demo nanolinter-java localhost/nanolinter:latest  # in Forge Lab
+podman save --format docker-archive -o /absolute/images/lint.tar localhost/nanolinter:latest
+
+# The GitLab job image, from the demo's job.Containerfile.
+just demo-image hello-maven /absolute/images                     # writes hello-maven-job.tar
+
+# The signer image of this commit (Forgejo takes the reference it prints,
+# GitLab an archive of it).
+export FORGE_CI_LIVE_SIGNER_IMAGE=$(just test-live-signer-image /absolute/forge-lab)
+podman save --format docker-archive -o /absolute/images/signer.tar localhost/forge-ci-live-signer:$(git rev-parse HEAD)
+```
+
+The whole lifecycle is then four commands:
+
+```text
+# 1. In Forge Lab: the demo account and its contract, with the runners a demo's
+#    workflows run on (GitHub needs none).
+just lab --account demo --runners gitlab forgejo
+
+# 2. Here: make a demo, the release, then a pull or merge request on the released main.
+just demo forgejo hello-maven version=0.2.0 CI_JOB_IMAGE=<lint image reference>
+just demo gitlab hello-maven version=0.2.0 version-bump=maven \
+  job-archive=/absolute/images/hello-maven-job.tar build-archive=/absolute/images/hello-maven-job.tar \
+  signer-archive=/absolute/images/signer.tar lint-archive=/absolute/images/lint.tar
+just github run --org <org> --ack-org <org> --token-file <pat> --prefix fc- --fixtures none \
+  -- just --justfile /absolute/forge-ci/justfile demo github hello-maven org=<id> version=0.2.0 \
+  nanolinter-image=<public Java lint image reference>
+
+# 3. Here: see what demos exist, and delete one when it is done with.
+just demo-list forgejo
+just demo-delete forgejo hello-maven              # shows the set, asks for the name
+
+# 4. In Forge Lab, once no lab demo is left: retire the account's token.
+just targets-revoke ~/.local/state/forge-lab/targets/demo.json
+```
+
+A GitLab merge-request gate that includes the nanolinter component names its
+image `$CI_LINT_IMAGE`, and the demo then needs `lint-archive=` too: a
+nanolinter flavour image. It is a separate image because the job image also
+runs the release's own jobs, and those verify the signed release request with
+`ssh-keygen`, which a nanolinter image does not carry. On Forgejo the lint and
+build jobs can share `CI_JOB_IMAGE`: a nanolinter java image carries a JDK and
+Maven. GitHub runners pull the lint image themselves, so it must be public.
+
+On GitHub, `demo-list` and `demo-delete` run inside the same hosted session as
+`demo`, with `org=<id>`. Every demo repository is named `demo-<name>` on every
+forge; trials never use the name.
+
+|  | Trial | Kept for diagnosis | Demo |
+|---|---|---|---|
+| Recipe | `test-live-consumer` | the same, with `FORGE_CI_LIVE_KEEP_SCRATCH=1` | `demo <forge>`; `demo-list`, `demo-delete` |
+| Lab account | `forgeci` | `forgeci` | `demo` |
+| Repository | `fci-consumer-trial` | `fci-consumer-trial`, archived | Forgejo: `demo/demo-<name>` and its layer `demo/demo-<name>-forge-ci`; GitLab: `demo/demo-<name>` and its helpers `demo/demo-<name>-release-*`; GitHub: `<prefix>demo-<name>` in the test organization |
+| Afterwards | deleted | kept until the next trial resets it | kept until `demo-delete` |
+| Same name again | reset | reset | refused |
+| History | one parentless commit | one parentless commit | the consumer's history, then one commit of rendered pins |
+| Visibility | public and private | as the trial | public |
+| Repository secrets | gone with the repository | left in place | deleted when the run ends |
+
+The two accounts stay apart by construction: demo mode acts only as `demo`, and
+every other run of this tier refuses a `demo` contract, so no trial can reset a
+demo. Making a demo deletes nothing. `demo-delete` deletes one demo's set
+only: it lists the repositories by name and ID, asks for the demo's name (or
+takes `confirm=<name>`), and deletes each repository by the lab client or the
+GitHub client only while the forge still gives its name the listed ID. On
+Forgejo the layer binary package the demos share goes with the last demo; on
+GitHub a demo's container packages outlive it and `demo-delete` says so.
+
+On Forgejo the pull request needs the consumer's `pullrequest.yml`, judged
+with the same repository variables as the release; on GitLab the merge
+request runs the consumer's `.gitlab/merge-request.yml`, which the policy
+admits for merge requests.
+
+A GitHub demo lives in the test organization, so it is public on github.com,
+and it pins `<prefix>forge-ci`, which every later trial force-pushes: after
+the next trial its workflows cannot be rerun, while its runs, release and pull
+request stay. Forge Lab's session cleanup deletes only the repositories it
+created, by ID, so it never removes a demo. A GitHub demo has no lab account;
+its token is the session's personal access token, which the owner revokes.
+
 #### Trying a consumer on GitHub
 
 The GitHub layer has no local lab, so its consumer trial runs in a disposable
@@ -803,7 +900,7 @@ none), which writes the private context `FORGE_LAB_GITHUB_CONTEXT` names:
 
 ```text
 just test-live-github-consumer <org-id> /absolute/gommitlint pull-request
-just test-live-github-consumer <org-id> /absolute/gommitlint release version=v0.1.0 image=gommitlint
+just test-live-github-consumer <org-id> /absolute/gommitlint release version=0.1.0 image=gommitlint
 ```
 
 What it does, in order:
@@ -821,7 +918,11 @@ What it does, in order:
    workflow to the engine at its commit, `forge-ci-binary-ref` to
    `v0.90.0-pre`, and `ghcr.io/diggsweden/forge-ci-runtime*` images to the
    organization's `sha-<commit>` tag; a workflow that still calls another engine
-   is refused. `nanolinter-image=` and `megalinter-image=` replace a value
+   is refused. Only an image a fixture names can be rewritten, so a fixture
+   that calls an orchestrator passes `runtime-image` and the image of each
+   project type it builds, such as `runtime-image-java`: the orchestrator's
+   defaults name released images, which an unreleased engine has not built, and
+   a call without `runtime-image` is refused before anything is pushed. `nanolinter-image=` and `megalinter-image=` replace a value
    wherever a fixture workflow passes it, for a mirror. The value must be
    pinned by a full `@sha256:` digest, and a setting no workflow passes is
    refused.
@@ -910,10 +1011,13 @@ the selected visibility, verified before
 source publication, and private trials must refuse anonymous repository reads.
 
 The consumer must be a clean committed checkout with its own `.gitlab-ci.yml`.
-The focused trial currently accepts one full-SHA-pinned `check` component,
-matching `engine-project`, and `job-image: $CI_JOB_IMAGE` as its explicit image
-substitution point. It rewrites those coordinates to the lab's engine commit
-and served image digest, preserving the consumer's commands and other files.
+The focused trial accepts one full-SHA-pinned `check` component and, beside
+it, at most one `nanolinter` component, each matching `engine-project` and
+leaving its image to the trial: `job-image: $CI_JOB_IMAGE` and
+`nanolinter-image: $CI_LINT_IMAGE`. A gate with the nanolinter component needs
+`FORGE_CI_LIVE_LINT_IMAGE_ARCHIVE`, a nanolinter flavour image archive. The
+trial rewrites those coordinates to the lab's engine commit and served image
+digests, preserving the consumer's commands and other files.
 Deployment outside the trial requires the published image digest, as in
 [Source-check component](gitlab.md#source-check-component).
 

@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -86,6 +87,10 @@ func decode(ctx context.Context, target Target, method, endpoint string, body, i
 // fetch performs an authenticated GET and returns the body as it is, for the
 // answers that are not JSON: an archive, a log. A body over limit bytes is an
 // error and not a truncation, because half an archive reads as a corrupt one.
+// errAbsent marks a fetch the forge answered with 404: the resource is not
+// there, which a caller may treat as an outcome rather than a failure.
+var errAbsent = errors.New("absent")
+
 func fetch(ctx context.Context, target Target, endpoint string, limit int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -105,6 +110,10 @@ func fetch(ctx context.Context, target Target, endpoint string, limit int64) ([]
 	}
 
 	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("GET %s: HTTP %d: %w: %w", redact(endpoint), resp.StatusCode, errAbsent, errs.ErrValidation)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GET %s: HTTP %d: %w", redact(endpoint), resp.StatusCode, errs.ErrValidation)

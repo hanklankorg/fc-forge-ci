@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
@@ -180,9 +181,10 @@ func (settings *TrialSettings) set(key, value string) bool {
 func (settings *TrialSettings) setReleaseOnly(key, value string) bool {
 	switch key {
 	case settingVersion:
-		settings.Version = value
+		version, valid := trialVersionValue(value)
+		settings.Version = version
 
-		return trialVersion.MatchString(value)
+		return valid
 	case settingImage:
 		return appendOnce(&settings.Images, value) && trialImage.MatchString(value)
 	default:
@@ -191,6 +193,14 @@ func (settings *TrialSettings) setReleaseOnly(key, value string) bool {
 
 		return !known && strings.TrimSpace(value) == value
 	}
+}
+
+// trialVersionValue reads a version= setting, X.Y.Z on every forge, a leading
+// v accepted, and returns it as X.Y.Z.
+func trialVersionValue(value string) (string, bool) {
+	version := strings.TrimPrefix(value, "v")
+
+	return version, trialVersion.MatchString(version)
 }
 
 // appendOnce appends value and reports whether it was not there yet.
@@ -501,6 +511,9 @@ type Consumer struct {
 	// stage is a bare repository that borrows the checkout's objects. Every
 	// object a trial writes lands here.
 	stage string
+	// history makes the base commit a child of the checkout's HEAD instead
+	// of parentless: WithHistory.
+	history bool
 
 	// Commit is the checkout's HEAD and ObjectFormat the hash its history is
 	// written in, which the repository that receives it must share.
@@ -599,6 +612,15 @@ func (git layerGit) requireCleanTop(ctx context.Context, root string) error {
 	}
 
 	return git.requireClean(ctx, root, ".")
+}
+
+// WithHistory returns the consumer pushing its own history under the rendered
+// commit, as a demo does so its changelog and release notes have something to
+// say. A trial pushes one parentless commit.
+func (consumer Consumer) WithHistory() Consumer {
+	consumer.history = true
+
+	return consumer
 }
 
 // Workflows returns the consumer's workflow files at HEAD, by file name.
@@ -785,17 +807,31 @@ func (consumer Consumer) stageFile(ctx context.Context, mode, path, content stri
 	return err
 }
 
-// commit commits the staged tree. The default is a parentless commit;
-// commitTree, when given, is the commit-tree invocation up to the message.
+// commit commits the staged tree. The default is a parentless commit, or with
+// WithHistory one on the consumer's own history; commitTree, when given, is
+// the commit-tree invocation up to the message.
 func (consumer Consumer) commit(ctx context.Context, message string, commitTree ...string) (string, error) {
 	tree, err := consumer.git.run(ctx, consumer.stage, "write-tree")
 	if err != nil {
 		return "", err
 	}
 
+	git := consumer.git
+
 	if len(commitTree) == 0 {
 		commitTree = []string{"commit-tree"}
+
+		if consumer.history {
+			commitTree, message = []string{"commit-tree", "-p", consumer.Commit}, demoBaseMessage
+		}
 	}
 
-	return consumer.git.run(ctx, consumer.stage, append(commitTree, "-m", message, tree)...)
+	// A commit on the consumer's own history is dated now, as a person's
+	// would be: a changelog dates a release by it. A parentless trial commit
+	// keeps the fixed date that makes it reproducible.
+	if consumer.history {
+		git = git.dated(time.Now())
+	}
+
+	return git.run(ctx, consumer.stage, append(commitTree, "-m", message, tree)...)
 }

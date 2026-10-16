@@ -25,7 +25,7 @@ func RestrictGitLabJobToken(tb TB, target Target, repo string) {
 	tb.Helper()
 	requireAccepted(tb, target)
 
-	if target.Forge != provider.ForgeGitLab || !strings.HasPrefix(repo, ResourcePrefix) {
+	if target.Forge != provider.ForgeGitLab || !inRunNamespace(target, repo) {
 		tb.Fatalf("livetest: job-token policy requires a GitLab scratch project")
 	}
 
@@ -79,7 +79,7 @@ func RestrictGitLabReleaseBranch(tb TB, target Target, repo string, deployKey in
 	tb.Helper()
 	requireAccepted(tb, target)
 
-	if target.Forge != provider.ForgeGitLab || !strings.HasPrefix(repo, ResourcePrefix) || deployKey <= 0 {
+	if target.Forge != provider.ForgeGitLab || !inRunNamespace(target, repo) || deployKey <= 0 {
 		tb.Fatalf("livetest: release protection requires a GitLab scratch project and deploy key")
 	}
 
@@ -190,7 +190,7 @@ func SignGitLabRequest(tb TB, target Target, repo, commit, tag, keyPath string) 
 	tb.Helper()
 	requireAccepted(tb, target)
 
-	if target.Forge != provider.ForgeGitLab || !strings.HasPrefix(repo, ResourcePrefix) {
+	if target.Forge != provider.ForgeGitLab || !inRunNamespace(target, repo) {
 		tb.Fatalf("livetest: signed request requires a GitLab scratch project")
 	}
 
