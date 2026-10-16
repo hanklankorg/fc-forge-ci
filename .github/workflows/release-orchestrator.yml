@@ -345,7 +345,7 @@ permissions:
 jobs:
   # ===== Stage 0: Configuration And Policy =====
   parse-config:
-    name: Setup
+    name: "Check: plan"
     runs-on: ubuntu-24.04
     container:
       image: ${{ inputs['runtime-image'] }}
@@ -434,7 +434,7 @@ jobs:
         run: forge-ci plan release
   # ===== Stage 1: Validation =====
   validate-prerequisites:
-    name: Validate Prerequisites
+    name: "Check: release request"
     needs: [parse-config]
     secrets:
       MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
@@ -494,7 +494,7 @@ jobs:
       runtime-image-node: ${{ inputs['runtime-image-node'] }}
       runtime-image-rust: ${{ inputs['runtime-image-rust'] }}
   validate-release-tag:
-    name: Validate Final Release Tag
+    name: "Prepare: check the release tag"
     needs: [parse-config, execute-prepare-stage]
     if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-24.04
@@ -619,7 +619,7 @@ jobs:
   # GitHub release itself, which attaches to the already-immutable :<version>
   # tag — are never gated on the ladder.
   promote-dev:
-    name: Promote image → dev
+    name: "Publish: images to dev"
     needs: [parse-config, execute-publish-stage]
     if: ${{ !failure() && !cancelled() && fromJson(needs.parse-config.outputs['publish-stage-plan-json']).targets.containers.runs }}
     permissions:
@@ -632,7 +632,7 @@ jobs:
       release-tag: ${{ needs.parse-config.outputs.release-tag }}
       forge-ci-binary-ref: ${{ needs.parse-config.outputs.forge-ci-binary-ref }}
   promote-staging:
-    name: Promote image → staging
+    name: "Publish: images to staging"
     needs: [parse-config, execute-publish-stage, promote-dev]
     if: ${{ !failure() && !cancelled() && fromJson(needs.parse-config.outputs['publish-stage-plan-json']).targets.containers.runs }}
     permissions:
@@ -646,7 +646,7 @@ jobs:
       release-tag: ${{ needs.parse-config.outputs.release-tag }}
       forge-ci-binary-ref: ${{ needs.parse-config.outputs.forge-ci-binary-ref }}
   promote-release:
-    name: Promote image → release
+    name: "Publish: images to release"
     needs: [parse-config, execute-publish-stage, promote-staging]
     if: ${{ !failure() && !cancelled() && fromJson(needs.parse-config.outputs['publish-stage-plan-json']).targets.containers.runs }}
     permissions:
@@ -669,7 +669,7 @@ jobs:
   # ===== Stage 5: Release =====
   # Release creation stays top-level because it is the public end of the pipeline.
   create-release:
-    name: Create GitHub Release
+    name: "Publish: release"
     needs: [parse-config, execute-prepare-stage, validate-release-tag, execute-publish-stage]
     # Run even if previous jobs were skipped but at least one succeeded
     if: ${{ fromJson(needs.parse-config.outputs['release-plan-json']).policy.create_release }}
@@ -703,7 +703,7 @@ jobs:
       forge-ci-binary-ref: ${{ needs.parse-config.outputs.forge-ci-binary-ref }}
   # ===== Stage 6: Summary =====
   release-summary:
-    name: Release Summary
+    name: Summary
     needs:
       - parse-config
       - execute-prepare-stage

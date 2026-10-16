@@ -130,7 +130,7 @@ jobs:
   # Cross-cutting publish jobs depend on the build stage as a whole.
   # Platform-specific store publishing still checks the relevant build-stage result.
   forge-packages:
-    name: Publish GitHub - ${{ matrix.artifact.name }}
+    name: "Publish: ${{ matrix.artifact.name }} to GitHub Packages"
     if: ${{ fromJson(inputs['publish-stage-plan-json']).targets.forge_packages.runs && fromJson(inputs['build-result-json']).result == 'success' }}
     strategy:
       matrix:
@@ -154,7 +154,7 @@ jobs:
       node-version: ${{ matrix.artifact.npm.node_version }}
       attach-pattern: ${{ matrix.artifact.maven.attach_pattern || matrix.artifact.npm.attach_pattern }}
   maven-central:
-    name: Publish Maven Central - ${{ matrix.artifact.name }}
+    name: "Publish: ${{ matrix.artifact.name }} to Maven Central"
     if: ${{ fromJson(inputs['publish-stage-plan-json']).targets.maven_central.runs && fromJson(inputs['build-result-json']).targets.maven == 'success' }}
     strategy:
       matrix:
@@ -179,7 +179,7 @@ jobs:
       profile: ${{ matrix.artifact.maven.profile || 'central-release' }}
       runtime-image: ${{ inputs['runtime-image-java'] }}
   xcode-ios:
-    name: Publish Apple App Store - ${{ matrix.artifact.name }}
+    name: "Publish: ${{ matrix.artifact.name }} to the App Store"
     if: ${{ fromJson(inputs['publish-stage-plan-json']).targets.xcode_ios.runs && fromJson(inputs['build-result-json']).targets.xcode_ios == 'success' }}
     strategy:
       matrix:
@@ -202,7 +202,7 @@ jobs:
       skip-validation: ${{ matrix.artifact.xcode_ios.skip_validation || false }}
       forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   google-play:
-    name: Publish Google Play - ${{ matrix.artifact.name }}
+    name: "Publish: ${{ matrix.artifact.name }} to Google Play"
     if: ${{ fromJson(inputs['publish-stage-plan-json']).targets.google_play.runs && fromJson(inputs['build-result-json']).targets.gradle_android == 'success' }}
     strategy:
       matrix:
@@ -229,7 +229,7 @@ jobs:
       debug-symbols: ${{ matrix.artifact.gradle_android.debug_symbols || '' }}
       runtime-image: ${{ inputs['runtime-image'] }}
   containers:
-    name: Build Container - ${{ matrix.container.name }}
+    name: "Build: ${{ matrix.container.name }} image"
     if: ${{ fromJson(inputs['publish-stage-plan-json']).targets.containers.runs && (fromJson(inputs['build-result-json']).result == 'success' || fromJson(inputs['build-result-json']).result == 'skipped') }}
     strategy:
       matrix:
@@ -313,7 +313,7 @@ jobs:
   # so the publish-stage targets.cargo_container_first set excludes
   # artefact-first artefacts. Mirrors the go-container-first job below.
   cargo-container-first:
-    name: Cargo SBOM - ${{ matrix.artifact.name }}
+    name: "Build: ${{ matrix.artifact.name }} SBOM"
     if: ${{ fromJson(inputs['publish-stage-plan-json']).targets.cargo_container_first.runs }}
     strategy:
       matrix:
@@ -335,7 +335,7 @@ jobs:
       artifact-name: ${{ matrix.artifact.name }}
       runtime-image: ${{ inputs['runtime-image-rust'] }}
   go-container-first:
-    name: Go SBOM - ${{ matrix.artifact.name }}
+    name: "Build: ${{ matrix.artifact.name }} SBOM"
     if: ${{ fromJson(inputs['publish-stage-plan-json']).targets.go_container_first.runs }}
     strategy:
       matrix:
@@ -352,7 +352,7 @@ jobs:
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
       runtime-image: ${{ inputs['runtime-image-go'] }}
   summarize-publish-stage:
-    name: Summarize Publish Stage
+    name: Summary
     needs: [forge-packages, maven-central, xcode-ios, google-play, containers, cargo-container-first, go-container-first]
     if: always()
     runs-on: ubuntu-24.04

@@ -130,7 +130,7 @@ permissions:
   contents: read # Base least-privilege; the job adds what it needs.
 jobs:
   promote:
-    name: Promote to ${{ inputs.stage }}
+    name: "Publish: images to ${{ inputs.stage }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # Stage gate: the Environment's protection rules (required reviewers, wait

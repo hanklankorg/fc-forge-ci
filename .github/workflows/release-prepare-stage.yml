@@ -97,7 +97,7 @@ permissions:
   contents: read
 jobs:
   generate-full-changelog:
-    name: Generate Full Changelog
+    name: "Prepare: changelog"
     if: ${{ inputs['existing-release-sha'] == '' && fromJson(inputs['prepare-stage-plan-json']).targets.version_bump.runs }}
     permissions:
       contents: read
@@ -111,7 +111,7 @@ jobs:
       output-file: "CHANGELOG.md"
       artifact-name: "full-changelog"
   generate-minimal-changelog:
-    name: Generate Minimal Commit Changelog
+    name: "Prepare: commit message"
     if: ${{ inputs['existing-release-sha'] == '' && fromJson(inputs['prepare-stage-plan-json']).targets.version_bump.runs }}
     permissions:
       contents: read
@@ -125,7 +125,7 @@ jobs:
       output-file: "minimal-changelog.txt"
       artifact-name: "minimal-changelog"
   version-bump:
-    name: Prepare and Tag Release
+    name: "Prepare: version, release commit and tag"
     needs: [generate-full-changelog, generate-minimal-changelog]
     if: ${{ !cancelled() && needs.generate-full-changelog.result != 'failure' && needs.generate-minimal-changelog.result != 'failure' }}
     runs-on: ubuntu-24.04
@@ -252,7 +252,7 @@ jobs:
         if: ${{ always() && inputs['git-signing-method'] == 'ssh' }}
         run: forge-ci release ssh cleanup
   summarize-prepare-stage:
-    name: Summarize Prepare Stage
+    name: Summary
     needs: [version-bump]
     if: always()
     runs-on: ubuntu-24.04

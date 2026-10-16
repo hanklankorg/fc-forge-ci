@@ -41,7 +41,7 @@ permissions:
   contents: read
 jobs:
   nanolinter:
-    name: Nanolinter
+    name: "Check: lint"
     if: ${{ fromJson(inputs['quality-stage-plan-json']).targets.nanolinter.runs }}
     permissions:
       contents: read
@@ -55,7 +55,7 @@ jobs:
       required-lints: ${{ inputs['required-lints'] }}
       forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   megalinter:
-    name: MegaLinter
+    name: "Check: lint (MegaLinter)"
     if: ${{ fromJson(inputs['quality-stage-plan-json']).targets.megalinter.runs }}
     permissions:
       contents: read
@@ -66,7 +66,7 @@ jobs:
       megalinter-image: ${{ inputs['megalinter-image'] }}
       forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   swift:
-    name: Swift Lint
+    name: "Check: lint (Swift)"
     if: ${{ fromJson(inputs['quality-stage-plan-json']).targets.swift.runs }}
     permissions:
       contents: read
@@ -76,7 +76,7 @@ jobs:
       enable-swiftlint: ${{ fromJson(inputs['pr-plan-json']).policy.swift_lint }}
       runtime-image: ${{ inputs['runtime-image'] }}
   quality-status:
-    name: Status
+    name: "Check: status"
     runs-on: ubuntu-24.04
     container:
       image: ${{ inputs['runtime-image'] }}

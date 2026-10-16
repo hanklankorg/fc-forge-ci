@@ -102,7 +102,7 @@ permissions:
   contents: read
 jobs:
   maven:
-    name: Build Maven - ${{ matrix.artifact.name }}
+    name: "Build: ${{ matrix.artifact.name }} (Maven)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.maven.runs }}
     strategy:
       matrix:
@@ -121,7 +121,7 @@ jobs:
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
       runtime-image: ${{ inputs['runtime-image-java'] }}
   npm:
-    name: Build NPM - ${{ matrix.artifact.name }}
+    name: "Build: ${{ matrix.artifact.name }} (npm)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.npm.runs }}
     strategy:
       matrix:
@@ -138,7 +138,7 @@ jobs:
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
       runtime-image: ${{ inputs['runtime-image-node'] }}
   gradle:
-    name: Build Gradle - ${{ matrix.artifact.name }}
+    name: "Build: ${{ matrix.artifact.name }} (Gradle)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.gradle.runs }}
     strategy:
       matrix:
@@ -156,7 +156,7 @@ jobs:
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
       runtime-image: ${{ inputs['runtime-image-java'] }}
   go:
-    name: Build Go - ${{ matrix.artifact.name }}
+    name: "Build: ${{ matrix.artifact.name }} (Go)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.go.runs }}
     strategy:
       matrix:
@@ -182,7 +182,7 @@ jobs:
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
       runtime-image: ${{ inputs['runtime-image-go'] }}
   cargo:
-    name: Build Cargo - ${{ matrix.artifact.name }}
+    name: "Build: ${{ matrix.artifact.name }} (Cargo)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.cargo.runs }}
     strategy:
       matrix:
@@ -205,7 +205,7 @@ jobs:
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
       runtime-image: ${{ inputs['runtime-image-rust'] }}
   gradle-android:
-    name: Build Gradle Android - ${{ matrix.artifact.name }}
+    name: "Build: ${{ matrix.artifact.name }} (Android)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.gradle_android.runs }}
     strategy:
       matrix:
@@ -238,7 +238,7 @@ jobs:
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
       runtime-image: ${{ inputs['runtime-image-android'] }}
   xcode-ios:
-    name: Build Xcode - ${{ matrix.artifact.name }}
+    name: "Build: ${{ matrix.artifact.name }} (Xcode)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.xcode_ios.runs }}
     strategy:
       matrix:
@@ -276,7 +276,7 @@ jobs:
   # alongside the container build. Pure container-first projects run zero
   # build jobs by design. Artifact-first cargo + go run here.
   summarize-build-stage:
-    name: Summarize Build Stage
+    name: Summary
     needs: [maven, npm, gradle, go, cargo, gradle-android, xcode-ios]
     if: always()
     runs-on: ubuntu-24.04

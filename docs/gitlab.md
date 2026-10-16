@@ -533,19 +533,24 @@ artifact files are never sourced or declared as dotenv reports. Request tags
 must be protected and SSH-signed against the allowed-signers text in the
 trusted policy. Checks, changelog rendering and builds run without signing keys.
 
-The child runs these jobs:
+The child runs these jobs, in five stages that read the same on every forge
+(check, prepare, build, sign, publish):
 
 | Job | Image | Does |
 |---|---|---|
-| `release-signing-preflight`, `release-publish-preflight`, `release-registry-preflight` | signer | The toolchain check, the Cosign key against the trusted public key, and the release and registry tokens, before anything else. |
-| `release-check` | job | Validates the signed request and that it is the head of the release branch, then runs `checks`. |
-| `release-render` | job | Renders the changelog and commit message. Consumer configuration runs only here. |
-| `release-prepare` | job | Commits the changelog and pushes the signed release commit and final tag with `RELEASE_SSH_SIGNING_KEY`. |
-| `release-build` | build | Checks out the final tag and runs `build`; hands `dist/` on with its digest. |
-| `release-sign` | signer | Imports images into the publication project, signs files, packages, provenance and images. |
-| `release-promote` | signer | Moves final image tags, with a journal. |
-| `release-publish` | signer | Creates the GitLab release with notes and assets. |
-| `release-cleanup` | signer | Removes candidate tags. |
+| `Check: signing access`, `Check: publishing access`, `Check: registry access` | signer | The toolchain check, the Cosign key against the trusted public key, and the release and registry tokens, before anything else. |
+| `Check: release request` | job | Validates the signed request and that it is the head of the release branch, then runs `checks`. |
+| `Prepare: changelog` | job | Renders the changelog and commit message. Consumer configuration runs only here and in `Prepare: version`. |
+| `Prepare: version` | job | With `version-bump`, sets the release version in the project files and hands over the patch; holds no credential. |
+| `Prepare: release commit and tag` | job | Verifies the version patch, commits it with the changelog and pushes the signed release commit and final tag with `RELEASE_SSH_SIGNING_KEY`. |
+| `Build: release files` | build | Checks out the final tag and runs `build`; hands `dist/` on with its digest. |
+| `Sign: files and images` | signer | Imports images into the publication project, signs files, packages, provenance and images. |
+| `Publish: images` | signer | Moves final image tags, with a journal. |
+| `Publish: release` | signer | Creates the GitLab release with notes and assets. |
+| `Publish: tidy up` | signer | Removes candidate tags. |
+
+Which job may hold which release secret is written in roles, in
+`.gitlab/bin/release.sh` (`rc_job_role`); a job's name maps to its role there.
 
 **The request is the head of the release branch.** As on Forgejo, the release
 commit is pushed on top of the request commit without force, so a request that
@@ -554,7 +559,7 @@ is not the tip of the release branch is refused. The branch is the
 call that reads a branch is given it explicitly, never through `RELEASE_BRANCH`
 or `BRANCH`. The deploy key of `release-git-url` must be allowed to push to
 that protected branch. Push the request tag at the tip and freeze merges until
-`release-prepare` has pushed; a request whose branch moved first is spent.
+`Prepare: release commit and tag` has pushed; a request whose branch moved first is spent.
 [The request is the head of the release
 branch](forgejo.md#the-request-is-the-head-of-the-release-branch) gives the operator rules.
 
@@ -808,7 +813,7 @@ SAST conversion names an owner.
 | `is available to the wrong release job` | A release variable is scoped too broadly. Use the scopes in [Secrets and tokens](#secrets-and-tokens). |
 | A release job fails in its first lines | The component is not included at its `engine-sha`, the project is not `consumer-project`, the tag is not protected, or the pipeline is not the policy's child. |
 | The engine download fails | The binary for that commit is not published, or the engine project or its packages need credentials. |
-| `release-check` refuses the request | The tag is not SSH-signed by an allowed signer, or it is not the head of the release branch. |
+| `Check: release request` refuses the request | The tag is not SSH-signed by an allowed signer, or it is not the head of the release branch. |
 | A release job fails uploading artifacts | The handoff is over the instance's artifact limit (100 MB by default); have the administrator raise it. |
 | An image build step ends with `exec format error` | A `RUN` step for another architecture on an unprivileged runner; emulation on the host does not reach a nested build. Build on a runner of that architecture. |
 | A project requested as SHA-256 is SHA-1 | The `support_sha256_repositories` feature flag was not enabled for the account when the project was created. |

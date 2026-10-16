@@ -159,7 +159,7 @@ env:
 jobs:
   coordinates:
     # The completion profile counts this name separately from base-image preflights.
-    name: Validate sign-and-publish trust coordinates
+    name: "Check: signing settings"
     runs-on: ${{ inputs['runner-label'] }}
     timeout-minutes: 5
     # permissions: is a GitHub field Forgejo ignores (warning per run) --
@@ -244,7 +244,7 @@ jobs:
           } >>"${FORGEJO_OUTPUT}"
 
   sign:
-    name: Sign release assets and images
+    name: "Sign: files and images"
     needs: coordinates
     runs-on: ${{ inputs['runner-label'] }}
     container:
@@ -618,7 +618,7 @@ jobs:
           exit "${status}"
 
   promote:
-    name: Promote signed release images
+    name: "Publish: images"
     needs: [coordinates, sign]
     runs-on: ${{ inputs['runner-label'] }}
     container:
@@ -799,7 +799,7 @@ jobs:
           exit "${status}"
 
   cleanup:
-    name: Clean up release candidate tags
+    name: "Publish: tidy up"
     needs: [coordinates, publish]
     runs-on: ${{ inputs['runner-label'] }}
     container:
@@ -958,7 +958,7 @@ jobs:
           exit "${status}"
 
   publish:
-    name: Publish release assets
+    name: "Publish: release"
     needs: [coordinates, sign, promote]
     runs-on: ${{ inputs['runner-label'] }}
     container:

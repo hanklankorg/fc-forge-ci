@@ -117,7 +117,7 @@ on:
 
 jobs:
   coordinates:
-    name: Validate helper repository coordinate
+    name: "Check: release settings"
     runs-on: ${{ inputs['runner-label'] }}
     timeout-minutes: 5
     # permissions: is a GitHub field Forgejo ignores (warning per run) --
@@ -198,7 +198,7 @@ jobs:
           printf 'release_branch=%s\n' "${RELEASE_BRANCH_INPUT}" >>"${FORGEJO_OUTPUT}"
 
   render:
-    name: Render release changelog
+    name: "Prepare: changelog"
     needs: coordinates
     runs-on: ${{ inputs['runner-label'] }}
     timeout-minutes: 10

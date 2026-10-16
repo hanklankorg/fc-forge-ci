@@ -21,12 +21,19 @@ import (
 func TestReleaseArtifactsAreReadableWithoutOpeningPrivateFiles(t *testing.T) {
 	t.Parallel()
 
-	for _, job := range []string{"release-render", "release-build", "release-sign", "release-promote"} {
+	// Each producer job and the hand-off directory it leaves for the next.
+	for job, dir := range map[string]string{
+		"Prepare: changelog":     "_release-render",
+		"Prepare: version":       "_release-bump",
+		"Build: release files":   "_release-build",
+		"Sign: files and images": "_release-sign",
+		"Publish: images":        "_release-promote",
+	} {
 		t.Run(job, func(t *testing.T) {
 			t.Parallel()
 
 			workspace := t.TempDir()
-			handoff := filepath.Join(workspace, "_"+job)
+			handoff := filepath.Join(workspace, dir)
 			private := filepath.Join(workspace, "private")
 			incoming := filepath.Join(workspace, "incoming")
 
@@ -79,7 +86,7 @@ func TestReleaseArtifactsNeverFollowASymlinkedOutputRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runReleaseAfterScript(t, workspace, "release-sign")
+	runReleaseAfterScript(t, workspace, "Sign: files and images")
 	requireMode(t, private, 0o700)
 	requireMode(t, filepath.Join(private, "key"), 0o600)
 }

@@ -21,14 +21,17 @@ func TestReleaseJobRejectsCredentialsOutsideItsRole(t *testing.T) {
 	t.Parallel()
 
 	for _, pair := range [][2]string{
-		{"release-check", "RELEASE_SSH_SIGNING_KEY"},
-		{"release-render", "RELEASE_COSIGN_PRIVATE_KEY"},
-		{"release-build", "RELEASE_TOKEN"},
-		{"release-sign", "RELEASE_SSH_SIGNING_KEY"},
-		{"release-sign", "RELEASE_TOKEN"},
-		{"release-promote", "RELEASE_COSIGN_PRIVATE_KEY"},
-		{"release-publish", "RELEASE_GPG_PRIVATE_KEY"},
-		{"release-cleanup", "RELEASE_SSH_SIGNING_KEY"},
+		{"Check: release request", "RELEASE_SSH_SIGNING_KEY"},
+		{"Prepare: changelog", "RELEASE_COSIGN_PRIVATE_KEY"},
+		{"Prepare: version", "RELEASE_SSH_SIGNING_KEY"},
+		{"Build: release files", "RELEASE_TOKEN"},
+		{"Sign: files and images", "RELEASE_SSH_SIGNING_KEY"},
+		{"Sign: files and images", "RELEASE_TOKEN"},
+		{"Publish: images", "RELEASE_COSIGN_PRIVATE_KEY"},
+		{"Publish: release", "RELEASE_GPG_PRIVATE_KEY"},
+		{"Publish: tidy up", "RELEASE_SSH_SIGNING_KEY"},
+		// A job's former name has no role, so it holds no secret.
+		{"release-sign", "RELEASE_COSIGN_PRIVATE_KEY"},
 	} {
 		t.Run(pair[0]+"/"+pair[1], func(t *testing.T) {
 			t.Parallel()
@@ -192,7 +195,7 @@ func TestReleaseBranchInputMustBeABranchName(t *testing.T) {
 	command := exec.CommandContext(ctx, "/bin/bash", "--noprofile", "--norc", "-c", //nolint:gosec // Reviewed script with an inert engine.
 		`set -eu; source "$1"; rc_engine() { printf 'engine %s\n' "$*"; }; rc_release_context`, "branch-name", script)
 	command.Env = []string{
-		"PATH=/usr/bin:/bin", "HOME=" + t.TempDir(), "CI_JOB_NAME=release-prepare",
+		"PATH=/usr/bin:/bin", "HOME=" + t.TempDir(), "CI_JOB_NAME=Prepare: release commit and tag",
 		"CI_COMMIT_TAG=release-request/v1.2.3", "CI_COMMIT_SHA=" + strings.Repeat("a", 40),
 		"CI_DEFAULT_BRANCH=main", "RC_RELEASE_BRANCH_INPUT=bad..name",
 	}
@@ -227,7 +230,7 @@ func runReleasePrepare(t *testing.T, script, input string) (string, error) {
 		"branch-guard", script)
 	command.Dir = dir
 	command.Env = []string{
-		"PATH=/usr/bin:/bin", "HOME=" + dir, "CI_JOB_NAME=release-prepare", "CI_PROJECT_DIR=" + dir,
+		"PATH=/usr/bin:/bin", "HOME=" + dir, "CI_JOB_NAME=Prepare: release commit and tag", "CI_PROJECT_DIR=" + dir,
 		"CI_COMMIT_TAG=release-request/v1.2.3", "CI_COMMIT_SHA=" + strings.Repeat("a", 40), "CI_PROJECT_PATH=team/app",
 		"RELEASE_SSH_SIGNING_KEY=inert", "RC_GIT_URL=ssh://git@gitlab.invalid/team/app.git", "RC_GIT_HOST_KEY=SHA256:x",
 		"RC_BOT_NAME=bot", "RC_BOT_EMAIL=bot@invalid.example", "CI_DEFAULT_BRANCH=main", "RC_RELEASE_BRANCH_INPUT=" + input,

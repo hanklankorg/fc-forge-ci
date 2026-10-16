@@ -78,6 +78,7 @@ jobs:
   # changelog + final tag. Everything here is forge-ci's pinned code.
   # ===========================================================================
   prepare:
+    name: Prepare
     if: success() && startsWith(forgejo.ref, 'refs/tags/')
     uses: OWNER/forge-ci/.forgejo/workflows/prepare-release.yml@PIN_FORGE_CI_SHA
     with:
@@ -117,7 +118,7 @@ jobs:
   # ever; upload-dist emits the tamper-evidence digest the signer verifies.
   # ===========================================================================
   build:
-    name: Build release artifacts
+    name: "Build: release files"
     needs: prepare
     runs-on: ${{ vars.CI_RUNNER_LABEL }}
     timeout-minutes: 30
@@ -207,7 +208,7 @@ jobs:
   # the complete, enumerated signing hand-off (never `secrets: inherit`).
   # ===========================================================================
   sign-and-publish:
-    name: Sign release assets and publish
+    name: Sign and publish
     needs: [prepare, build]
     # job-graph-guard: allow reason="reads needs.prepare.outputs but is gated on needs.build.result=='success'; build needs prepare, so build can only succeed if prepare succeeded, making prepare.outputs always present"
     if: ${{ always() && needs.build.result == 'success' }}

@@ -52,7 +52,7 @@ env:
 
 jobs:
   lint:
-    name: Lint
+    name: "Check: lint"
     runs-on: ${{ vars.CI_RUNNER_LABEL }}
     container:
       image: ${{ vars.CI_JOB_IMAGE }}
@@ -71,7 +71,7 @@ jobs:
         uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/lint-nanolinter@PIN_FORGE_CI_SHA
 
   trust-boundary:
-    name: Release isolation gate
+    name: "Check: release isolation"
     runs-on: ${{ vars.CI_RUNNER_LABEL }}
     timeout-minutes: 10
     steps:
@@ -93,7 +93,7 @@ jobs:
           dist-digest-output: dist-digest
 
   build:
-    name: Build and test
+    name: "Check: build and test"
     runs-on: ${{ vars.CI_RUNNER_LABEL }}
     container:
       image: ${{ vars.CI_JOB_IMAGE }}
