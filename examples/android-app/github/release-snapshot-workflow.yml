@@ -55,6 +55,7 @@ jobs:
     needs: build
     uses: diggsweden/forge-ci/.github/workflows/publish-google-play.yml@v0.90.0
     permissions:
+      actions: read
       contents: read
     secrets:
       GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}

@@ -56,12 +56,15 @@ spec:
 ---
 "$[[ inputs.job-name ]]":
   stage: $[[ inputs.stage ]]
-  image: $[[ inputs.nanolinter-image ]]
+  # The image starts its tool as its entrypoint; the script runs the tool
+  # itself. The Docker executor would run the job's shell through that
+  # entrypoint; the Kubernetes one ignores it.
+  image:
+    name: $[[ inputs.nanolinter-image ]]
+    entrypoint: [""]
   variables:
-    # opengrep (inside nanolinter) hardcodes paths under the image's home; the
-    # flavour image's /home/nanolinter is writable, so cosign's sigstore cache
-    # needs no redirection either.
-    HOME: /home/nanolinter
+    # The whole history, for the comparison with the merge request's target.
+    GIT_DEPTH: "0"
     REQUIRED_LINTS: "$[[ inputs.required-lints ]]"
     ENABLE_GITLAB_SAST: "$[[ inputs.enable-gitlab-sast ]]"
     RC_ENGINE_PROJECT: "$[[ inputs.engine-project ]]"
@@ -70,6 +73,36 @@ spec:
   script:
     - |
       set -uo pipefail
+
+      # opengrep (inside nanolinter) hardcodes paths under the image's home; the
+      # flavour image's /home/nanolinter is writable, so cosign's sigstore cache
+      # needs no redirection either. Set here, not as a job variable: GitLab
+      # gives job variables to the helper container that fetches the source
+      # too, and that has no such directory.
+      export HOME=/home/nanolinter
+
+      # --- Merge-request base -----------------------------------------------
+      # Diff-based checks (secret scanning, commit checks, changed-file
+      # linting) compare the merge request with its target branch, and GitLab
+      # fetches only the merge request's head: fetch the target as
+      # origin/<target>. GIT_DEPTH 0 gives the head its whole history so the
+      # two meet; a depth the consumer set is deepened here.
+      # The job token reaches git through a credential helper, never argv.
+      target="${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-}"
+      if [ -n "$target" ]; then
+        fetch_options=(-c core.hooksPath=/dev/null
+          -c 'credential.helper=!f() { echo username=gitlab-ci-token; echo "password=${CI_JOB_TOKEN}"; }; f')
+        if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+          fetch_options+=(-c "http.sslCAInfo=${CI_SERVER_TLS_CA_FILE}")
+        fi
+        depth=()
+        if [ "$(git rev-parse --is-shallow-repository)" = true ]; then depth=(--unshallow); fi
+        if ! GIT_TERMINAL_PROMPT=0 git "${fetch_options[@]}" fetch --quiet --no-tags "${depth[@]}" \
+          "${CI_SERVER_URL:?}/${CI_PROJECT_PATH:?}.git" "+refs/heads/${target}:refs/remotes/origin/${target}"; then
+          echo "cannot fetch the merge request's target branch ${target} (a pipeline error, not a lint finding)" >&2
+          exit 1
+        fi
+      fi
 
       # --- Lint gate --------------------------------------------------------
       # `nanolinter verify` runs the full plan and exits non-zero on blocking

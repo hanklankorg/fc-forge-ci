@@ -61,11 +61,11 @@ jobs:
     timeout-minutes: 15
     steps:
       # Checkout without Node, which the image does not have. fetch-base
-      # brings main for the commit-range and diff checks.
+      # brings the pull request's base branch for the commit-range and diff checks.
       - name: Checkout repository
         uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/checkout-consumer@PIN_FORGE_CI_SHA
         with:
-          fetch-base: main
+          fetch-base: ${{ forgejo.base_ref }}
 
       # The default floor is secrets,sast. Forgejo ingests no SARIF, so the
       # findings are in this step's log.

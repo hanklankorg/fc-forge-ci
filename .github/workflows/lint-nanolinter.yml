@@ -111,8 +111,14 @@ jobs:
           mkdir -p "$NL_OUT"
           set --
           if [ -n "$REQUIRED_LINTS" ]; then set -- --require "$REQUIRED_LINTS"; fi
+          # Pull first: a failed pull is the workflow's image, not a lint
+          # finding, and must not be reported as one.
+          if ! docker pull --quiet "$NANOLINTER_IMAGE" >/dev/null; then
+            printf '::error::cannot pull the nanolinter image %s; set nanolinter-image to an image this runner can pull (this is not a lint finding).\n' "$NANOLINTER_IMAGE"
+            exit 1
+          fi
           rc=0
-          docker run --rm --user "$(id -u):$(id -g)" \
+          docker run --rm --pull never --user "$(id -u):$(id -g)" \
             --cap-drop ALL --security-opt no-new-privileges \
             --tmpfs /home/nanolinter:rw,exec,mode=1777 \
             -v "$GITHUB_WORKSPACE/src:/workspace" -v "$NL_OUT:/out" \

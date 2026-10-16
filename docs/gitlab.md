@@ -53,7 +53,7 @@ fan-out.
 | Hosting | The components, and for checksum-bound components the engine project, on the **same instance** as the consumer. |
 | Engine project | **Readable without credentials**, and its generic package downloadable anonymously. Downloads send no credential. |
 | Runner architecture | **linux/amd64** for checksum-bound jobs: the recorded engine is built for that platform only. Catalog runtime images are linux/amd64 and linux/arm64, except Android (amd64 only). |
-| Executor | Docker or Kubernetes. The components clear the entrypoint of `job-image` and `build-image`, so an image that starts a tool of its own still runs the job's shell. |
+| Executor | Docker or Kubernetes. The components clear the entrypoint of `job-image`, `build-image`, `nanolinter-image` and `megalinter-image`, so an image that starts a tool of its own still runs the job's shell. |
 | Job images | For `check`: Bash, Git, curl, `sha256sum` and the consumer's check tools, pinned by digest. For the lint components' SAST conversion: Bash, Git, curl and `sha256sum` in the lint image; Nanolinter's flavours and MegaLinter have them. For `release`: a non-root `job-image`, a `build-image`, and the organization's `signer-image`; see [Images and the engine binary](#images-and-the-engine-binary). |
 | Artifact size | Enough native artifact capacity for the release handoff; the GitLab default of 100 MB can be too small. See [Releases and promotion](#releases-and-promotion). |
 | Release branch | The project's default branch unless `release` is given another `release-branch`: the request must be its head. |
@@ -217,8 +217,9 @@ permission tests must run with ordinary-user filesystem semantics. Only the
 build job selects `build-image`, which can supply a root Buildah environment.
 Pass the same image for both inputs when the build needs no separate environment.
 The components clear the entrypoint of `job-image` and `build-image`, here and
-in `check`, so an image that starts a tool of its own still runs the job's
-shell on a Docker executor as it does on a Kubernetes one. The signer image
+in `check`, and of the lint images in `nanolinter` and `megalinter`, so an
+image that starts a tool of its own still runs the job's shell on a Docker
+executor as it does on a Kubernetes one. The signer image
 is the organization's and declares none.
 
 The signer image is built from the same definition as the Forgejo layer's,
@@ -310,6 +311,9 @@ Pick one engine:
   `nanolinter.toml` in a flavour image (`core`, `go`, `java`, `kotlin`,
   `javascript-typescript`, `rust` or `swift`; default `core`), with
   `required-lints` as a floor the project cannot lower. Pin the image by digest.
+  In a merge-request pipeline it checks out the whole history (`GIT_DEPTH: 0`)
+  and fetches the target branch as `origin/<target>`, with the job token, so
+  secret scanning and commit checks see what the merge request adds.
 - **`megalinter`** runs MegaLinter against `.mega-linter.yml`. Its image is
   required and must be pinned by `@sha256:`; a tag is refused before the job is
   created, since the job container receives the checkout, CI variables and the
@@ -523,9 +527,34 @@ include:
 
 Keep the gate in its own file, such as `.gitlab/merge-request.yml` with the
 `nanolinter` and `check` components from [Getting started](#getting-started),
-so the policy names exactly what it admits. Release-request tag pipelines stay
-policy-only. The live acceptance checks the tag side; the merge-request
-include is not yet covered by it.
+so the policy names exactly what it admits. The include's rule only decides
+when the file is read; GitLab still adds no job without rules to a
+merge-request pipeline, so the gate file declares the pipelines it runs in:
+
+```yaml
+# .gitlab/merge-request.yml
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+include:
+  - component: $CI_SERVER_FQDN/team/ci/forge-ci/check@PIN_FORGE_CI_SHA
+    inputs:
+      engine-project: team/ci/forge-ci
+      job-image: registry.example.com/team/check-tools@sha256:PIN_DIGEST
+      commands:
+        - bash .gitlab/check-release.sh
+```
+
+Release-request tag pipelines stay policy-only. The live consumer-release trial checks both sides when the
+consumer has `.gitlab/merge-request.yml`: it adds this include to the policy,
+releases, then opens a merge request on the released main and requires the
+gate's pipeline to pass.
+
+A merge request from a fork gets its pipeline in the fork by default, where
+the gate compares with the fork's copy of the target branch and the fork's job
+token cannot read a private project. Turn on the project's setting to run
+pipelines in the parent project for merge requests from forks: the gate then
+runs here, against the real target, once a maintainer starts it.
 
 The parent trigger holds a resource group through a mirrored child pipeline,
 serializing the entire release. The child uses native `needs` and artifacts;

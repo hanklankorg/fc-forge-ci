@@ -82,14 +82,27 @@ jobs:
         env:
           MEGALINTER_IMAGE: ${{ inputs['megalinter-image'] }}
           GITHUB_TOKEN: ${{ github.token }}
+          # A pull request's diff-mode comparison (VALIDATE_ALL_CODEBASE:
+          # false) is with its base; MegaLinter otherwise takes the default
+          # branch. The full-history checkout holds origin/<base>.
+          PR_BASE_REF: ${{ github.base_ref }}
         run: |
+          # Pull first: a failed pull is the workflow's image, not a lint
+          # finding, and must not be reported as one.
+          if ! docker pull --quiet "$MEGALINTER_IMAGE" >/dev/null; then
+            printf '::error::cannot pull the MegaLinter image %s; set megalinter-image to an image this runner can pull (this is not a lint finding).\n' "$MEGALINTER_IMAGE"
+            exit 1
+          fi
+          base=()
+          if [ -n "$PR_BASE_REF" ]; then base=(-e "DEFAULT_BRANCH=${PR_BASE_REF}"); fi
           set +e
-          docker run --rm \
+          docker run --rm --pull never \
             -v /var/run/docker.sock:/var/run/docker.sock:rw \
             -v "${GITHUB_WORKSPACE}:/tmp/lint:rw" \
             -e SARIF_REPORTER=true \
             -e DISABLE_ERRORS=false \
             -e GITHUB_TOKEN \
+            "${base[@]}" \
             "$MEGALINTER_IMAGE"
           rc=$?
           if [ "$rc" -ne 0 ]; then

@@ -11,7 +11,7 @@ inputs:
     required: false
     default: ${{ github.sha }}
   fetch-base:
-    description: Optional extra branch to also fetch (e.g. main) for diff/commit-range checks.
+    description: Optional extra branch to also fetch for diff/commit-range checks. In a pull request pass its base branch (the forgejo.base_ref context value), not a fixed name.
     required: false
     default: ''
   object-format:

@@ -27,7 +27,6 @@
 # Required Permissions:
 #   actions: read          # Download workflow result artifacts
 #   contents: read         # Read source code
-#   packages: read         # Access private packages
 #
 # Configurable Linters:
 #   lint-engine:          general lint engine — nanolinter (default) | megalinter
