@@ -96,12 +96,6 @@ jobs:
             printf '::error::MegaLinter found blocking lint issues — see the MegaLinter summary above (this is a lint gate on your code, not a workflow error).\n'
           fi
           exit "$rc"
-      - name: Install cosign
-        # Needed by the forge-ci bootstrap installer's fail-closed signature
-        # check (the nanolinter flavour image bakes cosign; a standard runner
-        # does not).
-        if: always() && inputs.upload-sarif && hashFiles(env.SARIF_FILE) != ''
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Install forge-ci (cosign-verified, SARIF tooling)
         id: install
         # SARIF glue only, via the canonical cosign-verified bootstrap installer

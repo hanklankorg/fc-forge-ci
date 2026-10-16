@@ -136,7 +136,7 @@ func TestPinnedInstallers_VerifyExactDownloadBeforeInstalling(t *testing.T) {
 
 	for _, tc := range []pinnedInstallerCase{
 		{"trivy", "https://github.com/aquasecurity/trivy/releases/download/v0.69.3/trivy_0.69.3_Linux-64bit.tar.gz", "1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75", "trivy", "", ""},
-		{"syft", "https://github.com/anchore/syft/releases/download/v1.45.1/syft_1.45.1_linux_amd64.tar.gz", "20c84195e24927f50a3b2269946be51f4c4abc9d2f145fee7388b4199149f716", "syft", "", ""},
+		{"syft", "https://github.com/anchore/syft/releases/download/v1.51.1/syft_1.51.1_linux_amd64.tar.gz", "8fcb33017a0dc1058298c923c436d19dfa68ae93968e0b423248542e3afb9fc3", "syft", "", ""},
 		{"cosign", "https://github.com/sigstore/cosign/releases/download/v3.1.3/cosign-linux-amd64", "4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71", "", "", ""},
 		{"gh", "https://github.com/cli/cli/releases/download/v2.93.0/gh_2.93.0_linux_amd64.tar.gz", "02d1290eba130e0b896f3709ffff22e1c75a51475ddb70476a85abc6b5807af0", "gh_2.93.0_linux_amd64/bin/gh", "", ""},
 		{"glab", "https://gitlab.com/gitlab-org/cli/-/releases/v1.74.0/downloads/glab_1.74.0_linux_amd64.tar.gz", "75008e8d57825547d944a3193a66a018188b433a4ecb1cf36500ffbafe4689ff", "root/bin/glab", "", ""},
@@ -146,8 +146,9 @@ func TestPinnedInstallers_VerifyExactDownloadBeforeInstalling(t *testing.T) {
 		{"publiccode-parser", "https://github.com/italia/publiccode-parser-go/releases/download/v5.3.1/publiccode-parser-go_Linux_x86_64.tar.gz", "ed5b75ebe3fc3f6c29f925d8acc132e381769690cada3b40680406b9ec64fedf", "publiccode-parser", "", ""},
 		{"trivy", "https://github.com/aquasecurity/trivy/releases/download/v0.69.3/trivy_0.69.3_Linux-ARM64.tar.gz", "7e3924a974e912e57b4a99f65ece7931f8079584dae12eb7845024f97087bdfd", "trivy", "Linux", "aarch64"},
 		{"trivy", "https://github.com/aquasecurity/trivy/releases/download/v0.69.3/trivy_0.69.3_macOS-ARM64.tar.gz", "a2f2179afd4f8bb265ca3c7aefb56a666bc4a9a411663bc0f22c3549fbc643a5", "trivy", "Darwin", "arm64"},
-		{"syft", "https://github.com/anchore/syft/releases/download/v1.45.1/syft_1.45.1_linux_arm64.tar.gz", "7df9f45cba1f6358ecfc7fac349d43b4605137001f9646b41267abe15a7c6cd7", "syft", "Linux", "aarch64"},
-		{"syft", "https://github.com/anchore/syft/releases/download/v1.45.1/syft_1.45.1_darwin_amd64.tar.gz", "abe6e73b819f433b69ece755dc180a19c7694896062bf806f89d0e3ca5db710a", "syft", "Darwin", "x86_64"},
+		{"syft", "https://github.com/anchore/syft/releases/download/v1.51.1/syft_1.51.1_linux_arm64.tar.gz", "a7fd2b784e6664acd44719270574f6cd8c6864fc2b1700bf9099bd1cccda7d7f", "syft", "Linux", "aarch64"},
+		{"syft", "https://github.com/anchore/syft/releases/download/v1.51.1/syft_1.51.1_darwin_amd64.tar.gz", "0e186ce1d4351ec276126851ca3ff258ed070e93e73574ed64858d4fc2339867", "syft", "Darwin", "x86_64"},
+		{"syft", "https://github.com/anchore/syft/releases/download/v1.51.1/syft_1.51.1_darwin_arm64.tar.gz", "ac063af3b9874769deb7ea1e6d76841e68f9e3bb50cd654226fc977de65532c1", "syft", "Darwin", "arm64"},
 		{"cosign", "https://github.com/sigstore/cosign/releases/download/v3.1.3/cosign-linux-arm64", "c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a", "", "Linux", "aarch64"},
 		{"cosign", "https://github.com/sigstore/cosign/releases/download/v3.1.3/cosign-darwin-arm64", "5cf948c2f4dfe59687bdd0b8523709067383e03982cc543475c8a7dc70e92a76", "", "Darwin", "arm64"},
 		{"gh", "https://github.com/cli/cli/releases/download/v2.93.0/gh_2.93.0_linux_arm64.tar.gz", "c55feb33684abba57e9909737340d5b39282257c0363e1edde6785ac4a413be7", "gh_2.93.0_linux_arm64/bin/gh", "Linux", "arm64"},
@@ -256,9 +257,9 @@ func checkPinnedInstaller(t *testing.T, tc pinnedInstallerCase, mode installerMo
 
 	ambientMarker := filepath.Join(root, "ambient-called")
 
-	if tc.tool == "cosign" {
+	if tc.tool == "cosign" || tc.tool == "syft" {
 		ambient := "#!/usr/bin/env bash\nprintf called > \"$AMBIENT_MARKER\"\nprintf 'GitVersion: v3.1.3\\n'\n"
-		if writeErr := os.WriteFile(filepath.Join(binDir, "cosign"), []byte(ambient), 0o700); writeErr != nil { //nolint:gosec // executable fixture inside t.TempDir().
+		if writeErr := os.WriteFile(filepath.Join(binDir, tc.tool), []byte(ambient), 0o700); writeErr != nil { //nolint:gosec // executable fixture inside t.TempDir().
 			t.Fatal(writeErr)
 		}
 	}
@@ -276,7 +277,7 @@ func checkPinnedInstaller(t *testing.T, tc pinnedInstallerCase, mode installerMo
 		"FAKE_CURL_FAIL_AFTER_PARTIAL": failDownload,
 	})
 	if _, statErr := os.Stat(ambientMarker); !errors.Is(statErr, os.ErrNotExist) {
-		t.Errorf("ambient cosign executed: %v", statErr)
+		t.Errorf("ambient %s executed: %v", tc.tool, statErr)
 	}
 
 	installDir := filepath.Join(root, tc.tool+"-bin")

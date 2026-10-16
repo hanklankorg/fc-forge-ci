@@ -29,7 +29,6 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      packages: read # check this commit's runtime images exist
     outputs:
       branch: ${{ steps.branch.outputs.branch }}
       image-tag: ${{ steps.branch.outputs.image-tag }}
@@ -67,22 +66,18 @@ jobs:
           printf 'image-tag=sha-%s\n' "${SHA:0:7}" >>"$GITHUB_OUTPUT"
       - name: Require this commit's runtime images
         # The release runs on the images built from this commit. Fail here, before
-        # the black-box gate and the release, when they are not published yet.
+        # the black-box gate and the release, when they are not public yet.
+        # Check anonymously so a token cannot hide a private package.
         env:
           NAMESPACE: ${{ vars.FORGE_CI_IMAGE_NAMESPACE || format('ghcr.io/{0}', github.repository_owner) }}
           IMAGE_TAG: ${{ steps.branch.outputs.image-tag }}
-          REGISTRY_USER: ${{ github.actor }}
-          GIT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [[ "$NAMESPACE" == ghcr.io/* ]]; then
-            printf '%s' "$GIT_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin >/dev/null
-          fi
           missing=0
           for name in base "" java-25 node-24 rust-stable go-1.27 android-35; do
             image="${NAMESPACE}/forge-ci-runtime${name:+-$name}:${IMAGE_TAG}"
             if ! docker manifest inspect "$image" >/dev/null 2>&1; then
-              printf 'Missing runtime image %s; wait for Self Runtime Container to publish this commit\n' "$image" >&2
+              printf 'Runtime image %s is not publicly readable; check package visibility and wait for Self Runtime Container to publish this commit\n' "$image" >&2
               missing=1
             fi
           done
@@ -139,14 +134,14 @@ jobs:
         run: cargo install --locked cargo-cyclonedx --version 0.5.9
       - name: Install cyclonedx-gomod
         run: go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0
-      - name: Install syft
-        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        with:
-          syft-version: "v1.49.0"
-      - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        with:
-          cosign-release: "v3.1.3"
+      - name: Install syft and cosign
+        working-directory: forge-ci
+        run: |
+          set -euo pipefail
+          source scripts/bootstrap/install-syft.sh
+          install_syft
+          source scripts/bootstrap/install-cosign.sh
+          install_cosign
       - name: Run strict black-box release gate
         working-directory: forge-ci-blackbox-tests
         env:

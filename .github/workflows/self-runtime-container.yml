@@ -375,18 +375,14 @@ jobs:
           egress-policy: audit
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - name: Install syft
-        # syft scans the pushed image for the analyzed-container SBOM.
-        # Pin matches the version installed inside the runtime image's
-        # own `full` stage (containers/runtime/Containerfile).
-        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        with:
-          syft-version: 'v1.45.1'
-      - name: Install cosign
-        # Keyless signing of the per-arch CycloneDX SBOM attestation below.
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        with:
-          cosign-release: 'v3.1.3'
+      - name: Install syft and cosign
+        # Scan and attest the per-arch SBOM with the runtime image's own pins.
+        run: |
+          set -euo pipefail
+          source scripts/bootstrap/install-syft.sh
+          install_syft
+          source scripts/bootstrap/install-cosign.sh
+          install_cosign
       - name: Download CLI dist
         # JS action (bootstrap): this download OBTAINS the engine binary —
         # cli-dist is the CLI built this run — so no engine exists yet to run
@@ -595,9 +591,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        with:
-          cosign-release: 'v3.1.3'
+        run: |
+          set -euo pipefail
+          source scripts/bootstrap/install-cosign.sh
+          install_cosign
       - name: Download CLI dist
         # JS action (bootstrap): this download OBTAINS the engine binary —
         # cli-dist is the CLI built this run — so no engine exists yet to run

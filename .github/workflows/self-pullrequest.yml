@@ -187,15 +187,14 @@ jobs:
       - name: Install cyclonedx-gomod
         run: go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0
 
-      - name: Install syft
-        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        with:
-          syft-version: "v1.49.0"
-
-      - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        with:
-          cosign-release: "v3.1.3"
+      - name: Install syft and cosign
+        working-directory: forge-ci
+        run: |
+          set -euo pipefail
+          source scripts/bootstrap/install-syft.sh
+          install_syft
+          source scripts/bootstrap/install-cosign.sh
+          install_cosign
 
       - name: Run the black-box suite against this checkout
         env:
