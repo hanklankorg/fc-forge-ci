@@ -62,7 +62,7 @@ jobs:
         with:
           egress-policy: block
           allowed-endpoints: >
-            api.github.com:443 github.com:443 objects.githubusercontent.com:443 release-assets.githubusercontent.com:443 uploads.github.com:443 proxy.golang.org:443 sum.golang.org:443 storage.googleapis.com:443 fulcio.sigstore.dev:443 rekor.sigstore.dev:443 tuf-repo-cdn.sigstore.dev:443 ghcr.io:443
+            api.github.com:443 github.com:443 objects.githubusercontent.com:443 release-assets.githubusercontent.com:443 uploads.github.com:443 proxy.golang.org:443 sum.golang.org:443 storage.googleapis.com:443 fulcio.sigstore.dev:443 rekor.sigstore.dev:443 timestamp.sigstore.dev:443 tuf-repo-cdn.sigstore.dev:443 ghcr.io:443
       # This first checkout is used only to run the trusted ref parser; the
       # build checkout below is the final tag created by Self Release.
       - name: Checkout repository
@@ -112,23 +112,20 @@ jobs:
           ref: ${{ steps.release-context.outputs.release-tag }}
           fetch-depth: 0
           fetch-tags: true
-      - name: Install cosign
-        # goreleaser's signs: block shells out to cosign; install it
-        # explicitly with version pinning rather than relying on a
-        # runner-provided default. Renovate keeps the pin current.
-        # v4.x installer is required for cosign v3.x (v3 ships a .sigstore.json
-        # bundle, not the detached .sig the v3.7.0 installer fails to fetch).
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        with:
-          cosign-release: 'v3.1.3'
-      - name: Install syft
-        # goreleaser's sboms: block shells out to syft. Same pin
-        # rationale as cosign — explicit version is reviewable in
-        # PR and gets caught by Renovate, not by surprise runner
-        # rollouts.
-        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        with:
-          syft-version: 'v1.45.1'
+      - name: Install cosign and syft
+        # goreleaser's signs: and sboms: blocks shell out to cosign and syft.
+        # The repository's installers pin each version and SHA-256 (Renovate
+        # keeps them current), retry transient download failures, and fetch
+        # only from github.com release downloads, which the egress allowlist
+        # above admits.
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source scripts/bootstrap/install-cosign.sh
+          install_cosign
+          # shellcheck source=/dev/null
+          source scripts/bootstrap/install-syft.sh
+          install_syft
       - name: Set SOURCE_DATE_EPOCH from commit
         # Pins the binary's embedded date and the tarball mtimes to
         # the commit timestamp. Without this, two builds of the same
