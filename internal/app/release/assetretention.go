@@ -20,7 +20,7 @@ import (
 // small, and with them a file rebuilt from the tag can still be checked
 // against what was released: by its checksum, and by its own signature when
 // the build is reproducible.
-const DefaultAssetRetentionKeepFiles = `(?i)(checksums\.txt|sha256sums)|\.(bundle|sig|asc|pem|intoto\.jsonl)$|\.(cyclonedx|spdx)\.json$`
+const DefaultAssetRetentionKeepFiles = `(?i)(checksums\.txt|sha256sums)|\.(bundle|sig|asc|pem|intoto\.jsonl?)$|\.(sbom|cyclonedx|spdx)\.json$`
 
 // AssetRetentionInput drives `release asset-retention`.
 type AssetRetentionInput struct {

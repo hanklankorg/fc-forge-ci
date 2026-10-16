@@ -674,6 +674,19 @@ report on this one.
   is read with `forge-ci container package-retention --repository <image>`,
   whose dry run lists every version and why it stays.
 
+**Release-file retention** has a separate, short live scenario that needs no
+container-building workflow:
+
+```text
+just test-live '^TestRelease_AssetRetentionPreservesEvidence$/forgejo$'
+```
+
+It creates two releases in a scratch repository, proves the default dry run
+changes nothing, then applies retention and checks the served bytes: only the
+older archive disappears; both releases, their notes, checksums, SBOMs and
+provenance remain. The scenario also supports GitLab when selected and ready.
+The ordinary live-tier contract and scratch cleanup apply.
+
 **The trigger.** A pull request into `main` from a branch one commit ahead.
 That commit adds one file, has a Conventional subject, a sign-off and no line
 over 72 characters, and is signed with an SSH key made for it, because a

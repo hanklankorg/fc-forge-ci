@@ -2528,7 +2528,7 @@ EXAMPLE:
 |------|-------------|------|---------|----------|
 | `--repository` | "owner/repo" whose releases to trim (required) | string | `""` | `$REPOSITORY`, `$CI_REPO`, `$CI_PROJECT_PATH`, `$FORGEJO_REPOSITORY`, `$FORGEJO_REPO`, `$GITHUB_REPOSITORY` |
 | `--keep` | how many of the newest published releases keep every file (required) | int | `0` | `$RELEASE_ASSET_RETENTION` |
-| `--keep-files` | regular expression of the file names older releases keep | string | `"(?i)(checksums\\.txt\|sha256sums)\|\\.(bundle\|sig\|asc\|pem\|intoto\\.jsonl)$\|\\.(cyclonedx\|spdx)\\.json$"` | `$RELEASE_ASSET_RETENTION_KEEP_FILES` |
+| `--keep-files` | regular expression of the file names older releases keep | string | `"(?i)(checksums\\.txt\|sha256sums)\|\\.(bundle\|sig\|asc\|pem\|intoto\\.jsonl?)$\|\\.(sbom\|cyclonedx\|spdx)\\.json$"` | `$RELEASE_ASSET_RETENTION_KEEP_FILES` |
 | `--max-delete` | refuse a pass that would delete more files than this (0 disables the bound) | int | `200` | `$RELEASE_ASSET_RETENTION_MAX_DELETE` |
 | `--dry-run` | report what would be deleted without deleting it | bool | `true` | `$RELEASE_ASSET_RETENTION_DRY_RUN` |
 

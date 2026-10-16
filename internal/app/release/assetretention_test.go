@@ -105,6 +105,32 @@ func TestApplyAssetRetention_DryRunDeletesNothing(t *testing.T) {
 	}
 }
 
+func TestApplyAssetRetention_KeepsPublishedSBOMAndProvenanceNames(t *testing.T) {
+	t.Parallel()
+
+	old := goRelease("v1.0.0", 1)
+	for _, name := range []string{
+		"nanolinter-1.0.0-linux-x86_64.tar.gz.sbom.json",
+		"forge-ci_1.0.0_linux_amd64.tar.gz.cdx.sbom.json",
+		"slsa-provenance.intoto.json",
+		"forge-ci.intoto.jsonl",
+	} {
+		old.Assets = append(old.Assets, provider.ListedAsset{Name: name, Size: 1e3})
+	}
+
+	pruner := &releasePruner{releases: []provider.ListedRelease{old, goRelease("v1.1.0", 2)}}
+
+	result, err := apprelease.ApplyAssetRetention(t.Context(), pruner, &bytes.Buffer{}, retention(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"v1.0.0/app_v1.0.0_linux_amd64.tar.gz", "v1.0.0/app_v1.0.0_amd64.deb"}
+	if !slices.Equal(pruner.deleted, want) || result.Files != len(want) {
+		t.Fatalf("deleted %v, result %+v; published evidence must survive", pruner.deleted, result)
+	}
+}
+
 // A pass larger than the bound deletes nothing, so a first run over years of
 // releases is read before it acts.
 func TestApplyAssetRetention_RefusesMoreThanTheBound(t *testing.T) {
