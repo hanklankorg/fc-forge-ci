@@ -43,6 +43,10 @@ func TestGitLabLayer_ConsumerTrial(t *testing.T) {
 
 func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 	t.Helper()
+	if livetest.DemoName() != "" {
+		t.Fatal("this trial plants a failing canary; a GitLab demo is `just demo gitlab <name> <checkout>`")
+	}
+
 	if !livetest.Requires(t, provider.ForgeGitLab, livetest.NeedsInRunner) {
 		livetest.NotCoveredf(t, "the consumer trial needs a GitLab runner")
 	}
@@ -51,9 +55,13 @@ func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 	consumer := livetest.OpenConsumer(t, target, root)
 	engineRepo := livetest.NewScratchRepo(t, target, "gitlab-consumer-layer")
 	layer := livetest.PushLayer(t, target, engineRepo)
-	image := livetest.PushJobImage(t, target, engineRepo, os.Getenv("RC_LIVE_CONSUMER_IMAGE_ARCHIVE"))
+	image := livetest.PushJobImage(t, target, engineRepo, os.Getenv("FORGE_CI_LIVE_CONSUMER_IMAGE_ARCHIVE"))
 	repo := livetest.NewBareScratchRepo(t, target, "gitlab-consumer-trial", consumer.ObjectFormat, private)
-	main := consumer.PushGitLab(t, repo, layer, image)
+	images := livetest.GitLabGateImages{Job: image}
+	if archive := os.Getenv("FORGE_CI_LIVE_LINT_IMAGE_ARCHIVE"); archive != "" {
+		images.Lint = livetest.PushJobImage(t, target, livetest.NewScratchRepo(t, target, "gitlab-consumer-lint-image"), archive)
+	}
+	main := consumer.PushGitLab(t, repo, layer, images)
 	requireObjectFormats(t, consumer.ObjectFormat, main, layer.Commit)
 	head := consumer.PushChange(t, repo, trialBranch, main)
 	t.Logf("consumer %s at %s (%s); layer %s; job image %s", root, consumer.Commit, consumer.ObjectFormat, layer.Commit, image)
@@ -214,27 +222,65 @@ func gitlabTrialTrace(t *testing.T, ctx context.Context, client *gitlabapi.Clien
 	if err != nil {
 		t.Fatal(err)
 	}
-	var output strings.Builder
+	// Producers' traces first and failed jobs' last, each under its job's
+	// name: the end of the text, which gitlabTraceEnd shows, is then a failed
+	// job's, whatever order GitLab lists the jobs in.
+	var produced, failed strings.Builder
 	for _, job := range jobs {
 		t.Logf("job %s: %s", job.Name, job.Status)
 		if job.ArtifactsFile.Size > 0 {
 			t.Logf("job %s: native artifact archive %d bytes", job.Name, job.ArtifactsFile.Size)
 		}
-		if job.Status != "failed" && (job.Status != "success" || !slices.Contains(producers, job.Name)) {
-			continue
+		into := &failed
+		if job.Status != "failed" {
+			if job.Status != "success" || !slices.Contains(producers, job.Name) {
+				continue
+			}
+			into = &produced
 		}
-		trace, _, err := client.Jobs.GetTraceFile(project, job.ID, gitlabapi.WithContext(ctx))
+		fmt.Fprintf(into, "\n=== job %s (%s) ===\n", job.Name, job.Status)
+		into.WriteString(gitlabFinishedTrace(t, ctx, client, project, job.ID))
+	}
+
+	return produced.String() + failed.String()
+}
+
+// gitlabFinishedTrace reads a finished job's trace once GitLab holds all of
+// it: the runner streams a trace in chunks, and a job reads as finished before
+// its last chunk, which carries the error, is stored. GitLab's own closing
+// line ends a whole trace; after a minute the trace is shown as it is.
+func gitlabFinishedTrace(t *testing.T, ctx context.Context, client *gitlabapi.Client, project string, job int64) string {
+	t.Helper()
+
+	deadline := time.Now().Add(time.Minute)
+
+	for {
+		trace, _, err := client.Jobs.GetTraceFile(project, job, gitlabapi.WithContext(ctx))
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		body, err := io.ReadAll(io.LimitReader(trace, 8<<20))
 		if err != nil {
 			t.Fatal(err)
 		}
-		output.Write(body)
-	}
 
-	return output.String()
+		if gitlabTraceFinished(string(body)) || time.Now().After(deadline) {
+			return string(body)
+		}
+
+		select {
+		case <-ctx.Done():
+			return string(body)
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+// gitlabTraceFinished reports whether a trace carries the runner's closing
+// line.
+func gitlabTraceFinished(trace string) bool {
+	return strings.Contains(trace, "Job succeeded") || strings.Contains(trace, "ERROR: Job failed")
 }
 
 // logGitLabTrace prints the failed jobs' whole trace and then, last, its end

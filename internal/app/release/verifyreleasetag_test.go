@@ -14,6 +14,7 @@ import (
 
 	apprelease "github.com/diggsweden/forge-ci/internal/app/release"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
 	"github.com/diggsweden/forge-ci/internal/runcontext"
 	"github.com/stretchr/testify/require"
 )
@@ -43,6 +44,7 @@ type fakeTagGit struct {
 	request      string
 	changed      []string
 	changeErr    error
+	diff         string
 }
 
 type tagVerifyCall struct {
@@ -75,6 +77,60 @@ func (f fakeTagGit) RevParse(ctx context.Context, ref string) (string, error) {
 
 func (f fakeTagGit) ChangedPaths(context.Context, string, string) ([]string, error) {
 	return f.changed, f.changeErr
+}
+
+func (f fakeTagGit) PathsDiff(context.Context, string, string, []string) (string, error) {
+	return f.diff, nil
+}
+
+// pomBumpDiff is the diff a verified Maven bump to 1.2.3 leaves in a POM.
+const pomBumpDiff = `diff --git a/pom.xml b/pom.xml
+index 1111111..2222222 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -4,3 +4,3 @@
+   <artifactId>app</artifactId>
+-  <version>1.2.2</version>
++  <version>1.2.3</version>
+   <packaging>jar</packaging>
+`
+
+// With a version bump the release commit may carry the verified POM change as
+// well as the changelog; anything that is not that substitution, any other
+// file, or a bump without the changelog is still refused.
+func TestVerifyReleaseTag_ChangelogOnlyAdmitsTheVerifiedVersionBump(t *testing.T) {
+	t.Parallel()
+
+	parent := strings.Repeat("b", 40)
+
+	for _, scenario := range []struct {
+		name    string
+		changed []string
+		diff    string
+		want    error
+	}{
+		{name: "changelog and bump", changed: []string{"CHANGELOG.md", "pom.xml"}, diff: pomBumpDiff},
+		{name: "bump that is no version change", changed: []string{"CHANGELOG.md", "pom.xml"},
+			diff: strings.Replace(pomBumpDiff, "+  <version>1.2.3</version>", "+  <version>1.2.3</version><evil/>", 1), want: errs.ErrValidation},
+		{name: "bump without the changelog", changed: []string{"pom.xml"}, diff: pomBumpDiff, want: errs.ErrValidation},
+		{name: "changelog without the bump", changed: []string{"CHANGELOG.md"}, want: errs.ErrValidation},
+		{name: "another file too", changed: []string{"CHANGELOG.md", "pom.xml", "src/Main.java"}, diff: pomBumpDiff, want: errs.ErrValidation},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+
+			git := fakeTagGit{head: sha, tagCommit: sha, parents: []string{parent}, request: parent, changed: scenario.changed, diff: scenario.diff}
+			err := apprelease.VerifyReleaseTag(t.Context(), git, io.Discard, apprelease.VerifyReleaseTagInput{
+				ReleaseSHA: sha, Tag: "v1.2.3", ExpectedParent: parent, ChangelogOnly: true, VersionBump: projecttype.Maven,
+			})
+
+			if scenario.want == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, scenario.want)
+			}
+		})
+	}
 }
 
 func TestVerifyReleaseTag_ChangelogOnlyPreservesTheTestedCandidate(t *testing.T) {

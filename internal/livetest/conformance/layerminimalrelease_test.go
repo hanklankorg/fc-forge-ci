@@ -263,12 +263,12 @@ func newReleaseKeys(t *testing.T) releaseKeys {
 // finds and verifies the bases the first one signed. Unset, each trial signs
 // with a key of its own.
 const (
-	signingKeyDirEnv         = "RC_LIVE_SIGNING_KEY_DIR"
+	signingKeyDirEnv         = "FORGE_CI_LIVE_SIGNING_KEY_DIR"
 	signingKeyPassphraseFile = "lab-cosign.passphrase"
 )
 
 // trialCosignKey returns the passphrase-protected key pair a trial signs
-// with: the reused one in RC_LIVE_SIGNING_KEY_DIR, made there on first use,
+// with: the reused one in FORGE_CI_LIVE_SIGNING_KEY_DIR, made there on first use,
 // or a fresh pair in dir.
 func trialCosignKey(t *testing.T, dir string) (string, string) {
 	t.Helper()
@@ -306,14 +306,14 @@ func requireReleaseJobs(t *testing.T, jobs []livetest.RunJob, runID int64, label
 
 	want := []string{
 		"Build minimal binary release",
-		"Clean up release candidate tags",
-		"Prepare release",
-		"Promote signed release images",
-		"Publish release assets",
-		"Render release changelog",
-		"Sign release assets and images",
-		"Validate helper repository coordinate",
-		"Validate sign-and-publish trust coordinates",
+		"Check: release settings",
+		"Check: signing settings",
+		"Prepare: changelog",
+		"Prepare: release commit and tag",
+		"Publish: images",
+		"Publish: release",
+		"Publish: tidy up",
+		"Sign: files and images",
 	}
 
 	onRunner, wrappers := requireJobsOnRunner(t, jobs, runID, label)

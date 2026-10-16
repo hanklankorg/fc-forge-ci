@@ -3,26 +3,61 @@
 # SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
 
 # Trusted GitLab orchestration. The project must select a pinned external CI
-# policy. Only release-check, release-render and release-build execute consumer
-# code. Native artifacts carry data; they are never dotenv reports or sourced.
+# policy. Only "Check: release request", "Prepare: changelog", "Prepare:
+# version" and "Build: release files" execute consumer code. Native artifacts carry data; they are never dotenv reports or sourced.
 
 rc_engine() { "${FORGE_CI_BIN:?}" "$@"; }
 
+# The path guards refuse explicitly. A bare `test -f x && test ! -L x` stops
+# nothing under set -e when its first test fails, so the guards say what is
+# wrong and return 1, which stops the job.
+rc_require_regular_file() {
+	if [ ! -f "$1" ] || [ -L "$1" ]; then
+		echo "ERROR: $1 must be a regular file, not absent or a link." >&2
+		return 1
+	fi
+}
+
+rc_require_absent() {
+	if [ -e "$1" ] || [ -L "$1" ]; then
+		echo "ERROR: $1 must not exist yet; it is reserved for this job." >&2
+		return 1
+	fi
+}
+
+# rc_job_role maps a job's displayed name to the stable role the secret policy
+# is written in, so wording a name for its reader never moves a secret. A job
+# not listed has no role and may hold no release secret.
+rc_job_role() {
+	case "$1" in
+	"Check: signing access") echo signing-preflight ;;
+	"Check: publishing access") echo publish-preflight ;;
+	"Check: registry access") echo registry-preflight ;;
+	"Prepare: release commit and tag") echo prepare ;;
+	"Sign: files and images") echo sign ;;
+	"Publish: images") echo promote ;;
+	"Publish: release") echo publish ;;
+	"Publish: tidy up") echo cleanup ;;
+	*) echo none ;;
+	esac
+}
+
 rc_release_context() {
-	local name allowed
+	local name allowed role
+	role=$(rc_job_role "${CI_JOB_NAME:?}")
 	for name in RELEASE_SSH_SIGNING_KEY RELEASE_COSIGN_PRIVATE_KEY RELEASE_COSIGN_PASSPHRASE \
 		RELEASE_GPG_PRIVATE_KEY RELEASE_GPG_PASSPHRASE RELEASE_TOKEN RELEASE_REGISTRY_TOKEN \
 		SSH_SIGNING_KEY COSIGN_KEY COSIGN_PASSWORD GPG_SIGNING_KEY GPG_SIGNING_PASSWORD GITLAB_TOKEN; do
 		allowed=false
-		case "${CI_JOB_NAME:?}:${name}" in
-		release-prepare:RELEASE_SSH_SIGNING_KEY | release-sign:RELEASE_COSIGN_PRIVATE_KEY | \
-			release-sign:RELEASE_COSIGN_PASSPHRASE | release-sign:RELEASE_GPG_PRIVATE_KEY | \
-			release-sign:RELEASE_GPG_PASSPHRASE | release-publish:RELEASE_TOKEN | \
-			release-signing-preflight:RELEASE_COSIGN_PRIVATE_KEY | release-signing-preflight:RELEASE_COSIGN_PASSPHRASE | \
-			release-signing-preflight:RELEASE_GPG_PRIVATE_KEY | release-signing-preflight:RELEASE_GPG_PASSPHRASE | \
-			release-publish-preflight:RELEASE_TOKEN | release-registry-preflight:RELEASE_REGISTRY_TOKEN | \
-			release-signing-preflight:RELEASE_REGISTRY_TOKEN | release-sign:RELEASE_REGISTRY_TOKEN | \
-			release-promote:RELEASE_REGISTRY_TOKEN | release-cleanup:RELEASE_REGISTRY_TOKEN) allowed=true ;;
+		case "${role}:${name}" in
+		prepare:RELEASE_SSH_SIGNING_KEY | sign:RELEASE_COSIGN_PRIVATE_KEY | \
+			sign:RELEASE_COSIGN_PASSPHRASE | sign:RELEASE_GPG_PRIVATE_KEY | \
+			sign:RELEASE_GPG_PASSPHRASE | publish:RELEASE_TOKEN | \
+			signing-preflight:RELEASE_COSIGN_PRIVATE_KEY | signing-preflight:RELEASE_COSIGN_PASSPHRASE | \
+			signing-preflight:RELEASE_GPG_PRIVATE_KEY | signing-preflight:RELEASE_GPG_PASSPHRASE | \
+			publish-preflight:RELEASE_TOKEN | registry-preflight:RELEASE_REGISTRY_TOKEN | \
+			signing-preflight:RELEASE_REGISTRY_TOKEN | sign:RELEASE_REGISTRY_TOKEN | \
+			promote:RELEASE_REGISTRY_TOKEN | cleanup:RELEASE_REGISTRY_TOKEN) allowed=true ;;
 		esac
 		if [ "${allowed}" = false ] && [ -n "${!name:-}" ]; then
 			echo "ERROR: ${name} is available to the wrong release job." >&2
@@ -64,8 +99,14 @@ rc_release_checkout() {
 	rc_checkout "refs/tags/${RELEASE_TAG}"
 	export RELEASE_SHA
 	RELEASE_SHA=$(git rev-parse HEAD)
+	# The release commit is the tested request plus the changelog, and with a
+	# version bump the verified version substitution: nothing else is built.
+	local -a bump_args=()
+	if [ -n "${RC_VERSION_BUMP:-}" ]; then
+		bump_args=(--version-bump "${RC_VERSION_BUMP}")
+	fi
 	rc_engine release validate-tag --release-sha "${RELEASE_SHA}" --tag "${RELEASE_TAG}" \
-		--expected-parent "${RELEASE_REQUEST_SHA}" --changelog-only \
+		--expected-parent "${RELEASE_REQUEST_SHA}" --changelog-only "${bump_args[@]}" \
 		--repo-url "${CI_SERVER_URL}/${CI_PROJECT_PATH}.git"
 }
 
@@ -99,22 +140,51 @@ rc_render_changelog() {
 	mkdir -p -- "${handoff}"
 	local file
 	for file in CHANGELOG.md commit-msg.txt; do
-		test -f "${file}" && test ! -L "${file}"
+		rc_require_regular_file "${file}"
 		cp -- "${file}" "${handoff}/${file}"
 	done
+}
+
+# rc_bump_version runs the project's build tool to set the release version and
+# hands over only the patch and its digest. The job holds no credential.
+rc_bump_version() {
+	rc_request_checkout
+	rc_engine version bump --project-type "${RC_VERSION_BUMP:?}" --version "${RELEASE_VERSION:?}" --working-dir . \
+		--maven-cli-opts '--batch-mode --no-transfer-progress --errors --fail-at-end'
+	local handoff="${CI_PROJECT_DIR}/_release-bump"
+	mkdir -p -- "${handoff}"
+	# Literal paths and plain text whatever the project's Git configuration says.
+	git -c core.quotePath=true diff --binary --no-ext-diff --no-textconv --no-color --no-renames \
+		--src-prefix=a/ --dst-prefix=b/ >"${handoff}/version-bump.patch"
+	test -s "${handoff}/version-bump.patch"
+	sha256sum -- "${handoff}/version-bump.patch" | cut -d' ' -f1 >"${handoff}/digest"
 }
 
 rc_prepare_release() {
 	rc_request_checkout
 	local file
+	local -a include=()
 	git -c core.hooksPath=/dev/null checkout -b "${RC_RELEASE_BRANCH}"
 	for file in CHANGELOG.md commit-msg.txt; do
-		test -f "${CI_PROJECT_DIR}/_release-render/${file}" && test ! -L "${CI_PROJECT_DIR}/_release-render/${file}"
+		rc_require_regular_file "${CI_PROJECT_DIR}/_release-render/${file}"
 		cp --remove-destination -- "${CI_PROJECT_DIR}/_release-render/${file}" "${file}"
 	done
+	# Text checks only, no build tool: the patch matches its digest, touches only
+	# the project files of the type, and moves the version and nothing else.
+	if [ -n "${RC_VERSION_BUMP:-}" ]; then
+		local bump="${CI_PROJECT_DIR}/_release-bump" patch_digest
+		for file in version-bump.patch digest; do
+			rc_require_regular_file "${bump}/${file}"
+		done
+		patch_digest=$(head -c 64 -- "${bump}/digest")
+		rc_engine version apply-bump --project-type "${RC_VERSION_BUMP}" --version "${RELEASE_TAG}" --working-dir . \
+			--patch "${bump}/version-bump.patch" --sha256 "${patch_digest}" --paths-file "${RC_WORK:?}/bump-paths"
+		include=(--include-paths-file "${RC_WORK}/bump-paths")
+	fi
 	SSH_SIGNING_KEY="${RELEASE_SSH_SIGNING_KEY:?}" rc_engine version commit-changelog-release \
 		--tag "${RELEASE_TAG}" --branch "${RC_RELEASE_BRANCH}" --repository "${CI_PROJECT_PATH}" --git-url "${RC_GIT_URL:?}" \
-		--host-key-fingerprint "${RC_GIT_HOST_KEY:?}" --author-name "${RC_BOT_NAME:?}" --author-email "${RC_BOT_EMAIL:?}"
+		--host-key-fingerprint "${RC_GIT_HOST_KEY:?}" --author-name "${RC_BOT_NAME:?}" --author-email "${RC_BOT_EMAIL:?}" \
+		"${include[@]}"
 }
 
 rc_build_handoff() {
@@ -129,13 +199,13 @@ rc_build_handoff() {
 
 rc_read_handoff() {
 	local directory=$1 digest
-	test -f "${directory}/digest" && test ! -L "${directory}/digest"
+	rc_require_regular_file "${directory}/digest"
 	digest=$(<"${directory}/digest")
 	[[ "${digest}" =~ ^[0-9a-f]{64}$ ]]
 	rc_engine release validate-dist --dist-dir "${directory}/dist" --expected-digest "${digest}" --manifest-root .
 	# Preserve the manifest's dist/... paths in a private checkout, not in the
 	# runner's artifact extraction directory. Consumer files cannot preseed it.
-	test ! -e dist && test ! -L dist
+	rc_require_absent dist
 	cp -R -- "${directory}/dist" dist
 	export DIST_DIR=dist RELEASE_FILES_MANIFEST=dist/release-files.json
 }
@@ -169,8 +239,8 @@ rc_sign_release() {
 	rc_engine release files validate --unsigned --manifest "${RELEASE_FILES_MANIFEST}" --dist-dir "${DIST_DIR}"
 	# Only this trusted job may create the publication ledger. A producer must
 	# not bypass import by pre-seeding that reserved path without a source ledger.
-	test ! -e "${DIST_DIR}/release-images-publication.json" && test ! -L "${DIST_DIR}/release-images-publication.json"
-	test ! -e "${DIST_DIR}/base-images-publication.json" && test ! -L "${DIST_DIR}/base-images-publication.json"
+	rc_require_absent "${DIST_DIR}/release-images-publication.json"
+	rc_require_absent "${DIST_DIR}/base-images-publication.json"
 	if [ -f "${DIST_DIR}/release-images.json" ]; then
 		rc_publication_scope
 		REGISTRY_USER="${RELEASE_REGISTRY_USER:?}" REGISTRY_TOKEN="${RELEASE_REGISTRY_TOKEN:?}" \

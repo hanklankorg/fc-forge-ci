@@ -130,7 +130,7 @@ func failedGitLabPromotionJob(t *testing.T, jobs []*gitlabapi.Job) int64 {
 	}
 	var failed int64
 	for _, job := range jobs {
-		if job.Name == "release-promote" {
+		if job.Name == "Publish: images" {
 			if job.Status == "failed" && job.ArtifactsFile.Size > 0 {
 				failed = job.ID
 			}
@@ -163,7 +163,7 @@ func gitlabPromotionRetryWorkflow(t *testing.T, prelude, ledger string) string {
 	var promotion struct {
 		Artifacts map[string]any `yaml:"artifacts"`
 	}
-	promotionNode := jobs["release-promote"]
+	promotionNode := jobs["Publish: images"]
 	if err := promotionNode.Decode(&promotion); err != nil {
 		t.Fatal(err)
 	}
@@ -171,13 +171,13 @@ func gitlabPromotionRetryWorkflow(t *testing.T, prelude, ledger string) string {
 		"stages":    []string{"promote", "publish", "cleanup"},
 		"default":   map[string]any{"image": livetest.ProbeImage},
 		"variables": map[string]string{"GIT_STRATEGY": "empty", "LEDGER_JSON": ledger},
-		"release-promote": map[string]any{
+		"Publish: images": map[string]any{
 			"stage": "promote", "script": []string{prelude, gitlabPromotionRetryScript},
 			"after_script": shared.AfterScript,
 			"artifacts":    promotion.Artifacts,
 		},
-		"release-publish": map[string]any{"stage": "publish", "needs": []string{"release-promote"}, "script": "test -s _release-promote/image-promotions.jsonl"},
-		"release-cleanup": map[string]any{"stage": "cleanup", "needs": []string{"release-publish"}, "script": "true"},
+		"Publish: release": map[string]any{"stage": "publish", "needs": []string{"Publish: images"}, "script": "test -s _release-promote/image-promotions.jsonl"},
+		"Publish: tidy up": map[string]any{"stage": "cleanup", "needs": []string{"Publish: release"}, "script": "true"},
 	}
 	body, err := yaml.Marshal(pipeline)
 	if err != nil {

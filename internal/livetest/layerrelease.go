@@ -5,8 +5,8 @@
 package livetest
 
 import (
-	"codefloe.com/itiquette/forge-lab-contract/labcontract"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -15,6 +15,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"codefloe.com/itiquette/forge-lab-contract/labcontract"
+
+	"github.com/diggsweden/forge-ci/internal/domain/container"
 )
 
 // A release through the layer needs what a consumer's organization brings:
@@ -26,9 +30,13 @@ import (
 // signerImageEnv names the digest-pinned signer image the release scenarios
 // run their signer jobs in. `just test-live-signer-image` builds it from this
 // checkout, publishes it to the lab registry and prints the value.
-const signerImageEnv = "RC_LIVE_SIGNER_IMAGE"
+const signerImageEnv = "FORGE_CI_LIVE_SIGNER_IMAGE"
 
-var digestPinnedImage = regexp.MustCompile(`^[a-z0-9]+([.-][a-z0-9]+)*(:[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$`)
+// digestPinnedImage is the layer's image pin, the shape every Forgejo workflow
+// validates (test/forgejoguard, canonicalImagePin): a repository coordinate, an
+// optional tag and the digest.
+var digestPinnedImage = regexp.MustCompile(`^[a-z0-9]+([.-][a-z0-9]+)*(:[0-9]+)?/([a-z0-9]+(([._]|__|-+)[a-z0-9]+)*/)*` +
+	`[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(:` + container.OCITagComponent + `)?@sha256:[0-9a-f]{64}$`)
 
 // SignerImage returns the signer image this run was given, or false after
 // logging what to do about it.
@@ -135,7 +143,7 @@ func SSHKey(tb TB, dir string) (string, string) {
 // it may: a scenario that builds one fails where the build fails. `0` is the
 // operator saying that this runner does not allow it, and such a scenario
 // skips.
-const imageBuildsEnv = "RC_LIVE_IMAGE_BUILDS"
+const imageBuildsEnv = "FORGE_CI_LIVE_IMAGE_BUILDS"
 
 // ImageBuilds reports whether a scenario may expect a job to build an image,
 // or false after logging why not.
@@ -198,7 +206,7 @@ func (signer RequestSigner) PushTag(tb TB, target Target, repo, tag, branch, mes
 
 	err := signer.tag(ctx, mirror.git, mirror.dir, tag, "refs/heads/"+branch, message)
 	if err == nil {
-		_, err = mirror.git.run(ctx, mirror.dir, "push", gitQuiet, scratchRemote(target, repo), "refs/tags/"+tag)
+		err = mirror.git.runPush(ctx, mirror.dir, scratchRemote(target, repo), "refs/tags/"+tag)
 	}
 
 	if err != nil {
@@ -355,6 +363,27 @@ func Download(tb TB, target Target, address string, limit int64) []byte {
 	}
 
 	return body
+}
+
+// DownloadIfPresent is Download for a file a run may not have produced: it
+// reports false when the forge answers 404, and fails on any other error.
+func DownloadIfPresent(tb TB, target Target, address string, limit int64) ([]byte, bool) {
+	tb.Helper()
+	requireAccepted(tb, target)
+
+	ctx, cancel := context.WithTimeout(Context(tb), timeoutAPI)
+	defer cancel()
+
+	body, err := fetch(ctx, target, address, limit)
+	if errors.Is(err, errAbsent) {
+		return nil, false
+	}
+
+	if err != nil {
+		tb.Fatalf("livetest: download: %v", err)
+	}
+
+	return body, true
 }
 
 // VerifyBlob checks a Cosign bundle over a blob against a public key with

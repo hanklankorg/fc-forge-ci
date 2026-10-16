@@ -40,8 +40,8 @@ jobs:
   pr-checks:
     uses: diggsweden/forge-ci/.github/workflows/pullrequest-orchestrator.yml@v0.90.0
     permissions:
+      actions: read
       contents: read
-      packages: read
     with:
       forge-ci-binary-ref: v0.90.0
       project-type: maven  # or npm, gradle, gradle-android, xcode-ios, cargo, go

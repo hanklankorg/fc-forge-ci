@@ -23,8 +23,8 @@ import (
 // file the caller owns, never from a setting, and reaches the run only as the
 // consumer's registry secret.
 const (
-	externalRegistryTokenFileEnv = "RC_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE"
-	externalRegistryUserEnv      = "RC_LIVE_EXTERNAL_REGISTRY_USER"
+	externalRegistryTokenFileEnv = "FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE" //nolint:gosec // G101: env var names, not values.
+	externalRegistryUserEnv      = "FORGE_CI_LIVE_EXTERNAL_REGISTRY_USER"
 )
 
 // ExternalRegistry is the user and token an external image registry takes.
@@ -34,8 +34,8 @@ type ExternalRegistry struct {
 }
 
 // ExternalRegistryCredential reads the external registry's credential when
-// RC_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE names one. The file must be a regular
-// file only its owner can read or write, and RC_LIVE_EXTERNAL_REGISTRY_USER
+// FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE names one. The file must be a regular
+// file only its owner can read or write, and FORGE_CI_LIVE_EXTERNAL_REGISTRY_USER
 // must name the user; anything else stops the trial before it creates a
 // resource.
 func ExternalRegistryCredential(tb TB) (ExternalRegistry, bool) {

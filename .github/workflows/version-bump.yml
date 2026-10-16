@@ -109,7 +109,7 @@ permissions:
 jobs:
   # Generate full changelog for committing to repository
   generate-full-changelog:
-    name: Generate Full Changelog
+    name: "Prepare: changelog"
     permissions:
       contents: read
     uses: ./.github/workflows/generate-changelog.yml
@@ -123,7 +123,7 @@ jobs:
       artifact-name: "full-changelog"
   # Generate minimal changelog for commit message
   generate-minimal-changelog:
-    name: Generate Minimal Commit Changelog
+    name: "Prepare: commit message"
     permissions:
       contents: read
     uses: ./.github/workflows/generate-changelog.yml
@@ -136,7 +136,7 @@ jobs:
       output-file: "minimal-changelog.txt"
       artifact-name: "minimal-changelog"
   bump-version:
-    name: Bump Version and Commit
+    name: "Prepare: version and release commit"
     needs: [generate-full-changelog, generate-minimal-changelog]
     runs-on: ubuntu-24.04
     container:

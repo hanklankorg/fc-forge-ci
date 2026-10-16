@@ -298,7 +298,7 @@ esac
 
 				cosign := stage("cosign.gz", compressed.String())
 
-				// The prelude checks the runner binary against RC_LIVE_RUNNER_SHA256
+				// The prelude checks the runner binary against FORGE_CI_LIVE_RUNNER_SHA256
 				// before running it. Pin the digest of this fixture, so the test
 				// neither depends on nor is broken by the host's environment.
 				product := `#!/bin/sh

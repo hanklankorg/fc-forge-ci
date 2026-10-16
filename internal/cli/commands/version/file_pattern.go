@@ -25,7 +25,7 @@ func filePatternCmd() *cli.Command {
    forge-ci version file-pattern --project-type maven`,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:    "project-type",
+				Name:    flagProjectType,
 				Sources: cli.EnvVars("PROJECT_TYPE"),
 				Usage:   "ecosystem whose default pathspec to emit (ignored if --custom-pattern is set)",
 			},
@@ -43,7 +43,7 @@ func filePatternCmd() *cli.Command {
 
 			return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error {
 				_, err := appplan.GetFilePattern(ctx, d.OutputSink, os.Stderr, appplan.GetFilePatternInput{
-					ProjectType:   cmd.String("project-type"),
+					ProjectType:   cmd.String(flagProjectType),
 					CustomPattern: cmd.String("custom-pattern"),
 					WriteToOutput: true,
 					Format:        format,

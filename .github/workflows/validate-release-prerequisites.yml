@@ -129,7 +129,7 @@ permissions:
   contents: read # Default permission; individual jobs declare additions.
 jobs:
   validate:
-    name: Validate Prerequisites
+    name: "Check: release request"
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:

@@ -68,6 +68,12 @@ func DeletePublishedPackage(tb TB, target Target, repo, ecosystem, name, version
 	tb.Helper()
 	requireAccepted(tb, target)
 
+	if err := refuseDemoDeletion(target); err != nil {
+		tb.Errorf("livetest: %v", err)
+
+		return
+	}
+
 	// Own root, not tb.Context(): this runs from Cleanup, where the test
 	// context is already cancelled.
 	ctx, cancel := cleanupContext(timeoutAPI)

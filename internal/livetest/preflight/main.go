@@ -19,7 +19,7 @@ import (
 
 func main() {
 	if len(os.Args) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: preflight (reads the lab contract for account rc, LAB_TARGETS_FILE when set, and RC_LIVE_PROFILE)")
+		fmt.Fprintln(os.Stderr, "usage: preflight (reads the lab contract for account forgeci, LAB_TARGETS_FILE when set, and FORGE_CI_LIVE_PROFILE)")
 		os.Exit(2)
 	}
 

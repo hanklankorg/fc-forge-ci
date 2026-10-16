@@ -66,3 +66,25 @@ func TestGitLabConsumerBuildVariablesStayLiteralAndLocal(t *testing.T) {
 		t.Fatalf("default command changed: %q, %v", command, err)
 	}
 }
+
+// version-bump is the trial's own setting, written into the policy; every
+// other word stays a consumer variable for the build.
+func TestParseGitLabReleaseSettings_SeparatesTheBumpFromVariables(t *testing.T) {
+	got, err := ParseGitLabReleaseSettings("version-bump=maven\nversion=0.2.0\nRELEASE_PLATFORMS=linux/amd64")
+	if err != nil || got.VersionBump != "maven" || got.Version != "0.2.0" || got.Variables["RELEASE_PLATFORMS"] != "linux/amd64" || len(got.Variables) != 1 {
+		t.Fatalf("ParseGitLabReleaseSettings() = %+v, %v", got, err)
+	}
+
+	if got, err := ParseGitLabReleaseSettings("version=v0.2.0"); err != nil || got.Version != "0.2.0" {
+		t.Errorf("a leading v: ParseGitLabReleaseSettings() = %+v, %v; want version 0.2.0", got, err)
+	}
+
+	for _, input := range []string{
+		"version-bump=gradle", "version-bump=maven\nversion-bump=maven", "version-bump=",
+		"version=vv0.2.0", "version=0.2", "version=1.0.0\nversion=1.0.1",
+	} {
+		if _, err := ParseGitLabReleaseSettings(input); err == nil {
+			t.Errorf("ParseGitLabReleaseSettings(%q) accepted it", input)
+		}
+	}
+}

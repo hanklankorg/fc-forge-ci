@@ -9,6 +9,7 @@
 package git
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -85,6 +86,39 @@ func (r *Repo) Run(ctx context.Context, args ...string) (string, error) {
 	}
 
 	return strings.TrimRight(string(out), "\n"), nil
+}
+
+// Output executes `git <args...>` and returns its standard output exactly, for
+// output whose bytes matter: a patch keeps its final newline, and standard
+// error, which Run folds in, only joins an error.
+func (r *Repo) Output(ctx context.Context, args ...string) (string, error) {
+	bin := r.GitBin
+	if bin == "" {
+		bin = "git"
+	}
+
+	cmd := safeexec.Command(ctx, bin, args...)
+	if r.Dir != "" {
+		cmd.Dir = r.Dir
+	}
+
+	cmd.Env = messageStableEnv()
+
+	var stderr bytes.Buffer
+
+	cmd.Stderr = &stderr
+
+	out, err := cmd.Output()
+	if err != nil {
+		wrapped := safeexec.WrapError(err, bin, firstGitArg(args))
+		if stderr.Len() == 0 {
+			return "", wrapped
+		}
+
+		return "", fmt.Errorf("%w\n%s", wrapped, safeexec.RedactKeyMaterial(stderr.Bytes()))
+	}
+
+	return string(out), nil
 }
 
 // firstGitArg returns the first non-flag arg as the subcommand label

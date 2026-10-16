@@ -494,6 +494,20 @@ include:
         - bash .gitlab/build-release.sh
 ```
 
+#### Version bump
+
+With `version-bump: maven` in the policy's `release` inputs, the signed
+release commit carries the release version in the project's POMs, as it does
+on GitHub and on Forgejo. The `Prepare: version` job runs `mvn versions:set`
+in `job-image`, so that image needs the JDK and Maven, and holds no credential
+(`rc_release_context` refuses every release secret there). It hands over only
+the patch and its digest. `Prepare: release commit and tag`, which holds the
+SSH signing key, runs no build tool: `forge-ci version apply-bump` checks the patch as text,
+the files of `pom.xml` only, each changed line the version or the
+reproducible-build timestamp and nothing else, then commits it beside
+`CHANGELOG.md`. The build then finds the release version already declared.
+Empty, the default, leaves the release commit to the changelog.
+
 #### The merge-request gate under a policy
 
 Once the project's CI configuration path names the policy, GitLab runs the
@@ -518,9 +532,28 @@ include:
 
 Keep the gate in its own file, such as `.gitlab/merge-request.yml` with the
 `nanolinter` and `check` components from [Getting started](#getting-started),
-so the policy names exactly what it admits. Release-request tag pipelines stay
-policy-only. The live acceptance checks the tag side; the merge-request
-include is not yet covered by it.
+so the policy names exactly what it admits. The include's rule only decides
+when the file is read; GitLab still adds no job without rules to a
+merge-request pipeline, so the gate file declares the pipelines it runs in:
+
+```yaml
+# .gitlab/merge-request.yml
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+include:
+  - component: $CI_SERVER_FQDN/team/ci/forge-ci/check@PIN_FORGE_CI_SHA
+    inputs:
+      engine-project: team/ci/forge-ci
+      job-image: registry.example.com/team/check-tools@sha256:PIN_DIGEST
+      commands:
+        - bash .gitlab/check-release.sh
+```
+
+Release-request tag pipelines stay policy-only. The live consumer-release trial checks both sides when the
+consumer has `.gitlab/merge-request.yml`: it adds this include to the policy,
+releases, then opens a merge request on the released main and requires the
+gate's pipeline to pass.
 
 The parent trigger holds a resource group through a mirrored child pipeline,
 serializing the entire release. The child uses native `needs` and artifacts;
@@ -528,19 +561,24 @@ artifact files are never sourced or declared as dotenv reports. Request tags
 must be protected and SSH-signed against the allowed-signers text in the
 trusted policy. Checks, changelog rendering and builds run without signing keys.
 
-The child runs these jobs:
+The child runs these jobs, in five stages that read the same on every forge
+(check, prepare, build, sign, publish):
 
 | Job | Image | Does |
 |---|---|---|
-| `release-signing-preflight`, `release-publish-preflight`, `release-registry-preflight` | signer | The toolchain check, the Cosign key against the trusted public key, and the release and registry tokens, before anything else. |
-| `release-check` | job | Validates the signed request and that it is the head of the release branch, then runs `checks`. |
-| `release-render` | job | Renders the changelog and commit message. Consumer configuration runs only here. |
-| `release-prepare` | job | Commits the changelog and pushes the signed release commit and final tag with `RELEASE_SSH_SIGNING_KEY`. |
-| `release-build` | build | Checks out the final tag and runs `build`; hands `dist/` on with its digest. |
-| `release-sign` | signer | Imports images into the publication project, signs files, packages, provenance and images. |
-| `release-promote` | signer | Moves final image tags, with a journal. |
-| `release-publish` | signer | Creates the GitLab release with notes and assets. |
-| `release-cleanup` | signer | Removes candidate tags. |
+| `Check: signing access`, `Check: publishing access`, `Check: registry access` | signer | The toolchain check, the Cosign key against the trusted public key, and the release and registry tokens, before anything else. |
+| `Check: release request` | job | Validates the signed request and that it is the head of the release branch, then runs `checks`. |
+| `Prepare: changelog` | job | Renders the changelog and commit message. Consumer configuration runs only here and in `Prepare: version`. |
+| `Prepare: version` | job | With `version-bump`, sets the release version in the project files and hands over the patch; holds no credential. |
+| `Prepare: release commit and tag` | job | Verifies the version patch, commits it with the changelog and pushes the signed release commit and final tag with `RELEASE_SSH_SIGNING_KEY`. |
+| `Build: release files` | build | Checks out the final tag and runs `build`; hands `dist/` on with its digest. |
+| `Sign: files and images` | signer | Imports images into the publication project, signs files, packages, provenance and images. |
+| `Publish: images` | signer | Moves final image tags, with a journal. |
+| `Publish: release` | signer | Creates the GitLab release with notes and assets. |
+| `Publish: tidy up` | signer | Removes candidate tags. |
+
+Which job may hold which release secret is written in roles, in
+`.gitlab/bin/release.sh` (`rc_job_role`); a job's name maps to its role there.
 
 **The request is the head of the release branch.** As on Forgejo, the release
 commit is pushed on top of the request commit without force, so a request that
@@ -549,7 +587,7 @@ is not the tip of the release branch is refused. The branch is the
 call that reads a branch is given it explicitly, never through `RELEASE_BRANCH`
 or `BRANCH`. The deploy key of `release-git-url` must be allowed to push to
 that protected branch. Push the request tag at the tip and freeze merges until
-`release-prepare` has pushed; a request whose branch moved first is spent.
+`Prepare: release commit and tag` has pushed; a request whose branch moved first is spent.
 [The request is the head of the release
 branch](forgejo.md#the-request-is-the-head-of-the-release-branch) gives the operator rules.
 
@@ -803,7 +841,7 @@ SAST conversion names an owner.
 | `is available to the wrong release job` | A release variable is scoped too broadly. Use the scopes in [Secrets and tokens](#secrets-and-tokens). |
 | A release job fails in its first lines | The component is not included at its `engine-sha`, the project is not `consumer-project`, the tag is not protected, or the pipeline is not the policy's child. |
 | The engine download fails | The binary for that commit is not published, or the engine project or its packages need credentials. |
-| `release-check` refuses the request | The tag is not SSH-signed by an allowed signer, or it is not the head of the release branch. |
+| `Check: release request` refuses the request | The tag is not SSH-signed by an allowed signer, or it is not the head of the release branch. |
 | A release job fails uploading artifacts | The handoff is over the instance's artifact limit (100 MB by default); have the administrator raise it. |
 | An image build step ends with `exec format error` | A `RUN` step for another architecture on an unprivileged runner; emulation on the host does not reach a nested build. Build on a runner of that architecture. |
 | A project requested as SHA-256 is SHA-1 | The `support_sha256_repositories` feature flag was not enabled for the account when the project was created. |

@@ -1,0 +1,266 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# PRE-RELEASE: do not copy or pin this template from a mutable branch. No
+# tagged forge-ci release carries the Forgejo layer yet. Use it only from a
+# release you have authenticated, and pin that exact commit.
+#
+# Minimal isolated release flow for a Maven application released as its jar
+# (no containers): the Go CLI release (examples/go-cli/forgejo/) with
+# build-maven in place of build-go.
+# Copy to your repo as .forgejo/workflows/release.yml, then replace the
+# placeholders. Every one is a literal in the file, so `git grep` finds them:
+#
+#   FORGE_HOST                    host of your Forgejo instance (with :port if
+#                                 it has one), in the action URLs and the
+#                                 signer image coordinate
+#   OWNER                         organization or user that hosts forge-ci
+#                                 on that instance; workflows are called from
+#                                 the same instance as OWNER/forge-ci, and
+#                                 fetch their own files from the repository
+#                                 the forge-ci-repository input names
+#   PIN_FORGE_CI_SHA           ONE forge-ci commit SHA, everywhere:
+#                                   sed 's/PIN_FORGE_CI_SHA/<sha>/g' .forgejo/workflows/release.yml \
+#                                     > .forgejo/workflows/release.yml.new &&
+#                                   mv .forgejo/workflows/release.yml.new .forgejo/workflows/release.yml
+#                                 (check-l3-isolation fails on mixed pins, and on
+#                                 a forge-ci-sha input that is not this commit
+#                                 written out)
+#   PIN_SIGNER_IMAGE_DIGEST       sha256 digest of the signer image your
+#                                 organization built from forge-ci's
+#                                 containers/signer/Containerfile
+#   PIN_COSIGN_PUBLIC_KEY_SHA256  output of `sha256sum cosign.pub` for your
+#                                 organization's Cosign public key
+#   PIN_MAVEN_IMAGE_DIGEST        sha256 digest of the Maven image the
+#                                 version bump runs in (bash, git, curl,
+#                                 sha256sum, the JDK your POM targets, Maven);
+#                                 keep the tag beside it so Renovate can
+#                                 update the pin, the digest decides the pull
+#
+# Then:
+#
+#   1. Fill in each FIXME: the bot identity and your POM's artifactId.
+#   2. Configure the variables CI_RUNNER_LABEL, RELEASE_GIT_URL,
+#      RELEASE_GIT_HOST_KEY_FINGERPRINT and COSIGN_PUBLIC_KEY, and the
+#      always-required secrets used below. Disabled package/image secrets may
+#      remain unset.
+#
+# Requires Forgejo v16+ (reusable-workflow job expansion, forgejo#8780).
+# The shape is three blocks: two reusable-workflow calls around YOUR build
+# job — your code never runs in a trust-boundary job, and signing keys never
+# enter your job. Enforced at PR time by check-l3-isolation (see
+# pullrequest.yml beside this file).
+#
+#   prepare (forge-ci)  ->  build (yours)  ->  sign-and-publish (forge-ci)
+#
+# prepare runs with version-bump: maven. Its key-free version-bump job runs
+# `mvn versions:set` in the Maven image; the signing job verifies that the
+# resulting patch only moves the POMs' version to the release version, and
+# commits the POMs beside the changelog. So the release tag's source declares
+# the version the jar carries, as on GitHub and GitLab.
+#
+# The build job is a Maven build with forge-ci's build-maven action, the same
+# `forge-ci build maven run` GitHub's build-maven workflow runs; it fails if
+# the POM does not already declare the release version. Any other build
+# works as long as it ends with the same hand-off. Something of your own that must pass before a release (a
+# token check with verify-forgejo-token, a full test run) is a job of yours
+# that prepare `needs:`; the prepare job itself is the reusable workflow.
+#
+# Containers: this template builds none — the image ledger is simply absent,
+# which the signer treats as empty (image sign/promote no-op). For an image,
+# add registry-login, setup-buildah and build-release-image to the build job
+# and set publish-container-images; docs/forgejo.md has the steps.
+name: Release
+
+on:
+  push:
+    tags:
+      # Human-pushed request tags are the immutable release triggers. Forgejo
+      # tag filters are globs; prepare's guard-release-tag validates strictly.
+      - release-request/v[0-9]*.[0-9]*.[0-9]*
+
+# permissions: is a GitHub field Forgejo ignores (warning per run) --
+# kept for Scorecard Token-Permissions and GitHub portability. Real
+# restriction is Forgejo's repo-scoped read-default token.
+permissions:
+  contents: read
+
+jobs:
+  # ===========================================================================
+  # JOB: prepare — guard the request, fail-fast on enabled pipeline secrets,
+  # changelog + final tag. Everything here is forge-ci's pinned code.
+  # ===========================================================================
+  prepare:
+    if: success() && startsWith(forgejo.ref, 'refs/tags/')
+    uses: OWNER/forge-ci/.forgejo/workflows/prepare-release.yml@PIN_FORGE_CI_SHA
+    with:
+      runner-label: ${{ vars.CI_RUNNER_LABEL }}
+      # The repository and the commit of the uses: line above, written out:
+      # the workflow fetches its own files from there.
+      forge-ci-repository: OWNER/forge-ci
+      forge-ci-sha: PIN_FORGE_CI_SHA
+      signer-image: FORGE_HOST/OWNER/forge-ci-signer@sha256:PIN_SIGNER_IMAGE_DIGEST
+      bot-name: FIXME Release Bot
+      bot-email: FIXME-release-bot@example.com
+      # Pin both values from your trusted Forgejo operator. The SSH route may
+      # use a different host or port than the Forgejo HTTPS URL.
+      release-git-url: ${{ vars.RELEASE_GIT_URL }}
+      release-git-host-key-fingerprint: ${{ vars.RELEASE_GIT_HOST_KEY_FINGERPRINT }}
+      # Set true after committing and reviewing the configured allowed-signers
+      # file. The reusable workflow fails closed on any other boolean spelling.
+      verify-release-request-signature: 'false'
+      release-request-allowed-signers: .forgejo/release-allowed-signers
+      # The signed release commit carries the POMs' release version. The
+      # bump runs Maven in its own key-free job, in this image.
+      version-bump: maven
+      version-bump-image: docker.io/library/maven:3.9-eclipse-temurin-25@sha256:PIN_MAVEN_IMAGE_DIGEST
+      # This jar-only starter has no distro packages or container ledger.
+      sign-distro-packages: 'false'
+      publish-container-images: 'false'
+    secrets:
+      # Keep the complete explicit hand-off in lockstep with the reusable
+      # workflow contract. Disabled feature groups may be unconfigured.
+      RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+
+  # ===========================================================================
+  # JOB: build — YOURS. Everything into dist/. Zero signing-key references,
+  # ever; upload-dist emits the tamper-evidence digest the signer verifies.
+  # ===========================================================================
+  build:
+    name: "Build: release files"
+    needs: prepare
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      # FIXME: your POM's artifactId. It names the jar and the Build SBOM.
+      ARTIFACT_NAME: FIXME-app
+    outputs:
+      dist-digest: ${{ steps.dist.outputs.digest }}
+    steps:
+      - name: Set up forge-ci
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA
+
+      # Engine checkout: sha256-aware and container-friendly (the JS checkout
+      # action only recognizes 40-hex commit SHAs, so it cannot check out a
+      # prepared release SHA on a sha256 repository). Object format is
+      # auto-resolved from the forge.
+      - name: Checkout prepared release
+        env:
+          CHECKOUT_REF: ${{ needs.prepare.outputs.release-sha }}
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout
+
+      # The tools of your mise config, which must declare the JDK and Maven
+      # the build uses (for example java = "temurin-25" and maven = "3.9").
+      # A job container image carrying both works as well.
+      - name: Set up toolchain
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-toolchain@PIN_FORGE_CI_SHA
+        with:
+          cache-key-suffix: release-build
+          install-dev-tools: false
+          # Release isolation: no cache in token-bearing release jobs.
+          cache: 'false'
+
+      # Tests, the jar in target/ and the Build SBOM as target/bom.json. The
+      # version and the commit are the prepared release's: the runner's own
+      # ref and commit are the request's. The version is checked, not set:
+      # the release commit already declares it.
+      - name: Build
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/build-maven@PIN_FORGE_CI_SHA
+        with:
+          version: ${{ needs.prepare.outputs.release-tag }}
+          commit: ${{ needs.prepare.outputs.release-sha }}
+          build-type: app
+
+      # The hand-off the signer takes: the public files, exactly one checksums
+      # file covering them, release-notes.md for the release body, and
+      # dist/release-files.json, the manifest that declares the public files.
+      # `release files declare` writes the checksums file and the manifest
+      # from the files named here; the signer runs
+      #   forge-ci release files validate --unsigned
+      # first, and signs and publishes what the manifest names. The hand-off
+      # is unsigned: dist/ holds no <file>.sig or <file>.bundle and no
+      # slsa-provenance.intoto.json, because the signer writes those.
+      # A release-notes.md you render before this step becomes the release
+      # body; without one the body is a stub naming the tag. Render it in the
+      # checkout root and list it in .gitignore, so the checkout stays clean.
+      - name: Declare the release files
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release-tag }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.release-sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp -- "target/${ARTIFACT_NAME}-${RELEASE_TAG#v}.jar" dist/
+          cp -- target/bom.json "dist/${ARTIFACT_NAME}.cdx.json"
+          forge-ci release notes \
+            --source-file release-notes.md \
+            --target-file dist/release-notes.md \
+            --release-version "${RELEASE_TAG}" \
+            --release-commit "${RELEASE_SHA}"
+          forge-ci release files declare \
+            --asset 'dist/*.jar' \
+            --sbom "dist/${ARTIFACT_NAME}.cdx.json"
+
+      - name: Upload dist/ with hand-off digest
+        id: dist
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/upload-dist@PIN_FORGE_CI_SHA
+        with:
+          artifact-name: build-dist
+          path: dist/
+
+  # ===========================================================================
+  # JOB: sign-and-publish, the signing secret boundary. The secrets block is
+  # the complete, enumerated signing hand-off (never `secrets: inherit`).
+  # ===========================================================================
+  sign-and-publish:
+    name: Sign and publish
+    needs: [prepare, build]
+    # job-graph-guard: allow reason="reads needs.prepare.outputs but is gated on needs.build.result=='success'; build needs prepare, so build can only succeed if prepare succeeded, making prepare.outputs always present"
+    if: ${{ always() && needs.build.result == 'success' }}
+    uses: OWNER/forge-ci/.forgejo/workflows/sign-and-publish-release.yml@PIN_FORGE_CI_SHA
+    with:
+      runner-label: ${{ vars.CI_RUNNER_LABEL }}
+      release-tag: ${{ needs.prepare.outputs.release-tag }}
+      release-sha: ${{ needs.prepare.outputs.release-sha }}
+      # The commit the request tag pushed, from the event context. The signer
+      # binds the release commit to it, so do not route this through a job
+      # output: a value that travels with the release is not evidence about it.
+      release-request-sha: ${{ forgejo.sha }}
+      dist-digest: ${{ needs.build.outputs.dist-digest }}
+      artifact-name: build-dist
+      artifact-path: dist/
+      caller-workflow: release.yml
+      forge-ci-repository: OWNER/forge-ci
+      forge-ci-sha: PIN_FORGE_CI_SHA
+      sign-distro-packages: 'false'
+      # Your organization's signer image, by digest. forge-ci ships the
+      # Containerfile and publishes no image.
+      signer-image: FORGE_HOST/OWNER/forge-ci-signer@sha256:PIN_SIGNER_IMAGE_DIGEST
+      # Your organization's Cosign trust root; forge-ci ships no key. A
+      # public key is not a secret, so it may come from a variable. Keep the
+      # digest a literal here: it is what binds a key read from a variable to
+      # this reviewed file.
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: PIN_COSIGN_PUBLIC_KEY_SHA256
+      # Signatures are verified against your key alone and nothing is written
+      # to the public Sigstore transparency log. `transparency-log: public`
+      # here writes every signature to it, permanently; see docs/forgejo.md.
+    secrets:
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}

@@ -153,10 +153,10 @@ func TestContractProjectsFixtureFacts(t *testing.T) {
 func TestCheckoutFixtureNamesTheManifestOwnerNotTheSuiteAccount(t *testing.T) {
 	t.Parallel()
 
-	target := Target{Owner: "rc", fixtureCatalogVersion: 2, fixtureProvider: labcontract.Forgejo}
+	target := Target{Owner: "forgeci", fixtureCatalogVersion: 2, fixtureProvider: labcontract.Forgejo}
 	fixture, err := checkoutFixtureOf(checkoutManifestFixture(), target)
 	require.NoError(t, err)
 	require.Equal(t, "owner", fixture.Owner)
 	require.Equal(t, "owner/fx-tag-behind-head", RepoSlug(target.Reading(fixture.Owner), fixture.Repository))
-	require.Equal(t, "rc", target.Owner, "Reading must not change the suite's own target")
+	require.Equal(t, "forgeci", target.Owner, "Reading must not change the suite's own target")
 }

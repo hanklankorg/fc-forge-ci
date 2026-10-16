@@ -183,6 +183,12 @@ func TestParseGitHubTrialSettings(t *testing.T) {
 		t.Errorf("release settings = %+v", release)
 	}
 
+	// version= is X.Y.Z on every forge; a leading v is accepted.
+	plain, err := ParseGitHubTrialSettings(TrialRelease, []string{"version=1.2.3"})
+	if err != nil || plain.Version != "v1.2.3" {
+		t.Errorf("version=1.2.3: %+v, %v; want v1.2.3", plain, err)
+	}
+
 	pr, err := ParseGitHubTrialSettings(TrialPullRequest, nil)
 	if err != nil || pr.Workflow != "pullrequest.yml" || pr.Version != "" {
 		t.Errorf("pull-request defaults = %+v, %v", pr, err)
@@ -191,7 +197,7 @@ func TestParseGitHubTrialSettings(t *testing.T) {
 	for _, bad := range [][2]string{
 		{TrialPullRequest, "version=v1.0.0"},
 		{TrialPullRequest, "image=x"},
-		{TrialRelease, "version=1.0.0"},
+		{TrialRelease, "version=1.0"},
 		{TrialRelease, "fixtures=../elsewhere"},
 		{TrialRelease, "runtime-image=x"},
 		{TrialRelease, "nanolinter-image=a b"},
@@ -246,5 +252,27 @@ func TestCosignTrust_VerifyArgs(t *testing.T) {
 
 	if key.String() != "the trial's Cosign key" || KeylessTrust(engine).String() != engine.KeylessIdentityRegexp() {
 		t.Errorf("trust names: %q, %q", key, KeylessTrust(engine))
+	}
+}
+
+// An orchestrator call that leaves its images to their released defaults
+// would fail in its first job on an unreleased engine; it is refused before
+// anything is pushed, and the same call with runtime-image renders.
+func TestRenderGitHubConsumer_RequiresTheRuntimeImageOfAnOrchestratorCall(t *testing.T) {
+	t.Parallel()
+
+	engine := GitHubEngine{Owner: "org", Repository: "fc-forge-ci", Commit: strings.Repeat("a", 40)}
+	call := "jobs:\n  release:\n    uses: diggsweden/forge-ci/.github/workflows/release-orchestrator.yml@v0.90.0\n    with:\n      branch: main\n"
+
+	if _, _, err := RenderGitHubConsumer("release.yml", call, engine, nil); !errors.Is(err, errs.ErrValidation) ||
+		!strings.Contains(err.Error(), "runtime-image") {
+		t.Fatalf("RenderGitHubConsumer() = %v, want the missing runtime-image named", err)
+	}
+
+	withImage := call + "      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0\n"
+
+	rendered, _, err := RenderGitHubConsumer("release.yml", withImage, engine, nil)
+	if err != nil || !strings.Contains(rendered, "runtime-image: "+engine.Registry()+"/forge-ci-runtime-base:"+engine.ImageTag()) {
+		t.Fatalf("RenderGitHubConsumer() = %v:\n%s", err, rendered)
 	}
 }

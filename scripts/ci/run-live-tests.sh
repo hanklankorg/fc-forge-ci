@@ -30,7 +30,7 @@ focused)
 	;;
 *) usage ;;
 esac
-export RC_LIVE_PROFILE="$profile"
+export FORGE_CI_LIVE_PROFILE="$profile"
 
 # Preflight first, before anything is built: it locates the contract for this
 # suite's lab account (LAB_TARGETS_FILE overrides the default path) and
@@ -51,8 +51,8 @@ done
 }
 
 # One run per lab account at a time: scenarios delete and recreate fixed
-# rc-<scenario> repositories, so two concurrent runs would clobber each other.
-# The lock lives at a fixed state path, not under RC_LIVE_EVIDENCE_ROOT, so
+# fci-<scenario> repositories, so two concurrent runs would clobber each other.
+# The lock lives at a fixed state path, not under FORGE_CI_LIVE_EVIDENCE_ROOT, so
 # moving the log cannot split it. It covers runs sharing this $HOME only; a
 # run from a container with its own HOME does not see it. The shell holds
 # fd 9 until it exits; the lock releases with it.
@@ -79,9 +79,9 @@ sanitize_live_log() {
 
 # The log survives the run under the XDG state directory (30-day retention),
 # because the live tier is human-invoked and has no CI artifact to retrieve.
-log_root=${RC_LIVE_EVIDENCE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/forge-ci/live-runs}
+log_root=${FORGE_CI_LIVE_EVIDENCE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/forge-ci/live-runs}
 [[ "$log_root" == /* ]] || {
-	printf 'RC_LIVE_EVIDENCE_ROOT must be absolute, got %q\n' "$log_root" >&2
+	printf 'FORGE_CI_LIVE_EVIDENCE_ROOT must be absolute, got %q\n' "$log_root" >&2
 	exit 2
 }
 install -d -m 0700 -- "$log_root"
@@ -117,13 +117,13 @@ trap 'rm -rf -- "$state"' EXIT
 )
 packages=$(cd -- "$repo_root" && "$go_bin" list -tags=live -f '{{if or .TestGoFiles .XTestGoFiles}}{{.Dir}}{{end}}' ./internal/livetest/...)
 
-export RC_LIVE_BIN="$state/forge-ci-host"
-export RC_LIVE_RUNNER_BIN="$state/forge-ci-runner"
-export RC_LIVE_RUNNER_SHA256
-RC_LIVE_RUNNER_SHA256=$(sha256sum "$state/forge-ci-runner" | cut -d' ' -f1)
-export RC_LIVE_CREDENTIAL_PROXY_BIN="$state/credential-proxy"
-export RC_LIVE_PROBE_JSON_BIN="$state/probe-json"
-export RC_LIVE_LAYER_BIN="$state/forge-ci-layer"
+export FORGE_CI_LIVE_BIN="$state/forge-ci-host"
+export FORGE_CI_LIVE_RUNNER_BIN="$state/forge-ci-runner"
+export FORGE_CI_LIVE_RUNNER_SHA256
+FORGE_CI_LIVE_RUNNER_SHA256=$(sha256sum "$state/forge-ci-runner" | cut -d' ' -f1)
+export FORGE_CI_LIVE_CREDENTIAL_PROXY_BIN="$state/credential-proxy"
+export FORGE_CI_LIVE_PROBE_JSON_BIN="$state/probe-json"
+export FORGE_CI_LIVE_LAYER_BIN="$state/forge-ci-layer"
 
 {
 	printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -133,8 +133,8 @@ export RC_LIVE_LAYER_BIN="$state/forge-ci-layer"
 	# What a consumer recipe was given, so the run can be repeated from its
 	# log. A setting names a variable or a secret and never carries a secret.
 	# An external registry's token stays in its file; its path and user are logged.
-	for input in RC_LIVE_CONSUMER RC_LIVE_CONSUMER_EVENT RC_LIVE_CONSUMER_SETTINGS RC_LIVE_CONSUMER_VISIBILITY \
-		RC_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE RC_LIVE_EXTERNAL_REGISTRY_USER; do
+	for input in FORGE_CI_LIVE_DEMO FORGE_CI_LIVE_CONSUMER FORGE_CI_LIVE_CONSUMER_EVENT FORGE_CI_LIVE_CONSUMER_SETTINGS FORGE_CI_LIVE_CONSUMER_VISIBILITY \
+		FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE FORGE_CI_LIVE_EXTERNAL_REGISTRY_USER; do
 		[[ -z "${!input:-}" ]] || printf '%s=%q\n' "${input,,}" "${!input}"
 	done
 	printf '%s\n' "$preflight_report"
@@ -190,6 +190,30 @@ if [[ "$logger_status" -ne 0 && "$status" -eq 0 ]]; then status=$logger_status; 
 if [[ "$interrupted" -ne 0 ]]; then status=130; fi
 set -e
 
+# passed_a_scenario reports whether a test that runs no subtests of its own
+# passed. Go passes a test whose subtests all skipped, and a focused run skips
+# what its environment lacks, so a clean exit alone does not say anything ran.
+passed_a_scenario() {
+	local -A result=()
+	local line name other leaf
+	while IFS= read -r line; do
+		[[ "$line" =~ ^[[:space:]]*---\ (PASS|FAIL|SKIP):\ ([^[:space:]]+) ]] || continue
+		result[${BASH_REMATCH[2]}]=${BASH_REMATCH[1]}
+	done <"$1"
+	for name in "${!result[@]}"; do
+		[[ "${result[$name]}" == PASS ]] || continue
+		leaf=1
+		for other in "${!result[@]}"; do
+			if [[ "$other" == "$name"/* ]]; then
+				leaf=0
+				break
+			fi
+		done
+		((leaf == 0)) || return 0
+	done
+	return 1
+}
+
 # One verdict for the run: each test package above ends with a PASS or FAIL of
 # its own, and a package holding none of the selected scenarios prints PASS.
 case "$status" in
@@ -197,6 +221,10 @@ case "$status" in
 130) verdict=interrupted ;;
 *) verdict=failed ;;
 esac
+if [[ "$status" -eq 0 ]] && ! passed_a_scenario "$log"; then
+	verdict='skipped: no scenario ran; the log says why'
+	status=1
+fi
 printf 'Live result: %s\n' "$verdict"
 printf 'Live log: %s (retained for 30 days)\n' "$log"
 exit "$status"

@@ -10,8 +10,15 @@ Simple Maven application with container build.
 - **GitLab**: [`gitlab/.gitlab-ci.yml`](gitlab/.gitlab-ci.yml), the lint gate,
   `check` and `build-maven`. No component builds or publishes the image. See
   the [GitLab guide](../../docs/gitlab.md#getting-started).
-- **Forgejo**: not available; the Forgejo layer builds Go and Cargo only. See
-  [Delivery layers side by side](../../docs/providers.md#delivery-layers-side-by-side).
+- **Forgejo**: [`forgejo/pullrequest.yml`](forgejo/pullrequest.yml) and
+  [`forgejo/release.yml`](forgejo/release.yml), a `build-maven` jar release of
+  a project at the repository root. The signed release commit carries the
+  POMs' release version: `prepare-release.yml` bumps them in a key-free job
+  (`version-bump: maven`) and verifies the bump before committing it, and
+  `build-maven` checks the version it builds. An image
+  is added to the build job as in the
+  [Go service example](../go-service/forgejo/release.yml). See the
+  [Forgejo guide](../../docs/forgejo.md#getting-started).
 
 The rest of this page describes the GitHub configuration.
 

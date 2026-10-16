@@ -24,9 +24,8 @@ jobs:
       # Optional: uploads lint security findings (SARIF) to Code Scanning.
       CODE_SCANNING_TOKEN: ${{ secrets.CODE_SCANNING_TOKEN }}
     permissions:
+      actions: read
       contents: read
-      packages: read
-      security-events: write
     with:
       forge-ci-binary-ref: v0.90.0
       project-type: cargo

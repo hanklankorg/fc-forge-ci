@@ -56,7 +56,7 @@ func forgetContract(t *testing.T, path string) {
 	})
 }
 
-// installDefaultContract writes body where the lab writes the rc account's
+// installDefaultContract writes body where the lab writes the forgeci account's
 // contract under an owned state directory, unsets the override, and returns
 // that path.
 func installDefaultContract(t *testing.T, body string) string {
@@ -210,12 +210,12 @@ func TestCurrentLabContract_DetectsMutationAfterFirstLoad(t *testing.T) {
 }
 
 // TestCurrentLabContract_LocatesByAccount: with the override unset the
-// contract is read from the lab's default path for account rc under the state
+// contract is read from the lab's default path for account forgeci under the state
 // directory, and an absent one, at either location, is reported with where
 // the suite looked and how to get one there.
 func TestCurrentLabContract_LocatesByAccount(t *testing.T) {
 	path := installDefaultContract(t, composeFixtureBody(t))
-	if !strings.HasSuffix(path, filepath.Join("forge-lab", "targets", "rc.json")) {
+	if !strings.HasSuffix(path, filepath.Join("forge-lab", "targets", "forgeci.json")) {
 		t.Fatalf("default path = %s", path)
 	}
 
@@ -228,7 +228,7 @@ func TestCurrentLabContract_LocatesByAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requireMissingContractHint(t, path, labcontract.PathEnv+` is unset, so the default for lab account "rc"`)
+	requireMissingContractHint(t, path, labcontract.PathEnv+` is unset, so the default for lab account "forgeci"`)
 
 	absent := filepath.Join(t.TempDir(), "absent.json")
 	t.Setenv(labcontract.PathEnv, absent)

@@ -25,7 +25,7 @@ func retainScratchForInspection(tb TB, target Target, repo string) {
 	tb.Helper()
 
 	if target.Forge != provider.ForgeForgejo {
-		tb.Logf("livetest: keeping %s/%s for inspection (RC_LIVE_KEEP_SCRATCH=1)", target.Owner, repo)
+		tb.Logf("livetest: keeping %s/%s for inspection (FORGE_CI_LIVE_KEEP_SCRATCH=1)", target.Owner, repo)
 
 		return
 	}

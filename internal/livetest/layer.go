@@ -17,11 +17,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
+	"github.com/diggsweden/forge-ci/internal/retry"
 )
 
 // The Forgejo delivery layer is the workflows, actions and scripts under
@@ -150,8 +153,9 @@ func PushLayer(tb TB, target Target, repo string) Layer {
 	}
 
 	// Forgejo scopes a package to the owner, so deleting the scratch
-	// repository leaves it behind.
-	if target.Forge == provider.ForgeForgejo {
+	// repository leaves it behind. A demo keeps it: its jobs download it on
+	// every rerun, and other demos of the same layer commit share it.
+	if target.Forge == provider.ForgeForgejo && target.Owner != demoAccount {
 		tb.Cleanup(func() { DeletePublishedPackage(tb, target, repo, "generic", layerPackage, recorded) })
 	}
 
@@ -346,6 +350,25 @@ func layerGitEnvironment(gitBase, username, token string) map[string]string {
 	}
 }
 
+// dated returns git with its commit date set to when instead of the fixed
+// snapshot date: for commits on a consumer's own history, which a reader dates
+// releases by.
+func (git layerGit) dated(when time.Time) layerGit {
+	stamp := when.UTC().Format(time.RFC3339)
+
+	env := make([]string, 0, len(git.env)+2)
+	for _, entry := range git.env {
+		if !strings.HasPrefix(entry, "GIT_AUTHOR_DATE=") && !strings.HasPrefix(entry, "GIT_COMMITTER_DATE=") {
+			env = append(env, entry)
+		}
+	}
+
+	env = append(env, "GIT_AUTHOR_DATE="+stamp, "GIT_COMMITTER_DATE="+stamp)
+	git.env = env
+
+	return git
+}
+
 // scratchRemote is the HTTPS address git pushes a scratch repository by.
 func scratchRemote(target Target, repo string) string {
 	return strings.TrimSuffix(target.endpoint.GitURL(), "/") + "/" + target.Owner + "/" + repo + ".git"
@@ -395,16 +418,42 @@ func (git layerGit) requireClean(ctx context.Context, root, what string) error {
 
 // push makes commit the head of a branch on remote.
 func (git layerGit) push(ctx context.Context, root, remote, commit, branch string) error {
-	args := []string{eventPush, gitQuiet}
+	var args []string
 	if git.target.Forge == provider.ForgeGitLab && branch == layerBranch {
 		// Serving the engine's tree must not launch its own self-test pipeline.
 		args = append(args, "--push-option=ci.skip")
 	}
 
-	args = append(args, remote, commit+":refs/heads/"+branch)
-	_, err := git.run(ctx, root, args...)
+	return git.runPush(ctx, root, append(args, remote, commit+":refs/heads/"+branch)...)
+}
 
-	return err
+// gitTransportFailure is what git reports when the connection to the forge
+// broke, as against the forge refusing the push.
+var gitTransportFailure = regexp.MustCompile(`unable to access|Could not resolve host|Connection (reset|refused|timed out)|` +
+	`TLS connection|GnuTLS recv error|RPC failed|remote end hung up unexpectedly|Empty reply from server|returned error: 50[234]`)
+
+// gitRefusal is a forge's answer, which another attempt cannot change.
+var gitRefusal = regexp.MustCompile(`returned error: 4[0-9][0-9]|\[rejected\]|\[remote rejected\]`)
+
+// runPush runs `git push` with args, retrying a broken connection. Pushing an
+// exact object to a named ref is idempotent: a retry lands it, or finds it
+// already there. A refusal is not retried.
+func (git layerGit) runPush(ctx context.Context, dir string, args ...string) error {
+	return retry.Run(ctx, nil, 4, 3*time.Second, func() error {
+		_, err := git.run(ctx, dir, append([]string{eventPush, gitQuiet}, args...)...)
+		if err != nil && !brokenConnection(err.Error()) {
+			return retry.Permanent(err)
+		}
+
+		return err
+	})
+}
+
+// brokenConnection reports whether git's failure message is a broken
+// connection to the forge, which another attempt may get through, rather than
+// the forge's own answer.
+func brokenConnection(message string) bool {
+	return gitTransportFailure.MatchString(message) && !gitRefusal.MatchString(message)
 }
 
 // run returns git's trimmed standard output. A failure carries what git wrote

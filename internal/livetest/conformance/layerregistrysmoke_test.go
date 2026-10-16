@@ -60,7 +60,7 @@ All notable changes to this acceptance fixture will be documented in this file.
 // names that key, and the fixture asks prepare-release.yml to verify it.
 //
 // A job can build an image only where the runner lets it, and no contract
-// says whether it does, so the operator does: with RC_LIVE_IMAGE_BUILDS=0 the
+// says whether it does, so the operator does: with FORGE_CI_LIVE_IMAGE_BUILDS=0 the
 // scenario skips. Without it a failed build is a failure. The fixture's first
 // job is the layer's setup-buildah alone, so that such a failure can say the
 // runner refused the build.
@@ -151,7 +151,7 @@ func runLayerRegistrySignerSmoke(t *testing.T, private bool) {
 	run := livetest.WaitForLayerRun(t, target, repo, workflow, "push")
 	if run.Status != jobSuccess {
 		t.Logf("where %q is the job that failed, the runner refused the build and the release is not at fault: run the scenario where a job may "+
-			"build an image, or say that this runner allows none with RC_LIVE_IMAGE_BUILDS=0", smokeStorageJob)
+			"build an image, or say that this runner allows none with FORGE_CI_LIVE_IMAGE_BUILDS=0", smokeStorageJob)
 	}
 
 	scenario.requireStatus(t, run, jobSuccess)

@@ -33,7 +33,7 @@ import (
 // FORGE_CI_* namespace on purpose: that namespace is the product's own
 // flags, and a variable that only points a test suite at a binary must not look
 // like one of them.
-const binaryEnv = "RC_LIVE_BIN"
+const binaryEnv = "FORGE_CI_LIVE_BIN"
 
 // Run is one invocation of the product binary.
 type Run struct {

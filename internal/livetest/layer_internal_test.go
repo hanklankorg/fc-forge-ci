@@ -9,8 +9,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/goccy/go-yaml"
 
@@ -21,7 +23,7 @@ import (
 func sampleLayer() Layer {
 	return Layer{
 		ServerURL:    "https://forgejo.compose.forgelab:8443",
-		Repository:   "rc/rc-layer-artifact",
+		Repository:   "forgeci/fci-layer-artifact",
 		Commit:       strings.Repeat("a", 40),
 		BinarySHA256: strings.Repeat("b", 64),
 	}
@@ -32,13 +34,13 @@ func sampleLayer() Layer {
 // TestLayerFixtures_RenderToWorkflowsThatPinTheLayer until it is.
 func layerFixtureFacts() []string {
 	return []string{
-		"RENDER_ACCEPTANCE_REPOSITORY", "rc/rc-layer-consumer",
-		"RENDER_SIGNER_IMAGE", "forgejo.compose.forgelab:8443/rc/rc-layer-signer@sha256:" + unrunDigest,
+		"RENDER_ACCEPTANCE_REPOSITORY", "forgeci/fci-layer-consumer",
+		"RENDER_SIGNER_IMAGE", "forgejo.compose.forgelab:8443/forgeci/fci-layer-signer@sha256:" + unrunDigest,
 		"RENDER_COSIGN_PUBLIC_KEY_SHA256", unrunDigest,
 		"RENDER_COSIGN_PUBLIC_KEY", "-----BEGIN PUBLIC KEY-----\n        AAAA\n        -----END PUBLIC KEY-----",
-		"RENDER_RELEASE_GIT_URL", "ssh://git@forgejo.compose.forgelab:2222/rc/rc-layer-minimal-release.git",
+		"RENDER_RELEASE_GIT_URL", "ssh://git@forgejo.compose.forgelab:2222/forgeci/fci-layer-minimal-release.git",
 		"RENDER_RELEASE_GIT_HOST_KEY_FINGERPRINT", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-		"RENDER_BASE_REPOSITORY", "forgejo.compose.forgelab:8443/rc/rc-layer-registry-smoke-base",
+		"RENDER_BASE_REPOSITORY", "forgejo.compose.forgelab:8443/forgeci/fci-layer-registry-smoke-base",
 	}
 }
 
@@ -49,11 +51,11 @@ func TestSignerImage_IsADigestPinnedLabImageOrASkip(t *testing.T) {
 		skipped, refused bool
 	}{
 		"unset":            {skipped: true},
-		"a lab image":      {value: "forgejo.compose.forgelab:8443/rc/rc-layer-signer@sha256:" + unrunDigest, want: true},
-		"a tag":            {value: "forgejo.compose.forgelab:8443/rc/rc-layer-signer:latest", refused: true},
+		"a lab image":      {value: "forgejo.compose.forgelab:8443/forgeci/fci-layer-signer@sha256:" + unrunDigest, want: true},
+		"a tag":            {value: "forgejo.compose.forgelab:8443/forgeci/fci-layer-signer:latest", refused: true},
 		"a public host":    {value: "ghcr.io/owner/signer@sha256:" + unrunDigest, refused: true},
-		"a short digest":   {value: "forgejo.compose.forgelab:8443/rc/rc-layer-signer@sha256:abc", refused: true},
-		"trailing content": {value: "forgejo.compose.forgelab:8443/rc/rc-layer-signer@sha256:" + unrunDigest + " x", refused: true},
+		"a short digest":   {value: "forgejo.compose.forgelab:8443/forgeci/fci-layer-signer@sha256:abc", refused: true},
+		"trailing content": {value: "forgejo.compose.forgelab:8443/forgeci/fci-layer-signer@sha256:" + unrunDigest + " x", refused: true},
 	} {
 		t.Setenv(signerImageEnv, test.value)
 
@@ -97,25 +99,25 @@ jobs:
 
 	want := `env:
   SERVER: https://forgejo.compose.forgelab:8443
-  REPOSITORY: rc/rc-layer-consumer
+  REPOSITORY: forgeci/fci-layer-consumer
 jobs:
   call:
-    uses: rc/rc-layer-artifact/.forgejo/workflows/prepare-release.yml@` + strings.Repeat("a", 40) + `
+    uses: forgeci/fci-layer-artifact/.forgejo/workflows/prepare-release.yml@` + strings.Repeat("a", 40) + `
     with:
-      forge-ci-repository: rc/rc-layer-artifact
-      signer-image: forge.example/rc/signer@sha256:1
+      forge-ci-repository: forgeci/fci-layer-artifact
+      signer-image: forge.example/forgeci/signer@sha256:1
       key-sha256: 2
       key: 3
   step:
     steps:
-      - uses: https://forgejo.compose.forgelab:8443/rc/rc-layer-artifact/.forgejo/actions/setup-forge-ci@` + strings.Repeat("a", 40) + `
+      - uses: https://forgejo.compose.forgelab:8443/forgeci/fci-layer-artifact/.forgejo/actions/setup-forge-ci@` + strings.Repeat("a", 40) + `
         with:
           expected-sha256: ` + strings.Repeat("b", 64) + `
 `
 
 	// A scenario's own facts, the longer of two overlapping placeholders first.
-	got, err := sampleLayer().Render(fixture, "RENDER_ACCEPTANCE_REPOSITORY", "rc/rc-layer-consumer",
-		"RENDER_SIGNER_IMAGE", "forge.example/rc/signer@sha256:1", "RENDER_KEY_SHA256", "2", "RENDER_KEY", "3")
+	got, err := sampleLayer().Render(fixture, "RENDER_ACCEPTANCE_REPOSITORY", "forgeci/fci-layer-consumer",
+		"RENDER_SIGNER_IMAGE", "forge.example/forgeci/signer@sha256:1", "RENDER_KEY_SHA256", "2", "RENDER_KEY", "3")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,11 +225,11 @@ func TestLayerRenderReleaseExample_IsAWorkflowTheIsolationGateCanRead(t *testing
 	// What the gate holds: one pin of one repository, the helper checkout at
 	// the same commit, and the two trust inputs as literals of their shape.
 	for _, want := range []string{
-		"uses: rc/rc-layer-artifact/.forgejo/workflows/sign-and-publish-release.yml@" + layer.Commit + "\n",
-		"uses: https://forgejo.compose.forgelab:8443/rc/rc-layer-artifact/.forgejo/actions/upload-dist@" + layer.Commit + "\n",
-		"forge-ci-repository: rc/rc-layer-artifact\n",
+		"uses: forgeci/fci-layer-artifact/.forgejo/workflows/sign-and-publish-release.yml@" + layer.Commit + "\n",
+		"uses: https://forgejo.compose.forgelab:8443/forgeci/fci-layer-artifact/.forgejo/actions/upload-dist@" + layer.Commit + "\n",
+		"forge-ci-repository: forgeci/fci-layer-artifact\n",
 		"forge-ci-sha: " + layer.Commit + "\n",
-		"signer-image: forgejo.compose.forgelab:8443/rc/rc-layer-artifact-signer@sha256:" + unrunDigest + "\n",
+		"signer-image: forgejo.compose.forgelab:8443/forgeci/fci-layer-artifact-signer@sha256:" + unrunDigest + "\n",
 		"cosign-public-key-sha256: " + unrunDigest + "\n",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -240,13 +242,13 @@ func TestLayerGitEnvironment_ScopesTheCredentialToTheLabGitRoot(t *testing.T) {
 	t.Parallel()
 
 	//nolint:gosec // A synthetic credential.
-	env := layerGitEnvironment("https://forgejo.compose.forgelab:8443", "rc", "synthetic-token")
+	env := layerGitEnvironment("https://forgejo.compose.forgelab:8443", "forgeci", "synthetic-token")
 
 	if got, want := env["GIT_CONFIG_KEY_0"], "http.https://forgejo.compose.forgelab:8443/.extraHeader"; got != want {
 		t.Errorf("credential header key = %q, want %q so git sends it to no other host", got, want)
 	}
 
-	pair := base64.StdEncoding.EncodeToString([]byte("rc:synthetic-token"))
+	pair := base64.StdEncoding.EncodeToString([]byte("forgeci:synthetic-token"))
 	if env["GIT_CONFIG_VALUE_0"] != "Authorization: Basic "+pair {
 		t.Error("credential header is not the Basic pair of the contract's credential")
 	}
@@ -269,7 +271,7 @@ func TestLayerGitEnvironment_ScopesTheCredentialToTheLabGitRoot(t *testing.T) {
 
 	// Every credential form the kit redacts covers the header, so git echoing
 	// its configuration cannot put the token in a test log.
-	target := Target{CredentialUsername: "rc", Token: "synthetic-token"}
+	target := Target{CredentialUsername: "forgeci", Token: "synthetic-token"}
 	if redacted := redactTargetSecrets(target, env["GIT_CONFIG_VALUE_0"]); strings.Contains(redacted, pair) {
 		t.Error("the credential header survives redaction")
 	}
@@ -280,7 +282,7 @@ func TestLayerGitEnvironment_ScopesTheCredentialToTheLabGitRoot(t *testing.T) {
 func newLayerCheckout(t *testing.T) (layerGit, string) {
 	t.Helper()
 
-	settings := layerGitEnvironment("https://forgejo.compose.forgelab:8443", "rc", "synthetic-token")
+	settings := layerGitEnvironment("https://forgejo.compose.forgelab:8443", "forgeci", "synthetic-token")
 
 	env := make([]string, 0, len(settings)+2)
 	env = append(env, "PATH="+os.Getenv("PATH"), "HOME="+t.TempDir())
@@ -462,5 +464,45 @@ func TestRequestSigner_SignsATagItsAllowedSignersLineVerifies(t *testing.T) {
 
 	if err := verify(allowed); err == nil {
 		t.Error("git verifies the tag against another signer's line")
+	}
+}
+
+// A push is retried only when the connection broke: the forge's own refusal
+// would come back the same way every time.
+func TestBrokenConnection_RetriesTransportFailuresOnly(t *testing.T) {
+	t.Parallel()
+
+	for message, broken := range map[string]bool{
+		"fatal: unable to access 'https://gitlab.compose.forgelab:8443/demo/demo-hello-maven.git/': GnuTLS recv error (-110): The TLS connection was non-properly terminated.": true,
+		"error: RPC failed; curl 56 Recv failure: Connection reset by peer":                                                                                                    true,
+		"fatal: unable to access 'https://forge.invalid/x.git/': The requested URL returned error: 503":                                                                        true,
+		"fatal: unable to access 'https://forge.invalid/x.git/': The requested URL returned error: 403":                                                                        false,
+		" ! [rejected]        main -> main (non-fast-forward)":                                                                                                                 false,
+		" ! [remote rejected] refs/tags/v1.0.0 -> refs/tags/v1.0.0 (pre-receive hook declined)":                                                                                false,
+		"fatal: 'refs/tags/missing' does not appear to be a git repository":                                                                                                    false,
+	} {
+		if got := brokenConnection(message); got != broken {
+			t.Errorf("brokenConnection(%q) = %v, want %v", message, got, broken)
+		}
+	}
+}
+
+// A commit on a consumer's own history is dated when it is made; everything
+// else in git's closed environment, the credential header included, stays.
+func TestLayerGitDated_ReplacesOnlyTheCommitDates(t *testing.T) {
+	t.Parallel()
+
+	fixed := layerGit{env: []string{"GIT_AUTHOR_DATE=2000-01-01T00:00:00Z", "GIT_CONFIG_VALUE_0=Authorization: Basic x", "GIT_COMMITTER_DATE=2000-01-01T00:00:00Z"}}
+	when := time.Date(2026, 10, 16, 2, 10, 12, 0, time.UTC)
+
+	got := fixed.dated(when).env
+	want := []string{"GIT_CONFIG_VALUE_0=Authorization: Basic x", "GIT_AUTHOR_DATE=2026-10-16T02:10:12Z", "GIT_COMMITTER_DATE=2026-10-16T02:10:12Z"}
+
+	if !slices.Equal(got, want) {
+		t.Fatalf("dated().env = %q, want %q", got, want)
+	}
+
+	if fixed.env[0] != "GIT_AUTHOR_DATE=2000-01-01T00:00:00Z" {
+		t.Fatal("dated changed the receiver's environment")
 	}
 }

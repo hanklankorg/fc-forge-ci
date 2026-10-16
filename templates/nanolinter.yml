@@ -56,12 +56,13 @@ spec:
 ---
 "$[[ inputs.job-name ]]":
   stage: $[[ inputs.stage ]]
-  image: $[[ inputs.nanolinter-image ]]
+  # The image starts its tool as its entrypoint; the script runs the tool
+  # itself. The Docker executor would run the job's shell through that
+  # entrypoint; the Kubernetes one ignores it.
+  image:
+    name: $[[ inputs.nanolinter-image ]]
+    entrypoint: [""]
   variables:
-    # opengrep (inside nanolinter) hardcodes paths under the image's home; the
-    # flavour image's /home/nanolinter is writable, so cosign's sigstore cache
-    # needs no redirection either.
-    HOME: /home/nanolinter
     REQUIRED_LINTS: "$[[ inputs.required-lints ]]"
     ENABLE_GITLAB_SAST: "$[[ inputs.enable-gitlab-sast ]]"
     RC_ENGINE_PROJECT: "$[[ inputs.engine-project ]]"
@@ -70,6 +71,13 @@ spec:
   script:
     - |
       set -uo pipefail
+
+      # opengrep (inside nanolinter) hardcodes paths under the image's home; the
+      # flavour image's /home/nanolinter is writable, so cosign's sigstore cache
+      # needs no redirection either. Set here, not as a job variable: GitLab
+      # gives job variables to the helper container that fetches the source
+      # too, and that has no such directory.
+      export HOME=/home/nanolinter
 
       # --- Lint gate --------------------------------------------------------
       # `nanolinter verify` runs the full plan and exits non-zero on blocking

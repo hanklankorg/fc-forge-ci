@@ -31,6 +31,7 @@ const (
 	exampleRepository   = exampleServer + "/owner/delivery.git"
 	exampleSigner       = "forge.example/owner/signer@sha256:9a51d9f761cd269cadb2066710c9d2dd293f4e1020e229ff4f47ee1e6bce6234"
 	validatedRepository = "${{ needs.coordinates.outputs.helpers_repository }}"
+	versionBumpImage    = "${{ needs.coordinates.outputs.version_bump_image }}"
 	helperFallback      = `origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'`
 	helperRemote        = `remote add origin "${FORGE_CI_REPOSITORY_URL:?}"`
 )
@@ -46,7 +47,7 @@ func coordinateWorkflows() map[string]struct {
 		shaInput  string
 		checkouts int
 	}{
-		".forgejo/workflows/prepare-release.yml":               {"forge-ci-sha", 2},
+		".forgejo/workflows/prepare-release.yml":               {"forge-ci-sha", 3},
 		".forgejo/workflows/sign-and-publish-release.yml":      {"forge-ci-sha", 4},
 		".forgejo/workflows/sign-container-images.yml":         {"forge-ci-sha", 1},
 		".forgejo/workflows/promote-base-container-images.yml": {"forge-ci-sha", 1},
@@ -285,15 +286,31 @@ func assertCoordinateConsumerJob(t *testing.T, relative, name string, target job
 		return consumer, false
 	}
 
-	if image := target.containerImage(); image != signerImage {
-		t.Errorf("%s: job %s runs container %q, want the validated %q", relative, name, image, signerImage)
-	}
-	// Signer jobs run only the verified helper checkout, never an
-	// action resolved from another pin.
+	// Container jobs run only the verified helper checkout, never an action
+	// resolved from another pin.
 	for _, step := range target.steps() {
 		if uses := scalarString(mappingValue(step, "uses")); uses != "" {
-			t.Errorf("%s: signer job %s uses action %s", relative, name, uses)
+			t.Errorf("%s: container job %s uses action %s", relative, name, uses)
 		}
+	}
+
+	// The one container job that is not a signer: prepare-release's version
+	// bump, in the project's own validated build image, which therefore may
+	// not even name a secret.
+	if image := target.containerImage(); image == versionBumpImage {
+		if relative != ".forgejo/workflows/prepare-release.yml" || name != "version-bump" {
+			t.Errorf("%s: job %s runs the version-bump image", relative, name)
+		}
+
+		if anyString(target.node, secretsWord.MatchString) {
+			t.Errorf("%s: the version-bump job mentions secrets", relative)
+		}
+
+		return consumer, false
+	}
+
+	if image := target.containerImage(); image != signerImage {
+		t.Errorf("%s: job %s runs container %q, want the validated %q", relative, name, image, signerImage)
 	}
 
 	return consumer, true

@@ -70,7 +70,7 @@ func TestSuiteSignalsRunNormalTestCleanup(t *testing.T) {
 			defer cancel()
 
 			command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestSuiteSignalFixture$") //nolint:gosec // The current test executable, running an inert signal fixture only.
-			command.Env = []string{"RC_LIVE_SIGNAL_FIXTURE=" + root}
+			command.Env = []string{"FORGE_CI_LIVE_SIGNAL_FIXTURE=" + root}
 
 			var output bytes.Buffer
 
@@ -105,7 +105,7 @@ func TestSuiteSignalsRunNormalTestCleanup(t *testing.T) {
 // Only the subprocess above enables this fixture. It reaches no forge and
 // records cleanup through testing.T itself, not a second cleanup registry.
 func TestSuiteSignalFixture(t *testing.T) {
-	root := os.Getenv("RC_LIVE_SIGNAL_FIXTURE")
+	root := os.Getenv("FORGE_CI_LIVE_SIGNAL_FIXTURE")
 	if root == "" {
 		return
 	}
@@ -128,7 +128,7 @@ func TestSuiteSignalFixture(t *testing.T) {
 			return
 		}
 
-		if os.Getenv("RC_LIVE_CLEANUP_HANDSHAKE") == "1" {
+		if os.Getenv("FORGE_CI_LIVE_CLEANUP_HANDSHAKE") == "1" {
 			if err := files.WriteFile("cleaning", nil, 0o600); err != nil {
 				t.Error(err)
 

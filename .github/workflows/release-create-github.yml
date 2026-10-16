@@ -141,7 +141,7 @@ permissions:
   contents: read # Default permission; release creation uses RELEASE_TOKEN.
 jobs:
   generate-changelog:
-    name: Generate Release Changelog
+    name: "Publish: release notes"
     permissions:
       contents: read
     uses: ./.github/workflows/generate-changelog.yml
@@ -157,7 +157,7 @@ jobs:
     # Everything up to the checksums runs in the caller's runtime image. It
     # holds no write authority and no signing key: the image is the caller's
     # choice, and a job container starts before any step could check it.
-    name: Assemble Release Files
+    name: "Publish: release files"
     needs: [generate-changelog]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -264,7 +264,7 @@ jobs:
     # stage. A job container could not turn swap off: it starts before the
     # first step, and GitHub-hosted runners have swap on. release sign refuses
     # to load a private key while swap is active (docs/verification.md#swap-policy).
-    name: Create GitHub Release
+    name: "Publish: release"
     needs: [assemble-release]
     runs-on: ubuntu-24.04
     timeout-minutes: 20

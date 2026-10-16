@@ -5,6 +5,7 @@ package release
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/urfave/cli/v3"
@@ -13,6 +14,8 @@ import (
 	apprelease "github.com/diggsweden/forge-ci/internal/app/release"
 	"github.com/diggsweden/forge-ci/internal/cli/cienv"
 	"github.com/diggsweden/forge-ci/internal/cli/clitoken"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
 )
 
 // verifyTagCmd is the Go port of forgejo-ci's verify-release-tag.sh: a
@@ -31,6 +34,7 @@ func verifyTagCmd() *cli.Command {
 			&cli.StringFlag{Name: "repo-url", Sources: cli.EnvVars("REPO_URL"), Usage: "remote repository URL for ls-remote (defaults to origin)"},
 			&cli.StringFlag{Name: "expected-parent", Sources: cli.EnvVars("RELEASE_REQUEST_SHA"), Usage: "require the release commit to be the single child of this commit (the authorised release-request source)"},
 			&cli.BoolFlag{Name: "changelog-only", Usage: "require exactly a CHANGELOG.md change from --expected-parent, and bind release-request/<tag> to that tested commit"},
+			&cli.StringFlag{Name: "version-bump", Usage: "with --changelog-only, also admit this project type's version bump (maven), checked as a version substitution to the tag's version"},
 			clitoken.FileFlag("Read token for a private repository."),
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -39,12 +43,17 @@ func verifyTagCmd() *cli.Command {
 				return err
 			}
 
+			if cmd.String("version-bump") != "" && !cmd.Bool("changelog-only") {
+				return fmt.Errorf("--version-bump only widens --changelog-only: %w", errs.ErrUsage)
+			}
+
 			return apprelease.VerifyReleaseTag(ctx, git.New(), os.Stderr, apprelease.VerifyReleaseTagInput{
 				ReleaseSHA:     cmd.String(flagReleaseSHA),
 				Tag:            cmd.String(flagTag),
 				RepoURL:        cmd.String("repo-url"),
 				ExpectedParent: cmd.String("expected-parent"),
 				ChangelogOnly:  cmd.Bool("changelog-only"),
+				VersionBump:    projecttype.Type(cmd.String("version-bump")),
 				Token:          token,
 			})
 		},

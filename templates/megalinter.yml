@@ -43,7 +43,12 @@ spec:
 ---
 "$[[ inputs.job-name ]]":
   stage: $[[ inputs.stage ]]
-  image: $[[ inputs.megalinter-image ]]
+  # The image starts its tool as its entrypoint; the script runs the tool
+  # itself. The Docker executor would run the job's shell through that
+  # entrypoint; the Kubernetes one ignores it.
+  image:
+    name: $[[ inputs.megalinter-image ]]
+    entrypoint: [""]
   variables:
     # MegaLinter lints the checked-out project and writes its reports here.
     DEFAULT_WORKSPACE: $CI_PROJECT_DIR

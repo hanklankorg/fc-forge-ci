@@ -47,6 +47,11 @@ inputs:
   release-branch:
     description: Branch the release lands on, the one the release request was checked to be the head of. Validated by prepare-release.yml.
     required: true
+  include-paths-file:
+    description: >-
+      File naming the project files of a verified version bump, one per line, committed beside CHANGELOG.md (`forge-ci version apply-bump --paths-file`). Empty commits the changelog alone.
+    required: false
+    default: ''
 outputs:
   release-tag:
     description: Final stable release tag derived from the request tag.
@@ -160,6 +165,7 @@ runs:
         FORGEJO_REPO: ${{ inputs.forgejo-repo }}
         SIGNING_EXECUTABLE: ${{ steps.prepare-signing.outputs.signing-executable }}
         TARGET_BRANCH: ${{ inputs.release-branch }}
+        INCLUDE_PATHS_FILE: ${{ inputs.include-paths-file }}
       run: |
         set -euo pipefail
         export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -167,13 +173,20 @@ runs:
         for name in "${!GIT_CONFIG_@}"; do
           unset "${name}"
         done
+        # A verified version bump's project files join the changelog in the
+        # signed release commit.
+        include=()
+        if [ -n "${INCLUDE_PATHS_FILE:-}" ]; then
+          include=(--include-paths-file "${INCLUDE_PATHS_FILE}")
+        fi
         # --branch matches the head check in prepare-release.yml; left out,
         # the engine reads RELEASE_BRANCH or BRANCH from the environment.
         "${SIGNING_EXECUTABLE:?}" version commit-changelog-release \
           --tag "${FORGEJO_REF_NAME}" \
           --branch "${TARGET_BRANCH:?}" \
           --repository "${FORGEJO_REPO}" \
-          --git-url "${RELEASE_GIT_URL}"
+          --git-url "${RELEASE_GIT_URL}" \
+          "${include[@]}"
 
     - name: Validate prepared release without signing key
       id: validate-release

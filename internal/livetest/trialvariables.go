@@ -39,6 +39,62 @@ func ParseTrialVariables(input string) (map[string]string, error) {
 	return variables, nil
 }
 
+// GitLabReleaseSettings are what the caller of a GitLab consumer release trial
+// decides: the release policy's version bump, and literal variables for the
+// consumer's build.
+type GitLabReleaseSettings struct {
+	// VersionBump is the release component's version-bump input: maven, or ""
+	// for none.
+	VersionBump string
+	// Version is the X.Y.Z the release requests, or "" for the trial's default.
+	Version   string
+	Variables map[string]string
+}
+
+// settingVersionBump is a lowercase setting of a GitLab release trial, as
+// version is; every uppercase KEY=value is a consumer variable.
+const settingVersionBump = "version-bump"
+
+// ParseGitLabReleaseSettings reads one setting per line: version-bump=maven,
+// which the trial writes into the release policy, version=X.Y.Z, the release
+// it requests, or a literal KEY=value consumer variable (ParseTrialVariables).
+func ParseGitLabReleaseSettings(input string) (GitLabReleaseSettings, error) {
+	var settings GitLabReleaseSettings
+
+	variables := make([]string, 0)
+
+	for _, word := range strings.Split(input, "\n") {
+		key, value, _ := strings.Cut(word, "=")
+
+		switch key {
+		case settingVersionBump:
+			if settings.VersionBump != "" || value != "maven" {
+				return GitLabReleaseSettings{}, fmt.Errorf("%s must be given once, as maven: %w", settingVersionBump, errs.ErrValidation)
+			}
+
+			settings.VersionBump = value
+		case settingVersion:
+			version, valid := trialVersionValue(value)
+			if settings.Version != "" || !valid {
+				return GitLabReleaseSettings{}, fmt.Errorf("%s must be given once, as X.Y.Z: %w", settingVersion, errs.ErrValidation)
+			}
+
+			settings.Version = version
+		default:
+			variables = append(variables, word)
+		}
+	}
+
+	parsed, err := ParseTrialVariables(strings.Join(variables, "\n"))
+	if err != nil {
+		return GitLabReleaseSettings{}, err
+	}
+
+	settings.Variables = parsed
+
+	return settings, nil
+}
+
 // GitLabConsumerBuildCommand scopes literal settings to the consumer's build
 // subprocess, without adding variables to the independent signing policy jobs.
 func GitLabConsumerBuildCommand(variables map[string]string) (string, error) {

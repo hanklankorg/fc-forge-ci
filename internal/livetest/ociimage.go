@@ -53,7 +53,7 @@ import (
 // Image is an image or index pushed to a lab registry.
 type Image struct {
 	// Ref is the full tagged reference, e.g.
-	// registry.gitlab.compose.forgelab/garga/rc-ledger:staging-v0.0.1
+	// registry.gitlab.compose.forgelab/garga/fci-ledger:staging-v0.0.1
 	Ref string
 
 	// Digest is what the registry reports for it, in sha256:... form. This is
@@ -193,11 +193,11 @@ func pushArtifact(tb TB, target Target, repo string, tags []string, artifact pus
 		tb.Fatalf("livetest: %v", err)
 	}
 
-	// The repository name carries this suite's namespace because it is derived
-	// from the scratch repo, so a stray push cannot land outside what the guard
-	// authorised.
-	if !strings.HasPrefix(repo, ResourcePrefix) {
-		tb.Fatalf("livetest: refusing to push to %q, outside the %q namespace", repo, ResourcePrefix)
+	// The repository name carries the run's namespace because it is derived
+	// from the run's repository, so a stray push cannot land outside what the
+	// guard authorised.
+	if !inRunNamespace(target, repo) {
+		tb.Fatalf("livetest: refusing to push to %q, outside the %q namespace", repo, runNamespace(target))
 	}
 
 	remoteOptions, err := registryRemoteOptions(target)

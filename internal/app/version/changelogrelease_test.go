@@ -493,3 +493,55 @@ func writeFile(t *testing.T, dir, rel, body string) {
 		t.Fatal(err)
 	}
 }
+
+func TestChangelogRelease_StagesIncludedProjectFilesBesideTheChangelog(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "CHANGELOG.md", "# v1.2.3\n")
+	writeFile(t, dir, "commit-msg.txt", "chore(release): bump to v1.2.3\n")
+	writeFile(t, dir, "pom.xml", "<project/>\n")
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "core"), 0o700))
+	writeFile(t, dir, "core/pom.xml", "<project/>\n")
+	t.Chdir(dir)
+
+	repo := &fakeChangelogReleaseRepo{status: " M pom.xml"}
+	_, err := appversion.ChangelogRelease(context.Background(), repo, fakeoutputsink.New(t), &bytes.Buffer{}, appversion.ChangelogReleaseInput{
+		Tag:            "v1.2.3",
+		Repository:     "itiquette/example",
+		GitURL:         "ssh://git@codeberg.org:2222/itiquette/example.git",
+		AuthorName:     "Itiquette Release Bot",
+		AuthorEmail:    "itiquette-release-bot@pm.me",
+		SigningKeyPath: "/tmp/key",
+		TagSigned:      true,
+		IncludePaths:   []string{"core/pom.xml", "pom.xml"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"CHANGELOG.md", "core/pom.xml", "pom.xml"}, repo.added)
+}
+
+func TestChangelogRelease_RefusesIncludedPathsOutsideTheCheckoutBeforeEffects(t *testing.T) {
+	for _, included := range []string{"../pom.xml", "/etc/passwd", ".git/config", ":(glob)**", "-p", "pom*.xml", "missing/pom.xml", ""} {
+		t.Run(included, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFile(t, dir, "CHANGELOG.md", "# v1.2.3\n")
+			writeFile(t, dir, "commit-msg.txt", "chore(release): bump to v1.2.3\n")
+			t.Chdir(dir)
+
+			in := appversion.ChangelogReleaseInput{
+				Tag:            "v1.2.3",
+				Repository:     "itiquette/example",
+				GitURL:         "ssh://git@codeberg.org:2222/itiquette/example.git",
+				AuthorName:     "Itiquette Release Bot",
+				AuthorEmail:    "itiquette-release-bot@pm.me",
+				SigningKeyPath: "/tmp/key",
+				IncludePaths:   []string{included},
+			}
+			require.Error(t, appversion.ChangelogReleasePreflight(in))
+
+			repo := &fakeChangelogReleaseRepo{status: " M CHANGELOG.md"}
+			_, err := appversion.ChangelogRelease(context.Background(), repo, fakeoutputsink.New(t), &bytes.Buffer{}, in)
+			require.Error(t, err)
+			require.Empty(t, repo.added)
+			require.NotContains(t, repo.calls, "commit")
+		})
+	}
+}

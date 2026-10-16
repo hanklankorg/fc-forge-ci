@@ -40,6 +40,10 @@ type MavenReleaseBuildInput struct {
 	SBOMToolVersion string
 	// JavaVersion is reported in the build summary only.
 	JavaVersion string
+	// ExpectVersion, when set, is the version the project must already
+	// declare (with or without a leading v): a release builds the version its
+	// release commit carries and never rewrites it.
+	ExpectVersion string
 }
 
 // MavenInstall installs the project (and its modules) to the local repository
@@ -115,6 +119,11 @@ func MavenReleaseBuild(ctx context.Context, summarySink ci.SummarySink, ops Mave
 	meta, err := resolveMavenMetadata(ctx, ops, pom)
 	if err != nil {
 		return err
+	}
+
+	if want := strings.TrimPrefix(in.ExpectVersion, "v"); want != "" && meta.version != want {
+		return fmt.Errorf("the project declares version %q, but the release is %q; the release commit must carry the release version: %w",
+			meta.version, want, errs.ErrValidation)
 	}
 
 	_, _ = fmt.Fprintf(w, "Maven release build (%s): %s:%s:%s\n", in.BuildType, meta.groupID, meta.artifactID, meta.version)

@@ -194,7 +194,10 @@ snippets, and [Linting](verification.md#linting) the caller/project policy
 boundary.
 
 The gate is your branch protection: require the orchestrator's jobs, and your
-test jobs, as status checks. The GitHub layer has no release-isolation gate
+test jobs, as status checks. The jobs are named by stage, as on the other
+forges: `Check: plan`, `Check: lint`, `Check: status` and so on. A required
+check is matched by that name, so a rename of a job changes the check to
+require. The GitHub layer has no release-isolation gate
 like Forgejo's `check-l3-isolation`.
 
 ## Builds

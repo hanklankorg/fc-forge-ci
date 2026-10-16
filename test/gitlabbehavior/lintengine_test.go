@@ -4,6 +4,8 @@
 package gitlabbehavior
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -43,6 +45,52 @@ func TestLintComponentsFetchTheEngineTheSameVerifiedWay(t *testing.T) {
 	} {
 		if !strings.Contains(blocks["nanolinter"], want) {
 			t.Errorf("the lint components' engine fetch lost %q", want)
+		}
+	}
+}
+
+// A component that runs an image the consumer chooses runs its own script in
+// it, so it clears the image's entrypoint: the Docker executor would otherwise
+// run the job's shell through it, and a lint image's entrypoint is the linter.
+func TestComponentsClearTheEntrypointOfConsumerChosenImages(t *testing.T) {
+	t.Parallel()
+
+	for _, use := range []struct{ file, input string }{
+		{"check", "job-image"},
+		{"nanolinter", "nanolinter-image"},
+		{"megalinter", "megalinter-image"},
+		{"release-jobs", "job-image"},
+		{"release-jobs", "build-image"},
+	} {
+		body := string(reporoot.ReadFile(t, "templates/"+use.file+".yml"))
+		want := "name: $[[ inputs." + use.input + " ]]\n    entrypoint: [\"\"]"
+
+		if strings.Contains(body, "image: $[[ inputs."+use.input+" ]]") || !strings.Contains(body, want) {
+			t.Errorf("templates/%s.yml must run %s as image: {name: ..., entrypoint: [\"\"]}", use.file, use.input)
+		}
+	}
+}
+
+// GitLab gives job variables to the helper container that fetches the source
+// as well as to the job's image, so a HOME that only the image has breaks the
+// fetch ("could not lock config file"). Components set HOME in their script.
+func TestComponentsDoNotSetHomeAsAJobVariable(t *testing.T) {
+	t.Parallel()
+
+	entries, err := os.ReadDir(filepath.Join(reporoot.Path(t), "templates"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yml") {
+			continue
+		}
+
+		for number, line := range strings.Split(string(reporoot.ReadFile(t, "templates/"+entry.Name())), "\n") {
+			if strings.HasPrefix(strings.TrimLeft(line, " "), "HOME:") {
+				t.Errorf("templates/%s:%d sets HOME as a job variable; export it in the script", entry.Name(), number+1)
+			}
 		}
 	}
 }

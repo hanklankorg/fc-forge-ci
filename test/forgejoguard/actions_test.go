@@ -62,7 +62,7 @@ func TestCompositeActionsCallNoSiblingByPath(t *testing.T) {
 // buildAndCheckActions are the actions a consumer runs in a pull-request job
 // or in its own build job, where no credential of the layer belongs.
 func buildAndCheckActions() []string {
-	return []string{"lint-nanolinter", "build-go", "build-cargo", "build-release-image"}
+	return []string{"lint-nanolinter", "build-go", "build-cargo", "build-maven", "build-release-image"}
 }
 
 // The lint, build and image actions take no token, password or key: nothing
