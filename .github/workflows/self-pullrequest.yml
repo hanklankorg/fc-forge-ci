@@ -51,6 +51,11 @@ jobs:
           go-version-file: go.mod
           check-latest: true
       - name: Install mise and project tools
+        env:
+          # mise verifies attestations and resolves releases through the
+          # GitHub API; anonymous requests share the runner address's small
+          # quota, and running out of it failed the v0.90.0 release gate.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           source ./scripts/bootstrap/install-mise.sh
           install_mise
@@ -72,6 +77,11 @@ jobs:
           go-version-file: go.mod
           check-latest: true
       - name: Install mise and project tools
+        env:
+          # mise verifies attestations and resolves releases through the
+          # GitHub API; anonymous requests share the runner address's small
+          # quota, and running out of it failed the v0.90.0 release gate.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           source ./scripts/bootstrap/install-mise.sh
           install_mise
