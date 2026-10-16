@@ -1052,9 +1052,13 @@ release:
    [`examples/forgejo/signer-image.yml`](../examples/forgejo/signer-image.yml)
    into one repository of your organization, set its two placeholders to your
    copy and the commit of step 2, and run it. It needs the `CI_RUNNER_LABEL`
-   variable and the `RELEASE_REGISTRY_TOKEN` secret there: a token that may
-   write packages of that repository's owner, for the image, and of the owner
-   of your copy, for the binary.
+   variable and two credentials: `RELEASE_REGISTRY_TOKEN` writes the engine
+   owner's generic package on this forge; `SIGNER_REGISTRY_TOKEN`, with
+   `SIGNER_REGISTRY_USER`, authenticates to the signer image registry.
+   To host the signer on another registry, set the workflow's literal
+   `SIGNER_IMAGE_REPOSITORY` to its full OCI repository without a tag or digest.
+   Both architecture builds and assembly use that destination; source labels
+   still identify the authenticated engine checkout.
    - Its first job builds the CLI of the pinned commit from modules it
      downloads itself, stops unless the build is the one the commit's
      `.forgejo/bin/forge-ci.sha256` names, and uploads it to the generic

@@ -75,8 +75,8 @@ func TestSignerAssemblyUsesAuthenticatedRegistryWithoutBuildah(t *testing.T) {
 
 	sink := fakeoutputsink.New(t)
 	metadata, err := appcontainer.AssembleSignerImageManifest(t.Context(), publisher, sink, nil, io.Discard, appcontainer.SignerImageAssembleInput{
-		AuthFile: "auth.json", SourceSHA: strings.Repeat("b", 40), ServerURL: server.URL,
-		Repository: "org/repo", RepositorySuffix: "-signer", TagPrefix: "signer-", Name: "signer-image", RetryAttempts: 1,
+		AuthFile: "auth.json", SourceSHA: strings.Repeat("b", 40), ServerURL: "https://source.example",
+		Repository: "org/repo", ImageRepository: repository, TagPrefix: "signer-", Name: "signer-image", RetryAttempts: 1,
 	})
 	require.NoError(t, err)
 

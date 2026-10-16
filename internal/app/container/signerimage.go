@@ -61,6 +61,7 @@ type SignerImageBuildArchInput struct {
 	ServerURL        string
 	Repository       string
 	RepositorySuffix string // appended to lower(repository) to form the image repo (e.g. "-signer")
+	ImageRepository  string // optional full OCI repository; overrides the derived image destination, not source labels
 	TagPrefix        string // prepended to the source-SHA image tag (e.g. "signer-")
 	Name             string // metadata basename shared with assemble; empty defaults to "image"
 	Title            string // org.opencontainers.image.title label; empty omits the label
@@ -78,6 +79,7 @@ type SignerImageAssembleInput struct {
 	ServerURL        string
 	Repository       string
 	RepositorySuffix string
+	ImageRepository  string
 	TagPrefix        string
 	Name             string
 	Archs            []string
@@ -401,7 +403,7 @@ func deriveSignerImageArch(in SignerImageBuildArchInput) (signerImageArchDerived
 		return signerImageArchDerived{}, err
 	}
 
-	imageRepo, err := signerImageRepository(in.ServerURL, in.Repository, in.RepositorySuffix)
+	imageRepo, err := signerImageRepository(in.ServerURL, in.Repository, in.RepositorySuffix, in.ImageRepository)
 	if err != nil {
 		return signerImageArchDerived{}, err
 	}
@@ -444,7 +446,7 @@ func deriveSignerImageManifest(in SignerImageAssembleInput) (signerImageManifest
 		}
 	}
 
-	imageRepo, err := signerImageRepository(in.ServerURL, in.Repository, in.RepositorySuffix)
+	imageRepo, err := signerImageRepository(in.ServerURL, in.Repository, in.RepositorySuffix, in.ImageRepository)
 	if err != nil {
 		return signerImageManifestDerived{}, err
 	}
@@ -501,10 +503,18 @@ func validateSignerArch(arch string) error {
 	}
 }
 
-func signerImageRepository(serverURL, repository, suffix string) (string, error) {
+func signerImageRepository(serverURL, repository, suffix, imageRepository string) (string, error) {
 	registryHost, err := domaincontainer.RegistryHost(serverURL)
 	if err != nil {
 		return "", err
+	}
+
+	if imageRepository != "" {
+		if !domaincontainer.ValidRepositoryName(imageRepository) {
+			return "", fmt.Errorf("image-repository must be a lowercase OCI repository with an explicit registry and no tag or digest: %w", errs.ErrUsage)
+		}
+
+		return imageRepository, nil
 	}
 
 	return DefaultReleaseImageRepository(registryHost, repository+suffix)

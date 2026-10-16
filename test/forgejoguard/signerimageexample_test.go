@@ -271,12 +271,17 @@ func assertSignerImageJob(t *testing.T, name string, target job) {
 		}
 	}
 
+	allowedReference := "secrets.SIGNER_REGISTRY_TOKEN"
+	if name == publishBinaryJob {
+		allowedReference = "secrets.RELEASE_REGISTRY_TOKEN"
+	}
+
 	secret := regexp.MustCompile(`secrets\.[A-Za-z0-9_]+`)
 
 	anyString(target.node, func(value string) bool {
 		for _, found := range secret.FindAllString(value, -1) {
-			if found != "secrets.RELEASE_REGISTRY_TOKEN" {
-				t.Errorf("job %s reads %s; the image build needs the registry token alone", name, found)
+			if found != allowedReference {
+				t.Errorf("job %s reads %s; only %s belongs to its publication destination", name, found, allowedReference)
 			}
 		}
 

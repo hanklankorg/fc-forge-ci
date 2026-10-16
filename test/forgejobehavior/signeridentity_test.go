@@ -55,7 +55,8 @@ func TestSignerExampleSeparatesEngineAndRecipeCommits(t *testing.T) {
 
 					got := box.run(script, "FORGE_CI_COMMIT_SHA="+engine, "SIGNER_RECIPE_COMMIT_SHA="+recipe,
 						"REGISTRY_AUTH_FILE=fixture-auth", "SIGNER_ARCH=amd64", "FORGEJO_SERVER=https://forgejo.invalid",
-						"FORGEJO_REPO=policy-owner/ci-policy", "SOURCE_SHA="+recipe)
+						"FORGEJO_REPO=policy-owner/ci-policy", "SOURCE_SHA="+recipe,
+						"SIGNER_IMAGE_REPOSITORY=registry.example/policy/signer")
 					if got.status != 0 {
 						t.Fatalf("image step failed: %s", got.stderr)
 					}
@@ -63,6 +64,8 @@ func TestSignerExampleSeparatesEngineAndRecipeCommits(t *testing.T) {
 					args := box.argv()
 					requireFlagValue(t, args, "--source-sha", engine)
 					requireFlagValue(t, args, "--repository", "OWNER/forge-ci")
+					requireFlagValue(t, args, "--server-url", "https://forgejo.invalid")
+					requireFlagValue(t, args, "--image-repository", "registry.example/policy/signer")
 					requireFlagValue(t, args, "--tag-prefix", "signer-"+strings.Repeat("b", 40)+"-")
 
 					prefix := args[slices.Index(args, "--tag-prefix")+1]

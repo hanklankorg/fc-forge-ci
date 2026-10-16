@@ -197,6 +197,64 @@ func TestSignerImageRejectsSourceThatSuffixWouldRepair(t *testing.T) {
 	}
 }
 
+func TestSignerImageExternalDestinationPreservesSourceIdentity(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeAuthFileForSignerImage(t, "auth.json")
+
+	tool := &fakeSignerImageTool{}
+	sourceSHA := strings.Repeat("a", 40)
+
+	meta, err := appcontainer.BuildSignerImageArch(t.Context(), tool, io.Discard, appcontainer.SignerImageBuildArchInput{
+		AuthFile: "auth.json", Arch: "amd64", SourceSHA: sourceSHA,
+		ServerURL: "https://source.example", Repository: "Org/Engine",
+		RepositorySuffix: "-signer", ImageRepository: "registry.example/policy/signer",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if meta.Tag != "registry.example/policy/signer:"+sourceSHA+"-amd64" ||
+		meta.Ref != "registry.example/policy/signer@"+meta.Digest {
+		t.Fatalf("external destination not used: %+v", meta)
+	}
+
+	if len(tool.buildReqs) != 1 || tool.buildReqs[0].SourceURL != "https://source.example/Org/Engine" ||
+		tool.buildReqs[0].Revision != sourceSHA {
+		t.Fatalf("external registry changed source identity: %+v", tool.buildReqs)
+	}
+}
+
+func TestSignerImageRejectsInvalidExternalDestinationBeforeEffects(t *testing.T) {
+	for _, repository := range []string{"https://registry.example/team/image", "registry.example/team/image:tag", "registry.example/team/image@sha256:" + strings.Repeat("a", 64), "registry.example/Team/image", "image", " registry.example/team/image"} {
+		t.Run(repository, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			writeAuthFileForSignerImage(t, "auth.json")
+
+			tool := &fakeSignerImageTool{}
+
+			_, err := appcontainer.BuildSignerImageArch(t.Context(), tool, io.Discard, appcontainer.SignerImageBuildArchInput{
+				AuthFile: "auth.json", Arch: "amd64", SourceSHA: strings.Repeat("a", 40),
+				ServerURL: "https://source.example", Repository: "org/engine", ImageRepository: repository,
+			})
+			if !errors.Is(err, errs.ErrUsage) || len(tool.events) != 0 {
+				t.Fatalf("invalid destination reached build: err=%v events=%v", err, tool.events)
+			}
+
+			_, err = appcontainer.AssembleSignerImageManifest(t.Context(), tool, nil, nil, io.Discard, appcontainer.SignerImageAssembleInput{
+				AuthFile: "auth.json", SourceSHA: strings.Repeat("a", 40),
+				ServerURL: "https://source.example", Repository: "org/engine", ImageRepository: repository,
+			})
+			if !errors.Is(err, errs.ErrUsage) || len(tool.events) != 0 {
+				t.Fatalf("invalid destination reached assembly: err=%v events=%v", err, tool.events)
+			}
+
+			if _, err := os.Stat("image-arch-amd64"); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("invalid destination changed metadata: %v", err)
+			}
+		})
+	}
+}
+
 // TestBuildSignerImageArch_NamesTheImageByTheDigestItPushed covers one
 // architecture of the signer image: it is built, pushed with a retry, and
 // described by metadata that is both returned and written to disk.

@@ -1436,6 +1436,10 @@ The repository suffix, tag prefix, metadata name, Containerfile, and image title
 are all parameters, so this serves any multi-arch image (a signer image, a base
 image, an app image) — the caller supplies the specifics.
 
+Use --image-repository to publish to a registry separate from the source forge.
+Pass the same destination to both phases; source URL and revision labels still
+identify --server-url, --repository and --source-sha.
+
 For a whole-matrix barrier, use build-arch --stage, transfer each metadata
 directory INCLUDING its layout, then run assemble --from-layouts only after ALL
 build/scan jobs succeed. The complete local set is verified before any image
@@ -1461,7 +1465,8 @@ outputs.
 | `--repository` | owner/repo used to derive the image repository | string | `""` | `$REPOSITORY`, `$CI_REPO`, `$CI_PROJECT_PATH`, `$FORGEJO_REPOSITORY`, `$FORGEJO_REPO`, `$GITHUB_REPOSITORY` |
 | `--retry-attempts` | registry push attempts | int | `3` | `$IMAGE_RETRY_ATTEMPTS` |
 | `--retry-delay-seconds` | base delay between registry push retries | int | `10` | `$IMAGE_RETRY_DELAY_SECONDS` |
-| `--repository-suffix` | suffix appended to lower(owner/repo) to form the image repository (e.g. -signer) | string | `""` | `$IMAGE_REPOSITORY_SUFFIX` |
+| `--repository-suffix` | suffix for the derived image repository (e.g. -signer); unused with --image-repository | string | `""` | `$IMAGE_REPOSITORY_SUFFIX` |
+| `--image-repository` | full destination OCI repository without a tag or digest; overrides the derived destination, preserving source labels | string | `""` | `$IMAGE_REPOSITORY` |
 | `--tag-prefix` | prefix prepended to the source-SHA image and manifest tags (e.g. signer-) | string | `""` | `$IMAGE_TAG_PREFIX` |
 | `--name` | basename for the per-arch/manifest metadata files and dirs shared across the two phases | string | `"image"` | `$IMAGE_METADATA_NAME` |
 | `--from-layouts` | verify all staged architecture layouts before any upload, then publish and assemble; requires a successful whole-matrix dependency | bool | `false` | n/a |
@@ -1486,7 +1491,8 @@ for the manifest assembly job.
 | `--repository` | owner/repo used to derive the image repository | string | `""` | `$REPOSITORY`, `$CI_REPO`, `$CI_PROJECT_PATH`, `$FORGEJO_REPOSITORY`, `$FORGEJO_REPO`, `$GITHUB_REPOSITORY` |
 | `--retry-attempts` | registry push attempts | int | `3` | `$IMAGE_RETRY_ATTEMPTS` |
 | `--retry-delay-seconds` | base delay between registry push retries | int | `10` | `$IMAGE_RETRY_DELAY_SECONDS` |
-| `--repository-suffix` | suffix appended to lower(owner/repo) to form the image repository (e.g. -signer) | string | `""` | `$IMAGE_REPOSITORY_SUFFIX` |
+| `--repository-suffix` | suffix for the derived image repository (e.g. -signer); unused with --image-repository | string | `""` | `$IMAGE_REPOSITORY_SUFFIX` |
+| `--image-repository` | full destination OCI repository without a tag or digest; overrides the derived destination, preserving source labels | string | `""` | `$IMAGE_REPOSITORY` |
 | `--tag-prefix` | prefix prepended to the source-SHA image and manifest tags (e.g. signer-) | string | `""` | `$IMAGE_TAG_PREFIX` |
 | `--name` | basename for the per-arch/manifest metadata files and dirs shared across the two phases | string | `"image"` | `$IMAGE_METADATA_NAME` |
 | `--stage` | retain the OCI layout with architecture metadata; defer ALL uploads to assemble --from-layouts after every build job succeeds | bool | `false` | n/a |

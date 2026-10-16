@@ -34,6 +34,10 @@ The repository suffix, tag prefix, metadata name, Containerfile, and image title
 are all parameters, so this serves any multi-arch image (a signer image, a base
 image, an app image) — the caller supplies the specifics.
 
+Use --image-repository to publish to a registry separate from the source forge.
+Pass the same destination to both phases; source URL and revision labels still
+identify --server-url, --repository and --source-sha.
+
 For a whole-matrix barrier, use build-arch --stage, transfer each metadata
 directory INCLUDING its layout, then run assemble --from-layouts only after ALL
 build/scan jobs succeed. The complete local set is verified before any image
@@ -52,7 +56,8 @@ upload. Without these flags the existing immediate-publish behavior is retained.
 // defaults; a caller (e.g. a signer image) overrides them.
 func multiarchImageParamFlags() []cli.Flag {
 	return []cli.Flag{
-		&cli.StringFlag{Name: "repository-suffix", Sources: cli.EnvVars("IMAGE_REPOSITORY_SUFFIX"), Usage: "suffix appended to lower(owner/repo) to form the image repository (e.g. -signer)"},
+		&cli.StringFlag{Name: "repository-suffix", Sources: cli.EnvVars("IMAGE_REPOSITORY_SUFFIX"), Usage: "suffix for the derived image repository (e.g. -signer); unused with --image-repository"},
+		&cli.StringFlag{Name: "image-repository", Sources: cli.EnvVars("IMAGE_REPOSITORY"), Usage: "full destination OCI repository without a tag or digest; overrides the derived destination, preserving source labels"},
 		&cli.StringFlag{Name: "tag-prefix", Sources: cli.EnvVars("IMAGE_TAG_PREFIX"), Usage: "prefix prepended to the source-SHA image and manifest tags (e.g. signer-)"},
 		&cli.StringFlag{Name: "name", Value: "image", Sources: cli.EnvVars("IMAGE_METADATA_NAME"), Usage: "basename for the per-arch/manifest metadata files and dirs shared across the two phases"},
 	}
@@ -81,6 +86,7 @@ for the manifest assembly job.`,
 				ServerURL:        cmd.String(flagServerURL),
 				Repository:       cmd.String(flagRepository),
 				RepositorySuffix: cmd.String("repository-suffix"),
+				ImageRepository:  cmd.String("image-repository"),
 				TagPrefix:        cmd.String("tag-prefix"),
 				Name:             cmd.String("name"),
 				Title:            cmd.String("title"),
@@ -124,6 +130,7 @@ outputs.`,
 					ServerURL:        cmd.String(flagServerURL),
 					Repository:       cmd.String(flagRepository),
 					RepositorySuffix: cmd.String("repository-suffix"),
+					ImageRepository:  cmd.String("image-repository"),
 					TagPrefix:        cmd.String("tag-prefix"),
 					Name:             cmd.String("name"),
 					Archs:            splitSignerLines(cmd.String("archs")),

@@ -1,9 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
 # SPDX-License-Identifier: CC0-1.0
 #
-# PRE-RELEASE: do not copy or pin this template from a mutable branch. No
-# tagged forge-ci release carries the Forgejo layer yet. Use it only from a
-# release you have authenticated, and pin that exact commit.
+# Pin the exact commit of an authenticated forge-ci release. Serve that commit
+# and its checksum-bound engine package on your Forgejo instance before use.
 #
 # Publishes the two things a commit of forge-ci's Forgejo layer needs on
 # your instance before any consumer can pin it, in this order:
@@ -31,16 +30,20 @@
 #                        checkouts. Use the commit your consumers pin, so the
 #                        binary, the image and the workflows are one revision.
 #
-# Then set the variable CI_RUNNER_LABEL and the secret RELEASE_REGISTRY_TOKEN
-# in that repository: a token that may write packages of OWNER for both the
-# image and the binary. OWNER's packages must be readable without credentials,
-# as its forge-ci repository is.
+# Then set CI_RUNNER_LABEL, SIGNER_REGISTRY_USER and two separate secrets:
+# RELEASE_REGISTRY_TOKEN writes the engine owner's generic package on this
+# forge; SIGNER_REGISTRY_TOKEN authenticates only to the signer image registry.
+# The engine package and signer image must be readable without credentials.
 # Forks must publish from main; each job refuses a mistaken side-branch dispatch.
 #
 # The image is built for linux/amd64 and linux/arm64 and pushed to the
 # instance's own registry as
 #
 #   <forge host>/<OWNER>/forge-ci-signer:signer-<recipe commit first 40 hex>-<engine commit>
+#
+# To publish the signer elsewhere, set the literal SIGNER_IMAGE_REPOSITORY below
+# to a full OCI repository (no tag or digest). Source labels still identify the
+# engine checkout. On GHCR, make the package public after its first publication.
 #
 # The assemble job prints the digest-pinned reference, and it is the job
 # output image-ref. That reference, written out, is what consumers pass as
@@ -95,6 +98,9 @@ env:
   # The repository the checkouts below clone. The layer's resolver reads it
   # to find the engine binary: a generic package of that repository's owner.
   FORGE_CI_REPOSITORY_URL: ${{ forgejo.server_url }}/OWNER/forge-ci
+  # Empty derives the forge-local image repository above. Otherwise this is the
+  # reviewed destination, for example ghcr.io/OWNER/forge-ci-signer.
+  SIGNER_IMAGE_REPOSITORY: ''
 
 jobs:
   # The independent rebuild. The checksum in the pinned commit was recorded
@@ -214,8 +220,9 @@ jobs:
       - name: Configure registry auth
         uses: ./.forgejo/actions/registry-login
         with:
-          username: ${{ forgejo.repository_owner }}
-          token: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+          registry: ${{ env.SIGNER_IMAGE_REPOSITORY }}
+          username: ${{ vars.SIGNER_REGISTRY_USER }}
+          token: ${{ secrets.SIGNER_REGISTRY_TOKEN }}
           create-auth-file: 'true'
           export-env: 'true'
 
@@ -238,6 +245,7 @@ jobs:
             --server-url "${FORGEJO_SERVER:?}" \
             --repository OWNER/forge-ci \
             --repository-suffix -signer \
+            --image-repository "${SIGNER_IMAGE_REPOSITORY}" \
             --tag-prefix "signer-${SIGNER_RECIPE_COMMIT_SHA:0:40}-" \
             --name signer-image \
             --title 'forge-ci signer' \
@@ -308,8 +316,9 @@ jobs:
       - name: Configure registry auth
         uses: ./.forgejo/actions/registry-login
         with:
-          username: ${{ forgejo.repository_owner }}
-          token: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+          registry: ${{ env.SIGNER_IMAGE_REPOSITORY }}
+          username: ${{ vars.SIGNER_REGISTRY_USER }}
+          token: ${{ secrets.SIGNER_REGISTRY_TOKEN }}
           create-auth-file: 'true'
           export-env: 'true'
 
@@ -345,6 +354,7 @@ jobs:
             --server-url "${FORGEJO_SERVER:?}" \
             --repository OWNER/forge-ci \
             --repository-suffix -signer \
+            --image-repository "${SIGNER_IMAGE_REPOSITORY}" \
             --tag-prefix "signer-${SIGNER_RECIPE_COMMIT_SHA:0:40}-" \
             --name signer-image
 
