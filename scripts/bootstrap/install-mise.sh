@@ -12,11 +12,11 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install-common.sh"
 
 # renovate: datasource=github-releases depName=jdx/mise
-readonly MISE_VERSION="v2026.5.4"
-readonly MISE_SHA256_LINUX_AMD64="96a0eefa1ad8c92461c808e6e07644f95cda830d7719895b98c819c94b0e0b1c"
-readonly MISE_SHA256_LINUX_ARM64="49e2d71d72d68dcb5d554724602d69f33358e1060a0352e5b02b1afcbeecc9b6"
-readonly MISE_SHA256_DARWIN_AMD64="a0f0c7119180907951542832202fe21fc8a58e78e7605a7cf92467f64848f5e1"
-readonly MISE_SHA256_DARWIN_ARM64="61e1825fc2f5ca8fab6415c726451f6fae47d9e8eb915ad345a76fcfc2ff7315"
+readonly MISE_VERSION="v2026.9.17"
+readonly MISE_SHA256_LINUX_AMD64="63049bc35fb9065e8dc35ac8b25fdae53e9bd6f1885a843aedeba398e046a1ee"
+readonly MISE_SHA256_LINUX_ARM64="ab125726a93a2967e30290ade713a960b9fe8eed0ae0e2fc0976e327b08af70d"
+readonly MISE_SHA256_DARWIN_AMD64="5377f3173a8ba333612cfbaa3906b4a8cb167dfcca5bf2e76dc280243255abc3"
+readonly MISE_SHA256_DARWIN_ARM64="b2dab031288ddd760878bfaefb1f403d2c5d99ca5c478a81c9e7baf07b5f7b84"
 
 resolve_mise_dist() {
 	local os arch dist=""
@@ -48,10 +48,10 @@ resolve_mise_dist() {
 
 resolve_mise_sha256() {
 	case "$1" in
-	mise-v2026.5.4-linux-x64) printf '%s' "$MISE_SHA256_LINUX_AMD64" ;;
-	mise-v2026.5.4-linux-arm64) printf '%s' "$MISE_SHA256_LINUX_ARM64" ;;
-	mise-v2026.5.4-macos-x64) printf '%s' "$MISE_SHA256_DARWIN_AMD64" ;;
-	mise-v2026.5.4-macos-arm64) printf '%s' "$MISE_SHA256_DARWIN_ARM64" ;;
+	mise-v2026.9.17-linux-x64) printf '%s' "$MISE_SHA256_LINUX_AMD64" ;;
+	mise-v2026.9.17-linux-arm64) printf '%s' "$MISE_SHA256_LINUX_ARM64" ;;
+	mise-v2026.9.17-macos-x64) printf '%s' "$MISE_SHA256_DARWIN_AMD64" ;;
+	mise-v2026.9.17-macos-arm64) printf '%s' "$MISE_SHA256_DARWIN_ARM64" ;;
 	*)
 		printf 'ERROR: no pinned SHA-256 for mise asset %s\n' "$1" >&2
 		return 1
