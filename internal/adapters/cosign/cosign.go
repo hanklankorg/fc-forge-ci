@@ -566,28 +566,55 @@ const rekorConflict = "createLogEntryConflict"
 
 // runSigning runs a cosign command that writes a transparency log entry.
 //
-// When Rekor is slow, cosign's client retries an upload the log has already
-// accepted, and the retry fails with a conflict against cosign's own first
-// entry. The signature then never reaches the image or bundle, so one slow
-// response failed a release. The command runs once more: a keyless signature
-// is made with fresh ephemeral keys and a key signature with a fresh nonce, so
-// the new entry is distinct. The earlier entry is a valid log record that
-// nothing refers to. Any other failure is returned as it is.
+// It runs the command once more after two kinds of failure. When Rekor is
+// slow, cosign's client retries an upload the log has already accepted, and
+// the retry fails with a conflict against cosign's own first entry; and a
+// Sigstore service can time out or answer 5xx. Either way the signature never
+// reaches the image or bundle, and one slow response failed a release. A
+// second run is safe: a keyless signature is made with fresh ephemeral keys
+// and a key signature with a fresh nonce, so a new entry is distinct, and an
+// earlier entry is a valid log record that nothing refers to. Any other
+// failure is returned as it is.
 func (a *Adapter) runSigning(ctx context.Context, errOut io.Writer, args ...string) error {
 	stderr, err := a.runCaptured(ctx, nil, args...)
-	if err != nil && bytes.Contains(stderr, []byte(rekorConflict)) {
-		forwardStderr(errOut, stderr)
+	if err != nil && ctx.Err() == nil {
+		if reason := signingRetryReason(stderr); reason != "" {
+			forwardStderr(errOut, stderr)
 
-		if errOut != nil {
-			_, _ = fmt.Fprintln(errOut, "cosign: Rekor already held this upload's entry; signing once more")
+			if errOut != nil {
+				_, _ = fmt.Fprintf(errOut, "cosign: %s; signing once more\n", reason)
+			}
+
+			stderr, err = a.runCaptured(ctx, nil, args...)
 		}
-
-		stderr, err = a.runCaptured(ctx, nil, args...)
 	}
 
 	forwardStderr(errOut, stderr)
 
 	return err
+}
+
+// signingRetryReason says why a failed signing run is worth repeating, or
+// returns "" when it is not.
+func signingRetryReason(stderr []byte) string {
+	if bytes.Contains(stderr, []byte(rekorConflict)) {
+		return "Rekor already held this upload's entry"
+	}
+
+	// cosign's messages for a Sigstore service (Fulcio, Rekor, the timestamp
+	// authority) that did not answer in time or answered with a server error.
+	// The public services have such moments; the v0.90.0 release lost a run to
+	// a timestamp.sigstore.dev timeout.
+	for _, marker := range []string{
+		"context deadline exceeded", "Client.Timeout exceeded", "TLS handshake timeout",
+		"connection reset by peer", "][500]", "][502]", "][503]", "][504]",
+	} {
+		if bytes.Contains(stderr, []byte(marker)) {
+			return "a Sigstore service timed out or failed"
+		}
+	}
+
+	return ""
 }
 
 // runCaptured runs cosign and returns its stderr unredacted, for the caller

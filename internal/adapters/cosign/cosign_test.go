@@ -740,9 +740,10 @@ func TestForKeyRef_ChildReceivesOnlyTheIsolatedEnvironment(t *testing.T) {
 
 // A slow Rekor makes cosign's client retry an upload the log has already
 // accepted, and the retry fails with a conflict against cosign's own entry.
-// That once failed four runtime-image attestations at the same moment. The
-// adapter signs once more after that conflict, and only after that conflict.
-func TestAttestImage_SignsAgainAfterARekorConflictOnly(t *testing.T) {
+// That once failed four runtime-image attestations at the same moment, and a
+// timestamp authority timeout failed another. The adapter signs once more
+// after such a transient failure, and only after one.
+func TestAttestImage_SignsAgainOnlyAfterATransientFailure(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
@@ -752,6 +753,9 @@ func TestAttestImage_SignsAgainAfterARekorConflictOnly(t *testing.T) {
 		ok      bool
 	}{
 		{"conflict", `[POST /api/v1/log/entries][409] createLogEntryConflict {"code":409}`, 2, true},
+		// The v0.90.0 runtime image signing lost a run to this.
+		{"timestamp authority timeout", `error signing bundle: Post "https://timestamp.sigstore.dev/api/v1/timestamp": context deadline exceeded (Client.Timeout exceeded while awaiting headers)`, 2, true},
+		{"rekor unavailable", `[POST /api/v1/log/entries][503] createLogEntryDefault`, 2, true},
 		{"other failure", "error: rejected by the registry", 1, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
