@@ -27,8 +27,8 @@ include:
         - 'nanolinter verify --require secrets,sast'
         - 'go test -race ./...'
 `
-	layer := Layer{ServerURL: "https://gitlab.k3s.forgelab", Repository: "rc/rc-engine", Commit: strings.Repeat("b", 40)}
-	image := "registry.gitlab.k3s.forgelab/rc/rc-engine@sha256:" + strings.Repeat("c", 64)
+	layer := Layer{ServerURL: "https://gitlab.k3s.forgelab", Repository: "forgeci/fci-engine", Commit: strings.Repeat("b", 40)}
+	image := "registry.gitlab.k3s.forgelab/forgeci/fci-engine@sha256:" + strings.Repeat("c", 64)
 
 	rendered, err := renderGitLabConsumer([]byte(pipeline), layer, image)
 	if err != nil {
@@ -54,7 +54,7 @@ include:
 	}
 
 	entry := parsed.Include[0]
-	if entry.Component != "gitlab.k3s.forgelab/rc/rc-engine/check@"+layer.Commit ||
+	if entry.Component != "gitlab.k3s.forgelab/forgeci/fci-engine/check@"+layer.Commit ||
 		entry.Inputs.EngineProject != layer.Repository || entry.Inputs.JobImage != image {
 		t.Fatal("the trial did not bind all three coordinates")
 	}

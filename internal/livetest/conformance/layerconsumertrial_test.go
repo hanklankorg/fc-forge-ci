@@ -18,9 +18,9 @@ import (
 // What `just test-live-consumer` hands over: the checkout, the event, and the
 // caller's settings, one per line.
 const (
-	consumerCheckoutEnv = "RC_LIVE_CONSUMER"
-	consumerEventEnv    = "RC_LIVE_CONSUMER_EVENT"
-	consumerSettingsEnv = "RC_LIVE_CONSUMER_SETTINGS"
+	consumerCheckoutEnv = "FORGE_CI_LIVE_CONSUMER"
+	consumerEventEnv    = "FORGE_CI_LIVE_CONSUMER_EVENT"
+	consumerSettingsEnv = "FORGE_CI_LIVE_CONSUMER_SETTINGS"
 
 	trialBranch = "consumer-trial"
 )
@@ -239,7 +239,7 @@ func externalRegistry(t *testing.T, settings livetest.TrialSettings) *livetest.E
 	external, found := livetest.ExternalRegistryCredential(t)
 	if !found {
 		if len(settings.Images) > 0 {
-			t.Fatal("image= verifies an image on an external registry; give its token with RC_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE and RC_LIVE_EXTERNAL_REGISTRY_USER")
+			t.Fatal("image= verifies an image on an external registry; give its token with FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE and FORGE_CI_LIVE_EXTERNAL_REGISTRY_USER")
 		}
 
 		return nil
@@ -259,7 +259,7 @@ func useExternalRegistry(t *testing.T, external *livetest.ExternalRegistry, fact
 
 	facts.Secrets["RELEASE_REGISTRY_TOKEN"] = external.Token
 
-	t.Logf("images go to an external registry as %s, with the token from RC_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE", external.User)
+	t.Logf("images go to an external registry as %s, with the token from FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE", external.User)
 }
 
 // requireExternalImages verifies each image= against the trial's key on the

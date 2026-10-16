@@ -85,20 +85,20 @@ type TB interface {
 // would be authorizing a consumer it knows nothing about -- so the prefix is
 // compiled in here and every resource this tier creates or destroys is required
 // to sit under it.
-const ResourcePrefix = "rc-"
+const ResourcePrefix = "fci-"
 
 // labAccount is this suite's account on the lab. The producer writes the
 // account's contract to the module's default path; the module's PathEnv
 // (LAB_TARGETS_FILE) overrides it.
-const labAccount = "rc"
+const labAccount = "forgeci"
 
 const (
-	proxyBinaryEnv        = "RC_LIVE_CREDENTIAL_PROXY_BIN"
-	probeJSONBinaryEnv    = "RC_LIVE_PROBE_JSON_BIN"
-	runnerBinaryEnv       = "RC_LIVE_RUNNER_BIN"
-	runnerBinarySHA256Env = "RC_LIVE_RUNNER_SHA256"
-	layerBinaryEnv        = "RC_LIVE_LAYER_BIN"
-	liveProfileEnv        = "RC_LIVE_PROFILE"
+	proxyBinaryEnv        = "FORGE_CI_LIVE_CREDENTIAL_PROXY_BIN"
+	probeJSONBinaryEnv    = "FORGE_CI_LIVE_PROBE_JSON_BIN"
+	runnerBinaryEnv       = "FORGE_CI_LIVE_RUNNER_BIN"
+	runnerBinarySHA256Env = "FORGE_CI_LIVE_RUNNER_SHA256"
+	layerBinaryEnv        = "FORGE_CI_LIVE_LAYER_BIN"
+	liveProfileEnv        = "FORGE_CI_LIVE_PROFILE"
 )
 
 // Deadlines for waits against a real forge. They are constants: a run that

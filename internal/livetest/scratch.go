@@ -93,7 +93,7 @@ func keepOrDeleteAfter(tb TB, target Target, repo string) {
 		// run. Deliberately not a flag: it must be awkward enough that nobody
 		// leaves it on. The next run starts by deleting the repository anyway, so
 		// what is kept is one generation, not a growing pile.
-		if os.Getenv("RC_LIVE_KEEP_SCRATCH") == "1" {
+		if os.Getenv("FORGE_CI_LIVE_KEEP_SCRATCH") == "1" {
 			retainScratchForInspection(tb, target, repo)
 
 			return
@@ -323,7 +323,7 @@ func SweepPackagesAfter(tb TB, target Target, repo string) {
 	requireAccepted(tb, target)
 
 	tb.Cleanup(func() {
-		if os.Getenv("RC_LIVE_KEEP_SCRATCH") == "1" {
+		if os.Getenv("FORGE_CI_LIVE_KEEP_SCRATCH") == "1" {
 			return
 		}
 

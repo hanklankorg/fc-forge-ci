@@ -263,12 +263,12 @@ func newReleaseKeys(t *testing.T) releaseKeys {
 // finds and verifies the bases the first one signed. Unset, each trial signs
 // with a key of its own.
 const (
-	signingKeyDirEnv         = "RC_LIVE_SIGNING_KEY_DIR"
+	signingKeyDirEnv         = "FORGE_CI_LIVE_SIGNING_KEY_DIR"
 	signingKeyPassphraseFile = "lab-cosign.passphrase"
 )
 
 // trialCosignKey returns the passphrase-protected key pair a trial signs
-// with: the reused one in RC_LIVE_SIGNING_KEY_DIR, made there on first use,
+// with: the reused one in FORGE_CI_LIVE_SIGNING_KEY_DIR, made there on first use,
 // or a fresh pair in dir.
 func trialCosignKey(t *testing.T, dir string) (string, string) {
 	t.Helper()

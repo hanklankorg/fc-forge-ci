@@ -17,8 +17,8 @@ import (
 // its job emits the ready marker. The expected evidence is interruption plus
 // normal cleanup, never a passing test produced by waiting out the sleep.
 func TestGitLabWorkflow_InterruptedJob(t *testing.T) {
-	if os.Getenv("RC_LIVE_INTERRUPT_PROBE") != "gitlab-workflow" {
-		livetest.NotCoveredf(t, "active-job interruption requires RC_LIVE_INTERRUPT_PROBE=gitlab-workflow and an observed launcher signal")
+	if os.Getenv("FORGE_CI_LIVE_INTERRUPT_PROBE") != "gitlab-workflow" {
+		livetest.NotCoveredf(t, "active-job interruption requires FORGE_CI_LIVE_INTERRUPT_PROBE=gitlab-workflow and an observed launcher signal")
 	}
 	if !livetest.Requires(t, provider.ForgeGitLab, livetest.NeedsInRunner) {
 		livetest.NotCoveredf(t, "active-job interruption requires a GitLab runner")
@@ -32,7 +32,7 @@ func TestGitLabWorkflow_InterruptedJob(t *testing.T) {
   variables:
     GIT_STRATEGY: empty
   script:
-    - printf 'rc-live-interruption-ready\n'
+    - printf 'fci-live-interruption-ready\n'
     - sleep 180
 `
 	conclusion := livetest.RunWorkflow(t, target, repo, "interrupt-probe", workflow)

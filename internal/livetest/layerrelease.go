@@ -26,7 +26,7 @@ import (
 // signerImageEnv names the digest-pinned signer image the release scenarios
 // run their signer jobs in. `just test-live-signer-image` builds it from this
 // checkout, publishes it to the lab registry and prints the value.
-const signerImageEnv = "RC_LIVE_SIGNER_IMAGE"
+const signerImageEnv = "FORGE_CI_LIVE_SIGNER_IMAGE"
 
 var digestPinnedImage = regexp.MustCompile(`^[a-z0-9]+([.-][a-z0-9]+)*(:[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$`)
 
@@ -135,7 +135,7 @@ func SSHKey(tb TB, dir string) (string, string) {
 // it may: a scenario that builds one fails where the build fails. `0` is the
 // operator saying that this runner does not allow it, and such a scenario
 // skips.
-const imageBuildsEnv = "RC_LIVE_IMAGE_BUILDS"
+const imageBuildsEnv = "FORGE_CI_LIVE_IMAGE_BUILDS"
 
 // ImageBuilds reports whether a scenario may expect a job to build an image,
 // or false after logging why not.

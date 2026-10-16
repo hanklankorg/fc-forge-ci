@@ -265,7 +265,7 @@ func TestScratchMutators_RejectUnacceptedTargetsBeforeTransport(t *testing.T) {
 					ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 					defer cancel()
 
-					err := DeleteScratchRepo(ctx, target, "rc-test")
+					err := DeleteScratchRepo(ctx, target, "fci-test")
 					if !errors.Is(err, errs.ErrValidation) || !strings.Contains(err.Error(), "unaccepted") {
 						t.Fatalf("unaccepted cleanup = %v, want acceptance-specific ErrValidation", err)
 					}

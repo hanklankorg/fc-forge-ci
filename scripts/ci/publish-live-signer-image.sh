@@ -56,6 +56,6 @@ fi
 # Forge Lab publishes under the account's own owner, on the road and registry
 # of the account's contract (LAB_TARGETS_FILE when set), and prints the digest
 # reference as its one line of standard output. The package name is outside
-# the rc- prefix, so a prefix reset on the lab does not delete the image.
+# the fci- prefix, so a prefix reset on the lab does not delete the image.
 just --justfile "$forge_lab/justfile" --working-directory "$forge_lab" \
-	publish-image --account rc forge-ci-live-signer "$image"
+	publish-image --account forgeci forge-ci-live-signer "$image"

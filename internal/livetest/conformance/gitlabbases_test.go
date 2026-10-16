@@ -148,11 +148,11 @@ else
   printf 'one immutable base fixture\n' > "${RC_WORK}/base-context/base.txt"
   printf 'FROM scratch\nCOPY base.txt /base.txt\n' > "${RC_WORK}/base-context/Containerfile"
   buildah build --isolation chroot --network host --pull=never --platform linux/amd64 \
-    --timestamp 946684800 --manifest localhost/rc-base-fixture "${RC_WORK}/base-context"
+    --timestamp 946684800 --manifest localhost/fci-base-fixture "${RC_WORK}/base-context"
   auth="${RC_WORK}/registry-auth.json"
   printf '%s' "${CI_REGISTRY_PASSWORD}" | forge-ci container login --registry "${CI_REGISTRY}" \
     --registry-username "${CI_REGISTRY_USER}" --registry-password-file - --auth-file "${auth}"
-  digest=$(forge-ci container manifest push --local-manifest localhost/rc-base-fixture \
+  digest=$(forge-ci container manifest push --local-manifest localhost/fci-base-fixture \
     --destination "${CI_REGISTRY_IMAGE}/bases:staging-${base_id}-go" --auth-file "${auth}")
   forge-ci container ledger add --ledger dist/base-images.json --image-kind base --role base --flavor go \
     --base-input-id "${base_id}" --image-name "${CI_REGISTRY_IMAGE}/bases" --digest "${digest}" \

@@ -22,10 +22,10 @@ import (
 
 // What `just test-live-github-consumer` hands over.
 const (
-	organizationEnv = "RC_LIVE_GITHUB_ORG_ID"
-	checkoutEnv     = "RC_LIVE_CONSUMER"
-	eventEnv        = "RC_LIVE_CONSUMER_EVENT"
-	settingsEnv     = "RC_LIVE_CONSUMER_SETTINGS"
+	organizationEnv = "FORGE_CI_LIVE_GITHUB_ORG_ID"
+	checkoutEnv     = "FORGE_CI_LIVE_CONSUMER"
+	eventEnv        = "FORGE_CI_LIVE_CONSUMER_EVENT"
+	settingsEnv     = "FORGE_CI_LIVE_CONSUMER_SETTINGS"
 
 	trialBranch = "consumer-trial"
 )

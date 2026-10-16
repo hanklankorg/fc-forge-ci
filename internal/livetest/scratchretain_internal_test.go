@@ -38,8 +38,8 @@ func TestRetainedScratchIsArchivedWithoutHidingActionsHistory(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			t.Parallel()
 			request, calls := retainedScratchFixture(t, scenario.name)
-			target := Target{accepted: true, Forge: provider.ForgeForgejo, Owner: "rc"}
-			present, err := archiveRetainedScratch(target, "rc-consumer-trial", request)
+			target := Target{accepted: true, Forge: provider.ForgeForgejo, Owner: "forgeci"}
+			present, err := archiveRetainedScratch(target, "fci-consumer-trial", request)
 
 			wantPresent := scenario.want == nil && scenario.name != "absent"
 			if !errors.Is(err, scenario.want) || strings.Join(*calls, " ") != scenario.calls || present != wantPresent {
@@ -96,7 +96,7 @@ func retainedScratchFixture(t *testing.T, scenario string) (retainedScratchReque
 }
 
 func retainedScratchReply(scenario string, readback bool) retainedScratch {
-	state := retainedScratch{ID: 42, FullName: "rc/rc-consumer-trial", Archived: new(false)}
+	state := retainedScratch{ID: 42, FullName: "forgeci/fci-consumer-trial", Archived: new(false)}
 	if scenario == "foreign identity" {
 		state.FullName = "someone/else"
 	}
@@ -124,11 +124,11 @@ func TestRetainedScratchRefusesUnacceptedOrForeignCoordinates(t *testing.T) {
 		forge    provider.ForgeAPI
 		repo     string
 	}{
-		{false, provider.ForgeForgejo, "rc-example"},
-		{true, provider.ForgeGitLab, "rc-example"},
+		{false, provider.ForgeForgejo, "fci-example"},
+		{true, provider.ForgeGitLab, "fci-example"},
 		{true, provider.ForgeForgejo, "foreign"},
-		{true, provider.ForgeForgejo, "rc-"},
-		{true, provider.ForgeForgejo, "rc-../other"},
+		{true, provider.ForgeForgejo, "fci-"},
+		{true, provider.ForgeForgejo, "fci-../other"},
 	} {
 		_, err := archiveRetainedScratch(Target{accepted: scenario.accepted, Forge: scenario.forge}, scenario.repo,
 			func(string, any, any) (int, error) {

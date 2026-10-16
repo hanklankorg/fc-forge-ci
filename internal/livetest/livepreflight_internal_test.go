@@ -222,7 +222,7 @@ func TestCheckLiveInputs_GuardsWithoutTouchingAProvider(t *testing.T) {
 
 	t.Run("default path when the override is unset", func(t *testing.T) {
 		// The common case: no variable, the contract where the lab wrote it
-		// for account rc under the state directory.
+		// for account forgeci under the state directory.
 		installDefaultContract(t, withOwnedCA(t, composeFixtureBody(t)))
 		t.Setenv(liveProfileEnv, "full")
 

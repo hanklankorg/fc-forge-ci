@@ -86,7 +86,7 @@ func TestGitLabReleaseBranchUpdatesDefaultProtectionWithoutAnUnprotectedWindow(t
 				t.Fatal(err)
 			}
 
-			err = restrictGitLabReleaseBranch(t.Context(), client, "rc/rc-release-consumer", 7)
+			err = restrictGitLabReleaseBranch(t.Context(), client, "forgeci/fci-release-consumer", 7)
 			if (err != nil) != test.wantError {
 				t.Errorf("restrict release branch = %v, want error %t", err, test.wantError)
 			}

@@ -30,7 +30,7 @@ focused)
 	;;
 *) usage ;;
 esac
-export RC_LIVE_PROFILE="$profile"
+export FORGE_CI_LIVE_PROFILE="$profile"
 
 # Preflight first, before anything is built: it locates the contract for this
 # suite's lab account (LAB_TARGETS_FILE overrides the default path) and
@@ -51,8 +51,8 @@ done
 }
 
 # One run per lab account at a time: scenarios delete and recreate fixed
-# rc-<scenario> repositories, so two concurrent runs would clobber each other.
-# The lock lives at a fixed state path, not under RC_LIVE_EVIDENCE_ROOT, so
+# fci-<scenario> repositories, so two concurrent runs would clobber each other.
+# The lock lives at a fixed state path, not under FORGE_CI_LIVE_EVIDENCE_ROOT, so
 # moving the log cannot split it. It covers runs sharing this $HOME only; a
 # run from a container with its own HOME does not see it. The shell holds
 # fd 9 until it exits; the lock releases with it.
@@ -79,9 +79,9 @@ sanitize_live_log() {
 
 # The log survives the run under the XDG state directory (30-day retention),
 # because the live tier is human-invoked and has no CI artifact to retrieve.
-log_root=${RC_LIVE_EVIDENCE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/forge-ci/live-runs}
+log_root=${FORGE_CI_LIVE_EVIDENCE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/forge-ci/live-runs}
 [[ "$log_root" == /* ]] || {
-	printf 'RC_LIVE_EVIDENCE_ROOT must be absolute, got %q\n' "$log_root" >&2
+	printf 'FORGE_CI_LIVE_EVIDENCE_ROOT must be absolute, got %q\n' "$log_root" >&2
 	exit 2
 }
 install -d -m 0700 -- "$log_root"
@@ -117,13 +117,13 @@ trap 'rm -rf -- "$state"' EXIT
 )
 packages=$(cd -- "$repo_root" && "$go_bin" list -tags=live -f '{{if or .TestGoFiles .XTestGoFiles}}{{.Dir}}{{end}}' ./internal/livetest/...)
 
-export RC_LIVE_BIN="$state/forge-ci-host"
-export RC_LIVE_RUNNER_BIN="$state/forge-ci-runner"
-export RC_LIVE_RUNNER_SHA256
-RC_LIVE_RUNNER_SHA256=$(sha256sum "$state/forge-ci-runner" | cut -d' ' -f1)
-export RC_LIVE_CREDENTIAL_PROXY_BIN="$state/credential-proxy"
-export RC_LIVE_PROBE_JSON_BIN="$state/probe-json"
-export RC_LIVE_LAYER_BIN="$state/forge-ci-layer"
+export FORGE_CI_LIVE_BIN="$state/forge-ci-host"
+export FORGE_CI_LIVE_RUNNER_BIN="$state/forge-ci-runner"
+export FORGE_CI_LIVE_RUNNER_SHA256
+FORGE_CI_LIVE_RUNNER_SHA256=$(sha256sum "$state/forge-ci-runner" | cut -d' ' -f1)
+export FORGE_CI_LIVE_CREDENTIAL_PROXY_BIN="$state/credential-proxy"
+export FORGE_CI_LIVE_PROBE_JSON_BIN="$state/probe-json"
+export FORGE_CI_LIVE_LAYER_BIN="$state/forge-ci-layer"
 
 {
 	printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"

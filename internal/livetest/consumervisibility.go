@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	consumerVisibilityEnv = "RC_LIVE_CONSUMER_VISIBILITY"
+	consumerVisibilityEnv = "FORGE_CI_LIVE_CONSUMER_VISIBILITY"
 	visibilityPublic      = "public"
 	visibilityPrivate     = "private"
 )

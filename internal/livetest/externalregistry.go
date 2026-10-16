@@ -34,8 +34,8 @@ type ExternalRegistry struct {
 }
 
 // ExternalRegistryCredential reads the external registry's credential when
-// RC_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE names one. The file must be a regular
-// file only its owner can read or write, and RC_LIVE_EXTERNAL_REGISTRY_USER
+// FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE names one. The file must be a regular
+// file only its owner can read or write, and FORGE_CI_LIVE_EXTERNAL_REGISTRY_USER
 // must name the user; anything else stops the trial before it creates a
 // resource.
 func ExternalRegistryCredential(tb TB) (ExternalRegistry, bool) {

@@ -49,7 +49,7 @@ func TestWorkflowWaitStopsOnCancellationBeforeCleanupGraceExpires(t *testing.T) 
 
 				// The empty forge selects no HTTP route: only polling and its
 				// cancellation lifetime are exercised, never a real provider.
-				waitForRun(ctx, stopOnFatalTB{TB: t}, Target{}, "rc-inert", "cancellation fixture")
+				waitForRun(ctx, stopOnFatalTB{TB: t}, Target{}, "fci-inert", "cancellation fixture")
 				t.Error("canceled workflow wait returned a normal conclusion")
 			})
 		})

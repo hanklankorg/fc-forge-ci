@@ -51,7 +51,7 @@ func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 	consumer := livetest.OpenConsumer(t, target, root)
 	engineRepo := livetest.NewScratchRepo(t, target, "gitlab-consumer-layer")
 	layer := livetest.PushLayer(t, target, engineRepo)
-	image := livetest.PushJobImage(t, target, engineRepo, os.Getenv("RC_LIVE_CONSUMER_IMAGE_ARCHIVE"))
+	image := livetest.PushJobImage(t, target, engineRepo, os.Getenv("FORGE_CI_LIVE_CONSUMER_IMAGE_ARCHIVE"))
 	repo := livetest.NewBareScratchRepo(t, target, "gitlab-consumer-trial", consumer.ObjectFormat, private)
 	main := consumer.PushGitLab(t, repo, layer, image)
 	requireObjectFormats(t, consumer.ObjectFormat, main, layer.Commit)

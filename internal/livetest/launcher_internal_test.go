@@ -32,8 +32,8 @@ func TestLiveLauncherWaitsForCleanupAndReleasesLock(t *testing.T) {
 			command := liveLauncherCommand(t, ctx, root, script, mode)
 			command.Env = []string{"PATH=" + filepath.Join(root, "tools") + ":/usr/bin:/bin", "HOME=" + root,
 				"XDG_STATE_HOME=" + filepath.Join(root, "state"), "TMPDIR=" + root,
-				"RC_LIVE_SIGNAL_FIXTURE=" + root, "RC_LIVE_FIXTURE_BINARY=" + os.Args[0], "RC_LIVE_PACKAGE_DIR=" + packageDir,
-				"RC_LIVE_CLEANUP_HANDSHAKE=1"}
+				"FORGE_CI_LIVE_SIGNAL_FIXTURE=" + root, "FORGE_CI_LIVE_FIXTURE_BINARY=" + os.Args[0], "FORGE_CI_LIVE_PACKAGE_DIR=" + packageDir,
+				"FORGE_CI_LIVE_CLEANUP_HANDSHAKE=1"}
 			command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 			var output bytes.Buffer
@@ -163,13 +163,13 @@ mode=$1
 shift
 case "$mode" in
   run) printf 'inert preflight\n' ;;
-  list) printf '%s\n' "$RC_LIVE_PACKAGE_DIR" ;;
+  list) printf '%s\n' "$FORGE_CI_LIVE_PACKAGE_DIR" ;;
   build|test)
     while [[ "$1" != -o ]]; do shift; done
     output=$2
     if [[ "$mode" = test ]]; then
       output="${output%/}/livetest.test"
-      printf '#!/bin/bash\nexec "$RC_LIVE_FIXTURE_BINARY" -test.run=^TestSuiteSignalFixture$\n' > "$output"
+      printf '#!/bin/bash\nexec "$FORGE_CI_LIVE_FIXTURE_BINARY" -test.run=^TestSuiteSignalFixture$\n' > "$output"
     else
       printf '#!/bin/sh\nexit 0\n' > "$output"
     fi

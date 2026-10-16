@@ -72,7 +72,7 @@ func TestErrors_SameFailureClass_ExitsTheSameOnEveryForge(t *testing.T) {
 				return []string{
 					"validate", "auth", "token",
 					"--token-file", writeToken(t, target.Token),
-					"--repository", target.Owner + "/rc-absent-repository-par-ux-4",
+					"--repository", target.Owner + "/fci-absent-repository-par-ux-4",
 				}
 			},
 		},

@@ -118,7 +118,7 @@ func runGitLabBranchProtection(t *testing.T, root string, private bool) {
 // Check a caller-prepared builder in the actual runner before paying for the
 // consumer build matrix. Requires the same guarded full-release profile.
 func TestGitLabRelease_BuildImageCapability(t *testing.T) {
-	archive := os.Getenv("RC_LIVE_BUILD_IMAGE_ARCHIVE")
+	archive := os.Getenv("FORGE_CI_LIVE_BUILD_IMAGE_ARCHIVE")
 	if archive == "" || !livetest.Requires(t, provider.ForgeGitLab, livetest.NeedsInRunner) {
 		livetest.NotCoveredf(t, "builder probe requires a reviewed build image archive and GitLab runner")
 	}
@@ -154,7 +154,7 @@ mkdir "${work}/context"
 cp forge-ci "${work}/context/probe"
 printf 'FROM scratch\nCOPY probe /probe\nRUN ["/probe", "--version"]\n' > "${work}/context/Containerfile"
 buildah build --isolation chroot --network host --pull=never \
-  --tag localhost/rc-build-image-probe "${work}/context"
+  --tag localhost/fci-build-image-probe "${work}/context"
 `
 
 func runGitLabRelease(t *testing.T, consumerRoot string, private bool) {

@@ -144,7 +144,7 @@ func newLiveRun(t *testing.T, extraEnv ...string) liveRun {
 		"XDG_STATE_HOME=" + run.stateHome,
 		"TMPDIR=" + t.TempDir(),
 		"LC_ALL=C",
-		"RC_LIVE_EVIDENCE_ROOT=" + run.evidenceRoot,
+		"FORGE_CI_LIVE_EVIDENCE_ROOT=" + run.evidenceRoot,
 		"FAKE_GO_ARGV=" + run.argvFile,
 		"FAKE_GO_ENV=" + run.envFile,
 		"FAKE_GO_PACKAGE=" + t.TempDir(),
@@ -289,7 +289,7 @@ func TestRunLiveTests_HappyPathRunsTheSuiteAndKeepsARedactedLog(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			run := newLiveRun(t, "FAKE_GO_TEST_OUTPUT="+fakeSuiteOutput,
-				"RC_LIVE_CONSUMER=/absolute/consumer", "RC_LIVE_CONSUMER_EVENT=release", "RC_LIVE_CONSUMER_VISIBILITY=private")
+				"FORGE_CI_LIVE_CONSUMER=/absolute/consumer", "FORGE_CI_LIVE_CONSUMER_EVENT=release", "FORGE_CI_LIVE_CONSUMER_VISIBILITY=private")
 
 			stdout, stderr, status := run.exec(t, tc.args...)
 			if status != 0 {
@@ -316,9 +316,9 @@ func TestRunLiveTests_HappyPathRunsTheSuiteAndKeepsARedactedLog(t *testing.T) {
 // fakePreflightReport stands in for what the real preflight prints on
 // acceptance: its summary line and the module's explanation of the contract,
 // ending in the run identity. The script must show it and keep it in the log.
-const fakePreflightReport = "live preflight: 2 provider(s), generation fake-generation, namespace rc-\n\n" +
+const fakePreflightReport = "live preflight: 2 provider(s), generation fake-generation, namespace fci-\n\n" +
 	"generation fake-generation\n" +
-	"identity for rc-: run=fake-generation|targets=forgejo@https://forgejo.compose.forgelab:8443/fixture-user#resources=rc-"
+	"identity for fci-: run=fake-generation|targets=forgejo@https://forgejo.compose.forgelab:8443/fixture-user#resources=fci-"
 
 // fakeSuiteOutput is what the compiled fixture prints: ordinary verbose output
 // with two credential-shaped lines the log must not keep.
@@ -356,18 +356,18 @@ func requireGoCalls(t *testing.T, calls []string, wantTest string) {
 func requireHandover(t *testing.T, env map[string]string, profile string) {
 	t.Helper()
 
-	if env["RC_LIVE_PROFILE"] != profile {
-		t.Fatalf("RC_LIVE_PROFILE=%q", env["RC_LIVE_PROFILE"])
+	if env["FORGE_CI_LIVE_PROFILE"] != profile {
+		t.Fatalf("FORGE_CI_LIVE_PROFILE=%q", env["FORGE_CI_LIVE_PROFILE"])
 	}
 
-	for _, name := range []string{"RC_LIVE_BIN", "RC_LIVE_RUNNER_BIN", "RC_LIVE_CREDENTIAL_PROXY_BIN", "RC_LIVE_PROBE_JSON_BIN", "RC_LIVE_LAYER_BIN"} {
+	for _, name := range []string{"FORGE_CI_LIVE_BIN", "FORGE_CI_LIVE_RUNNER_BIN", "FORGE_CI_LIVE_CREDENTIAL_PROXY_BIN", "FORGE_CI_LIVE_PROBE_JSON_BIN", "FORGE_CI_LIVE_LAYER_BIN"} {
 		if !filepath.IsAbs(env[name]) {
 			t.Fatalf("%s=%q is not an absolute path", name, env[name])
 		}
 	}
 
-	if !container.ValidSHA256Hex(env["RC_LIVE_RUNNER_SHA256"]) {
-		t.Fatalf("RC_LIVE_RUNNER_SHA256=%q", env["RC_LIVE_RUNNER_SHA256"])
+	if !container.ValidSHA256Hex(env["FORGE_CI_LIVE_RUNNER_SHA256"]) {
+		t.Fatalf("FORGE_CI_LIVE_RUNNER_SHA256=%q", env["FORGE_CI_LIVE_RUNNER_SHA256"])
 	}
 }
 

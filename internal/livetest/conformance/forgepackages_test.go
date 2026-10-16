@@ -51,7 +51,7 @@ const packageTokenSecret = "RC_PACKAGE_TOKEN"
 func TestInRunner_ForgePackages_NPMPublishReachesTheRegistry(t *testing.T) {
 	const (
 		tag  = "v0.0.8-pkgnpm"
-		base = "rc-parpkg"
+		base = "fci-parpkg"
 	)
 
 	// Unique per run, and deliberately NOT a prerelease.
@@ -196,7 +196,7 @@ func TestInRunner_ForgePackages_MavenDeployReachesTheRegistry(t *testing.T) {
 	const (
 		tag        = "v0.0.9-pkgmvn"
 		groupID    = "com.example.livetest"
-		artifactID = "rc-parpkg-maven"
+		artifactID = "fci-parpkg-maven"
 	)
 
 	// Unique and non-prerelease, for the reasons PAR-PKG-1 documents.

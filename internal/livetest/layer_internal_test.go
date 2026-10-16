@@ -21,7 +21,7 @@ import (
 func sampleLayer() Layer {
 	return Layer{
 		ServerURL:    "https://forgejo.compose.forgelab:8443",
-		Repository:   "rc/rc-layer-artifact",
+		Repository:   "forgeci/fci-layer-artifact",
 		Commit:       strings.Repeat("a", 40),
 		BinarySHA256: strings.Repeat("b", 64),
 	}
@@ -32,13 +32,13 @@ func sampleLayer() Layer {
 // TestLayerFixtures_RenderToWorkflowsThatPinTheLayer until it is.
 func layerFixtureFacts() []string {
 	return []string{
-		"RENDER_ACCEPTANCE_REPOSITORY", "rc/rc-layer-consumer",
-		"RENDER_SIGNER_IMAGE", "forgejo.compose.forgelab:8443/rc/rc-layer-signer@sha256:" + unrunDigest,
+		"RENDER_ACCEPTANCE_REPOSITORY", "forgeci/fci-layer-consumer",
+		"RENDER_SIGNER_IMAGE", "forgejo.compose.forgelab:8443/forgeci/fci-layer-signer@sha256:" + unrunDigest,
 		"RENDER_COSIGN_PUBLIC_KEY_SHA256", unrunDigest,
 		"RENDER_COSIGN_PUBLIC_KEY", "-----BEGIN PUBLIC KEY-----\n        AAAA\n        -----END PUBLIC KEY-----",
-		"RENDER_RELEASE_GIT_URL", "ssh://git@forgejo.compose.forgelab:2222/rc/rc-layer-minimal-release.git",
+		"RENDER_RELEASE_GIT_URL", "ssh://git@forgejo.compose.forgelab:2222/forgeci/fci-layer-minimal-release.git",
 		"RENDER_RELEASE_GIT_HOST_KEY_FINGERPRINT", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-		"RENDER_BASE_REPOSITORY", "forgejo.compose.forgelab:8443/rc/rc-layer-registry-smoke-base",
+		"RENDER_BASE_REPOSITORY", "forgejo.compose.forgelab:8443/forgeci/fci-layer-registry-smoke-base",
 	}
 }
 
@@ -49,11 +49,11 @@ func TestSignerImage_IsADigestPinnedLabImageOrASkip(t *testing.T) {
 		skipped, refused bool
 	}{
 		"unset":            {skipped: true},
-		"a lab image":      {value: "forgejo.compose.forgelab:8443/rc/rc-layer-signer@sha256:" + unrunDigest, want: true},
-		"a tag":            {value: "forgejo.compose.forgelab:8443/rc/rc-layer-signer:latest", refused: true},
+		"a lab image":      {value: "forgejo.compose.forgelab:8443/forgeci/fci-layer-signer@sha256:" + unrunDigest, want: true},
+		"a tag":            {value: "forgejo.compose.forgelab:8443/forgeci/fci-layer-signer:latest", refused: true},
 		"a public host":    {value: "ghcr.io/owner/signer@sha256:" + unrunDigest, refused: true},
-		"a short digest":   {value: "forgejo.compose.forgelab:8443/rc/rc-layer-signer@sha256:abc", refused: true},
-		"trailing content": {value: "forgejo.compose.forgelab:8443/rc/rc-layer-signer@sha256:" + unrunDigest + " x", refused: true},
+		"a short digest":   {value: "forgejo.compose.forgelab:8443/forgeci/fci-layer-signer@sha256:abc", refused: true},
+		"trailing content": {value: "forgejo.compose.forgelab:8443/forgeci/fci-layer-signer@sha256:" + unrunDigest + " x", refused: true},
 	} {
 		t.Setenv(signerImageEnv, test.value)
 
@@ -97,25 +97,25 @@ jobs:
 
 	want := `env:
   SERVER: https://forgejo.compose.forgelab:8443
-  REPOSITORY: rc/rc-layer-consumer
+  REPOSITORY: forgeci/fci-layer-consumer
 jobs:
   call:
-    uses: rc/rc-layer-artifact/.forgejo/workflows/prepare-release.yml@` + strings.Repeat("a", 40) + `
+    uses: forgeci/fci-layer-artifact/.forgejo/workflows/prepare-release.yml@` + strings.Repeat("a", 40) + `
     with:
-      forge-ci-repository: rc/rc-layer-artifact
-      signer-image: forge.example/rc/signer@sha256:1
+      forge-ci-repository: forgeci/fci-layer-artifact
+      signer-image: forge.example/forgeci/signer@sha256:1
       key-sha256: 2
       key: 3
   step:
     steps:
-      - uses: https://forgejo.compose.forgelab:8443/rc/rc-layer-artifact/.forgejo/actions/setup-forge-ci@` + strings.Repeat("a", 40) + `
+      - uses: https://forgejo.compose.forgelab:8443/forgeci/fci-layer-artifact/.forgejo/actions/setup-forge-ci@` + strings.Repeat("a", 40) + `
         with:
           expected-sha256: ` + strings.Repeat("b", 64) + `
 `
 
 	// A scenario's own facts, the longer of two overlapping placeholders first.
-	got, err := sampleLayer().Render(fixture, "RENDER_ACCEPTANCE_REPOSITORY", "rc/rc-layer-consumer",
-		"RENDER_SIGNER_IMAGE", "forge.example/rc/signer@sha256:1", "RENDER_KEY_SHA256", "2", "RENDER_KEY", "3")
+	got, err := sampleLayer().Render(fixture, "RENDER_ACCEPTANCE_REPOSITORY", "forgeci/fci-layer-consumer",
+		"RENDER_SIGNER_IMAGE", "forge.example/forgeci/signer@sha256:1", "RENDER_KEY_SHA256", "2", "RENDER_KEY", "3")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,11 +223,11 @@ func TestLayerRenderReleaseExample_IsAWorkflowTheIsolationGateCanRead(t *testing
 	// What the gate holds: one pin of one repository, the helper checkout at
 	// the same commit, and the two trust inputs as literals of their shape.
 	for _, want := range []string{
-		"uses: rc/rc-layer-artifact/.forgejo/workflows/sign-and-publish-release.yml@" + layer.Commit + "\n",
-		"uses: https://forgejo.compose.forgelab:8443/rc/rc-layer-artifact/.forgejo/actions/upload-dist@" + layer.Commit + "\n",
-		"forge-ci-repository: rc/rc-layer-artifact\n",
+		"uses: forgeci/fci-layer-artifact/.forgejo/workflows/sign-and-publish-release.yml@" + layer.Commit + "\n",
+		"uses: https://forgejo.compose.forgelab:8443/forgeci/fci-layer-artifact/.forgejo/actions/upload-dist@" + layer.Commit + "\n",
+		"forge-ci-repository: forgeci/fci-layer-artifact\n",
 		"forge-ci-sha: " + layer.Commit + "\n",
-		"signer-image: forgejo.compose.forgelab:8443/rc/rc-layer-artifact-signer@sha256:" + unrunDigest + "\n",
+		"signer-image: forgejo.compose.forgelab:8443/forgeci/fci-layer-artifact-signer@sha256:" + unrunDigest + "\n",
 		"cosign-public-key-sha256: " + unrunDigest + "\n",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -240,7 +240,7 @@ func TestLayerGitEnvironment_ScopesTheCredentialToTheLabGitRoot(t *testing.T) {
 	t.Parallel()
 
 	//nolint:gosec // A synthetic credential.
-	env := layerGitEnvironment("https://forgejo.compose.forgelab:8443", "rc", "synthetic-token")
+	env := layerGitEnvironment("https://forgejo.compose.forgelab:8443", "forgeci", "synthetic-token")
 
 	if got, want := env["GIT_CONFIG_KEY_0"], "http.https://forgejo.compose.forgelab:8443/.extraHeader"; got != want {
 		t.Errorf("credential header key = %q, want %q so git sends it to no other host", got, want)
@@ -269,7 +269,7 @@ func TestLayerGitEnvironment_ScopesTheCredentialToTheLabGitRoot(t *testing.T) {
 
 	// Every credential form the kit redacts covers the header, so git echoing
 	// its configuration cannot put the token in a test log.
-	target := Target{CredentialUsername: "rc", Token: "synthetic-token"}
+	target := Target{CredentialUsername: "forgeci", Token: "synthetic-token"}
 	if redacted := redactTargetSecrets(target, env["GIT_CONFIG_VALUE_0"]); strings.Contains(redacted, pair) {
 		t.Error("the credential header survives redaction")
 	}
@@ -280,7 +280,7 @@ func TestLayerGitEnvironment_ScopesTheCredentialToTheLabGitRoot(t *testing.T) {
 func newLayerCheckout(t *testing.T) (layerGit, string) {
 	t.Helper()
 
-	settings := layerGitEnvironment("https://forgejo.compose.forgelab:8443", "rc", "synthetic-token")
+	settings := layerGitEnvironment("https://forgejo.compose.forgelab:8443", "forgeci", "synthetic-token")
 
 	env := make([]string, 0, len(settings)+2)
 	env = append(env, "PATH="+os.Getenv("PATH"), "HOME="+t.TempDir())

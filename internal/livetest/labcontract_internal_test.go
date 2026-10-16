@@ -210,7 +210,7 @@ func TestCurrentLabContract_DetectsMutationAfterFirstLoad(t *testing.T) {
 }
 
 // TestCurrentLabContract_LocatesByAccount: with the override unset the
-// contract is read from the lab's default path for account rc under the state
+// contract is read from the lab's default path for account forgeci under the state
 // directory, and an absent one, at either location, is reported with where
 // the suite looked and how to get one there.
 func TestCurrentLabContract_LocatesByAccount(t *testing.T) {
@@ -228,7 +228,7 @@ func TestCurrentLabContract_LocatesByAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requireMissingContractHint(t, path, labcontract.PathEnv+` is unset, so the default for lab account "rc"`)
+	requireMissingContractHint(t, path, labcontract.PathEnv+` is unset, so the default for lab account "forgeci"`)
 
 	absent := filepath.Join(t.TempDir(), "absent.json")
 	t.Setenv(labcontract.PathEnv, absent)

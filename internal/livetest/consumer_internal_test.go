@@ -26,8 +26,8 @@ const (
 	consumerSignerImage  = "codefloe.com/itiquette/forge-ci-signer@sha256:9a51d9f761cd269cadb2066710c9d2dd293f4e1020e229ff4f47ee1e6bce6234"
 	consumerKeyDigest    = "0a118a651aac6f751385aeaeb4242996ecc5b1b30c272d8da4a75369abd6b630" // gitleaks:allow -- public-key digest, not a credential.
 
-	labSignerImage = "forgejo.compose.forgelab:8443/rc/forge-ci-live-signer@sha256:" + unrunDigest
-	labGitURL      = "ssh://git@forgejo:2222/rc/rc-consumer-trial.git"
+	labSignerImage = "forgejo.compose.forgelab:8443/forgeci/forge-ci-live-signer@sha256:" + unrunDigest
+	labGitURL      = "ssh://git@forgejo:2222/forgeci/fci-consumer-trial.git"
 	labFingerprint = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	labPublicKey   = "-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----\n"
 )
@@ -47,7 +47,7 @@ func consumerWorkflow(t *testing.T, name string) string {
 func releaseFacts() ConsumerFacts {
 	return ConsumerFacts{
 		Inputs: map[string]string{
-			"forge-ci-repository":              "rc/rc-layer-artifact",
+			"forge-ci-repository":              "forgeci/fci-layer-artifact",
 			"signer-image":                     labSignerImage,
 			"cosign-public-key":                labPublicKey,
 			"cosign-public-key-sha256":         strings.Repeat("c", 64),
@@ -72,7 +72,7 @@ func TestParseTrialSettings_ReadsTheCallersWords(t *testing.T) {
 
 	settings, err = ParseTrialSettings(TrialRelease, []string{
 		"workflow=ship.yaml", "version=1.20.3", "token=PACKAGES_TOKEN", "token=PAGES_TOKEN",
-		"CI_JOB_IMAGE=forge.example/rc/job@sha256:1", "NOTE=two words", "APPROVED=@layer-commit", "CANDIDATE=@request-commit",
+		"CI_JOB_IMAGE=forge.example/forgeci/job@sha256:1", "NOTE=two words", "APPROVED=@layer-commit", "CANDIDATE=@request-commit",
 		"interrupt-after=Build go flavor image",
 	})
 	if err != nil {
@@ -82,7 +82,7 @@ func TestParseTrialSettings_ReadsTheCallersWords(t *testing.T) {
 	want := TrialSettings{
 		Event: TrialRelease, Workflow: "ship.yaml", Version: "1.20.3", TokenSecrets: []string{"PACKAGES_TOKEN", "PAGES_TOKEN"},
 		Variables: map[string]string{
-			"CI_JOB_IMAGE": "forge.example/rc/job@sha256:1", "NOTE": "two words", "APPROVED": "@layer-commit", "CANDIDATE": "@request-commit",
+			"CI_JOB_IMAGE": "forge.example/forgeci/job@sha256:1", "NOTE": "two words", "APPROVED": "@layer-commit", "CANDIDATE": "@request-commit",
 		},
 	}
 	if settings.Workflow != want.Workflow || settings.Version != want.Version || !slices.Equal(settings.TokenSecrets, want.TokenSecrets) ||
@@ -198,10 +198,10 @@ func TestPlanConsumer_RendersARealRelease(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"uses: rc/rc-layer-artifact/.forgejo/workflows/prepare-release.yml@" + layer.Commit + "\n",
-		"uses: rc/rc-layer-artifact/.forgejo/workflows/sign-and-publish-release.yml@" + layer.Commit + "\n",
-		"uses: https://forgejo.compose.forgelab:8443/rc/rc-layer-artifact/.forgejo/actions/build-release-image@" + layer.Commit + "\n",
-		"      forge-ci-repository: rc/rc-layer-artifact\n",
+		"uses: forgeci/fci-layer-artifact/.forgejo/workflows/prepare-release.yml@" + layer.Commit + "\n",
+		"uses: forgeci/fci-layer-artifact/.forgejo/workflows/sign-and-publish-release.yml@" + layer.Commit + "\n",
+		"uses: https://forgejo.compose.forgelab:8443/forgeci/fci-layer-artifact/.forgejo/actions/build-release-image@" + layer.Commit + "\n",
+		"      forge-ci-repository: forgeci/fci-layer-artifact\n",
 		"      forge-ci-sha: " + layer.Commit + "\n",
 		"      signer-image: " + labSignerImage + "\n",
 		"      cosign-public-key-sha256: " + strings.Repeat("c", 64) + "\n",
@@ -249,8 +249,8 @@ func TestPlanConsumer_RendersARealRelease(t *testing.T) {
 	import "codefloe.com/itiquette/forge-ci/pkg"
 `
 
-	wantPolicy := `	layerSetupAction = "https://forgejo.compose.forgelab:8443/rc/rc-layer-artifact/.forgejo/actions/setup-forge-ci@` + layer.Commit + `"
-	layerPrepare     = "rc/rc-layer-artifact/.forgejo/workflows/prepare-release.yml@` + layer.Commit + `"
+	wantPolicy := `	layerSetupAction = "https://forgejo.compose.forgelab:8443/forgeci/fci-layer-artifact/.forgejo/actions/setup-forge-ci@` + layer.Commit + `"
+	layerPrepare     = "forgeci/fci-layer-artifact/.forgejo/workflows/prepare-release.yml@` + layer.Commit + `"
 	signerImage      = "` + labSignerImage + `"
 	trustRootDigest  = "` + strings.Repeat("c", 64) + `"
 	import "codefloe.com/itiquette/forge-ci/pkg"
@@ -326,7 +326,7 @@ func TestPlanConsumer_TakesEachFactTheWayTheConsumerPassesIt(t *testing.T) {
 	}
 
 	if want := []string{
-		"owner/forge-ci/.forgejo/workflows/", "rc/rc-layer-artifact/.forgejo/workflows/",
+		"owner/forge-ci/.forgejo/workflows/", "forgeci/fci-layer-artifact/.forgejo/workflows/",
 		consumerPinned, layer.Commit,
 		`release-git-url: "ssh://git@forge.example/owner/repository.git"`, "release-git-url: " + labGitURL,
 		"forge.example/owner/signer@sha256:1", labSignerImage,

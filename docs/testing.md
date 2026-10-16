@@ -244,33 +244,33 @@ in the Forge Lab checkout, choose **one** road:
 
 ```bash
 # Compose: prepare both full-profile providers, fixtures and runners.
-just lab --account rc --fixtures --runners gitlab forgejo
+just lab --account forgeci --fixtures --runners gitlab forgejo
 just compose --profile gitlab --profile forgejo --profile sigstore up -d --no-recreate
 just ready --wait gitlab forgejo
-just targets --account rc gitlab forgejo
+just targets --account forgeci gitlab forgejo
 
 # Or k3s, after its host/cluster prerequisites and pinned runner images:
 K3S_PRIVILEGED_DIND_ACK=trusted-local-fixtures LAB_ROAD=k3s \
-  just lab --account rc --fixtures --runners gitlab forgejo
+  just lab --account forgeci --fixtures --runners gitlab forgejo
 just k3s-apply --wait sigstore
 just k3s-ready --wait gitlab forgejo
-LAB_ROAD=k3s just targets --account rc gitlab forgejo
+LAB_ROAD=k3s just targets --account forgeci gitlab forgejo
 ```
 
 The final target mint probes Fulcio and records its issuer mappings only when
-reachable. Inspect with `just targets-explain --account rc`; if `fulcio` is null,
+reachable. Inspect with `just targets-explain --account forgeci`; if `fulcio` is null,
 diagnose the selected road's Fulcio deployment and mint again once it is ready.
 The `ready` commands above check providers, not Fulcio. Full needs GitLab
 and Forgejo, both with `workflow-runs`, fixture manifests, OCI registry facts
 and their Fulcio issuer mappings. Bare `just lab` prepares none of those
-optional components and does not select account `rc`.
+optional components and does not select account `forgeci`.
 
 Back in the forge-ci checkout, provide the pinned Go toolchain and the
 launcher's host tools: `base64`, `cosign`, `flock`, `jq`, `syft`, `buildah`,
 `git` and `sha256sum`. Buildah must work for the current user. The suite builds
 host and Linux/amd64 runner binaries, writes caches/evidence, runs containers
 and trusted runner jobs, may fetch modules/images, and deletes/recreates
-`rc-` resources on the lab.
+`fci-` resources on the lab.
 
 ```text
 just test-live                            # the complete profile
@@ -295,10 +295,10 @@ cleanup, and an interrupted run is never acceptance evidence. The next run
 uses the same guarded delete-before-create lifecycle for retained fixtures.
 
 For the focused active-job interruption check, set
-`RC_LIVE_INTERRUPT_PROBE=gitlab-workflow` and run
+`FORGE_CI_LIVE_INTERRUPT_PROBE=gitlab-workflow` and run
 `just test-live '^TestGitLabWorkflow_InterruptedJob$'` under a named supervisor
 with `TimeoutStopSec=180`. The normal GitLab runner is sufficient. Observe
-`rc-live-interruption-ready` in the scratch job's trace, then send SIGTERM to
+`fci-live-interruption-ready` in the scratch job's trace, then send SIGTERM to
 that launcher. The expected result is exit130, a completed redacted log and
 scratch cleanup before the grace expires, followed by absence of the job pod
 and scratch project. The fixture fails if allowed to finish normally. Revoke
@@ -314,14 +314,14 @@ absolute path per road, both when minting and when running.
 
 `LAB_TARGETS_FILE` is optional and overrides the path. No typed confirmation is
 needed on lab hosts. The kit's transports and proxies enforce the host
-allowlist; repository lifecycle helpers enforce the credential-owner and `rc-`
+allowlist; repository lifecycle helpers enforce the credential-owner and `fci-`
 prefix checks. Direct SDK and native CLI operations need scenario-owned resource
 scoping; see [the contract boundaries](#what-the-contract-is-and-what-it-is-not).
 Before anything is built the preflight prints what the run will touch
 (endpoints, capabilities and credential lifetime) and the run log keeps it;
 `forge-labctl targets explain` shows the same for a contract on disk. A missing
 contract is refused with where the suite looked; after the preparation above,
-`just targets --account rc gitlab forgejo` in Forge Lab mints one (with
+`just targets --account forgeci gitlab forgejo` in Forge Lab mints one (with
 `LAB_ROAD=k3s` for that road).
 
 `full` requires both GitLab and Forgejo in the contract, each with a deployed
@@ -343,7 +343,7 @@ binary payload bound to the pipeline and commit. It establishes transport,
 not a complete consumer release.
 
 Mint a fresh generation when the suite refuses a stale credential (`just
-targets --account rc all` again). Nothing here revokes a credential: the
+targets --account forgeci all` again). Nothing here revokes a credential: the
 producer that minted it does, when the next generation is minted, and the
 suite refuses a non-expiring credential older than a day and an expiring one
 that is not between five minutes and 31 days from expiry.
@@ -353,15 +353,15 @@ and hands them over by path, because a suite that compiles its own binary
 proves something about the source it happened to see, not about the artifact
 the release flow produces. It keeps a credential-redacted log of each run
 under `${XDG_STATE_HOME:-$HOME/.local/state}/forge-ci/live-runs/<run>` for
-30 days (`RC_LIVE_EVIDENCE_ROOT` moves it) and prints the path at the end.
+30 days (`FORGE_CI_LIVE_EVIDENCE_ROOT` moves it) and prints the path at the end.
 The tier is human-invoked and has no owning workflow, so there is no CI
 artifact to retrieve instead.
 
 One live run per lab account runs at a time. Scenarios delete and recreate
-fixed `rc-<scenario>` repositories, so two concurrent runs would clobber each
+fixed `fci-<scenario>` repositories, so two concurrent runs would clobber each
 other; the script takes a non-blocking `flock` on
 `${XDG_STATE_HOME:-$HOME/.local/state}/forge-ci/live.lock` and a second run
-exits with status 2. The lock does not follow `RC_LIVE_EVIDENCE_ROOT`, and
+exits with status 2. The lock does not follow `FORGE_CI_LIVE_EVIDENCE_ROOT`, and
 `go test` runs without the descriptor, so a lingering gpg-agent or buildah
 child cannot hold it. It covers runs that share one `$HOME`: a run from a
 container with its own `HOME` does not see it.
@@ -375,7 +375,7 @@ per-endpoint issuer mappings; and the durable fixture catalog version. It is
 decoded with unknown fields refused and validated for what this tier uses.
 
 The contract carries no resource namespace or independent owner override.
-Repository lifecycle helpers use the compiled `rc-` prefix and the credential's
+Repository lifecycle helpers use the compiled `fci-` prefix and the credential's
 user as owner, refusing names outside that prefix before sending a request.
 Using another account's contract selects that account as the lifecycle owner.
 Direct HTTP, SDK and native CLI operations do not inherit those resource checks;
@@ -426,7 +426,7 @@ and versioned per run, because deleting the repository does not remove it; and
 fixtures pre-check that state is absent, so "it was published" cannot be
 mistaken for "it was already published". Scratch repositories are created,
 deleted and swept through the contract module's repository lifecycle, bounded
-to the `rc-` prefix, over this tier's own lab-only transport.
+to the `fci-` prefix, over this tier's own lab-only transport.
 
 Within one scenario the per-forge subtests run in parallel; scenarios still
 run one after another. Each forge is its own instance with its own runner, and
@@ -461,7 +461,7 @@ minutes, and a failure prints every job with its status and the end of the log
 of each that did not succeed. The release scenario needs a signer image:
 
 ```text
-export RC_LIVE_SIGNER_IMAGE="$(just test-live-signer-image /path/to/forge-lab)"
+export FORGE_CI_LIVE_SIGNER_IMAGE="$(just test-live-signer-image /path/to/forge-lab)"
 just test-live 'TestForgejoLayer_.*'
 ```
 
@@ -487,17 +487,17 @@ Whether a job may build an image is the runner's to allow, and the contract
 does not say, so the operator does. Nothing set means it may, and a build
 that fails is then a failure: the fixture's first job, `Check that a job can
 build an image`, is the layer's `setup-buildah` alone, so the failure names
-the runner and not the release. `RC_LIVE_IMAGE_BUILDS=0` says that this
+the runner and not the release. `FORGE_CI_LIVE_IMAGE_BUILDS=0` says that this
 runner allows none, and the scenario skips with that reason. On Forge Lab's
 Compose road the ordinary runner builds the image. On its k3s road the
-ordinary runner does not: run the tier there with `RC_LIVE_IMAGE_BUILDS=0`,
+ordinary runner does not: run the tier there with `FORGE_CI_LIVE_IMAGE_BUILDS=0`,
 and this scenario inside the privileged session, without the variable:
 
 ```text
 K3S_PRIVILEGED_DIND_ACK=trusted-local-fixtures \
 K3S_FORGEJO_FULL_RELEASE_ACK=trusted-local-full-release \
   just k3s-full-release -- /usr/bin/env \
-    LAB_ROAD=k3s LAB_TARGETS_FILE=/absolute/rc-k3s.json RC_LIVE_SIGNER_IMAGE=<reference> \
+    LAB_ROAD=k3s LAB_TARGETS_FILE=/absolute/fci-k3s.json FORGE_CI_LIVE_SIGNER_IMAGE=<reference> \
     /absolute/just --justfile /absolute/forge-ci/justfile \
     --working-directory /absolute/forge-ci \
     test-live 'TestForgejoLayer_RegistrySignerSmoke$'
@@ -526,13 +526,13 @@ skips unless the recipe names a checkout, and is no part of a full run.
 **The consumer** is HEAD of the checkout, named by absolute path. The checkout
 is only read: a checkout that differs from HEAD is refused with the files, and
 the commits are written in a temporary repository that borrows its objects.
-HEAD's tree goes to `main` of the scratch repository `rc-consumer-trial` as
+HEAD's tree goes to `main` of the scratch repository `fci-consumer-trial` as
 one commit without history, in the checkout's own object format. The layer
-under test is served from a second repository, `rc-consumer-trial-layer`,
+under test is served from a second repository, `fci-consumer-trial-layer`,
 because the layer's history is SHA-1 and a consumer's may be SHA-256.
 
 Public and private consumer cases both run by default. Set
-`RC_LIVE_CONSUMER_VISIBILITY=public` or `private` for a focused rerun; unset or
+`FORGE_CI_LIVE_CONSUMER_VISIBILITY=public` or `private` for a focused rerun; unset or
 `both` runs the full pair. Other values refuse before creating trial
 resources. The same variable applies to the GitLab MR and consumer-release
 recipes. Visibility is supplied in the initial creation request and checked
@@ -574,8 +574,8 @@ separate repositories, and a cross-format push into one repository is not a
 supported migration route. GitHub.com remains a separate, unproven live tier.
 
 ```text
-RC_LIVE_CONSUMER_VISIBILITY=private just test-live-consumer /absolute/gommitlint pull-request CI_JOB_IMAGE=<digest reference>
-RC_LIVE_CONSUMER_VISIBILITY=private just test-live-consumer /absolute/gommitlint release
+FORGE_CI_LIVE_CONSUMER_VISIBILITY=private just test-live-consumer /absolute/gommitlint pull-request CI_JOB_IMAGE=<digest reference>
+FORGE_CI_LIVE_CONSUMER_VISIBILITY=private just test-live-consumer /absolute/gommitlint release
 ```
 
 **What is rewritten** is read from the consumer's workflows under
@@ -626,8 +626,8 @@ report on this one.
   **An external image registry** is the one credential from outside the lab a
   trial may carry: for a consumer that publishes its images to a registry such
   as GHCR while its release stays on the lab's Forgejo. Point
-  `RC_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE` at a file only you can read (mode
-  0600) holding the token, and set `RC_LIVE_EXTERNAL_REGISTRY_USER` to the user
+  `FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE` at a file only you can read (mode
+  0600) holding the token, and set `FORGE_CI_LIVE_EXTERNAL_REGISTRY_USER` to the user
   it logs in as. The token becomes the value of the consumer's secret behind
   the layer's `RELEASE_REGISTRY_TOKEN`; it is never a setting, never logged, and
   the run log records only the file's path and the user. The repository the
@@ -635,13 +635,13 @@ report on this one.
 
   **A reused signing key.** Each release trial signs with a key of its own,
   so a second release cannot verify the bases the first one signed. To try
-  what an organization's second release does, set `RC_LIVE_SIGNING_KEY_DIR`
+  what an organization's second release does, set `FORGE_CI_LIVE_SIGNING_KEY_DIR`
   to a directory only you can read: the first trial makes the key pair and its
   passphrase there, and later trials sign with the same key.
 
   ```text
-  RC_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE=$HOME/.config/forge-lab/hanklankorg-packages.pat \
-  RC_LIVE_EXTERNAL_REGISTRY_USER=<github user> \
+  FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE=$HOME/.config/forge-lab/hanklankorg-packages.pat \
+  FORGE_CI_LIVE_EXTERNAL_REGISTRY_USER=<github user> \
     just test-live-consumer /absolute/nanolinter-clone release RELEASE_PLATFORMS=linux/amd64 \
       IMAGE_REPOSITORY=ghcr.io/hanklankorg/<unique name> \
       image=ghcr.io/hanklankorg/<unique name>:v0.0.1-go
@@ -707,9 +707,9 @@ What the caller brings:
 
 - **Images.** A pull-request job runs in the image the consumer's variable
   names, and a lab runner pulls only from the lab. Build it and publish it
-  with Forge Lab's `just publish-image --account rc <package> <local image>`,
+  with Forge Lab's `just publish-image --account forgeci <package> <local image>`,
   and pass the reference it prints, as `CI_JOB_IMAGE=` for the consumers
-  here. A release needs `RC_LIVE_SIGNER_IMAGE` as the release scenarios do.
+  here. A release needs `FORGE_CI_LIVE_SIGNER_IMAGE` as the release scenarios do.
 - **A checkout that builds on the lab.** A consumer whose build reaches
   outside its repository, through a `replace` to a sibling directory for
   example, is tried from a throwaway clone that carries what it needs.
@@ -724,10 +724,10 @@ otherwise:
 
 ```text
 # 1. The signer image of this commit; keep the reference it prints.
-export RC_LIVE_SIGNER_IMAGE="$(just test-live-signer-image /absolute/forge-lab)"
+export FORGE_CI_LIVE_SIGNER_IMAGE="$(just test-live-signer-image /absolute/forge-lab)"
 
 # 2. In Forge Lab: the consumer's job image; pass what it prints as CI_JOB_IMAGE=.
-just publish-image --account rc <package> <local image>
+just publish-image --account forgeci <package> <local image>
 
 # 3. The trial. Gommitlint, then Nanolinter from a clone with its lab selection.
 just test-live-consumer /absolute/gommitlint release
@@ -745,7 +745,7 @@ packages are unchanged then fails. The log's header records the checkout, the
 event, the settings and the visibility, so a run can be repeated from it, and
 the launcher ends with one `Live result:` line for the whole run.
 
-A failing trial keeps nothing; `RC_LIVE_KEEP_SCRATCH=1` keeps both
+A failing trial keeps nothing; `FORGE_CI_LIVE_KEEP_SCRATCH=1` keeps both
 repositories and the packages for inspection.
 
 Retained Forgejo repositories are archived at teardown, with archive state read
@@ -761,11 +761,11 @@ of the job log itself, on both forges, because a bare conclusion is the same
 defect as a missing tool discovered mid-run: right answer, useless vocabulary.
 
 When the log is not enough, because the job passed but produced the wrong artifact,
-or the failure is in state teardown is about to delete, `RC_LIVE_KEEP_SCRATCH=1`
+or the failure is in state teardown is about to delete, `FORGE_CI_LIVE_KEEP_SCRATCH=1`
 keeps the scratch repository so it can be inspected on the forge:
 
 ```text
-RC_LIVE_KEEP_SCRATCH=1 just test-live 'TestInRunner_.*'
+FORGE_CI_LIVE_KEEP_SCRATCH=1 just test-live 'TestInRunner_.*'
 ```
 
 It is an environment variable rather than a flag on purpose, awkward enough
@@ -813,7 +813,7 @@ What it does, in order:
    deleted. The variable `FORGE_CI_REPOSITORY` names it, the `v0.90.0-pre`
    prerelease is made if missing, and the trial waits up to 75 minutes for
    Self Runtime Container to succeed at the commit and move the prerelease to it.
-2. **The consumer.** For each visibility (`RC_LIVE_CONSUMER_VISIBILITY` selects
+2. **The consumer.** For each visibility (`FORGE_CI_LIVE_CONSUMER_VISIBILITY` selects
    one, as on the lab) a repository `<prefix><checkout name>-<visibility>-<session>` gets
    the consumer's `HEAD`, with `.github/workflows` replaced by its fixtures
    (`test/live/github/workflows` or `tests/live/github/workflows`, or
@@ -904,7 +904,7 @@ just test-live-gitlab-consumer /absolute/clean-consumer /absolute/job-image.tar
 ```
 
 This command and `test-live-gitlab-consumer-release` run both public and private
-consumer cases by default. `RC_LIVE_CONSUMER_VISIBILITY=public|private` narrows a
+consumer cases by default. `FORGE_CI_LIVE_CONSUMER_VISIBILITY=public|private` narrows a
 development rerun; unset or `both` runs the pair. Each repository is created with
 the selected visibility, verified before
 source publication, and private trials must refuse anonymous repository reads.
@@ -992,7 +992,7 @@ credentials through Forge Lab afterward.
 
 Before a full consumer build, validate a prepared builder with the focused
 `TestGitLabRelease_BuildImageCapability` scenario. Set
-`RC_LIVE_BUILD_IMAGE_ARCHIVE` to its absolute archive path and run
+`FORGE_CI_LIVE_BUILD_IMAGE_ARCHIVE` to its absolute archive path and run
 `just test-live '^TestGitLabRelease_BuildImageCapability$'` inside the same
 guarded full-release wrapper. This exercises storage setup with package
 installation disabled and a real `FROM scratch` / `RUN` build in the runner;

@@ -25,9 +25,9 @@ func packageCleanupRequest(t *testing.T, forge provider.ForgeAPI, mode string) (
 	request := func(method, endpoint string, into any, accept ...int) error {
 		calls = append(calls, method)
 		if method == http.MethodDelete {
-			want := "https://packages.invalid/api/v1/packages/fixture/npm/rc-package/1.2.3"
+			want := "https://packages.invalid/api/v1/packages/fixture/npm/fci-package/1.2.3"
 			if forge == provider.ForgeGitLab {
-				want = "https://packages.invalid/api/v4/projects/fixture%2Frc-repo/packages/7"
+				want = "https://packages.invalid/api/v4/projects/fixture%2Ffci-repo/packages/7"
 			}
 
 			if endpoint != want {
@@ -52,7 +52,7 @@ func packageCleanupRequest(t *testing.T, forge provider.ForgeAPI, mode string) (
 
 		body := `[]`
 		if mode != "absent" && (reads == 1 || mode == "still present") {
-			body = `[{"id":7,"name":"rc-package","version":"1.2.3","type":"npm","package_type":"npm"},{"id":8,"name":"rc-package","version":"9.9.9","type":"npm","package_type":"npm"}]`
+			body = `[{"id":7,"name":"fci-package","version":"1.2.3","type":"npm","package_type":"npm"},{"id":8,"name":"fci-package","version":"9.9.9","type":"npm","package_type":"npm"}]`
 		}
 
 		return json.Unmarshal([]byte(body), into)
@@ -79,7 +79,7 @@ func TestPackageCleanup_RequiresSuccessfulLookupDeletionAndAbsence(t *testing.T)
 				target := Target{Forge: forge, Host: "packages.invalid", Owner: "fixture"}
 				request, calls := packageCleanupRequest(t, forge, tc.mode)
 
-				err := deletePublishedPackage(target, "rc-repo", "npm", "rc-package", "1.2.3", request)
+				err := deletePublishedPackage(target, "fci-repo", "npm", "fci-package", "1.2.3", request)
 				if !errors.Is(err, tc.want) {
 					t.Errorf("err=%v, want=%v", err, tc.want)
 				}
@@ -118,10 +118,10 @@ func TestPackageCleanup_LookupChecksLaterPages(t *testing.T) {
 				t.Fatal("unexpected page")
 			}
 
-			return json.Unmarshal([]byte(`[{"id":7,"name":"rc-package","version":"1.2.3","type":"npm","package_type":"npm"}]`), into)
+			return json.Unmarshal([]byte(`[{"id":7,"name":"fci-package","version":"1.2.3","type":"npm","package_type":"npm"}]`), into)
 		}
 
-		packages, err := publishedPackages(target, "rc-repo", "npm", "rc-package", request)
+		packages, err := publishedPackages(target, "fci-repo", "npm", "fci-package", request)
 		if err != nil || reads != 2 || len(packages) != 1 || packages[0].Version != "1.2.3" {
 			t.Fatalf("lookup=%v reads=%d err=%v", packages, reads, err)
 		}
@@ -133,7 +133,7 @@ func TestPackageCleanup_TrustFailureFailsTheTest(t *testing.T) {
 	// An owned directory is not a CA file, so transport construction fails
 	// before any request. No live target or credential is involved.
 	recorder := &fatalRecorder{}
-	DeletePublishedPackage(recorder, Target{accepted: true, Forge: provider.ForgeGitLab, Host: "packages.invalid", Owner: "fixture", CAFile: t.TempDir()}, "rc-repo", "npm", "rc-package", "1.2.3")
+	DeletePublishedPackage(recorder, Target{accepted: true, Forge: provider.ForgeGitLab, Host: "packages.invalid", Owner: "fixture", CAFile: t.TempDir()}, "fci-repo", "npm", "fci-package", "1.2.3")
 
 	if !recorder.failed || recorder.fatal {
 		t.Fatal("cleanup error must fail the test without aborting other cleanups")
