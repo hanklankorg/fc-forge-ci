@@ -86,7 +86,7 @@ EXAMPLE:
 				return err
 			}
 
-			packages, err := github.NewPackages(nil, token, os.Getenv("GITHUB_API_URL"))
+			packages, err := github.NewPackages(nil, token)
 			if err != nil {
 				return err
 			}

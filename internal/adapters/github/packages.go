@@ -39,8 +39,10 @@ type Packages struct {
 	client *gogithub.Client
 }
 
-// NewPackages builds the client. apiBase empty means api.github.com.
-func NewPackages(httpClient *http.Client, token, apiBase string) (*Packages, error) {
+// NewPackages builds the GHCR package client against api.github.com. The registry
+// owns this authority: a Forgejo runner's GITHUB_API_URL names its own forge,
+// and must never receive the GitHub Packages credential.
+func NewPackages(httpClient *http.Client, token string) (*Packages, error) {
 	if strings.TrimSpace(token) == "" {
 		return nil, errs.CredentialRequired(errs.Credential{What: "GitHub Packages token", Env: githubTokenEnv})
 	}
@@ -50,15 +52,6 @@ func NewPackages(httpClient *http.Client, token, apiBase string) (*Packages, err
 	}
 
 	client := gogithub.NewClient(httpretry.SameAuthority(httpClient, "GitHub")).WithAuthToken(token)
-
-	if base := strings.TrimRight(strings.TrimSpace(apiBase), "/"); base != "" && base != defaultAPIBase {
-		parsed, err := url.Parse(base + "/")
-		if err != nil {
-			return nil, fmt.Errorf("configure GitHub API base %q: %w: %w", apiBase, err, errs.ErrUsage)
-		}
-
-		client.BaseURL = parsed
-	}
 
 	return &Packages{client: client}, nil
 }

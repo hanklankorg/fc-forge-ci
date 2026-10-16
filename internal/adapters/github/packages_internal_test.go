@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -53,12 +54,60 @@ func (s *packageServer) start(t *testing.T, versionsPath, body string) *Packages
 	}))
 	t.Cleanup(server.Close)
 
-	packages, err := NewPackages(server.Client(), "token", server.URL)
+	packages, err := NewPackages(server.Client(), "token")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Only this package's inert fixture replaces the fixed production authority.
+	packages.client.BaseURL, err = url.Parse(server.URL + "/")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	return packages
+}
+
+func TestPackages_UsesGitHubAuthorityOnOtherRunners(t *testing.T) {
+	t.Setenv("GITHUB_API_URL", "https://forgejo.invalid/api/v1")
+	t.Setenv("GITHUB_SERVER_URL", "https://forgejo.invalid")
+
+	var requests []string
+
+	client := &http.Client{Transport: contractTransport(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Scheme+"://"+req.URL.Host != "https://api.github.com" {
+			t.Errorf("GitHub Packages credential routed to %s", req.URL)
+		}
+
+		if req.Header.Get("Authorization") != "Bearer fixture-token" {
+			t.Error("the explicit package credential did not reach the GitHub API")
+		}
+
+		requests = append(requests, req.Method+" "+req.URL.Path)
+		if req.Method == http.MethodDelete {
+			return contractResponse(req, http.StatusNoContent, ""), nil
+		}
+
+		return contractResponse(req, http.StatusOK, "[]"), nil
+	})}
+
+	packages, err := NewPackages(client, "fixture-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := packages.PackageVersions(t.Context(), "acme", "app"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := packages.DeletePackageVersion(t.Context(), "acme", "app", 7); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"GET /orgs/acme/packages/container/app/versions", "DELETE /orgs/acme/packages/container/app/versions/7"}
+	if !slices.Equal(requests, want) {
+		t.Fatalf("requests = %v, want %v", requests, want)
+	}
 }
 
 func TestPackages_ListsAUserPackageWithASlashInItsName(t *testing.T) {

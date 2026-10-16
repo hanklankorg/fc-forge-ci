@@ -226,7 +226,7 @@ func externalTagDeleter(registry, username, passwordFile string, oci *ociregistr
 		return nil, err
 	}
 
-	packages, err := github.NewPackages(nil, token, os.Getenv("GITHUB_API_URL"))
+	packages, err := github.NewPackages(nil, token)
 	if err != nil {
 		return nil, err
 	}
