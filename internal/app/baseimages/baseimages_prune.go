@@ -354,7 +354,7 @@ func baseInputIDFromAttestation(payload []byte, in BaseImagePruneInput) (string,
 			annotations, _ := provenance.NestedMap(dependency, "annotations")
 			if provenance.StatementString(dependency, "uri") == "oci://"+ref &&
 				provenance.StatementString(digest, "sha256") == strings.TrimPrefix(digestFromRef(ref), "sha256:") &&
-				provenance.StatementString(annotations, "base_input_id") == id {
+				provenance.StatementString(annotations, lineageFieldBaseInputID) == id {
 				bound = true
 			}
 		}
@@ -378,10 +378,10 @@ func baseInputIDFromAttestation(payload []byte, in BaseImagePruneInput) (string,
 // validatePruneReleaseIdentity reads either shipped provenance profile. Both
 // expectations must hold on the same statement that supplies the base lineage.
 func validatePruneReleaseIdentity(params map[string]any, in BaseImagePruneInput) error {
-	source := provenance.StatementString(params, "source")
-	workflow := provenance.StatementString(params, "workflow")
+	source := provenance.StatementString(params, lineageFieldSource)
+	workflow := provenance.StatementString(params, lineageFieldWorkflow)
 
-	if fields, ok := provenance.NestedMap(params, "workflow"); ok {
+	if fields, ok := provenance.NestedMap(params, lineageFieldWorkflow); ok {
 		source = provenance.StatementString(fields, "repository")
 		workflow = provenance.StatementString(fields, "path")
 	}

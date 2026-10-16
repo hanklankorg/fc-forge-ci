@@ -238,18 +238,22 @@ func evidenceContractCases() []evidenceCase {
 		{name: "malformed statement", payload: evidenceEnvelope("{"), calls: 3, step: evidencePredicateStep, wantErr: errs.ErrMalformedInput, errorPrefix: "parse SLSA provenance statement: ", stderr: "parse SLSA provenance statement: unexpected end of JSON input: malformed input\n"},
 		{name: "missing payload", payload: []byte(`{}`), calls: 3, step: evidencePredicateStep, wantErr: errs.ErrValidation, errorPrefix: "SLSA provenance attestation lacks expected base lineage fields: ", stderr: "SLSA provenance attestation lacks expected base lineage fields: validation failed\n"},
 	}...)
-	for _, field := range []struct{ name, old, replacement string }{
-		{"predicate type", "https://slsa.dev/provenance/v1", "https://slsa.dev/provenance/v0.2"},
-		{"source", "https://source.example/evidence", "https://source.example/untrusted"},
-		{"workflow", "evidence-build.yml", "untrusted-build.yml"},
-		{"flavor", "rust", "untrusted"},
-		{"base input id", strings.Repeat("b", 64), strings.Repeat("e", 64)},
+	// The refusal names the first field that differs, with the attested and
+	// the expected value, so a base built under another repository is told
+	// apart from one built by another workflow or for another flavor.
+	for _, field := range []struct{ name, key, old, replacement string }{
+		{"predicate type", "predicate type", "https://slsa.dev/provenance/v1", "https://slsa.dev/provenance/v0.2"},
+		{"source", "source", "https://source.example/evidence", "https://source.example/untrusted"},
+		{"workflow", "workflow", "evidence-build.yml", "untrusted-build.yml"},
+		{"flavor", "flavor", "rust", "untrusted"},
+		{"base input id", "base_input_id", strings.Repeat("b", 64), strings.Repeat("e", 64)},
 	} {
+		detail := fmt.Sprintf("the attestation says %s %q, expected %q", field.key, field.replacement, field.old)
 		cases = append(cases, evidenceCase{
 			name: "wrong " + field.name, payload: evidenceEnvelope(strings.Replace(statement, field.old, field.replacement, 1)),
 			calls: 3, step: evidencePredicateStep, wantErr: errs.ErrValidation,
-			errorPrefix: "SLSA provenance attestation lacks expected base lineage fields: ",
-			stderr:      "SLSA provenance attestation lacks expected base lineage fields: validation failed\n",
+			errorPrefix: "SLSA provenance attestation lacks expected base lineage fields: " + detail + ": ",
+			stderr:      "SLSA provenance attestation lacks expected base lineage fields: " + detail + ": validation failed\n",
 		})
 	}
 

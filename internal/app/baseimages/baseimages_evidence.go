@@ -129,6 +129,8 @@ func baseLineageAttestationMatches(body []byte, expected baseImageLineageExpecta
 		envelopes = []any{raw}
 	}
 
+	var lastMismatch string
+
 	for _, envelope := range envelopes {
 		payload, ok := provenance.EnvelopePayload(envelope)
 		if !ok {
@@ -140,28 +142,63 @@ func baseLineageAttestationMatches(body []byte, expected baseImageLineageExpecta
 			return err
 		}
 
-		if baseLineageStatementMatches(statement, expected) {
+		mismatch := baseLineageMismatch(statement, expected)
+		if mismatch == "" {
 			return nil
 		}
+
+		lastMismatch = mismatch
+	}
+
+	// Name what the last statement carried instead, so an operator reading
+	// the job log sees which repository, workflow, flavor or input built the
+	// image, not only that something differed: a base attested under another
+	// source repository, after an account rename for example, is refused
+	// with both names in one line.
+	if lastMismatch != "" {
+		return fmt.Errorf("SLSA provenance attestation lacks expected base lineage fields: %s: %w", lastMismatch, errs.ErrValidation)
 	}
 
 	return fmt.Errorf("SLSA provenance attestation lacks expected base lineage fields: %w", errs.ErrValidation)
 }
 
-func baseLineageStatementMatches(statement map[string]any, expected baseImageLineageExpectation) bool {
-	if provenance.StatementString(statement, "predicateType") != provenance.PredicateTypeV1 {
-		return false
+// The external parameters of the base lineage predicate, as `release
+// provenance` writes them and verify and prune read them back.
+const (
+	lineageFieldSource      = "source"
+	lineageFieldWorkflow    = "workflow"
+	lineageFieldFlavor      = "flavor"
+	lineageFieldBaseInputID = "base_input_id"
+)
+
+// baseLineageMismatch names the first lineage field a statement does not
+// carry as expected, with the attested and the expected value, or returns ""
+// when the statement matches.
+func baseLineageMismatch(statement map[string]any, expected baseImageLineageExpectation) string {
+	if got := provenance.StatementString(statement, "predicateType"); got != provenance.PredicateTypeV1 {
+		return fmt.Sprintf("the attestation says predicate type %q, expected %q", got, provenance.PredicateTypeV1)
 	}
 
 	params, ok := provenance.NestedMap(statement, "predicate", "buildDefinition", "externalParameters")
 	if !ok {
-		return false
+		return "the attestation carries no buildDefinition.externalParameters"
 	}
 
-	return baseLineageSourceMatches(provenance.StatementString(params, "source"), expected.Source) &&
-		provenance.StatementString(params, "workflow") == expected.Workflow &&
-		provenance.StatementString(params, "flavor") == expected.Flavor &&
-		provenance.StatementString(params, "base_input_id") == expected.BaseInputID
+	if got := provenance.StatementString(params, lineageFieldSource); !baseLineageSourceMatches(got, expected.Source) {
+		return fmt.Sprintf("the attestation says %s %q, expected %q", lineageFieldSource, got, expected.Source)
+	}
+
+	for _, field := range []struct{ key, want string }{
+		{lineageFieldWorkflow, expected.Workflow},
+		{lineageFieldFlavor, expected.Flavor},
+		{lineageFieldBaseInputID, expected.BaseInputID},
+	} {
+		if got := provenance.StatementString(params, field.key); got != field.want {
+			return fmt.Sprintf("the attestation says %s %q, expected %q", field.key, got, field.want)
+		}
+	}
+
+	return ""
 }
 
 // baseLineageSourceMatches accepts the expected source repository URL in
