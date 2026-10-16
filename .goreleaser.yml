@@ -85,19 +85,24 @@ sboms:
 # bundle carries the Fulcio cert + Rekor proof; consumers verify via
 # `cosign verify-blob --bundle checksums.txt.bundle`.
 #
+# The source-built forge-ci CLI routes signing through its cosign adapter,
+# including the bounded retry for transient Sigstore failures.
 # Requires:
-#   - cosign on PATH (release-binary.yml installs it before goreleaser)
+#   - forge-ci and cosign on PATH (the build/release workflows install them)
 #   - id-token: write permission on the calling workflow (granted in
 #     release-binary.yml so cosign can mint the GHA OIDC token)
 signs:
   - id: checksums
-    cmd: cosign
+    cmd: forge-ci
     signature: '${artifact}.bundle'
     artifacts: checksum
     args:
-      - 'sign-blob'
-      - '--yes'
-      - '--bundle=${signature}'
+      - 'release'
+      - 'sign'
+      - '--method=sigstore'
+      - '--no-checksums-file'
+      - '--no-release-artifacts-dir'
+      - '--file'
       - '${artifact}'
     output: true
 

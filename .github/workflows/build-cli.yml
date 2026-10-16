@@ -77,23 +77,24 @@ jobs:
         with:
           go-version-file: go.mod
           check-latest: true
-      - name: Install cosign
-        # goreleaser's signs: block shells out to cosign for keyless blob
-        # signing of checksums.txt. v4.x installer is required for cosign v3.x:
-        # v3 releases ship a .sigstore.json bundle, not the detached .sig that
-        # the v3.7.0 installer tries (and fails) to download. Skipped for
-        # build-only (PR) runs, which need no signing and no OIDC.
+      - name: Install forge-ci signing CLI
+        # GoReleaser uses this checkout's signing adapter for checksums.txt.
+        # The distributed binaries are still built by GoReleaser below.
         if: ${{ inputs.sign }}
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        with:
-          cosign-release: 'v3.1.3'
-      - name: Install syft
-        # goreleaser's sboms: block shells out to syft (one CycloneDX doc per
-        # archive). Pin matches release-binary.yml.
+        run: |
+          set -euo pipefail
+          go build -o "$RUNNER_TEMP/forge-ci-bin/forge-ci" ./cmd/forge-ci
+          printf '%s\n' "$RUNNER_TEMP/forge-ci-bin" >>"$GITHUB_PATH"
+      - name: Install cosign and syft
+        # The same checksum-verified pins as release-binary.yml and the runtime
+        # images. Build-only PR runs need neither signing nor SBOM tooling.
         if: ${{ inputs.sign }}
-        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        with:
-          syft-version: 'v1.45.1'
+        run: |
+          set -euo pipefail
+          source scripts/bootstrap/install-cosign.sh
+          install_cosign
+          source scripts/bootstrap/install-syft.sh
+          install_syft
       - name: Set SOURCE_DATE_EPOCH from commit
         # Normalize the embedded date and tarball mtimes to the commit timestamp.
         # Other resolved build inputs must also match for byte-identical payloads.

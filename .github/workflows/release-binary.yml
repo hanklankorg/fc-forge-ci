@@ -113,7 +113,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
       - name: Install cosign and syft
-        # goreleaser's signs: and sboms: blocks shell out to cosign and syft.
+        # GoReleaser signs through forge-ci's cosign adapter and uses syft for SBOMs.
         # The repository's installers pin each version and SHA-256 (Renovate
         # keeps them current), retry transient download failures, and fetch
         # only from github.com release downloads, which the egress allowlist
