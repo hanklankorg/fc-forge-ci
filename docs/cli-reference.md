@@ -363,6 +363,7 @@ EXAMPLE:
 | `--build-sbom` | generate the cyclonedx-maven-plugin Build SBOM (default true) | bool | `true` | `$ENABLE_BUILD_SBOM` |
 | `--sbom-tool-version` | pinned org.cyclonedx:cyclonedx-maven-plugin version (required when --build-sbom) | string | `""` | `$CYCLONEDX_MAVEN_VERSION` |
 | `--java-version` | JDK major version, reported in the build summary | string | `""` | `$JAVA_VERSION` |
+| `--expect-version` | fail unless the project already declares this version (a release build; leading v allowed) | string | `""` | n/a |
 
 ### `forge-ci build npm`
 
@@ -3202,6 +3203,7 @@ EXAMPLE:
 | `--repo-url` | remote repository URL for ls-remote (defaults to origin) | string | `""` | `$REPO_URL` |
 | `--expected-parent` | require the release commit to be the single child of this commit (the authorised release-request source) | string | `""` | `$RELEASE_REQUEST_SHA` |
 | `--changelog-only` | require exactly a CHANGELOG.md change from --expected-parent, and bind release-request/<tag> to that tested commit | bool | `false` | n/a |
+| `--version-bump` | with --changelog-only, also admit this project type's version bump (maven), checked as a version substitution to the tag's version | string | `""` | n/a |
 | `--token-file` | Read token for a private repository. Read from a file ("-" for stdin); trailing CR/LF is trimmed. Explicit input overrides environment credentials; empty content supplies no token. Omit for environment selection, with runner-issued tokens scoped to their server. | string | `""` | n/a |
 
 ## `forge-ci report`
@@ -4353,6 +4355,30 @@ EXAMPLE:
 
 version-bump and tag-management helpers
 
+### `forge-ci version apply-bump`
+
+verify a version-bump patch from a key-free job and apply it, without running a build tool
+
+```
+The patch must match its reported sha256, change only the project files of
+the type (pom.xml for maven), and change nothing but the root project's
+current version into --version. The changed paths are written to --paths-file
+for commit-changelog-release --include-paths-file.
+
+EXAMPLE:
+   forge-ci version apply-bump --project-type maven --version 1.2.3 \
+     --patch version-bump.patch --sha256 <hex> --paths-file bump-paths.txt
+```
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--patch` | git diff the bump job uploaded (required) | string | `""` | n/a |
+| `--sha256` | sha256 the bump job reported for the patch (required) | string | `""` | n/a |
+| `--project-type` | ecosystem whose project files the patch may change (maven) (required) | string | `""` | n/a |
+| `--version` | release version, with or without a leading v (required) | string | `""` | n/a |
+| `--working-dir` | repository-relative directory of the root project file | string | `"."` | n/a |
+| `--paths-file` | file the changed paths are written to, one per line (required) | string | `""` | n/a |
+
 ### `forge-ci version bump`
 
 rewrite the version-of-record (Maven POM / package.json / gradle.properties / .xcconfig / Cargo.toml)
@@ -4406,6 +4432,7 @@ EXAMPLE:
 | `--branch` | branch to push the signed changelog commit to | string | `"main"` | n/a |
 | `--changelog` | pre-generated changelog file to commit | string | `"CHANGELOG.md"` | `$CHANGELOG_PATH` |
 | `--commit-message-file` | pre-generated commit message file used with git commit -F | string | `"commit-msg.txt"` | `$COMMIT_MESSAGE_FILE` |
+| `--include-paths-file` | file naming further repository-relative files to commit beside the changelog, one per line (apply-bump --paths-file) | string | `""` | n/a |
 | `--commit-body-path` | rendered commit body removed after the release commit | string | `"commit-body.txt"` | `$COMMIT_BODY_PATH` |
 | `--author-name` | git user.name for the release bump commit (required; no org default) | string | `""` | `$GIT_USER_NAME`, `$COMMIT_AUTHOR_NAME` |
 | `--author-email` | git user.email for the release bump commit (required; no org default) | string | `""` | `$GIT_USER_EMAIL`, `$COMMIT_AUTHOR_EMAIL` |

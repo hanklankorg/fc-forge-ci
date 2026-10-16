@@ -165,3 +165,48 @@ func TestMavenReleaseBuild_RejectsUnknownBuildType(t *testing.T) {
 		t.Errorf("wrote a summary for a build that never started: %q", summary.buf.String())
 	}
 }
+
+// A release builds the version its release commit carries. A project that
+// still declares another version is refused before anything is packaged.
+func TestMavenReleaseBuild_ExpectVersion(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		expect string
+		ok     bool
+	}{
+		{expect: "v1.2.3", ok: true},
+		{expect: "1.2.3", ok: true},
+		{expect: "", ok: true},
+		{expect: "v1.2.4", ok: false},
+	} {
+		t.Run(tc.expect, func(t *testing.T) {
+			t.Parallel()
+
+			ops := &fakeMaven{}
+
+			err := appbuild.MavenReleaseBuild(context.Background(), &recordingSummarySink{}, ops, &bytes.Buffer{}, &bytes.Buffer{}, appbuild.MavenReleaseBuildInput{
+				ReleaseBuildOptions: appbuild.ReleaseBuildOptions{Dir: newMavenDir(t)},
+				BuildType:           "app",
+				ExpectVersion:       tc.expect,
+			})
+			if tc.ok {
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				return
+			}
+
+			if !errors.Is(err, errs.ErrValidation) {
+				t.Fatalf("err = %v, want a validation error", err)
+			}
+
+			for _, run := range ops.runs {
+				if slices.Contains(run, "package") {
+					t.Errorf("packaged after a version mismatch: %v", run)
+				}
+			}
+		})
+	}
+}

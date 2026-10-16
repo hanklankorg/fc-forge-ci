@@ -49,6 +49,7 @@ func New() *cli.Command {
 			generateDevCmd(),
 			bumpCmd(),
 			bumpPlanCmd(),
+			applyBumpCmd(),
 			filePatternCmd(),
 		},
 	}
@@ -139,7 +140,7 @@ func bumpCmd() *cli.Command {
    forge-ci version bump --project-type=cargo --version=0.5.0`,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:     "project-type",
+				Name:     flagProjectType,
 				Required: true,
 				Sources:  cli.EnvVars("PROJECT_TYPE"),
 				Usage:    "ecosystem driving the bump (maven/gradle/npm/cargo/xcode-ios)",
@@ -169,7 +170,7 @@ func bumpCmd() *cli.Command {
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			in := appversion.BumpInput{
-				ProjectType:       projecttype.Type(cmd.String("project-type")),
+				ProjectType:       projecttype.Type(cmd.String(flagProjectType)),
 				Version:           cmd.String(flagVersion),
 				WorkingDir:        cmd.String("working-dir"),
 				GradleVersionFile: cmd.String("gradle-version-file"),

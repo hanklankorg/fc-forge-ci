@@ -36,6 +36,7 @@ func commitChangelogReleaseCmd() *cli.Command {
 			&cli.StringFlag{Name: flagBranch, Value: "main", Usage: "branch to push the signed changelog commit to"},
 			&cli.StringFlag{Name: "changelog", Value: defaultChangelogFile, Sources: cli.EnvVars("CHANGELOG_PATH"), Usage: "pre-generated changelog file to commit"},
 			&cli.StringFlag{Name: "commit-message-file", Value: defaultCommitMessageFile, Sources: cli.EnvVars("COMMIT_MESSAGE_FILE"), Usage: "pre-generated commit message file used with git commit -F"},
+			&cli.StringFlag{Name: "include-paths-file", Usage: "file naming further repository-relative files to commit beside the changelog, one per line (apply-bump --paths-file)"},
 			&cli.StringFlag{Name: "commit-body-path", Value: defaultCommitBodyFile, Sources: cli.EnvVars("COMMIT_BODY_PATH"), Usage: "rendered commit body removed after the release commit"},
 			&cli.StringFlag{Name: "author-name", Sources: cli.EnvVars("GIT_USER_NAME", "COMMIT_AUTHOR_NAME"), Usage: "git user.name for the release bump commit (required; no org default)"},
 			&cli.StringFlag{Name: "author-email", Sources: cli.EnvVars("GIT_USER_EMAIL", "COMMIT_AUTHOR_EMAIL"), Usage: "git user.email for the release bump commit (required; no org default)"},
@@ -135,6 +136,19 @@ func changelogReleaseInput(cmd *cli.Command) (appversion.ChangelogReleaseInput, 
 		return appversion.ChangelogReleaseInput{}, err
 	}
 
+	var includePaths []string
+
+	if file := cmd.String("include-paths-file"); file != "" {
+		body, err := cliio.ReadRegularFile(file)
+		if err != nil {
+			return appversion.ChangelogReleaseInput{}, fmt.Errorf("read --include-paths-file: %w", err)
+		}
+
+		// One path per line, exactly as apply-bump writes them; a path is
+		// never trimmed, so it reaches the validation as written.
+		includePaths = strings.Split(strings.TrimSuffix(string(body), "\n"), "\n")
+	}
+
 	in := appversion.ChangelogReleaseInput{
 		Tag:               cmd.String(flagTag),
 		Repository:        cmd.String("repository"),
@@ -142,6 +156,7 @@ func changelogReleaseInput(cmd *cli.Command) (appversion.ChangelogReleaseInput, 
 		Branch:            cmd.String(flagBranch),
 		ChangelogPath:     cmd.String("changelog"),
 		CommitMessageFile: cmd.String("commit-message-file"),
+		IncludePaths:      includePaths,
 		AuthorName:        cmd.String("author-name"),
 		AuthorEmail:       cmd.String("author-email"),
 		TagSigned:         cmd.Bool("signed") && !cmd.Bool("no-sign"),

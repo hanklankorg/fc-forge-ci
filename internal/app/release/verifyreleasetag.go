@@ -7,9 +7,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	pathpkg "path"
+	"slices"
+	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	domaingit "github.com/diggsweden/forge-ci/internal/domain/git"
+	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
 	"github.com/diggsweden/forge-ci/internal/domain/version"
 	"github.com/diggsweden/forge-ci/internal/runcontext"
 )
@@ -25,6 +29,7 @@ type tagVerifyGit interface {
 	RemoteVersionTags(ctx context.Context, repoURL string, cred runcontext.Credential) ([]string, error)
 	CommitParents(ctx context.Context, commitSHA string) ([]string, error)
 	ChangedPaths(ctx context.Context, before, after string) ([]string, error)
+	PathsDiff(ctx context.Context, before, after string, paths []string) (string, error)
 }
 
 // VerifyReleaseTagInput drives VerifyReleaseTag.
@@ -40,6 +45,10 @@ type VerifyReleaseTagInput struct {
 	// ChangelogOnly admits exactly a CHANGELOG.md change and binds the local
 	// release-request/<tag> to ExpectedParent, for a tested prepare candidate.
 	ChangelogOnly bool
+	// VersionBump, with ChangelogOnly, also admits the project files of that
+	// type, and only as a version bump to the tag's version: the same text
+	// check the prepare job applied before committing them.
+	VersionBump projecttype.Type
 }
 
 // VerifyReleaseTag re-verifies, at the signing trust boundary, that:
@@ -179,8 +188,52 @@ func verifyChangelogOnly(ctx context.Context, git tagVerifyGit, in VerifyRelease
 		return fmt.Errorf("verify-release-tag: inspect prepared changes: %w", err)
 	}
 
-	if len(changed) != 1 || changed[0] != "CHANGELOG.md" {
-		return fmt.Errorf("verify-release-tag: prepared release must change only CHANGELOG.md; changed paths: %q: %w", changed, errs.ErrValidation)
+	if in.VersionBump == "" {
+		if len(changed) != 1 || changed[0] != "CHANGELOG.md" {
+			return fmt.Errorf("verify-release-tag: prepared release must change only CHANGELOG.md; changed paths: %q: %w", changed, errs.ErrValidation)
+		}
+
+		return nil
+	}
+
+	return verifyChangelogAndBump(ctx, git, in, changed)
+}
+
+// verifyChangelogAndBump admits CHANGELOG.md and the version bump the prepare
+// job verified: the bump's project files and nothing else, their diff a
+// version substitution to the tag's version.
+func verifyChangelogAndBump(ctx context.Context, git tagVerifyGit, in VerifyReleaseTagInput, changed []string) error {
+	files, supported := version.BumpPatchFiles(in.VersionBump)
+	if !supported {
+		return fmt.Errorf("verify-release-tag: project type %q has no isolated version bump: %w", in.VersionBump, errs.ErrUsage)
+	}
+
+	changelog, bumped := false, make([]string, 0, len(changed))
+
+	for _, path := range changed {
+		switch {
+		case path == "CHANGELOG.md":
+			changelog = true
+		case slices.Contains(files, pathpkg.Base(path)):
+			bumped = append(bumped, path)
+		default:
+			return fmt.Errorf("verify-release-tag: prepared release must change only CHANGELOG.md and the %s version bump; changed paths: %q: %w",
+				in.VersionBump, changed, errs.ErrValidation)
+		}
+	}
+
+	if !changelog || len(bumped) == 0 {
+		return fmt.Errorf("verify-release-tag: prepared release must change CHANGELOG.md and the %s version; changed paths: %q: %w",
+			in.VersionBump, changed, errs.ErrValidation)
+	}
+
+	patch, err := git.PathsDiff(ctx, in.ExpectedParent, in.ReleaseSHA, bumped)
+	if err != nil {
+		return fmt.Errorf("verify-release-tag: read the version bump: %w", err)
+	}
+
+	if _, err := version.VerifyBumpPatch([]byte(patch), files, strings.TrimPrefix(in.Tag, "v")); err != nil {
+		return fmt.Errorf("verify-release-tag: %w", err)
 	}
 
 	return nil

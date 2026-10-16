@@ -107,6 +107,23 @@ on:
         type: string
         required: false
         default: main
+      version-bump:
+        description: >-
+          Project type whose project files the signed release commit bumps to the release version: maven, or empty (the default) for no bump. The bump runs the project's build tool in a separate job that holds no secret; the signing job only verifies and applies the resulting patch.
+        type: string
+        required: false
+        default: ''
+      version-bump-image:
+        description: >-
+          Digest-pinned image the version-bump job runs in, <registry>/<repository>[:<tag>]@sha256:<digest>, carrying bash, git, curl, sha256sum and the build tool (a JDK and Maven for maven). Required with version-bump.
+        type: string
+        required: false
+        default: ''
+      version-bump-working-directory:
+        description: Repository-relative directory of the root project file the bump starts from.
+        type: string
+        required: false
+        default: '.'
     outputs:
       release-tag:
         description: Final stable release tag (vX.Y.Z) derived from the request tag.
@@ -129,6 +146,9 @@ jobs:
       helpers_repository: ${{ steps.validate.outputs.helpers_repository }}
       signer_image: ${{ steps.validate.outputs.signer_image }}
       release_branch: ${{ steps.branch.outputs.release_branch }}
+      version_bump: ${{ steps.bump.outputs.version_bump }}
+      version_bump_image: ${{ steps.bump.outputs.version_bump_image }}
+      version_bump_working_directory: ${{ steps.bump.outputs.version_bump_working_directory }}
     steps:
       - name: Validate trust coordinate
         id: validate
@@ -176,8 +196,8 @@ jobs:
             exit 1
           fi
           signer_image=${SIGNER_IMAGE_INPUT}
-          if [[ ! "${signer_image}" =~ ^[a-z0-9]+([.-][a-z0-9]+)*(:[0-9]+)?/([a-z0-9]+(([._]|__|-+)[a-z0-9]+)*/)*[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*@sha256:[0-9a-f]{64}$ ]]; then
-            echo "ERROR: signer-image must be a complete OCI repository coordinate pinned by sha256 digest" >&2
+          if [[ ! "${signer_image}" =~ ^[a-z0-9]+([.-][a-z0-9]+)*(:[0-9]+)?/([a-z0-9]+(([._]|__|-+)[a-z0-9]+)*/)*[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?@sha256:[0-9a-f]{64}$ ]]; then
+            echo "ERROR: signer-image must be a complete OCI repository coordinate pinned by sha256 digest: <registry>/<repository>[:<tag>]@sha256:<64 hex>" >&2
             exit 1
           fi
           {
@@ -196,6 +216,43 @@ jobs:
             exit 1
           fi
           printf 'release_branch=%s\n' "${RELEASE_BRANCH_INPUT}" >>"${FORGEJO_OUTPUT}"
+
+      - name: Validate version bump
+        id: bump
+        env:
+          VERSION_BUMP_INPUT: ${{ inputs['version-bump'] }}
+          VERSION_BUMP_IMAGE_INPUT: ${{ inputs['version-bump-image'] }}
+          VERSION_BUMP_WORKING_DIRECTORY_INPUT: ${{ inputs['version-bump-working-directory'] }}
+        run: |
+          set -euo pipefail
+          case "${VERSION_BUMP_INPUT}" in
+            '')
+              if [ -n "${VERSION_BUMP_IMAGE_INPUT}" ]; then
+                echo "ERROR: version-bump-image is set but version-bump is empty" >&2
+                exit 1
+              fi
+              ;;
+            maven)
+              if [[ ! "${VERSION_BUMP_IMAGE_INPUT}" =~ ^[a-z0-9]+([.-][a-z0-9]+)*(:[0-9]+)?/([a-z0-9]+(([._]|__|-+)[a-z0-9]+)*/)*[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?@sha256:[0-9a-f]{64}$ ]]; then
+                echo "ERROR: version-bump-image must be a complete OCI repository coordinate pinned by sha256 digest: <registry>/<repository>[:<tag>]@sha256:<64 hex>" >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "ERROR: version-bump must be maven or empty: ${VERSION_BUMP_INPUT}" >&2
+              exit 1
+              ;;
+          esac
+          directory=${VERSION_BUMP_WORKING_DIRECTORY_INPUT}
+          if [[ -z "${directory}" || "${directory}" == /* || "/${directory}/" == *'/../'* || ! "${directory}" =~ ^[A-Za-z0-9_./-]+$ ]]; then
+            echo "ERROR: version-bump-working-directory must be a repository-relative path: ${directory}" >&2
+            exit 1
+          fi
+          {
+            printf 'version_bump=%s\n' "${VERSION_BUMP_INPUT}"
+            printf 'version_bump_image=%s\n' "${VERSION_BUMP_IMAGE_INPUT}"
+            printf 'version_bump_working_directory=%s\n' "${directory}"
+          } >>"${FORGEJO_OUTPUT}"
 
   render:
     name: "Prepare: changelog"
@@ -394,12 +451,143 @@ jobs:
             --name release-changelog --dir "${handoff}" \
             --retention-days 1 --if-no-files error
 
+  # The version bump runs the project's build tool, and with it the project's
+  # plugins, so it gets a job of its own that references no secret at all. Only
+  # the patch and its digest leave it; the signing job proves the patch is a
+  # version substitution before applying it, and runs no build tool itself.
+  #
+  # The job itself always runs and its steps are the ones conditioned on a
+  # bump being asked for: Forgejo decides on the server, before any runner
+  # evaluates a condition, that the dependant of a skipped job is skipped too
+  # (Nanolinter fixture, lab runs 65 and 67, 2026-10-16), so a skipped version
+  # job would skip the signing job with it. Without a bump the image below is
+  # empty and the runner takes the label's default image for the empty job.
+  version-bump:
+    name: "Prepare: version"
+    needs: coordinates
+    runs-on: ${{ inputs['runner-label'] }}
+    timeout-minutes: 20
+    container:
+      image: ${{ needs.coordinates.outputs.version_bump_image }}
+    permissions:
+      contents: read
+    outputs:
+      patch-digest: ${{ steps.patch.outputs.digest }}
+    steps:
+      - name: Checkout layer helpers at the caller's pin
+        if: ${{ needs.coordinates.outputs.version_bump != '' }}
+        env:
+          EXPECTED_HELPERS_SHA: ${{ inputs['forge-ci-sha'] }}
+          FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${EXPECTED_HELPERS_SHA}" =~ ^([0123456789abcdef]{40}|[0123456789abcdef]{64})$ ]]; then
+            echo "ERROR: forge-ci-sha must be a 40- or 64-character lowercase commit hex digest" >&2
+            exit 1
+          fi
+          helpers_dir=.forge-ci-helpers
+          git init --quiet "${helpers_dir}"
+          git -C "${helpers_dir}" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          # Direct unadvertised SHA fetches can be refused.
+          # Retry advertised branches/tags without assuming a default branch.
+          helpers_fetch_log=$(mktemp)
+          if ! GIT_TERMINAL_PROMPT=0 git -C "${helpers_dir}" -c protocol.version=2 fetch --quiet --no-tags --depth=1 --no-recurse-submodules origin "${EXPECTED_HELPERS_SHA}" 2>"${helpers_fetch_log}"; then
+            if ! GIT_TERMINAL_PROMPT=0 git -C "${helpers_dir}" -c protocol.version=2 fetch --quiet --no-recurse-submodules origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*' 2>>"${helpers_fetch_log}"; then
+              echo "ERROR: cannot fetch layer helpers ${EXPECTED_HELPERS_SHA} from $(git -C "${helpers_dir}" remote get-url origin)" >&2
+              cat -- "${helpers_fetch_log}" >&2
+              rm -f -- "${helpers_fetch_log}"
+              exit 1
+            fi
+          fi
+          rm -f -- "${helpers_fetch_log}"
+          git -C "${helpers_dir}" checkout --quiet --detach "${EXPECTED_HELPERS_SHA}"
+          actual_sha=$(git -C "${helpers_dir}" rev-parse HEAD)
+          if [ "${actual_sha}" != "${EXPECTED_HELPERS_SHA}" ]; then
+            echo "ERROR: helper checkout resolved to unexpected commit ${actual_sha}" >&2
+            exit 1
+          fi
+
+      - name: Fetch engine binary
+        if: ${{ needs.coordinates.outputs.version_bump != '' }}
+        env:
+          FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source ./.forge-ci-helpers/.forgejo/bin/lib-forge-ci.sh
+          fetch_forge_ci
+
+      - name: Checkout consumer repository at release request tag
+        if: ${{ needs.coordinates.outputs.version_bump != '' }}
+        env:
+          CHECKOUT_REF: ${{ forgejo.sha }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source ./.forge-ci-helpers/.forgejo/bin/lib-forge-ci.sh
+          run_forge_ci platform checkout
+
+      # guard-release-tag's own check, run inline: a container job here runs
+      # only the verified helper checkout's engine, never an action.
+      - name: Reject non-stable release request
+        if: ${{ needs.coordinates.outputs.version_bump != '' }}
+        id: guard
+        env:
+          RELEASE_REQUEST: ${{ forgejo.ref_name }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source ./.forge-ci-helpers/.forgejo/bin/lib-forge-ci.sh
+          FORGE_CI_PROVIDER=forgejo run_forge_ci validate tag release-guard \
+            --tag "${RELEASE_REQUEST:?}" --pattern '^v[0-9]+[.][0-9]+[.][0-9]+$'
+
+      # The same engine verb, and so the same `mvn versions:set`, that GitHub's
+      # and GitLab's release preparation run.
+      - name: Bump project version
+        if: ${{ needs.coordinates.outputs.version_bump != '' }}
+        env:
+          PROJECT_TYPE: ${{ needs.coordinates.outputs.version_bump }}
+          RELEASE_TAG: ${{ steps.guard.outputs.release-tag }}
+          WORKING_DIRECTORY: ${{ needs.coordinates.outputs.version_bump_working_directory }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source ./.forge-ci-helpers/.forgejo/bin/lib-forge-ci.sh
+          run_forge_ci version bump --project-type "${PROJECT_TYPE:?}" \
+            --version "${RELEASE_TAG#v}" --working-dir "${WORKING_DIRECTORY:?}" \
+            --maven-cli-opts '--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always'
+
+      # Literal paths and plain text whatever the project's Git configuration
+      # says: no external diff, no textconv, no renames, fixed prefixes.
+      - name: Upload the version-bump patch
+        if: ${{ needs.coordinates.outputs.version_bump != '' }}
+        id: patch
+        run: |
+          set -euo pipefail
+          handoff=$(mktemp -d "${RUNNER_TEMP:?}/release-version-bump.XXXXXX")
+          git -c core.quotePath=true diff --binary --no-ext-diff --no-textconv --no-color --no-renames \
+            --src-prefix=a/ --dst-prefix=b/ >"${handoff}/version-bump.patch"
+          if [ ! -s "${handoff}/version-bump.patch" ]; then
+            echo "ERROR: the version bump changed no tracked file" >&2
+            exit 1
+          fi
+          digest=$(sha256sum -- "${handoff}/version-bump.patch")
+          digest=${digest%% *}
+          # shellcheck source=/dev/null
+          source ./.forge-ci-helpers/.forgejo/bin/lib-forge-ci.sh
+          run_forge_ci artifact upload \
+            --name release-version-bump --dir "${handoff}" \
+            --retention-days 1 --if-no-files error
+          printf 'digest=%s\n' "${digest}" >>"${FORGEJO_OUTPUT}"
+
   # A renderer config can run commands (git-cliff replace_command). A later
   # key-free step in the same job cannot undo its processes or filesystem edits.
   # This fresh job receives only two data files and never runs the renderer.
   prepare:
-    name: Prepare release
-    needs: [coordinates, render]
+    name: "Prepare: release commit and tag"
+    # No condition: every job above runs whether or not a bump is asked for,
+    # so the default rule, all of them successful, is the whole requirement.
+    needs: [coordinates, render, version-bump]
     runs-on: ${{ inputs['runner-label'] }}
     timeout-minutes: 10
     permissions:
@@ -459,6 +647,7 @@ jobs:
           run_forge_ci platform checkout --fetch-all-refs
 
       - name: Reject non-stable release request
+        id: guard
         uses: ./.forge-ci-helpers/.forgejo/actions/guard-release-tag
 
       - name: Require the release request at the head of the release branch
@@ -495,6 +684,35 @@ jobs:
           done
           rm -rf -- "${handoff}"
 
+      # Text checks only: the patch matches the digest its job reported, it
+      # touches only the project files of the type, and every changed line moves
+      # the project's current version to the release version. No build tool runs
+      # in this job.
+      - name: Verify and apply the version bump
+        id: bump
+        if: ${{ needs.coordinates.outputs.version_bump != '' }}
+        env:
+          PATCH_DIGEST: ${{ needs.version-bump.outputs.patch-digest }}
+          PROJECT_TYPE: ${{ needs.coordinates.outputs.version_bump }}
+          RELEASE_TAG: ${{ steps.guard.outputs.release-tag }}
+          WORKING_DIRECTORY: ${{ needs.coordinates.outputs.version_bump_working_directory }}
+        run: |
+          set -euo pipefail
+          handoff=$(mktemp -d "${RUNNER_TEMP:?}/release-version-bump.XXXXXX")
+          paths_file=$(mktemp "${RUNNER_TEMP:?}/release-version-bump-paths.XXXXXX")
+          # shellcheck source=/dev/null
+          source ./.forge-ci-helpers/.forgejo/bin/lib-forge-ci.sh
+          run_forge_ci artifact download --name release-version-bump --dir "${handoff}"
+          if [ ! -f "${handoff}/version-bump.patch" ] || [ -L "${handoff}/version-bump.patch" ]; then
+            echo "ERROR: version-bump artifact must contain a regular version-bump.patch" >&2
+            exit 1
+          fi
+          run_forge_ci version apply-bump --project-type "${PROJECT_TYPE:?}" \
+            --version "${RELEASE_TAG:?}" --working-dir "${WORKING_DIRECTORY:?}" \
+            --patch "${handoff}/version-bump.patch" --sha256 "${PATCH_DIGEST:?}" \
+            --paths-file "${paths_file}"
+          printf 'paths-file=%s\n' "${paths_file}" >>"${FORGEJO_OUTPUT}"
+
       - name: Sign changelog commit and create final tag
         id: prepare-release
         uses: ./.forge-ci-helpers/.forgejo/actions/prepare-release
@@ -509,4 +727,5 @@ jobs:
           release-request-allowed-signers: ${{ inputs['release-request-allowed-signers'] }}
           release-git-url: ${{ inputs['release-git-url'] }}
           release-git-host-key-fingerprint: ${{ inputs['release-git-host-key-fingerprint'] }}
+          include-paths-file: ${{ steps.bump.outputs.paths-file }}
           ssh-signing-key: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}

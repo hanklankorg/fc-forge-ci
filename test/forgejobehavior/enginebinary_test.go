@@ -22,6 +22,7 @@ import (
 	"golang.org/x/mod/modfile"
 
 	"github.com/diggsweden/forge-ci/internal/testutil/evidence"
+	"github.com/diggsweden/forge-ci/internal/testutil/isolatedenv"
 	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
 )
 
@@ -46,7 +47,18 @@ type builtEngine struct {
 var engine builtEngine
 
 func TestMain(m *testing.M) {
+	// The layer's shell and the engine run the developer's git, which would
+	// otherwise read ~/.gitconfig: commit signing with a locked key, global
+	// hooks, prefixes. The whole process is isolated, as isolatedgit does.
+	_, cleanup, err := isolatedenv.IsolateProcess()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "forgejobehavior: isolate the test process: %v\n", err)
+		os.Exit(1)
+	}
+
 	code := evidence.Main(m)
+
+	cleanup()
 
 	if engine.dir != "" {
 		_ = os.RemoveAll(engine.dir)

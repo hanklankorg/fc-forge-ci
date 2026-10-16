@@ -1,0 +1,87 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: 'Build Maven'
+description: >-
+  The build step of a consumer's own job for a Maven project: one `forge-ci build maven run`, the same sequence GitHub's build-maven workflow and GitLab's build-maven component run: install, the app or library lifecycle with its tests, and the CycloneDX Build SBOM. JARs, WARs and POMs land in <working-directory>/target/ (and each module's target/), and the SBOM as target/bom.json. Nothing is uploaded: the job copies what it releases into dist/ and declares it with `forge-ci release files declare`. The job brings the toolchain: a JDK and Maven (see setup-toolchain, or a job image). The step holds no secret.
+inputs:
+  version:
+    description: >-
+      Release version the project must already declare, with or without a leading v, also exposed to the build as FORGE_CI_VERSION; any other declared version fails the build before it packages. In a release it is the prepare job's release-tag, which the release commit carries when prepare-release.yml runs with version-bump: maven. Empty, for a pull request, checks nothing.
+    required: false
+    default: ''
+  commit:
+    description: >-
+      Commit exposed to the build as FORGE_CI_COMMIT, for a POM that records it. Required: in a release it is the prepare job's release-sha, which the event commit is not.
+    required: true
+  build-type:
+    description: "Lifecycle: 'app' (clean package) or 'lib' (compile/test/package with an optional profile; the POM owns attached sources and javadoc)."
+    required: true
+  working-directory:
+    description: Directory containing pom.xml, relative to the workspace.
+    required: false
+    default: '.'
+  profile:
+    description: Maven profile to activate (library builds).
+    required: false
+    default: ''
+  skip-tests:
+    description: "'true' skips the Maven test phase."
+    required: false
+    default: 'false'
+  build-sbom:
+    description: "'false' skips the Build SBOM, and with it the cyclonedx-maven-plugin."
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Build Maven project
+      shell: bash
+      env:
+        BUILD_MAVEN_VERSION: ${{ inputs.version }}
+        BUILD_MAVEN_COMMIT: ${{ inputs.commit }}
+        BUILD_MAVEN_BUILD_TYPE: ${{ inputs.build-type }}
+        BUILD_MAVEN_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        BUILD_MAVEN_PROFILE: ${{ inputs.profile }}
+        BUILD_MAVEN_SKIP_TESTS: ${{ inputs.skip-tests }}
+        BUILD_MAVEN_BUILD_SBOM: ${{ inputs.build-sbom }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=.forgejo/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
+        version=${BUILD_MAVEN_VERSION#v}
+        if [ -n "${version}" ]; then
+          export FORGE_CI_VERSION=${version}
+        fi
+        export FORGE_CI_COMMIT=${BUILD_MAVEN_COMMIT:?commit is required}
+        build_type=${BUILD_MAVEN_BUILD_TYPE:?build-type is required}
+        skip_tests=${BUILD_MAVEN_SKIP_TESTS:?skip-tests is required}
+        build_sbom=${BUILD_MAVEN_BUILD_SBOM:?build-sbom is required}
+        # Everything the job keeps is rooted at this value, so a path out of
+        # the workspace is refused before mvn runs, as GitHub's workflow does.
+        directory=${BUILD_MAVEN_WORKING_DIRECTORY:?working-directory is required}
+        case "${directory}" in
+          /*) echo "working-directory must be workspace-relative: ${directory}" >&2; exit 1 ;;
+        esac
+        case "/${directory}/" in
+          */../*) echo "working-directory must not contain parent-directory steps: ${directory}" >&2; exit 1 ;;
+        esac
+        # GitHub's and GitLab's Maven options and SBOM plugin pin, so the
+        # three forges run the same build.
+        # shellcheck source=.forgejo/actions/build-maven/versions.env
+        source "${GITHUB_ACTION_PATH}/versions.env"
+        cli_opts='--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always'
+        # mvn runs in the current directory, so the build starts in the project.
+        cd -- "${directory}"
+        run_forge_ci build maven run \
+          --working-dir . \
+          --build-type "${build_type}" \
+          --profile "${BUILD_MAVEN_PROFILE}" \
+          --cli-opts "${cli_opts}" \
+          --skip-tests="${skip_tests}" \
+          --build-sbom="${build_sbom}" \
+          --sbom-tool-version "${CYCLONEDX_MAVEN_VERSION:?}" \
+          --expect-version "${version}"

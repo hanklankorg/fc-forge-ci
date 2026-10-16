@@ -12,6 +12,7 @@ const (
 	flagTag           = "tag"
 	flagBranch        = "branch"
 	flagRepositoryURL = "repository-url"
+	flagProjectType   = "project-type"
 	// defaultCommitMessageFile is the shared default for --commit-message-file.
 	defaultCommitMessageFile = "commit-msg.txt"
 	// defaultCommitBodyFile is the shared default for --commit-body-path.

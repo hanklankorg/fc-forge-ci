@@ -56,6 +56,8 @@ spec:
       options: [none, public]
     release-branch:
       regex: '^$|^[A-Za-z0-9_][A-Za-z0-9_./-]*$'
+    version-bump:
+      options: ['', maven]
 ---
 stages: [check, prepare, build, sign, publish]
 .forge-ci-release:
@@ -88,6 +90,7 @@ stages: [check, prepare, build, sign, publish]
     RC_BASE_IMAGES: '$[[ inputs.base-images ]]'
     FORGE_CI_COSIGN_TRANSPARENCY: $[[ inputs.transparency-log ]]
     RC_RELEASE_BRANCH_INPUT: $[[ inputs.release-branch ]]
+    RC_VERSION_BUMP: '$[[ inputs.version-bump ]]'
   before_script:
     - |
       set -euo pipefail
@@ -209,6 +212,20 @@ stages: [check, prepare, build, sign, publish]
   artifacts:
     expire_in: 1 day
     paths: [_release-render/]
+# The project's build tool rewrites its version files here, in the job image
+# and without any credential; the release commit's job runs no build tool and
+# takes only the patch, after proving it is a version substitution.
+"Prepare: version":
+  extends: .forge-ci-release
+  stage: prepare
+  needs: ["Check: release request"]
+  rules:
+    - if: '"$[[ inputs.version-bump ]]" != ""'
+  script:
+    - rc_bump_version
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-bump/]
 "Prepare: release commit and tag":
   extends: .forge-ci-release
   stage: prepare
@@ -219,6 +236,9 @@ stages: [check, prepare, build, sign, publish]
   needs:
     - job: "Prepare: changelog"
       artifacts: true
+    - job: "Prepare: version"
+      artifacts: true
+      optional: true
   script:
     - rc_prepare_release
 "Build: release files":

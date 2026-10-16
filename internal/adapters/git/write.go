@@ -63,6 +63,20 @@ func (r *Repo) AddPathspecsStrict(ctx context.Context, pathspecs []string) error
 	return err
 }
 
+// ApplyPatch runs `git apply [--check] -- <patch>` on the working tree. git
+// refuses paths outside the repository and beyond a symbolic link on its own;
+// the caller verifies what the patch changes before handing it here.
+func (r *Repo) ApplyPatch(ctx context.Context, patchPath string, checkOnly bool) error {
+	args := []string{"-c", hooksDisabledConfig, "apply"}
+	if checkOnly {
+		args = append(args, "--check")
+	}
+
+	_, err := r.Run(ctx, append(args, "--", patchPath)...)
+
+	return err
+}
+
 // HasStagedChanges reports whether the index differs from HEAD.
 //
 // We don't use Run() here because exit code 1 is the success signal

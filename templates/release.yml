@@ -64,6 +64,11 @@ spec:
         Whether Cosign signatures are also written to the public Sigstore transparency log. `none`, the default, writes no entry and contacts no Sigstore service: a signature is then verified against the key alone. `public` writes every signature to the public log, Rekor, permanently. Every release of one organization takes the same value, because a signature is verified the way it was made.
       default: none
       options: [none, public]
+    version-bump:
+      description: >-
+        Project type whose project files the signed release commit bumps to the release version: maven, or empty (the default) for no bump. A job that holds no credential runs the project's build tool in job-image and hands over the patch; release-prepare only verifies it as text and applies it, the way the Forgejo layer's version-bump does.
+      default: ''
+      options: ['', maven]
     release-branch:
       description: >-
         Branch a release lands on. The release request must be its head, and the release commit is pushed to it. Empty, the default, takes the project's default branch.
@@ -113,3 +118,4 @@ release:
           base-images: $[[ inputs.base-images ]]
           transparency-log: $[[ inputs.transparency-log ]]
           release-branch: $[[ inputs.release-branch ]]
+          version-bump: $[[ inputs.version-bump ]]

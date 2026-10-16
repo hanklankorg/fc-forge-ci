@@ -171,6 +171,7 @@ func TestPrepareReleaseSigningKeyBoundary(t *testing.T) {
 		"FORGEJO_REPO":                     "${{ inputs.forgejo-repo }}",
 		"SIGNING_EXECUTABLE":               "${{ steps.prepare-signing.outputs.signing-executable }}",
 		"TARGET_BRANCH":                    "${{ inputs.release-branch }}",
+		"INCLUDE_PATHS_FILE":               "${{ inputs.include-paths-file }}",
 	}; !maps.Equal(got, want) {
 		t.Fatalf("signing step env = %q, want %q", got, want)
 	}
@@ -663,4 +664,28 @@ func TestPrepareReleaseInstallsThePinnedRenderer(t *testing.T) {
 			t.Fatalf("status %d argv %q; stderr %s", got.status, box.argv(), got.stderr)
 		}
 	})
+}
+
+// A verified version bump's files reach the engine as one more flag; an empty
+// input adds none, so a release without a bump commits as before.
+func TestPrepareReleaseSigningPassesTheVersionBumpPaths(t *testing.T) {
+	t.Parallel()
+
+	for _, paths := range []string{"", "/runner/temp/bump-paths"} {
+		box := newSandbox(t, "prepare-release")
+		signer := box.write(".forgejo/bin/signer", "#!/usr/bin/env bash\nprintf '%s\\0' \"$@\" >\"${FAKE_ARGV_LOG:?}\"\n", 0o700)
+		got := box.run(loadAction(t, "prepare-release").script(t, "Sign changelog commit and create release tag"),
+			"SIGNING_EXECUTABLE="+signer, "SSH_SIGNING_KEY=fixture-key", "FORGEJO_REF_NAME=v1.2.3", "FORGEJO_REPO=owner/repo",
+			"TARGET_BRANCH=main", "RELEASE_GIT_URL=ssh://git@forgejo.invalid/owner/repo.git", "INCLUDE_PATHS_FILE="+paths)
+
+		want := []string{"version", "commit-changelog-release", "--tag", "v1.2.3", "--branch", "main", "--repository", "owner/repo",
+			"--git-url", "ssh://git@forgejo.invalid/owner/repo.git"}
+		if paths != "" {
+			want = append(want, "--include-paths-file", paths)
+		}
+
+		if got.status != 0 || !slices.Equal(box.argv(), want) {
+			t.Fatalf("paths %q: status %d argv %q; stderr %s", paths, got.status, box.argv(), got.stderr)
+		}
+	}
 }

@@ -503,6 +503,20 @@ include:
         - bash .gitlab/build-release.sh
 ```
 
+#### Version bump
+
+With `version-bump: maven` in the policy's `release` inputs, the signed
+release commit carries the release version in the project's POMs, as it does
+on GitHub and on Forgejo. The `Prepare: version` job runs `mvn versions:set`
+in `job-image`, so that image needs the JDK and Maven, and holds no credential
+(`rc_release_context` refuses every release secret there). It hands over only
+the patch and its digest. `Prepare: release commit and tag`, which holds the
+SSH signing key, runs no build tool: `forge-ci version apply-bump` checks the patch as text,
+the files of `pom.xml` only, each changed line the version or the
+reproducible-build timestamp and nothing else, then commits it beside
+`CHANGELOG.md`. The build then finds the release version already declared.
+Empty, the default, leaves the release commit to the changelog.
+
 #### The merge-request gate under a policy
 
 Once the project's CI configuration path names the policy, GitLab runs the

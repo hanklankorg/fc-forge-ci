@@ -99,8 +99,14 @@ rc_release_checkout() {
 	rc_checkout "refs/tags/${RELEASE_TAG}"
 	export RELEASE_SHA
 	RELEASE_SHA=$(git rev-parse HEAD)
+	# The release commit is the tested request plus the changelog, and with a
+	# version bump the verified version substitution: nothing else is built.
+	local -a bump_args=()
+	if [ -n "${RC_VERSION_BUMP:-}" ]; then
+		bump_args=(--version-bump "${RC_VERSION_BUMP}")
+	fi
 	rc_engine release validate-tag --release-sha "${RELEASE_SHA}" --tag "${RELEASE_TAG}" \
-		--expected-parent "${RELEASE_REQUEST_SHA}" --changelog-only \
+		--expected-parent "${RELEASE_REQUEST_SHA}" --changelog-only "${bump_args[@]}" \
 		--repo-url "${CI_SERVER_URL}/${CI_PROJECT_PATH}.git"
 }
 
@@ -139,17 +145,46 @@ rc_render_changelog() {
 	done
 }
 
+# rc_bump_version runs the project's build tool to set the release version and
+# hands over only the patch and its digest. The job holds no credential.
+rc_bump_version() {
+	rc_request_checkout
+	rc_engine version bump --project-type "${RC_VERSION_BUMP:?}" --version "${RELEASE_VERSION:?}" --working-dir . \
+		--maven-cli-opts '--batch-mode --no-transfer-progress --errors --fail-at-end'
+	local handoff="${CI_PROJECT_DIR}/_release-bump"
+	mkdir -p -- "${handoff}"
+	# Literal paths and plain text whatever the project's Git configuration says.
+	git -c core.quotePath=true diff --binary --no-ext-diff --no-textconv --no-color --no-renames \
+		--src-prefix=a/ --dst-prefix=b/ >"${handoff}/version-bump.patch"
+	test -s "${handoff}/version-bump.patch"
+	sha256sum -- "${handoff}/version-bump.patch" | cut -d' ' -f1 >"${handoff}/digest"
+}
+
 rc_prepare_release() {
 	rc_request_checkout
 	local file
+	local -a include=()
 	git -c core.hooksPath=/dev/null checkout -b "${RC_RELEASE_BRANCH}"
 	for file in CHANGELOG.md commit-msg.txt; do
 		rc_require_regular_file "${CI_PROJECT_DIR}/_release-render/${file}"
 		cp --remove-destination -- "${CI_PROJECT_DIR}/_release-render/${file}" "${file}"
 	done
+	# Text checks only, no build tool: the patch matches its digest, touches only
+	# the project files of the type, and moves the version and nothing else.
+	if [ -n "${RC_VERSION_BUMP:-}" ]; then
+		local bump="${CI_PROJECT_DIR}/_release-bump" patch_digest
+		for file in version-bump.patch digest; do
+			rc_require_regular_file "${bump}/${file}"
+		done
+		patch_digest=$(head -c 64 -- "${bump}/digest")
+		rc_engine version apply-bump --project-type "${RC_VERSION_BUMP}" --version "${RELEASE_TAG}" --working-dir . \
+			--patch "${bump}/version-bump.patch" --sha256 "${patch_digest}" --paths-file "${RC_WORK:?}/bump-paths"
+		include=(--include-paths-file "${RC_WORK}/bump-paths")
+	fi
 	SSH_SIGNING_KEY="${RELEASE_SSH_SIGNING_KEY:?}" rc_engine version commit-changelog-release \
 		--tag "${RELEASE_TAG}" --branch "${RC_RELEASE_BRANCH}" --repository "${CI_PROJECT_PATH}" --git-url "${RC_GIT_URL:?}" \
-		--host-key-fingerprint "${RC_GIT_HOST_KEY:?}" --author-name "${RC_BOT_NAME:?}" --author-email "${RC_BOT_EMAIL:?}"
+		--host-key-fingerprint "${RC_GIT_HOST_KEY:?}" --author-name "${RC_BOT_NAME:?}" --author-email "${RC_BOT_EMAIL:?}" \
+		"${include[@]}"
 }
 
 rc_build_handoff() {

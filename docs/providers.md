@@ -305,14 +305,15 @@ lacks.
 | Findings in the forge's interface | Code Scanning (SARIF) | merge-request Security tab (SAST report; display needs Ultimate) | none: Forgejo ingests no report; the step log |
 | Release-isolation gate | none | none: the signing policy is a separate pinned project | `check-l3-isolation` |
 | Build, Go and Cargo | `build-go.yml`, `build-cargo.yml` | `build-go`, `build-cargo` components | `build-go`, `build-cargo` |
-| Build, Maven, Gradle, npm, Xcode | workflows | components, without Xcode | none; no consumer yet |
+| Build, Maven | `build-maven.yml` | `build-maven` component | `build-maven` |
+| Build, Gradle, npm, Xcode | workflows | components, without Xcode | none; no consumer yet |
 | Job image | runtime images | runtime images; digest-pinned images you supply for `check` and `release` | the consumer's image or `setup-toolchain` |
 | Engine binary | runtime image or verified release archive | runtime image, or the checksum-bound build for `check` and `release` | the checksum-bound build |
 | Plan-driven fan-out from `artifacts.yml` | `release-build-stage.yml` | generated child pipeline | none: the consumer's workflow is the plan |
 | Image build, scan, ledger | `publish-container.yml` | the consumer's `build` commands; `release` imports the ledger | `build-release-image` |
 | Release preparation, signed tag | `release-prepare-stage.yml` | `release` component | `prepare-release.yml` |
 | Release branch | `branch` input, required | `release-branch` input, the project's default branch by default | `release-branch` input, `main` by default |
-| Version bump in project files | `version-bump.yml` | none | none |
+| Version bump in project files | `version-bump.yml` | `release` `version-bump: maven`: bumped in a key-free job, verified as text in `Prepare: release commit and tag`, committed with the changelog | `prepare-release.yml` `version-bump: maven`: bumped in a key-free job, verified as text in the signing job, committed with the changelog |
 | Signing and publication | keyless, GPG, KMS or Cosign key (`env://COSIGN_KEY`) | `release` component, separately privileged jobs, Cosign key | `sign-and-publish-release.yml`, separately privileged jobs, Cosign key |
 | Public transparency log | `sign.transparency`, `public` by default (keyless signing needs the log; `none` only with a key) | `transparency-log` input, `none` by default | `transparency-log` input, `none` by default |
 | Image promotion | `:dev` → `:staging` → release, gated by Environments | final tags in a separate publication project | final tags (`promote` job) |
@@ -462,7 +463,7 @@ Honest maturity per forge, so you know what to rely on:
 |---|---|
 | **github** | ✅ Established production path (the original target). |
 | **gitlab** | 🟡 Partial: release creation, asset upload/linking (project uploads + release links), token validation, and repo metadata; **no** SARIF ingestion (GitLab consumes the JSON SAST report instead) and no GitLab-specific provenance profile (the generic one applies). |
-| **forgejo** | 🟢 Adapter fully implemented (release create + asset upload, token + bot-permission probes, repo metadata, capabilities), unit-tested against an httptest Gitea server, and exercised by the guarded live conformance tier. The delivery layer under `.forgejo/` covers the lint gate, Go and Cargo builds, containers, release preparation, signing and publication; other ecosystems, forge packages and version bumps are not in it. It requires Forgejo v16+ for `workflow_call` job expansion. |
+| **forgejo** | 🟢 Adapter fully implemented (release create + asset upload, token + bot-permission probes, repo metadata, capabilities), unit-tested against an httptest Gitea server, and exercised by the guarded live conformance tier. The delivery layer under `.forgejo/` covers the lint gate, Go, Cargo and Maven builds, containers, release preparation with an isolated Maven version bump, signing and publication; other ecosystems and forge packages are not in it. It requires Forgejo v16+ for `workflow_call` job expansion. |
 | **local** | ✅ Dev/test fallback; required forge-API operations refuse. Optional SARIF upload reports a skip. |
 
 The matrix describes implemented adapter capabilities; its static guard checks

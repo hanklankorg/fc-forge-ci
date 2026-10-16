@@ -41,7 +41,7 @@ immutable release request
 | `.forgejo/bin/` | The resolver `lib-forge-ci.sh`, and the checksum of the `forge-ci` binary the layer runs. The binary is not in the tree: a job downloads it by that checksum. See [The binary in the layer](#the-binary-in-the-layer). |
 | `.forgejo/scripts/verify-signer-toolchain.sh` | The check every privileged job runs first, and the signer image runs at build time. |
 | `containers/signer/Containerfile` | The definition of the signer image. No image is published; see [The signer image](#the-signer-image). |
-| `examples/<ecosystem>/forgejo/` | A pull-request and a release workflow to start from, for [Go CLI](../examples/go-cli/forgejo/), [Go service](../examples/go-service/forgejo/) and [Cargo](../examples/cargo-app/forgejo/). |
+| `examples/<ecosystem>/forgejo/` | A pull-request and a release workflow to start from, for [Go CLI](../examples/go-cli/forgejo/), [Go service](../examples/go-service/forgejo/), [Cargo](../examples/cargo-app/forgejo/) and [Maven](../examples/maven-app/forgejo/). |
 | `examples/forgejo/` | The workflow an organization publishes the layer's binary and builds its signer image with. |
 
 Lint and build ship as actions, not as workflows: the pull-request jobs and
@@ -201,7 +201,7 @@ the caller passes them by name. Never use `secrets: inherit`.
 
 | Workflow | Does | Secrets |
 |---|---|---|
-| `prepare-release.yml` | Checks that every secret the release will need is configured, before any checkout; guards the request tag; requires the request at the head of the release branch; renders the changelog; makes the signed release commit and the final tag once. Outputs `release-tag` and `release-sha`. | `RELEASE_SSH_SIGNING_KEY`; presence only of the others |
+| `prepare-release.yml` | Checks that every secret the release will need is configured, before any checkout; guards the request tag; requires the request at the head of the release branch; renders the changelog; with `version-bump`, bumps the project files in a key-free job and verifies that bump; makes the signed release commit and the final tag once. Outputs `release-tag` and `release-sha`. | `RELEASE_SSH_SIGNING_KEY`; presence only of the others; none in the version-bump job |
 | `sign-and-publish-release.yml` | Four separately privileged jobs after a secret-free preflight: `sign` (checksums, SBOMs, provenance, images, distro packages), `promote` (final image tags), `publish` (the Forgejo release), `cleanup` (candidate tags). | Cosign, GPG, `RELEASE_TOKEN`, `RELEASE_REGISTRY_TOKEN`, each only in the job that needs it |
 | `sign-container-images.yml` | Signs and attests a base-image ledger in one engine call. | Cosign, `RELEASE_REGISTRY_TOKEN` |
 | `verify-base-container-images.yml` | Verifies existing base images against the trusted key, anonymously; a miss is not an error. | none |
@@ -239,6 +239,7 @@ alone. Each `action.yml` documents its own inputs and outputs.
 | `setup-toolchain` | Installs the consumer's pinned tools with mise, verified and cache-aware. |
 | `lint-nanolinter` | The pull-request lint gate: the repository's nanolinter plan with a mandated floor. |
 | `build-go`, `build-cargo` | The build step of the consumer's job: tests, Build SBOM and one binary per platform. |
+| `build-maven` | The build step of a Maven consumer's job: tests, the jar and the Build SBOM, as GitHub's `build-maven` workflow builds them, after checking that the POM declares the release version. |
 | `build-release-image` | One release image from build to ledger: build and push, scan every platform, record. |
 | `guard-release-tag`, `render-changelog`, `prepare-release` | The steps `prepare-release.yml` is made of, with rendering and signing in separate jobs. Call the workflow; see [The prepare job](#the-prepare-job). |
 | `upload-dist`, `assemble-release-dist` | Hand `dist/` to the signer with its digest, from one producer or several. |
@@ -309,6 +310,7 @@ organization provides:
 | Pull-request lint and build | `CI_JOB_IMAGE` | nanolinter with its check tools, and your toolchain. Nothing is installed. |
 | Release build | The runner's job image, with `setup-toolchain` | Go and the tools of the consumer's mise config, installed and verified. |
 | `prepare-release.yml` | The runner's job image | Bash, Git, curl and `sha256sum`. |
+| `prepare-release.yml`, version-bump job | `version-bump-image`, digest-pinned | Bash, Git, curl, `sha256sum` and the build tool: a JDK and Maven for `maven`. |
 | Signing, promotion, publication | The signer image | The organization's, built from `containers/signer/Containerfile`. |
 
 Every job that runs the CLI downloads the layer's own build of it, by the
@@ -564,6 +566,7 @@ directory of each ecosystem example is the two workflows they add up to.
 | Release isolation | `check-l3-isolation` | `validate isolation` over the consumer's `release.yml`. |
 | Build, Go | `build-go` | `build go run`: `go mod download`, `go test ./...`, the Build SBOM, one binary per platform. |
 | Build, Cargo | `build-cargo` | `build cargo run`: `cargo fetch`, `cargo test --locked`, the Build SBOM, one binary per platform. |
+| Build, Maven | `build-maven` | `build maven run --expect-version`: `mvn install`, a refusal unless the POM declares the release version, the app or library lifecycle with its tests, the Build SBOM, all in `target/`. |
 | Hand-off | a `run:` step | `release files declare`, which writes the checksums file and `dist/release-files.json`; then `upload-dist`. |
 | Image | `build-release-image` | `container build-push-oci-image`, `container image-evidence` for every pushed platform, `container ledger add`. |
 
@@ -578,7 +581,9 @@ not reach, so no action assumes one. Each runs in whatever the job provides:
 - The release build job installs its toolchain with `setup-toolchain`: Go, and
   the tools of the consumer's mise config, among them `cyclonedx-gomod` or
   `cargo-cyclonedx` for the Build SBOM. `build-sbom: 'false'` drops that
-  requirement.
+  requirement. A Maven build needs the JDK and Maven from the mise config
+  (or a job image); `build-maven` pins the `cyclonedx-maven-plugin` itself,
+  in its `versions.env`, at the version GitHub and GitLab use.
   A job downloads Go once. When the mise config declares `go`, mise installs
   it, the release and checksum `mise.lock` records under `mise-locked: 'true'`,
   and the job runs with `GOTOOLCHAIN=local`, so `go.mod` asking for a newer Go
@@ -592,9 +597,19 @@ not reach, so no action assumes one. Each runs in whatever the job provides:
   mise's `http_download_timeout`.
 
 **Version and commit are inputs.** In a release the runner's ref is the
-request tag and its commit the request commit, so `build-go` and `build-cargo`
-require `version` and `commit` and take neither from the runner: pass the
-prepare job's `release-tag` and `release-sha`.
+request tag and its commit the request commit, so `build-go` and
+`build-cargo` require `version` and `commit`, and `build-maven` requires
+`commit`; none takes them from the runner: pass the prepare job's
+`release-tag` and `release-sha`. A pull request passes `build-maven` no
+`version`, and builds the version its POM declares.
+
+**A Maven release commit carries its version.** `prepare-release.yml` with
+`version-bump: maven` and a digest-pinned `version-bump-image` bumps the POMs
+in the signed release commit, as GitHub's and GitLab's release preparation
+do, so the tagged source declares the version the jar carries.
+`build-maven`, given the release's `version`, refuses a POM that declares
+another. [The prepare job](#the-prepare-job) says how the bump is kept out
+of the job that holds the signing key.
 
 **Rendered release notes are ignored by Git.** The hand-off step of
 `release.yml` reads a `release-notes.md` that an earlier step of the build job
@@ -761,6 +776,37 @@ For a private image, pass `skip-signer-image-check: 'true'` explicitly and
 configure image-pull access on the trusted runner. The digest-pinned coordinate
 and the signer's own toolchain/key checks remain mandatory. A misspelled skip
 value fails instead of silently bypassing the check.
+
+**A version bump never runs where the key is.** A bump of project files runs
+the project's build tool, and with it the project's plugins: `mvn
+versions:set` for `version-bump: maven`. So it runs in a `version-bump` job of
+its own, in the `version-bump-image` the caller pins by digest, and that job
+references no secret at all, not even a presence check. It runs the engine's
+`version bump`, the same verb GitHub's and GitLab's release preparation run,
+and hands over only `git diff` of the result, uploaded as an artifact, with
+the patch's sha256 as a job output.
+
+The `prepare` job runs no build tool. `forge-ci version apply-bump` checks the
+patch as text before Git applies it: it matches the reported digest, touches
+only `pom.xml` files, creates, deletes, renames or re-modes nothing, and every
+changed line is the root POM's current version replaced by the release
+version and nothing else. After applying it, the root POM must declare the
+release version. One limit: a line naming another artifact at exactly the
+project's old version, such as a sibling module or a dependency released in
+step, also passes, because `versions:set` legitimately moves reactor modules
+the same way. The files it changed are committed beside `CHANGELOG.md`
+in the signed release commit; any other file the bump job touched never
+reaches it.
+
+This is stricter than GitHub's `version-bump.yml`, which runs the bump in the
+job that later signs and pushes the release commit. A POM whose version is a
+property, such as `${revision}`, is refused: the substitution can only be
+checked against a literal version. Leave `version-bump` empty and the release
+commit carries the changelog alone, as before; the `version-bump` job still
+runs, with every step skipped, in the label's default image. It cannot be
+skipped as a job: Forgejo decides on the server, before any condition of the
+dependant is read, that the dependant of a skipped job is skipped too, which
+would take the signing job with it.
 
 ### The request is the head of the release branch
 
@@ -1189,8 +1235,8 @@ Not supported yet, and known:
 Not in the layer:
 
 - A snapshot flow, a MegaLinter action, and SARIF ingestion.
-- Builds other than Go and Cargo: no Maven, Gradle, npm or Xcode action.
-- Publication to the forge's package registry, and version bumps in project
-  files.
+- Builds other than Go, Cargo and Maven: no Gradle, npm or Xcode action.
+- Publication to the forge's package registry.
+- Committed version bumps for project files other than Maven's POMs.
 - Plan-driven fan-out from `artifacts.yml`: the consumer's workflow is the plan.
 - Keyless or KMS signing in the workflows.

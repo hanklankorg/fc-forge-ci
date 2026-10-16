@@ -30,6 +30,7 @@ func consumerKits() []consumerKit {
 		{dir: "examples/go-cli/forgejo", buildAction: "build-go"},
 		{dir: "examples/go-service/forgejo", buildAction: "build-go"},
 		{dir: "examples/cargo-app/forgejo", buildAction: "build-cargo"},
+		{dir: "examples/maven-app/forgejo", buildAction: "build-maven"},
 	}
 }
 

@@ -40,16 +40,17 @@ type changelogReleaseOps interface {
 
 // ChangelogReleaseInput drives `forge-ci version commit-changelog-release`.
 type ChangelogReleaseInput struct {
-	Tag               string // final stable release tag, e.g. v1.2.3
-	Repository        string // owner/name, validated against the SSH origin URL path
-	GitURL            string // required: exact ssh://git@host[:port]/owner/name.git origin URL
-	RemoteName        string // empty defaults to origin; other remotes are unsupported
-	Branch            string // empty defaults to main
-	ChangelogPath     string // empty defaults to CHANGELOG.md
-	CommitMessageFile string // empty defaults to commit-msg.txt
-	AuthorName        string // required: git user.name for the release commit (no org default)
-	AuthorEmail       string // required: git user.email for the release commit (no org default)
-	SigningKeyPath    string // SSH private key path already written to a temp dir; optional in dry-run (the signing setup only serves the skipped push)
+	Tag               string   // final stable release tag, e.g. v1.2.3
+	Repository        string   // owner/name, validated against the SSH origin URL path
+	GitURL            string   // required: exact ssh://git@host[:port]/owner/name.git origin URL
+	RemoteName        string   // empty defaults to origin; other remotes are unsupported
+	Branch            string   // empty defaults to main
+	ChangelogPath     string   // empty defaults to CHANGELOG.md
+	CommitMessageFile string   // empty defaults to commit-msg.txt
+	IncludePaths      []string // project files committed beside the changelog (a verified version bump)
+	AuthorName        string   // required: git user.name for the release commit (no org default)
+	AuthorEmail       string   // required: git user.email for the release commit (no org default)
+	SigningKeyPath    string   // SSH private key path already written to a temp dir; optional in dry-run (the signing setup only serves the skipped push)
 	TagSigned         bool
 	Token             runcontext.Credential
 	DryRun            bool // preview: narrate the git config/commit/push/tag/checkout mutations instead of performing them
@@ -147,15 +148,15 @@ func commitChangelogIfChanged(ctx context.Context, repo changelogReleaseOps, out
 	}
 
 	if in.DryRun {
-		_, _ = fmt.Fprintf(out, "[dry-run] would stage %s\n", in.ChangelogPath)
+		_, _ = fmt.Fprintf(out, "[dry-run] would stage %s\n", strings.Join(releaseCommitPaths(in), " "))
 		_, _ = fmt.Fprintf(out, "[dry-run] would create the signed changelog commit from %s\n", in.CommitMessageFile)
 		_, _ = fmt.Fprintf(out, "[dry-run] would push %s to %s (no force)\n", in.Branch, in.RemoteName)
 
 		return nil
 	}
 
-	if err := repo.AddPathspecsStrict(ctx, []string{in.ChangelogPath}); err != nil {
-		return fmt.Errorf("commit-changelog: add %s: %w", in.ChangelogPath, err)
+	if err := repo.AddPathspecsStrict(ctx, releaseCommitPaths(in)); err != nil {
+		return fmt.Errorf("commit-changelog: add %s: %w", strings.Join(releaseCommitPaths(in), " "), err)
 	}
 
 	if err := repo.Commit(ctx, domaingit.CommitInput{MessageFile: in.CommitMessageFile, Sign: true, Signoff: true, NoVerify: true, NoHooks: true}); err != nil {
@@ -189,7 +190,11 @@ func ChangelogReleasePreflight(in ChangelogReleaseInput) error {
 		return err
 	}
 
-	return requireRegularFile("CHANGELOG.md must be generated before loading the SSH signing key", in.ChangelogPath)
+	if err := requireRegularFile("CHANGELOG.md must be generated before loading the SSH signing key", in.ChangelogPath); err != nil {
+		return err
+	}
+
+	return validateIncludePaths(in.IncludePaths)
 }
 
 func validateChangelogSubject(in ChangelogReleaseInput) error {
@@ -369,18 +374,50 @@ func inspectChangelogReleaseFiles(ctx context.Context, repo interface {
 		return "", err
 	}
 
-	status, err := repo.StatusPorcelain(ctx, in.ChangelogPath)
-	if err != nil {
-		return "", fmt.Errorf("commit-changelog: inspect %s: %w", in.ChangelogPath, err)
+	if err := validateIncludePaths(in.IncludePaths); err != nil {
+		return "", err
 	}
 
-	if strings.TrimSpace(status) != "" {
+	var status strings.Builder
+
+	for _, file := range releaseCommitPaths(in) {
+		changed, err := repo.StatusPorcelain(ctx, file)
+		if err != nil {
+			return "", fmt.Errorf("commit-changelog: inspect %s: %w", file, err)
+		}
+
+		status.WriteString(changed)
+	}
+
+	if strings.TrimSpace(status.String()) != "" {
 		if err := requireRegularFile("commit-msg.txt must be generated before loading the SSH signing key", in.CommitMessageFile); err != nil {
 			return "", err
 		}
 	}
 
-	return status, nil
+	return status.String(), nil
+}
+
+// releaseCommitPaths is everything the release commit stages: the changelog,
+// then the project files of a verified version bump.
+func releaseCommitPaths(in ChangelogReleaseInput) []string {
+	return append([]string{in.ChangelogPath}, in.IncludePaths...)
+}
+
+// validateIncludePaths accepts plain repository-relative regular files, so a
+// path can only ever name a file of the checkout the signed commit records.
+func validateIncludePaths(paths []string) error {
+	for _, file := range paths {
+		if !domainversion.IsPlainRepositoryPath(file) {
+			return fmt.Errorf("commit-changelog: included path %q is not a plain repository-relative path: %w", file, errs.ErrValidation)
+		}
+
+		if err := requireRegularFile("an included path must be a file of the checkout", file); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func requireRegularFile(message, path string) error {
