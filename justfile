@@ -775,6 +775,20 @@ clean-caches:
 test-live scenario="":
     @if [ -z "$1" ]; then exec bash scripts/ci/run-live-tests.sh full; else exec bash scripts/ci/run-live-tests.sh focused "$1"; fi
 
+# Check the lab contract and its CA, and nothing else: the first thing every
+# live recipe does, on its own, in seconds. Run it before Forge Lab's
+# full-release wrapper, which swaps the runner in before the launcher's own
+# preflight can refuse a stale contract; a refusal here costs no runner swap.
+# The profile is `full` or `focused`, as the run you are about to start.
+#
+#   just test-live-preflight
+#   just test-live-preflight full
+[arg('profile', help='full or focused, as the run you are about to start; focused when left out')]
+[doc('▪ Live; check the lab contract only')]
+[group('live')]
+test-live-preflight profile="focused":
+    @FORGE_CI_LIVE_PROFILE="$1" exec go run ./internal/livetest/preflight
+
 # Build the signer image of this commit and publish it to the lab registry.
 #
 # The release scenarios of the live tier run their signer jobs in the image a

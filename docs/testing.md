@@ -286,7 +286,10 @@ before scratch creation, so a canceled creation can still be reclaimed.
 The launcher drains the redacted log before releasing its lock and returns
 130 for interruption. When supervising the launcher directly with systemd,
 allow at least `TimeoutStopSec=180` so it does not kill this cleanup early.
-When using Forge Lab's full-release wrapper, its child shutdown grace must
+When using Forge Lab's full-release wrapper, run `just test-live-preflight`
+first: the wrapper swaps the privileged runner in before the launcher's own
+preflight runs, so a stale contract refused inside it costs two runner swaps
+instead of seconds. The wrapper's child shutdown grace must
 cover the suite's two-minute cleanup. Use the current three-minute default
 and allow `TimeoutStopSec=1200` for child termination and the wrapper's
 separate ten-minute normal-profile restoration budget.

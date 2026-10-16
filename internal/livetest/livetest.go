@@ -248,8 +248,11 @@ func acceptTarget(lab *labcontract.Contract, forge provider.ForgeAPI, now time.T
 		return Target{}, err
 	}
 
+	// The contract module says what is wrong with the credential; the recipe
+	// that mints the next generation is this tier's to name, account included.
 	if err = endpoint.Credential.CheckLifetime(now); err != nil {
-		return Target{}, fmt.Errorf("%s credential: %w", forge, refused(err))
+		return Target{}, fmt.Errorf("%s credential: %w; mint it in Forge Lab with: just targets --account %s gitlab forgejo",
+			forge, refused(err), labAccount)
 	}
 
 	target.accepted = true
