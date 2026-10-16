@@ -9,10 +9,11 @@ The three forge guides, [GitHub](github.md), [GitLab](gitlab.md) and
 [Forgejo](forgejo.md), use the same section order. What each layer has beside
 the others is in [Delivery layers side by side](providers.md#delivery-layers-side-by-side).
 
-> **Unpublished 0.90.0.** No tagged release carries these components yet, and
-> the native release path is still under acceptance; see
-> [GitLab live acceptance](testing.md#gitlab-live-acceptance). Pin the exact
-> commit you have authenticated, never a branch.
+> **Release source and instance setup.** Pin an authenticated engine commit and
+> serve its components and checksum-bound package on your GitLab instance.
+> An upstream GitHub release does not publish your GitLab Catalog or packages.
+> Validate the selected instance and runner through
+> [GitLab live acceptance](testing.md#gitlab-live-acceptance).
 
 ## What ships
 

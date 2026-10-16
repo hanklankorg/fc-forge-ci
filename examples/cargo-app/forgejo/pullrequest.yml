@@ -1,9 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
 # SPDX-License-Identifier: CC0-1.0
 #
-# PRE-RELEASE: do not copy or pin this template from a mutable branch. No
-# tagged forge-ci release carries the Forgejo layer yet. Use it only from a
-# release you have authenticated, and pin that exact commit.
+# Pin the exact commit of an authenticated forge-ci release. Serve that commit
+# and its checksum-bound engine package on your Forgejo instance before use.
 #
 # Minimal PR workflow for a Cargo consumer of forge-ci's Forgejo layer: the
 # Go CLI pair (examples/go-cli/forgejo/) with build-cargo in place of

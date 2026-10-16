@@ -13,9 +13,10 @@ The three forge guides, [GitHub](github.md), [GitLab](gitlab.md) and
 implementation, test and live-evidence status per forge is in
 [`providers.md`](providers.md).
 
-> **Unreleased.** No tagged release carries the Forgejo layer yet. Do not pin a
-> branch in production: pin the exact commit of a release you have
-> authenticated. [Release readiness](#release-readiness) lists the checks needed
+> **Release source and instance setup.** Pin the exact commit of an authenticated
+> release, and serve that commit and its checksum-bound engine package on your
+> Forgejo instance. The upstream release does not publish your instance's package
+> or signer image. [Release readiness](#release-readiness) lists the checks needed
 > for the selected instance and runner.
 
 ## What ships
@@ -486,9 +487,10 @@ three are not the same guarantee:
 | GitHub, GitLab | A tagged release from GitHub Releases, or the runtime image that carries it. | `checksums.txt` and its Sigstore bundle. | The identity of the workflow that built and signed the release. |
 | Forgejo | The build a commit names, from the serving instance's packages. | The SHA-256 recorded in the pinned commit. | The commit pin. Nothing says who built the bytes; the recorded line says which bytes, and the rebuild above ties them to the sources. |
 
-The Forgejo layer has no tagged release to verify yet, and a Forgejo instance
-is no identity public Sigstore trusts. Its installer for a published release,
-`.github/actions/install-forge-ci`, is the other route once one exists.
+The upstream GitHub release has a Sigstore-verified binary installer,
+`.github/actions/install-forge-ci`, for jobs that select that release. The
+Forgejo layer uses its separately recorded build and instance-local package;
+an upstream release archive does not replace that checksum-bound package.
 
 `FORGE_CI_BIN` names another binary to run. It is a test and development
 seam: under `SIGNER_STRICT=1`, which the signer jobs set, an override must
@@ -511,9 +513,10 @@ the commit the workflow already pins:
 
 The action downloads the binary that commit records from the instance's
 package registry, verifies it against the recorded checksum and adds it to
-`PATH`; `expected-sha256` adds a pin of the caller's own. The release
-installer, `.github/actions/install-forge-ci`, is the route once a release
-exists; see [Installing `forge-ci`](providers.md#installing-forge-ci).
+`PATH`; `expected-sha256` adds a pin of the caller's own. A standalone job can
+instead install an authenticated upstream release with
+`.github/actions/install-forge-ci`; see
+[Installing `forge-ci`](providers.md#installing-forge-ci).
 
 Run artifacts between such jobs are the current run's only: keep producing
 and consuming jobs `needs:`-chained inside one workflow run, as the release
@@ -1036,11 +1039,11 @@ release:
    - Push upstream's commits unchanged if you can. A pushed commit keeps its
      ID, so a commit you authenticated upstream is the same commit in your
      copy.
-2. **Choose the commit your consumers pin, and authenticate it.** No tagged
-   release carries the layer yet, so there is no signed release to check a
-   commit against: decide which commit you trust and by what evidence, and
-   write the ID down. The layer verifies that a clone is the pinned commit; it
-   cannot tell you the commit is the right one.
+2. **Choose the commit your consumers pin, and authenticate it.** Select an
+   authenticated upstream release or an independently reviewed revision of your
+   copy, and record its full commit ID and verification evidence. The layer
+   verifies that a clone is the pinned commit; it cannot tell you the commit is
+   the right one.
 3. **If your copy changes Go code**, record the new build as
    [Development](DEVELOPMENT.md#the-forgejo-layers-engine-binary) describes,
    before you pin: a commit whose checksum is not a build of its tree is

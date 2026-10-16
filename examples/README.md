@@ -4,9 +4,9 @@ Complete working examples for different project types.
 
 > Each example follows one of the two ecosystem patterns (A: build artefact + container COPY; B: container is the build environment). See **[docs/ecosystems.md](../docs/ecosystems.md)** for the full framing and per-ecosystem capability matrices.
 >
-> Examples target the v0.90.0 workflow contract. Before that release tag and its
-> matching runtime images exist, use the branch-testing flow in
-> **[docs/runtime-images.md](../docs/runtime-images.md)**.
+> Examples target the v0.90.0 workflow contract. Choose an authenticated release
+> and its matching runtime images. For an unreleased candidate, use the
+> branch-testing flow in **[docs/runtime-images.md](../docs/runtime-images.md)**.
 >
 > Image digests such as `PIN_DIGEST` are placeholders. Nanolinter's GHCR migration
 > destination is `ghcr.io/itiquette/nanolinter`; verify the chosen flavour is
@@ -141,7 +141,7 @@ The GitHub configuration of each example:
 Follow [Testing consumer configuration](../docs/runtime-images.md#testing-consumer-configuration)
 for YAML validation, the branch-only snapshot workflow, and a disposable signed
 release request. The same page owns the reviewed-commit workflow/binary/image
-pins required before 0.90.0 is published.
+pins required when testing an unreleased candidate.
 
 ## Troubleshooting
 
