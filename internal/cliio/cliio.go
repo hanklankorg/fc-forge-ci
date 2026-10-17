@@ -5,7 +5,7 @@
 // CLI conventions (see clig.dev) say user-provided file paths should
 // accept `-` to mean stdin (read) or stdout (write), so a pipe like
 //
-//	curl https://… | forge-ci config validate --file -
+//	curl https://… | forge-ci config validate --artifacts-file -
 //	forge-ci publish npm write-npmrc --output - > ~/.npmrc
 //
 // works without a tempfile. This package exposes the minimal helpers

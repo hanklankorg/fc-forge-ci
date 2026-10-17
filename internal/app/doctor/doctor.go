@@ -78,7 +78,7 @@ type Input struct {
 	// workflow-pin check to spot `uses: <slug>@main`. Empty → derived from
 	// the binary's own Go module path at runtime, so a fork that renames its
 	// module checks its own slug without a rebuild. Overridable via the
-	// --forge-ci-repo flag / FORGE_CI_REPO_SLUG for vendored or mirrored
+	// --forge-ci-repository flag / FORGE_CI_REPO_SLUG for vendored or mirrored
 	// setups.
 	RepoSlug string
 
@@ -767,7 +767,7 @@ func checkWorkflowVersionRefs(root, repoSlug string) Check {
 			Name:        checkWorkflowsPinReusable,
 			Severity:    SeverityWarn,
 			Message:     "could not determine this binary's repo slug; workflow-pin check skipped",
-			Remediation: "set FORGE_CI_REPO_SLUG (or --forge-ci-repo) to your owner/repo so the @main/@master pin check can run",
+			Remediation: "set FORGE_CI_REPO_SLUG (or --forge-ci-repository) to your owner/repo so the @main/@master pin check can run",
 		}
 	}
 

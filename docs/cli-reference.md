@@ -517,13 +517,13 @@ EXAMPLES:
    forge-ci config validate
 
    # Validate a specific file / via env var (workflow shape)
-   forge-ci config validate --file path/to/artifacts.yml
+   forge-ci config validate --artifacts-file path/to/artifacts.yml
    ARTIFACTS_CONFIG=artifacts.yml forge-ci config validate
 ```
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
-| `--file` | path to the artifacts.yml file to validate (defaults to the conventional .forge-ci/artifacts.yml) | string | `".forge-ci/artifacts.yml"` | `$ARTIFACTS_CONFIG` |
+| `--artifacts-file` | path to the artifacts.yml file to validate (defaults to the conventional .forge-ci/artifacts.yml) | string | `".forge-ci/artifacts.yml"` | `$ARTIFACTS_CONFIG` |
 
 ## `forge-ci container`
 
@@ -1993,7 +1993,7 @@ Exit codes:
 |------|-------------|------|---------|----------|
 | `--root` | repository root to inspect (default: cwd) | string | `""` | `$FORGE_CI_DOCTOR_ROOT` |
 | `--artifacts-file` | path to the artifacts.yml to inspect (default: <root>/.forge-ci/artifacts.yml) | string | `""` | `$FORGE_CI_DOCTOR_ARTIFACTS` |
-| `--forge-ci-repo` | owner/repo this binary belongs to, for the workflow-pin check (default: derived from the binary's own module path) | string | `""` | `$FORGE_CI_REPO_SLUG` |
+| `--forge-ci-repository` | owner/repo this binary belongs to, for the workflow-pin check (default: derived from the binary's own module path) | string | `""` | `$FORGE_CI_REPO_SLUG` |
 
 ## `forge-ci lint`
 

@@ -56,7 +56,7 @@ Exit codes:
 				Usage:   "path to the artifacts.yml to inspect (default: <root>/.forge-ci/artifacts.yml)",
 			},
 			&cli.StringFlag{
-				Name:    "forge-ci-repo",
+				Name:    "forge-ci-repository",
 				Sources: cli.EnvVars("FORGE_CI_REPO_SLUG"),
 				Usage:   "owner/repo this binary belongs to, for the workflow-pin check (default: derived from the binary's own module path)",
 			},
@@ -67,7 +67,7 @@ Exit codes:
 			checks, err := appdoctor.Run(appdoctor.Input{
 				Root:             cmd.String("root"),
 				ArtifactsPath:    cmd.String("artifacts-file"),
-				RepoSlug:         cmd.String("forge-ci-repo"),
+				RepoSlug:         cmd.String("forge-ci-repository"),
 				KeylessAvailable: env.Capabilities.PublicFulcioTrusted,
 				ForgeAPI:         provider.ForgeAPI(env.ForgeAPI),
 				ServerURL:        runcontext.ServerURL().Resolve(os.Getenv),

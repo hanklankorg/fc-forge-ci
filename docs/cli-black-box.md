@@ -244,7 +244,7 @@ CLI flag/env wiring, provider selection, or process exit-code wiring.
 | VAL-04 | `validate workflow input-defaults` over FIX-04 literal vs expression default. | Literal → exit `0`; expression default → exit `1` with a `::error file=…,line=…::` annotation. |
 | VAL-05 | `validate event-context` under a `pull_request` event with secrets in scope. | Refuses with the documented exit code; the message names the PR-context risk. |
 | VAL-06 | `doctor` over FIX-02 (clean) / FIX-01 (missing) / FIX-03 (sigstore w/o id-token). | Clean → exit `0`, `[OK]` lines, no `[FAIL]`; missing/invalid → exit `1` with a `[FAIL]` line and concrete remediation (`id-token: write`). |
-| VAL-07 | Malformed `artifacts.yml` (bad YAML / schema). | `config validate --file <file>` → exit `78` (configuration), message points at the file. `doctor` over the same file → exit `1`: it intentionally aggregates every check failure to "N failing check(s)" (validation), so `78` is asserted against a direct consumer, not doctor. |
+| VAL-07 | Malformed `artifacts.yml` (bad YAML / schema). | `config validate --artifacts-file <file>` → exit `78` (configuration), message points at the file. `doctor` over the same file → exit `1`: it intentionally aggregates every check failure to "N failing check(s)" (validation), so `78` is asserted against a direct consumer, not doctor. |
 
 ## CON-* / REL-*: Container & release domain through the CLI
 

@@ -109,18 +109,18 @@ func validateCmd() *cli.Command {
    forge-ci config validate
 
    # Validate a specific file / via env var (workflow shape)
-   forge-ci config validate --file path/to/artifacts.yml
+   forge-ci config validate --artifacts-file path/to/artifacts.yml
    ARTIFACTS_CONFIG=artifacts.yml forge-ci config validate`,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:    "file",
+				Name:    "artifacts-file",
 				Value:   ".forge-ci/artifacts.yml",
 				Sources: cli.EnvVars("ARTIFACTS_CONFIG"),
 				Usage:   "path to the artifacts.yml file to validate (defaults to the conventional .forge-ci/artifacts.yml)",
 			},
 		},
 		Action: func(_ context.Context, cmd *cli.Command) error {
-			path := cmd.String("file")
+			path := cmd.String("artifacts-file")
 			if err := appconfig.Validate(path, os.Stderr); err != nil {
 				return err
 			}
