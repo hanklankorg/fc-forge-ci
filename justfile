@@ -770,7 +770,7 @@ clean-caches:
 # for the account, and the suite refuses a stale one.
 # Replace the recipe shell so Just forwards signals to the cleanup-aware launcher.
 [arg('scenario', help='Optional Go test-name regular expression; omit for the full live profile. Mutates disposable lab resources.')]
-[doc('▪ Live; container, network, destructive')]
+[doc('Live; container, network, destructive')]
 [group('live')]
 test-live scenario="":
     @if [ -z "$1" ]; then exec bash scripts/ci/run-live-tests.sh full; else exec bash scripts/ci/run-live-tests.sh focused "$1"; fi
@@ -784,7 +784,7 @@ test-live scenario="":
 #   just test-live-preflight
 #   just test-live-preflight full
 [arg('profile', help='full or focused, as the run you are about to start; focused when left out')]
-[doc('▪ Live; check the lab contract only')]
+[doc('Live; check the lab contract only')]
 [group('live')]
 test-live-preflight profile="focused":
     @FORGE_CI_LIVE_PROFILE="$1" exec go run ./internal/livetest/preflight
@@ -804,7 +804,7 @@ test-live-preflight profile="focused":
 # digest-pinned reference; everything else goes to standard error. A second
 # run at the same commit reuses the local build and publishes the same digest.
 [arg('forge_lab', help='Absolute path to the Forge Lab checkout used to publish the signer image')]
-[doc('▪ Live; build and publish the lab signer image')]
+[doc('Live; build and publish the lab signer image')]
 [group('live')]
 test-live-signer-image forge_lab:
     @exec bash scripts/ci/publish-live-signer-image.sh "$1"
@@ -851,7 +851,7 @@ test-live-signer-image forge_lab:
 [arg('event', help='Consumer workflow kind: pull-request or release')]
 [arg('checkout', help='Absolute path to a clean consumer checkout, for example /absolute/gommitlint')]
 [arg('settings', help='Optional key=value settings, for example workflow=pullrequest.yml; see docs/testing.md for permitted settings')]
-[doc('▪ Live; run a consumer checkout against this engine')]
+[doc('Live; run a consumer checkout against this engine')]
 [group('live')]
 test-live-consumer checkout event *settings:
     @FORGE_CI_LIVE_CONSUMER="$1" FORGE_CI_LIVE_CONSUMER_EVENT="$2" FORGE_CI_LIVE_CONSUMER_SETTINGS="$(shift 2; printf '%s\n' "$@")" \
@@ -888,7 +888,7 @@ test-live-consumer checkout event *settings:
 [arg('name', help='Demo name: a directory of test/live/demos, or the name for checkout=')]
 [arg('forge', help='forgejo, gitlab or github')]
 [arg('settings', help='checkout=/abs for another consumer; release-trial key=value settings; gitlab: job-archive=, build-archive=, signer-archive=, lint-archive=; github: org=<id>')]
-[doc('▪ Live; show a consumer and keep it')]
+[doc('Live; show a consumer and keep it')]
 [group('live')]
 demo forge name *settings:
     #!/usr/bin/env bash
@@ -979,7 +979,7 @@ demo-image name directory:
 # inside Forge Lab's `just github run` and takes org=<id>.
 [arg('forge', help='forgejo, gitlab or github')]
 [arg('settings', help='github: org=<numeric organization ID>')]
-[doc('▪ Live; list the kept demos')]
+[doc('Live; list the kept demos')]
 [group('live')]
 demo-list forge *settings:
     #!/usr/bin/env bash
@@ -997,7 +997,7 @@ demo-list forge *settings:
 [arg('name', help='The demo, as `just demo-list` names it, for example wallet-provider')]
 [arg('forge', help='forgejo, gitlab or github')]
 [arg('settings', help='confirm=<name> instead of typing it; github: org=<numeric organization ID>')]
-[doc('▪ Live; delete a kept demo')]
+[doc('Live; delete a kept demo')]
 [group('live')]
 demo-delete forge name *settings:
     #!/usr/bin/env bash
@@ -1026,7 +1026,7 @@ demo-delete forge name *settings:
 [arg('checkout', help='Absolute path to a clean consumer checkout with GitHub fixtures')]
 [arg('settings', help='Optional key=value settings; see docs/testing.md')]
 [arg('organization_id', help='Numeric GitHub organization ID explicitly authorized for this run')]
-[doc('▪ Live; run a consumer checkout against this engine on hosted GitHub')]
+[doc('Live; run a consumer checkout against this engine on hosted GitHub')]
 [group('live')]
 test-live-github-consumer organization_id checkout event *settings:
     #!/usr/bin/env bash
