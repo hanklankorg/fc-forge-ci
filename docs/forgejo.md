@@ -552,10 +552,11 @@ for them; every `pullrequest.yml` in the examples, such as
   repository's `nanolinter.toml`. The default floor is `secrets,sast`, as on
   the other forges; `disable-checks` leaves out checks another job owns, and
   `offline` is for a runner without network. It stops with a message when the
-  job image has no `nanolinter`; it does not download one. A plan that lists
-  `commits` validates the pull request's commit messages with gommitlint
-  against the base branch, which is why `checkout-consumer` takes
-  `fetch-base`. [Lint Workflows](components.md#lint-workflows) shows the same
+  job image has no `nanolinter`; it does not download one. The `commits`
+  check, in every example plan, validates the pull request's commit messages
+  with gommitlint against the base branch, which is why `checkout-consumer`
+  takes `fetch-base`; every flavour image carries gommitlint.
+  [Lint Workflows](components.md#lint-workflows) shows the same
   choice on each forge.
 - **`check-l3-isolation`**: the release-isolation gate over the consumer's
   workflows: no signing secret in the build job, enumerated signer secrets,

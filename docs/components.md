@@ -442,10 +442,10 @@ said once per forge, in the place that forge has for it:
 | Forgejo | the `CI_JOB_IMAGE` variable, a flavour image by digest | that image; the `lint-nanolinter` action runs the nanolinter it finds there and installs nothing |
 
 On every forge the same `nanolinter.toml` is read and the same
-`required-lints` floor applies. A plan that lists the `commits` check also
+`required-lints` floor applies. The `commits` check, in every example plan,
 validates the pull request's commit messages with gommitlint against the base
-branch, which is why the checkouts fetch it; the example plans leave it out,
-add it to yours to turn it on.
+branch, which is why the checkouts fetch it; every flavour image carries
+gommitlint.
 
 **Mandated lint floor.** The caller selects `required-lints` (default
 `secrets,sast`). A nonempty floor forces those checks to run and block regardless

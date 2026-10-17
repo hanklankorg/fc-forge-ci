@@ -12,6 +12,7 @@ auto = true
 checks = [
   "secrets",
   "sast",
+  "commits",
   "yaml",
   "markdown",
   "shell",
@@ -22,6 +23,7 @@ checks = [
 block = [
   "secrets",
   "sast",
+  "commits",
   "yaml",
   "markdown",
   "shell",
