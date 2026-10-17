@@ -269,7 +269,7 @@ func TestPrepareReleaseRenderChangelog(t *testing.T) {
 		t.Helper()
 		box := newSandbox(t, "prepare-release")
 		env := append(installRecordingFakes(box), "RUNNER_TEMP="+t.TempDir(), "SSH_SIGNING_KEY="+key,
-			"FAKE_ENGINE_STATUS="+status, "CHANGELOG_BACKEND=git-cliff", "CHANGELOG_CONFIG=cliff.toml",
+			"FAKE_ENGINE_STATUS="+status, "CHANGELOG_CREATOR=git-cliff", "CHANGELOG_CONFIG=cliff.toml",
 			"COMMIT_BODY_CONFIG=body.toml", "CHANGELOG_REPOSITORY_URL="+url, "FORGEJO_REF_NAME=v1.2.4",
 			"COMMIT_TRAILERS="+trailers, "TARGET_BRANCH=stable")
 
@@ -280,7 +280,7 @@ func TestPrepareReleaseRenderChangelog(t *testing.T) {
 		t.Parallel()
 		box, got := run(t, "https://forgejo.invalid/owner/repo", "0")
 
-		want := []string{"version", "render-changelog", "--branch", "stable", "--backend", "git-cliff", "--tag", "v1.2.4",
+		want := []string{"version", "render-changelog", "--branch", "stable", "--changelog-creator", "git-cliff", "--tag", "v1.2.4",
 			"--repository-url", "https://forgejo.invalid/owner/repo", "--changelog-config", "cliff.toml",
 			"--commit-body-config", "body.toml", "--commit-trailers", trailers}
 		if got.status != 0 || !slices.Equal(box.argv(), want) {
@@ -615,7 +615,7 @@ func TestPrepareReleaseInstallsThePinnedRenderer(t *testing.T) {
 	selected := action.step(t, "Install changelog renderer")
 	script := action.script(t, "Install changelog renderer")
 
-	if len(selected.Env) != 1 || selected.Env["CHANGELOG_BACKEND"] != "${{ inputs.changelog-creator }}" {
+	if len(selected.Env) != 1 || selected.Env["CHANGELOG_CREATOR"] != "${{ inputs.changelog-creator }}" {
 		t.Fatalf("the install step binds %v, want the backend input alone", selected.Env)
 	}
 
@@ -640,11 +640,11 @@ func TestPrepareReleaseInstallsThePinnedRenderer(t *testing.T) {
 			box := newSandbox(t, "render-changelog")
 			box.write(rendererPins, string(reporoot.ReadFile(t, rendererPins)), 0o600)
 
-			got := box.run(script, "CHANGELOG_BACKEND="+backend, "FORGEJO_PATH=/runner/path",
+			got := box.run(script, "CHANGELOG_CREATOR="+backend, "FORGEJO_PATH=/runner/path",
 				"GITHUB_TOKEN=token-DO-NOT-FORWARD", "SSH_SIGNING_KEY=key-DO-NOT-FORWARD")
 
 			want := []string{
-				"toolchain", "install-changelog-renderer", "--backend", backend, "--version", version,
+				"toolchain", "install-changelog-renderer", "--changelog-creator", backend, "--version", version,
 				"--linux-x64-sha256", x64, "--linux-arm64-sha256", arm64, "--path-file", "/runner/path",
 			}
 			if got.status != 0 || !slices.Equal(box.argv(), want) {
@@ -659,7 +659,7 @@ func TestPrepareReleaseInstallsThePinnedRenderer(t *testing.T) {
 		box := newSandbox(t, "render-changelog")
 		box.write(rendererPins, string(reporoot.ReadFile(t, rendererPins)), 0o600)
 
-		got := box.run(script, "CHANGELOG_BACKEND=aqua:other/tool", "FORGEJO_PATH=/runner/path")
+		got := box.run(script, "CHANGELOG_CREATOR=aqua:other/tool", "FORGEJO_PATH=/runner/path")
 		if got.status == 0 || box.argv() != nil || !strings.Contains(got.stderr, "changelog-creator must be git-chglog or git-cliff") {
 			t.Fatalf("status %d argv %q; stderr %s", got.status, box.argv(), got.stderr)
 		}

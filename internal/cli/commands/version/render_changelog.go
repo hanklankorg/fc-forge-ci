@@ -21,12 +21,12 @@ func renderChangelogCmd() *cli.Command {
 		Name:  "render-changelog",
 		Usage: "render CHANGELOG.md and commit-msg.txt with git-chglog or git-cliff",
 		Description: `EXAMPLE:
-   forge-ci version render-changelog --backend git-cliff --tag v1.2.3 \
+   forge-ci version render-changelog --changelog-creator git-cliff --tag v1.2.3 \
      --repository-url https://forgejo.example/owner/repository \
      --changelog-config .forge-ci/gitcliff/keepachangelog.toml \
      --commit-body-config .forge-ci/gitcliff/minimal.toml`,
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "backend", Value: "git-cliff", Sources: cli.EnvVars("CHANGELOG_BACKEND"), Usage: "changelog renderer backend: git-cliff or git-chglog"},
+			&cli.StringFlag{Name: "changelog-creator", Value: "git-cliff", Sources: cli.EnvVars("CHANGELOG_CREATOR"), Usage: "changelog renderer: git-cliff or git-chglog"},
 			&cli.StringFlag{Name: flagTag, Required: true, Sources: cli.EnvVars("RELEASE_TAG", "TAG_NAME"), Usage: "final stable release tag (vMAJOR.MINOR.PATCH)"},
 			&cli.StringFlag{Name: flagRepositoryURL, Required: true, Sources: cli.EnvVars("CHANGELOG_REPOSITORY_URL"), Usage: "canonical HTTPS web URL of the repository used for generated changelog links"},
 			&cli.StringFlag{Name: "changelog-config", Required: true, Sources: cli.EnvVars("CHANGELOG_CONFIG"), Usage: "renderer config for CHANGELOG.md"},
@@ -46,7 +46,7 @@ func renderChangelogCmd() *cli.Command {
 			}
 
 			return appversion.ChangelogRender(ctx, git.New(), &changelog.Renderer{UnsetEnv: secretenv.Names()}, os.Stderr, appversion.ChangelogRenderInput{
-				Backend:           cmd.String("backend"),
+				Backend:           cmd.String("changelog-creator"),
 				Tag:               cmd.String(flagTag),
 				RepositoryURL:     cmd.String(flagRepositoryURL),
 				Remote:            cmd.String("remote"),

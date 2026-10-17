@@ -3858,7 +3858,7 @@ Every flag may also be fed from the $FORGE_CI_PLAN plan file under the
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
-| `--backend` | changelog renderer backend: git-chglog or git-cliff (required) | string | `""` | `$CHANGELOG_BACKEND` |
+| `--changelog-creator` | changelog renderer: git-cliff or git-chglog (required) | string | `""` | `$CHANGELOG_CREATOR` |
 | `--version` | renderer version without leading v (required) | string | `""` | `$CHANGELOG_RENDERER_VERSION` |
 | `--linux-x64-sha256` | SHA-256 of the renderer's linux x86-64 release archive (required) | string | `""` | `$CHANGELOG_RENDERER_LINUX_X64_SHA256` |
 | `--linux-arm64-sha256` | SHA-256 of the renderer's linux arm64 release archive (required) | string | `""` | `$CHANGELOG_RENDERER_LINUX_ARM64_SHA256` |
@@ -4561,7 +4561,7 @@ render CHANGELOG.md and commit-msg.txt with git-chglog or git-cliff
 
 ```
 EXAMPLE:
-   forge-ci version render-changelog --backend git-cliff --tag v1.2.3 \
+   forge-ci version render-changelog --changelog-creator git-cliff --tag v1.2.3 \
      --repository-url https://forgejo.example/owner/repository \
      --changelog-config .forge-ci/gitcliff/keepachangelog.toml \
      --commit-body-config .forge-ci/gitcliff/minimal.toml
@@ -4569,7 +4569,7 @@ EXAMPLE:
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
-| `--backend` | changelog renderer backend: git-cliff or git-chglog | string | `"git-cliff"` | `$CHANGELOG_BACKEND` |
+| `--changelog-creator` | changelog renderer: git-cliff or git-chglog | string | `"git-cliff"` | `$CHANGELOG_CREATOR` |
 | `--tag` | final stable release tag (vMAJOR.MINOR.PATCH) (required) | string | `""` | `$RELEASE_TAG`, `$TAG_NAME` |
 | `--repository-url` | canonical HTTPS web URL of the repository used for generated changelog links (required) | string | `""` | `$CHANGELOG_REPOSITORY_URL` |
 | `--changelog-config` | renderer config for CHANGELOG.md (required) | string | `""` | `$CHANGELOG_CONFIG` |

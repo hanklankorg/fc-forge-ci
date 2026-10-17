@@ -173,7 +173,7 @@ checksums are required, and every local refusal precedes the download.
 Every flag may also be fed from the $FORGE_CI_PLAN plan file under the
 "toolchain install-changelog-renderer" scope (flag > plan > env > default).`,
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "backend", Required: true, Sources: planfile.Vars(planScopeInstallChangelogRenderer, "backend", "CHANGELOG_BACKEND"), Usage: "changelog renderer backend: git-chglog or git-cliff"},
+			&cli.StringFlag{Name: "changelog-creator", Required: true, Sources: planfile.Vars(planScopeInstallChangelogRenderer, "changelog-creator", "CHANGELOG_CREATOR"), Usage: "changelog renderer: git-cliff or git-chglog"},
 			&cli.StringFlag{Name: "version", Required: true, Sources: planfile.Vars(planScopeInstallChangelogRenderer, "version", "CHANGELOG_RENDERER_VERSION"), Usage: "renderer version without leading v"},
 			&cli.StringFlag{Name: "linux-x64-sha256", Required: true, Sources: planfile.Vars(planScopeInstallChangelogRenderer, "linux-x64-sha256", "CHANGELOG_RENDERER_LINUX_X64_SHA256"), Usage: "SHA-256 of the renderer's linux x86-64 release archive"},
 			&cli.StringFlag{Name: "linux-arm64-sha256", Required: true, Sources: planfile.Vars(planScopeInstallChangelogRenderer, "linux-arm64-sha256", "CHANGELOG_RENDERER_LINUX_ARM64_SHA256"), Usage: "SHA-256 of the renderer's linux arm64 release archive"},
@@ -183,7 +183,7 @@ Every flag may also be fed from the $FORGE_CI_PLAN plan file under the
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			return apptoolchain.InstallChangelogRenderer(ctx, nil, os.Stdout, apptoolchain.InstallChangelogRendererInput{
-				Backend:          cmd.String("backend"),
+				Backend:          cmd.String("changelog-creator"),
 				Version:          cmd.String("version"),
 				LinuxX64SHA256:   cmd.String("linux-x64-sha256"),
 				LinuxARM64SHA256: cmd.String("linux-arm64-sha256"),

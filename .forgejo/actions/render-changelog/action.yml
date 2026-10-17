@@ -45,13 +45,13 @@ runs:
     - name: Install changelog renderer
       shell: bash
       env:
-        CHANGELOG_BACKEND: ${{ inputs.changelog-creator }}
+        CHANGELOG_CREATOR: ${{ inputs.changelog-creator }}
       run: |
         set -euo pipefail
         unset GITHUB_TOKEN GH_TOKEN FORGEJO_TOKEN GITEA_TOKEN SSH_SIGNING_KEY
         # shellcheck source=.forgejo/actions/render-changelog/versions.env
         source "${GITHUB_ACTION_PATH}/versions.env"
-        case "${CHANGELOG_BACKEND:?}" in
+        case "${CHANGELOG_CREATOR:?}" in
           git-chglog)
             version=${GIT_CHGLOG_VERSION:?}
             linux_x64_sha256=${GIT_CHGLOG_LINUX_X64_SHA256:?}
@@ -70,7 +70,7 @@ runs:
         # shellcheck source=.forgejo/bin/lib-forge-ci.sh
         source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
         run_forge_ci toolchain install-changelog-renderer \
-          --backend "${CHANGELOG_BACKEND}" \
+          --changelog-creator "${CHANGELOG_CREATOR}" \
           --version "${version}" \
           --linux-x64-sha256 "${linux_x64_sha256}" \
           --linux-arm64-sha256 "${linux_arm64_sha256}" \
@@ -79,7 +79,7 @@ runs:
     - name: Generate changelog without SSH key
       shell: bash
       env:
-        CHANGELOG_BACKEND: ${{ inputs.changelog-creator }}
+        CHANGELOG_CREATOR: ${{ inputs.changelog-creator }}
         CHANGELOG_CONFIG: ${{ inputs.changelog-config }}
         COMMIT_BODY_CONFIG: ${{ inputs.commit-body-config }}
         CHANGELOG_REPOSITORY_URL: ${{ inputs.repository-url }}
@@ -95,7 +95,7 @@ runs:
         # the engine reads RELEASE_BRANCH or BRANCH from the environment.
         run_forge_ci version render-changelog \
           --branch "${TARGET_BRANCH:?}" \
-          --backend "${CHANGELOG_BACKEND:?}" \
+          --changelog-creator "${CHANGELOG_CREATOR:?}" \
           --tag "${FORGEJO_REF_NAME:?}" \
           --repository-url "${CHANGELOG_REPOSITORY_URL:?}" \
           --changelog-config "${CHANGELOG_CONFIG:?}" \

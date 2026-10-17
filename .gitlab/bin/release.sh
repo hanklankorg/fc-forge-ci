@@ -116,7 +116,7 @@ rc_render_changelog() {
 	# shellcheck source=.forgejo/actions/render-changelog/versions.env
 	source "${RC_HELPERS_DIR}/.forgejo/actions/render-changelog/versions.env"
 	local version amd64 arm64
-	case "${RC_CHANGELOG_BACKEND}" in
+	case "${RC_CHANGELOG_CREATOR}" in
 	git-chglog)
 		version=${GIT_CHGLOG_VERSION}
 		amd64=${GIT_CHGLOG_LINUX_X64_SHA256}
@@ -129,10 +129,10 @@ rc_render_changelog() {
 		;;
 	*) return 1 ;;
 	esac
-	rc_engine toolchain install-changelog-renderer --backend "${RC_CHANGELOG_BACKEND}" \
+	rc_engine toolchain install-changelog-renderer --changelog-creator "${RC_CHANGELOG_CREATOR}" \
 		--version "${version}" --linux-x64-sha256 "${amd64}" --linux-arm64-sha256 "${arm64}" --path-file "${RC_WORK}/path"
 	export PATH="${HOME}/.local/bin:${PATH}"
-	rc_engine version render-changelog --backend "${RC_CHANGELOG_BACKEND}" --tag "${RELEASE_TAG}" \
+	rc_engine version render-changelog --changelog-creator "${RC_CHANGELOG_CREATOR}" --tag "${RELEASE_TAG}" \
 		--branch "${RC_RELEASE_BRANCH}" \
 		--repository-url "${CI_PROJECT_URL:?}" --changelog-config "${RC_CHANGELOG_CONFIG}" \
 		--commit-body-config "${RC_COMMIT_BODY_CONFIG}"
