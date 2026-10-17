@@ -31,6 +31,9 @@ On every forge a release starts from a signed `release-request/vX.Y.Z` tag,
 and the flow creates `vX.Y.Z` once: never push the final tag yourself.
 `forge-ci doctor` in a job shows what the detected forge supports.
 
+On a laptop, `go install github.com/diggsweden/forge-ci/cmd/forge-ci@v0.90.0`
+installs the CLI; `forge-ci doctor` then checks a repository's setup.
+
 ### GitHub
 
 Copy the example's `github/` workflows into `.github/workflows/`. The

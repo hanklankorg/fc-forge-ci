@@ -325,7 +325,7 @@ func newRoot(info BuildInfo, versionString string) *cli.Command {
 				// set, mirroring the convention used by gh, kubectl,
 				// and similar tools.
 				Name:    "json",
-				Usage:   "shortcut for --format=json (overrides --format)",
+				Usage:   "shortcut for --format=json (overrides --format); only commands with a structured result print JSON: doctor, config sboms, release resolve, version file-pattern and version snapshot",
 				Sources: cli.EnvVars("FORGE_CI_JSON"),
 			},
 			&cli.BoolFlag{

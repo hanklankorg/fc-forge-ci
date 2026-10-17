@@ -27,7 +27,7 @@ import (
 func New() *cli.Command {
 	return &cli.Command{
 		Name:  "doctor",
-		Usage: "run setup-validation checks against the current repository (artifacts.yml present + valid, release-authorization allowlist when required, workflow id-token permission for sigstore, workflows pin forge-ci to a tag)",
+		Usage: "check that a repository is configured correctly for forge-ci",
 		Description: `EXAMPLES:
    # Run all checks in the current directory:
    forge-ci doctor

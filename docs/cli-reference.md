@@ -20,7 +20,7 @@ then the environment variables listed per flag, then the flag default.
 | `--quiet`, `-q` | raise the log threshold to error (does not suppress command output) | bool | `false` | `$FORGE_CI_QUIET` |
 | `--log-level` | logging level: debug, info, warn, error (DEBUG=1/true/yes/on is a shortcut for debug) | string | `"info"` | `$FORGE_CI_LOG` |
 | `--format` | output format: auto, text, json, github, forgejo, gitlab | string | `"auto"` | `$FORGE_CI_FORMAT` |
-| `--json` | shortcut for --format=json (overrides --format) | bool | `false` | `$FORGE_CI_JSON` |
+| `--json` | shortcut for --format=json (overrides --format); only commands with a structured result print JSON: doctor, config sboms, release resolve, version file-pattern and version snapshot | bool | `false` | `$FORGE_CI_JSON` |
 | `--no-color` | disable colored ✓/✗ output (also: $NO_COLOR, non-terminal output) | bool | `false` | `$FORGE_CI_NO_COLOR` |
 | `--provider` | forge API override: auto, github, gitlab, forgejo, local | string | `"auto"` | `$FORGE_CI_PROVIDER` |
 | `--runner` | runner conventions override: auto, github, forgejo, gitlab, local | string | `"auto"` | `$FORGE_CI_RUNNER` |
@@ -40,7 +40,7 @@ then the environment variables listed per flag, then the flag default.
 - [`build`](#forge-ci-build) — toolchain build wrappers (go, cargo, maven, npm, gradle, gradle-android, xcode-ios)
 - [`config`](#forge-ci-config) — artifacts.yml schema helpers
 - [`container`](#forge-ci-container) — container-image helpers (name resolution, manifests, namespace policy, tag/label metadata, …)
-- [`doctor`](#forge-ci-doctor) — run setup-validation checks against the current repository (artifacts.yml present + valid, release-authorization allowlist when required, workflow id-token permission for sigstore, workflows pin forge-ci to a tag)
+- [`doctor`](#forge-ci-doctor) — check that a repository is configured correctly for forge-ci
 - [`lint`](#forge-ci-lint) — code-style lint wrappers (swift-format, swiftlint)
 - [`plan`](#forge-ci-plan) — typed release, snapshot-release, and pull-request plan composition
 - [`platform`](#forge-ci-platform) — CI-runtime git + workspace operations (check out a repo, resolve a ref, inspect the workspace)
@@ -1968,7 +1968,7 @@ EXAMPLE:
 
 ## `forge-ci doctor`
 
-run setup-validation checks against the current repository (artifacts.yml present + valid, release-authorization allowlist when required, workflow id-token permission for sigstore, workflows pin forge-ci to a tag)
+check that a repository is configured correctly for forge-ci
 
 ```
 EXAMPLES:
