@@ -432,6 +432,21 @@ pin `@sha256:` or use a mirror. A direct call of `lint-nanolinter.yml` knows no
 project type, so it defaults to `core`; pass the flavour for your ecosystem. A
 polyglot repository runs one lint job per ecosystem, each in its own flavour.
 
+**The same choice on each forge.** "Lint with nanolinter for my ecosystem" is
+said once per forge, in the place that forge has for it:
+
+| Forge | Where the flavour is chosen | What the lint job runs in |
+|---|---|---|
+| GitHub | `project-type` on the orchestrator; `nanolinter-image` overrides | the flavour image, started by the runner |
+| GitLab | `nanolinter-image` on the `nanolinter` component, by digest | that image, as the job image |
+| Forgejo | the `CI_JOB_IMAGE` variable, a flavour image by digest | that image; the `lint-nanolinter` action runs the nanolinter it finds there and installs nothing |
+
+On every forge the same `nanolinter.toml` is read and the same
+`required-lints` floor applies. A plan that lists the `commits` check also
+validates the pull request's commit messages with gommitlint against the base
+branch, which is why the checkouts fetch it; the example plans leave it out,
+add it to yours to turn it on.
+
 **Mandated lint floor.** The caller selects `required-lints` (default
 `secrets,sast`). A nonempty floor forces those checks to run and block regardless
 of the project's `nanolinter.toml`; an empty input disables the floor. See

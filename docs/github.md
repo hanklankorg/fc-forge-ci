@@ -182,7 +182,8 @@ runs one general lint engine, chosen with `lint-engine`:
   against the project's `nanolinter.toml` in the flavour image for
   `project-type`, with `required-lints` as a floor the project cannot lower.
   It covers lint, licence/REUSE, OpenGrep SAST, OSV dependency scans, secrets
-  and trivy-fs. The job runs on the runner and starts the image with
+  and trivy-fs, and the pull request's commit messages through gommitlint when
+  the plan lists `commits`. The job runs on the runner and starts the image with
   `docker run` as the runner's unprivileged user, with no capabilities and the
   checkout mounted at `/workspace`; a self-hosted runner needs Docker.
 - **MegaLinter**: `lint-megalinter.yml` runs a caller-selected, digest-pinned

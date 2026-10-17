@@ -310,7 +310,8 @@ rules:` scoped to merge requests and the default branch, the lint component,
 
 ### Lint components
 
-Pick one engine:
+Pick one engine; [Lint Workflows](components.md#lint-workflows) shows how the
+same choice reads on GitHub and Forgejo:
 
 - **`nanolinter`** runs `nanolinter verify` against the project's
   `nanolinter.toml` in a flavour image (`core`, `go`, `java`, `kotlin`,
