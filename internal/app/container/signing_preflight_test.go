@@ -188,7 +188,7 @@ func TestSignerMetadataNames_RefuseBeforeToolsOrDirectoryChanges(t *testing.T) {
 
 			var log bytes.Buffer
 
-			_, err := appcontainer.BuildSignerImageArch(t.Context(), tool, &log, appcontainer.SignerImageBuildArchInput{AuthFile: "auth.json", Arch: "amd64", SourceSHA: strings.Repeat("a", 40), ServerURL: "https://registry.example", Repository: "owner/app", Name: name, MetadataDir: "metadata"})
+			_, err := appcontainer.BuildSignerImageArch(t.Context(), tool, &log, appcontainer.SignerImageBuildArchInput{AuthFile: "auth.json", Arch: "amd64", HostArch: "amd64", SourceSHA: strings.Repeat("a", 40), ServerURL: "https://registry.example", Repository: "owner/app", Name: name, MetadataDir: "metadata"})
 			require.ErrorIs(t, err, errs.ErrUsage)
 			_, err = appcontainer.AssembleSignerImageManifest(t.Context(), tool, nil, nil, &log, appcontainer.SignerImageAssembleInput{AuthFile: "auth.json", SourceSHA: strings.Repeat("a", 40), ServerURL: "https://registry.example", Repository: "owner/app", Name: name, MetadataDir: "metadata"})
 			require.ErrorIs(t, err, errs.ErrUsage)

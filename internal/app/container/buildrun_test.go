@@ -44,6 +44,7 @@ func pushByDigestInput() appcontainer.BuildImageInput {
 		Context:       ".",
 		Containerfile: "Containerfile",
 		Platform:      "linux/amd64",
+		HostArch:      "amd64",
 		Mode:          container.BuildModePushByDigest,
 		ImageRef:      "ghcr.io/org/app",
 	}

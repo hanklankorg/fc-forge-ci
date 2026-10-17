@@ -55,7 +55,7 @@ func TestSignerStagingDefersAllRegistryOperations(t *testing.T) {
 	require.NoError(t, os.WriteFile("auth.json", []byte(`{"auths":{}}`), 0o600))
 	tool := &stagingSignerTool{t: t}
 	metadata, err := appcontainer.StageSignerImageArch(t.Context(), tool, ociregistry.NewAnonymous(), io.Discard, appcontainer.SignerImageBuildArchInput{
-		AuthFile: "auth.json", Arch: "amd64", SourceSHA: strings.Repeat("b", 40), ServerURL: "https://registry.example", Repository: "org/image",
+		AuthFile: "auth.json", Arch: "amd64", HostArch: "amd64", SourceSHA: strings.Repeat("b", 40), ServerURL: "https://registry.example", Repository: "org/image",
 	})
 	require.NoError(t, err)
 	require.Equal(t, []string{"build", "export"}, tool.events)

@@ -14,7 +14,7 @@ inputs:
     required: true
   builds:
     description: >-
-      JSON array of per-platform builds, each {"platform": "linux/amd64", "build-args": ["KEY=VALUE", ...]}. Every entry is built into the same manifest list and scanned.
+      JSON array of per-platform builds, each {"platform": "linux/amd64", "build-args": ["KEY=VALUE", ...]}. Every entry is built on this one runner, so list several platforms only for a Containerfile without RUN steps for the target platform (COPY-only over prebuilt per-architecture artifacts); an image with such steps would run them under CPU emulation and must be built per architecture on native runners (container multiarch-image). Every entry is built into the same manifest list and scanned.
     required: true
   role:
     description: Image role recorded in the ledger and SLSA predicate, e.g. distroless, alpine.

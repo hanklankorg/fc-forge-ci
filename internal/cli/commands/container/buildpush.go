@@ -37,7 +37,13 @@ func buildPushOCIImageCmd() *cli.Command {
 		Name:  "build-push-oci-image",
 		Usage: "build a multi-arch image with buildah and publish its OCI layout",
 		Description: `Builds every platform from a JSON plan into one local manifest,
-exports one OCI index, and publishes it through the registry adapter. With
+exports one OCI index, and publishes it through the registry adapter. All
+platforms build on this one host, so this is only for Containerfiles without
+RUN steps for the target platform (for example COPY-only images over
+prebuilt per-architecture artifacts, or RUN only in FROM --platform=$BUILDPLATFORM
+stages). An image whose target stages have RUN steps would run them under CPU
+emulation for every non-native platform; build it with container
+multiarch-image, one native job per architecture, instead. With
 --scan-output-template, every exported platform must pass Trivy before publication.
 Emits image, verified digest and platforms outputs; platforms is the comma-separated
 list that was built, in plan order. This is the forge-ci implementation of the

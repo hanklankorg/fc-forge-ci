@@ -45,6 +45,18 @@ func ParsePlatform(platform string) (Platform, error) {
 	return parsed, nil
 }
 
+// RequireNativeArch refuses an image build whose target architecture is not
+// the executing host's. Buildah would run the image's RUN steps under CPU
+// emulation; each architecture builds on a runner of its own architecture.
+func RequireNativeArch(target, host string) error {
+	if target != host {
+		return fmt.Errorf("image architecture %s must be built on a native %s host, not on %q; route this job to a runner of that architecture: %w",
+			target, target, host, errs.ErrValidation)
+	}
+
+	return nil
+}
+
 // SelectPlatforms narrows the platforms a repository declares to the ones a
 // run asks for: selection is RELEASE_PLATFORMS, a comma-separated subset such
 // as "linux/amd64". Empty selects every declared platform. An entry with

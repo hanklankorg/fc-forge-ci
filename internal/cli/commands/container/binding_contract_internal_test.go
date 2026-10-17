@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -38,7 +39,7 @@ func TestBuildBinding_CompleteInputAndSecretForms(t *testing.T) {
 				return err
 			}
 			require.NoError(t, cmd.Run(t.Context(), []string{cmd.Name, "--context", "ctx", "--file", "fixture.Containerfile", "--target", "compile-stage", "--platform", "linux/amd64", "--build-args", "A=1\nB=2", "--secrets", raw, "--labels", "x=y", "--source-date-epoch", "7", "--cache-repo", "registry.example/cache", "--cache-push", "--mode", "load", "--image-ref", "registry.example/app:tag", "--output-dir", "out", "--digest-key", "out-digest"}))
-			require.Equal(t, appcontainer.BuildImageInput{Context: "ctx", Containerfile: "fixture.Containerfile", Target: "compile-stage", Platform: "linux/amd64", BuildArgs: []string{"A=1", "B=2"}, Secrets: []string{"id=a,src=fixture/a", "id=b,src=fixture/b"}, Labels: []string{"x=y"}, SourceDateEpoch: "7", CacheRepo: "registry.example/cache", CachePush: true, Mode: domaincontainer.BuildModeLoad, ImageRef: "registry.example/app:tag", OutputDir: "out", DigestKey: "out-digest"}, got)
+			require.Equal(t, appcontainer.BuildImageInput{Context: "ctx", Containerfile: "fixture.Containerfile", Target: "compile-stage", Platform: "linux/amd64", HostArch: runtime.GOARCH, BuildArgs: []string{"A=1", "B=2"}, Secrets: []string{"id=a,src=fixture/a", "id=b,src=fixture/b"}, Labels: []string{"x=y"}, SourceDateEpoch: "7", CacheRepo: "registry.example/cache", CachePush: true, Mode: domaincontainer.BuildModeLoad, ImageRef: "registry.example/app:tag", OutputDir: "out", DigestKey: "out-digest"}, got)
 		})
 	}
 

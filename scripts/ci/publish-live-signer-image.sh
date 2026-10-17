@@ -30,6 +30,18 @@ done
 	exit 2
 }
 
+# The lab's runners are AMD64, and the build executes the image's toolchain
+# check. Ask the engine that builds it (on macOS a VM, not this controller)
+# for its architecture, so the build is native rather than emulated.
+engine_arch=$(podman info --format '{{.Host.Arch}}') || {
+	printf 'live: cannot ask podman for its host architecture\n' >&2
+	exit 2
+}
+if [[ "$engine_arch" != amd64 ]]; then
+	printf 'live: the signer image is linux/amd64 and its build runs it; use a podman engine on a native AMD64 host (this engine is %s)\n' "$engine_arch" >&2
+	exit 2
+fi
+
 # The image is keyed by the commit, so what it is built from must be that
 # commit's: the Containerfile, its ignore file and the one script it copies.
 image_inputs=(containers/signer .forgejo/scripts/verify-signer-toolchain.sh)
@@ -40,7 +52,7 @@ if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=all -- "${i
 fi
 commit=$(git -C "$repo_root" rev-parse --verify HEAD)
 
-# The layer's jobs run on linux/amd64 only. The Containerfile ends by running
+# The lab's runners are linux/amd64. The Containerfile ends by running
 # verify-signer-toolchain.sh in strict mode, so an image that builds has the
 # reviewed toolchain and nothing the signing boundary forbids.
 image="localhost/forge-ci-live-signer:$commit"

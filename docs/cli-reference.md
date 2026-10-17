@@ -861,7 +861,7 @@ EXAMPLES:
 | `--context` | build context directory | string | `"."` | `$BUILD_CONTEXT` |
 | `--file` | path to the Containerfile/Dockerfile | string | `""` | `$CONTAINER_FILE` |
 | `--target` | multi-stage target stage to build | string | `""` | `$BUILD_TARGET` |
-| `--platform` | single target platform, e.g. linux/arm64 (built natively) | string | `""` | `$BUILD_PLATFORM` |
+| `--platform` | single target platform, e.g. linux/arm64; must be the host's architecture (built natively, never emulated) | string | `""` | `$BUILD_PLATFORM` |
 | `--build-args` | newline-separated KEY=VALUE build args | string | `""` | `$BUILD_ARGS` |
 | `--secrets` | JSON array or newline-separated id=NAME,src=PATH secrets (the secret-mounts output of "container materialize-build-secrets") | string | `""` | `$BUILD_SECRETS` |
 | `--labels` | newline-separated key=value OCI labels (the labels output of "container metadata") | string | `""` | `$LABELS` |
@@ -882,7 +882,13 @@ build a multi-arch image with buildah and publish its OCI layout
 
 ```
 Builds every platform from a JSON plan into one local manifest,
-exports one OCI index, and publishes it through the registry adapter. With
+exports one OCI index, and publishes it through the registry adapter. All
+platforms build on this one host, so this is only for Containerfiles without
+RUN steps for the target platform (for example COPY-only images over
+prebuilt per-architecture artifacts, or RUN only in FROM --platform=$BUILDPLATFORM
+stages). An image whose target stages have RUN steps would run them under CPU
+emulation for every non-native platform; build it with container
+multiarch-image, one native job per architecture, instead. With
 --scan-output-template, every exported platform must pass Trivy before publication.
 Emits image, verified digest and platforms outputs; platforms is the comma-separated
 list that was built, in plan order. This is the forge-ci implementation of the
@@ -1441,8 +1447,10 @@ build a multi-arch OCI image in two phases (per-arch build, then manifest assemb
 Two-phase multi-arch image build for CI that fans architectures out
 across parallel jobs: each job runs build-arch (build+push one architecture,
 record its digest), then one job runs assemble (gather the per-arch digests into
-a multi-arch manifest). Use this when arch builds must run as separate jobs;
-container build-push-oci-image builds every platform in a single job instead.
+a multi-arch manifest). Use this when arch builds must run as separate jobs,
+which an image with RUN steps for the target platform needs: each job builds
+its own architecture natively. container build-push-oci-image builds every
+platform in a single job instead, and only fits images without such steps.
 
 The repository suffix, tag prefix, metadata name, Containerfile, and image title
 are all parameters, so this serves any multi-arch image (a signer image, a base
@@ -1492,7 +1500,8 @@ build and push one architecture of the multi-arch image
 ```
 Builds one image architecture, pushes its temporary architecture
 tag, computes the registry-served manifest digest, and writes <name>-<arch>.json
-for the manifest assembly job.
+for the manifest assembly job. --arch must be the host's own architecture: each
+architecture builds on a native runner, never under CPU emulation.
 ```
 
 | Flag | Description | Type | Default | Env vars |

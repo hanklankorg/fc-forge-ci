@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/cli/secretenv"
@@ -103,7 +104,7 @@ func buildImageFlags() []cli.Flag {
 		&cli.StringFlag{Name: flagContext, Value: ".", Sources: planfile.Vars(planScopeBuild, "context", "BUILD_CONTEXT"), Usage: "build context directory"},
 		&cli.StringFlag{Name: flagFile, Sources: planfile.Vars(planScopeBuild, "file", "CONTAINER_FILE"), Usage: "path to the Containerfile/Dockerfile"},
 		&cli.StringFlag{Name: "target", Sources: planfile.Vars(planScopeBuild, "target", "BUILD_TARGET"), Usage: "multi-stage target stage to build"},
-		&cli.StringFlag{Name: flagPlatform, Sources: planfile.Vars(planScopeBuild, "platform", "BUILD_PLATFORM"), Usage: "single target platform, e.g. linux/arm64 (built natively)"},
+		&cli.StringFlag{Name: flagPlatform, Sources: planfile.Vars(planScopeBuild, "platform", "BUILD_PLATFORM"), Usage: "single target platform, e.g. linux/arm64; must be the host's architecture (built natively, never emulated)"},
 		&cli.StringFlag{Name: "build-args", Sources: planfile.Vars(planScopeBuild, "build-args", "BUILD_ARGS"), Usage: "newline-separated KEY=VALUE build args"},
 		&cli.StringFlag{Name: "secrets", Sources: planfile.Vars(planScopeBuild, "secrets", "BUILD_SECRETS"), Usage: "JSON array or newline-separated id=NAME,src=PATH secrets (the secret-mounts output of \"container materialize-build-secrets\")"},
 		&cli.StringFlag{Name: "labels", Sources: planfile.Vars(planScopeBuild, "labels", "LABELS"), Usage: "newline-separated key=value OCI labels (the labels output of \"container metadata\")"},
@@ -129,6 +130,7 @@ func buildImageInputFromCmd(cmd *cli.Command) (appcontainer.BuildImageInput, err
 		Containerfile:   cmd.String(flagFile),
 		Target:          cmd.String("target"),
 		Platform:        cmd.String(flagPlatform),
+		HostArch:        runtime.GOARCH,
 		BuildArgs:       splitLines(cmd.String("build-args")),
 		Secrets:         secrets,
 		Labels:          splitLines(cmd.String("labels")),

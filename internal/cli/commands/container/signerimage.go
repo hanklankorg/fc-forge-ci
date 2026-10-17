@@ -7,6 +7,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -27,8 +28,10 @@ func signerImageGroup() *cli.Command {
 		Description: `Two-phase multi-arch image build for CI that fans architectures out
 across parallel jobs: each job runs build-arch (build+push one architecture,
 record its digest), then one job runs assemble (gather the per-arch digests into
-a multi-arch manifest). Use this when arch builds must run as separate jobs;
-container build-push-oci-image builds every platform in a single job instead.
+a multi-arch manifest). Use this when arch builds must run as separate jobs,
+which an image with RUN steps for the target platform needs: each job builds
+its own architecture natively. container build-push-oci-image builds every
+platform in a single job instead, and only fits images without such steps.
 
 The repository suffix, tag prefix, metadata name, Containerfile, and image title
 are all parameters, so this serves any multi-arch image (a signer image, a base
@@ -69,7 +72,8 @@ func signerImageBuildArchCmd() *cli.Command {
 		Usage: "build and push one architecture of the multi-arch image",
 		Description: `Builds one image architecture, pushes its temporary architecture
 tag, computes the registry-served manifest digest, and writes <name>-<arch>.json
-for the manifest assembly job.`,
+for the manifest assembly job. --arch must be the host's own architecture: each
+architecture builds on a native runner, never under CPU emulation.`,
 		Flags: append(append(signerImageCommonFlags(), multiarchImageParamFlags()...),
 			&cli.BoolFlag{Name: "stage", Usage: "retain the OCI layout with architecture metadata; defer ALL uploads to assemble --from-layouts after every build job succeeds"},
 			&cli.StringFlag{Name: flagArch, Sources: cli.EnvVars("IMAGE_ARCH"), Usage: "target architecture: amd64 or arm64"},
@@ -82,6 +86,7 @@ for the manifest assembly job.`,
 			input := appcontainer.SignerImageBuildArchInput{
 				AuthFile:         cmd.String(flagAuthFile),
 				Arch:             cmd.String(flagArch),
+				HostArch:         runtime.GOARCH,
 				SourceSHA:        cmd.String(flagSourceSHA),
 				ServerURL:        cmd.String(flagServerURL),
 				Repository:       cmd.String(flagRepository),

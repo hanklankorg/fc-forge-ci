@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strings"
 	"testing"
 
 	appcontainer "github.com/diggsweden/forge-ci/internal/app/container"
@@ -83,6 +84,7 @@ func TestBuildImage_PushByDigestHandsTheBuilderEveryInput(t *testing.T) {
 		Containerfile:   "Containerfile",
 		Target:          "build",
 		Platform:        "linux/arm64",
+		HostArch:        "arm64",
 		BuildArgs:       []string{"VERSION=1.2.3"},
 		Secrets:         []string{"id=db,src=/run/secrets/db"},
 		Labels:          []string{"org.opencontainers.image.version=1.2.3"},
@@ -189,5 +191,35 @@ func TestBuildImage_RejectsInvalidRequestBeforeBuilding(t *testing.T) {
 
 	if builder.calls != 0 || pusher.calls != 0 || len(sink.Keys()) != 0 {
 		t.Errorf("builder calls = %d, pusher calls = %d, outputs = %v; want nothing touched", builder.calls, pusher.calls, sink.Keys())
+	}
+}
+
+// A platform of another architecture than the host's would build under CPU
+// emulation. Every mode refuses it before the builder or pusher runs, and an
+// empty platform (Buildah's host default) remains a native build.
+func TestBuildImage_RefusesAForeignPlatform(t *testing.T) {
+	t.Parallel()
+
+	for name, in := range map[string]appcontainer.BuildImageInput{
+		"push-by-digest": {Context: ".", Platform: "linux/arm64", HostArch: "amd64", Mode: container.BuildModePushByDigest, ImageRef: "ghcr.io/org/repo"},
+		"load":           {Context: ".", Platform: "linux/amd64", HostArch: "arm64", Mode: container.BuildModeLoad, ImageRef: "local:verify"},
+		"unknown host":   {Context: ".", Platform: "linux/amd64", Mode: container.BuildModeLoad, ImageRef: "local:verify"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := &fakeBuilder{}
+			pusher := &fakePusher{digest: oneDigest}
+			sink := fakeoutputsink.New(t)
+
+			_, err := appcontainer.BuildImage(context.Background(), builder, pusher, sink, io.Discard, in)
+			if !errors.Is(err, errs.ErrValidation) || !strings.Contains(err.Error(), "runner of that architecture") {
+				t.Errorf("err = %v, want a validation refusal naming the native-runner remedy", err)
+			}
+
+			if builder.calls != 0 || pusher.calls != 0 || len(sink.Keys()) != 0 {
+				t.Errorf("builder calls = %d, pusher calls = %d, outputs = %v; want nothing touched", builder.calls, pusher.calls, sink.Keys())
+			}
+		})
 	}
 }

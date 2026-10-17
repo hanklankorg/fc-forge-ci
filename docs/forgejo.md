@@ -675,6 +675,17 @@ three engine calls itself; the single-step actions remain for a release that
 stages a candidate tag or builds on a base image. The layer has one scan:
 `container image-evidence`, with the retry above.
 
+**One job builds every platform, so only COPY-only images.**
+`build-release-image` and `build-push-oci-image` build all the platforms of
+the plan on the job's one runner. That is free of emulation only when the
+Containerfile has no `RUN` step for the target platform: for example an image
+that copies prebuilt per-architecture artifacts, with any `RUN` confined to
+`FROM --platform=$BUILDPLATFORM` stages. Nothing checks the Containerfile for
+this. An image whose target stages have `RUN` steps must be built per
+architecture, each in a job on a native runner of that architecture, with
+`container multiarch-image build-arch` and `assemble`, as the
+[signer image](#the-signer-image) is.
+
 ## Releases and promotion
 
 A release starts when an immutable `release-request/vX.Y.Z` tag is pushed.

@@ -41,9 +41,14 @@ type BuildImageInput struct {
 	Containerfile string
 	Target        string
 	Platform      string
-	BuildArgs     []string
-	Secrets       []string
-	Labels        []string
+	// HostArch is the GOARCH this engine binary was compiled for. The layer
+	// runs only the binary of its host's architecture, so a non-empty
+	// Platform must name it: that is what refuses a build whose steps would
+	// run emulated.
+	HostArch  string
+	BuildArgs []string
+	Secrets   []string
+	Labels    []string
 
 	SourceDateEpoch string
 	CacheRepo       string
@@ -78,7 +83,7 @@ func BuildImage(
 
 func buildImage(ctx context.Context, builder imageBuilder, pusher layoutPusher, sink ci.OutputSink, out io.Writer, in BuildImageInput, checkLayout func(context.Context, string) error) (string, error) {
 	req := buildRequest(in)
-	if err := req.Validate(); err != nil {
+	if err := validateBuild(req, in.HostArch); err != nil {
 		return "", err
 	}
 
@@ -119,6 +124,26 @@ func buildImage(ctx context.Context, builder imageBuilder, pusher layoutPusher, 
 	reportBuild(out, req, digest)
 
 	return digest, nil
+}
+
+// validateBuild checks the request, then refuses a platform whose
+// architecture is not the host's. An empty platform is Buildah's host
+// default, a native build.
+func validateBuild(req container.BuildRequest, hostArch string) error {
+	if err := req.Validate(); err != nil {
+		return err
+	}
+
+	if req.Platform == "" {
+		return nil
+	}
+
+	parsed, err := container.ParsePlatform(req.Platform)
+	if err != nil {
+		return err
+	}
+
+	return container.RequireNativeArch(parsed.Arch, hostArch)
 }
 
 // stageBuild owns a fresh output directory. A failed build or scan cannot leave

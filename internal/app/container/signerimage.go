@@ -55,8 +55,12 @@ type SignerManifestRegistry interface {
 
 // SignerImageBuildArchInput drives one architecture build of the signer image.
 type SignerImageBuildArchInput struct {
-	AuthFile         string
-	Arch             string
+	AuthFile string
+	Arch     string
+	// HostArch is the GOARCH this engine binary was compiled for. The layer
+	// runs only the binary of its host's architecture, so Arch must equal
+	// it: that is what refuses a build whose steps would run emulated.
+	HostArch         string
 	SourceSHA        string
 	ServerURL        string
 	Repository       string
@@ -400,6 +404,10 @@ func deriveSignerImageArch(in SignerImageBuildArchInput) (signerImageArchDerived
 	}
 
 	if err := validateSignerArch(in.Arch); err != nil {
+		return signerImageArchDerived{}, err
+	}
+
+	if err := domaincontainer.RequireNativeArch(in.Arch, in.HostArch); err != nil {
 		return signerImageArchDerived{}, err
 	}
 

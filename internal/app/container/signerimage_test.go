@@ -174,7 +174,7 @@ func TestSignerImageRejectsSourceThatSuffixWouldRepair(t *testing.T) {
 
 				if phase == "build" {
 					_, err = appcontainer.BuildSignerImageArch(t.Context(), tool, io.Discard, appcontainer.SignerImageBuildArchInput{
-						AuthFile: "auth.json", Arch: "amd64", SourceSHA: strings.Repeat("a", 40),
+						AuthFile: "auth.json", Arch: "amd64", HostArch: "amd64", SourceSHA: strings.Repeat("a", 40),
 						ServerURL: "https://forge.example", Repository: tc.repository, RepositorySuffix: tc.suffix, MetadataDir: "metadata",
 					})
 				} else {
@@ -205,7 +205,7 @@ func TestSignerImageExternalDestinationPreservesSourceIdentity(t *testing.T) {
 	sourceSHA := strings.Repeat("a", 40)
 
 	meta, err := appcontainer.BuildSignerImageArch(t.Context(), tool, io.Discard, appcontainer.SignerImageBuildArchInput{
-		AuthFile: "auth.json", Arch: "amd64", SourceSHA: sourceSHA,
+		AuthFile: "auth.json", Arch: "amd64", HostArch: "amd64", SourceSHA: sourceSHA,
 		ServerURL: "https://source.example", Repository: "Org/Engine",
 		RepositorySuffix: "-signer", ImageRepository: "registry.example/policy/signer",
 	})
@@ -233,7 +233,7 @@ func TestSignerImageRejectsInvalidExternalDestinationBeforeEffects(t *testing.T)
 			tool := &fakeSignerImageTool{}
 
 			_, err := appcontainer.BuildSignerImageArch(t.Context(), tool, io.Discard, appcontainer.SignerImageBuildArchInput{
-				AuthFile: "auth.json", Arch: "amd64", SourceSHA: strings.Repeat("a", 40),
+				AuthFile: "auth.json", Arch: "amd64", HostArch: "amd64", SourceSHA: strings.Repeat("a", 40),
 				ServerURL: "https://source.example", Repository: "org/engine", ImageRepository: repository,
 			})
 			if !errors.Is(err, errs.ErrUsage) || len(tool.events) != 0 {
@@ -283,6 +283,7 @@ func TestBuildSignerImageArch_NamesTheImageByTheDigestItPushed(t *testing.T) {
 	meta, err := appcontainer.BuildSignerImageArch(context.Background(), tool, &out, appcontainer.SignerImageBuildArchInput{
 		AuthFile:         "auth.json",
 		Arch:             "amd64",
+		HostArch:         "amd64",
 		SourceSHA:        sourceSHA,
 		ServerURL:        "https://codeberg.org",
 		Repository:       "Itiquette/Forgejo-CI",
@@ -551,7 +552,7 @@ func TestBuildSignerImageArch_HandsTheBuilderTheWholeRequest(t *testing.T) {
 	tool := &fakeSignerImageTool{}
 
 	if _, err := appcontainer.BuildSignerImageArch(context.Background(), tool, io.Discard, appcontainer.SignerImageBuildArchInput{
-		AuthFile: "auth.json", Arch: "arm64", SourceSHA: sourceSHA, ServerURL: "https://codeberg.org/", Repository: "Itiquette/Forgejo-CI",
+		AuthFile: "auth.json", Arch: "arm64", HostArch: "arm64", SourceSHA: sourceSHA, ServerURL: "https://codeberg.org/", Repository: "Itiquette/Forgejo-CI",
 		RepositorySuffix: "-signer", TagPrefix: "signer-", Name: "signer-image", Title: "forgejo-ci signer",
 		Containerfile: "build/Signer.Containerfile", Context: "build", MetadataDir: "out/meta", RetryAttempts: 1,
 	}); err != nil {
@@ -572,6 +573,36 @@ func TestBuildSignerImageArch_HandsTheBuilderTheWholeRequest(t *testing.T) {
 	}
 }
 
+// A foreign architecture would build under CPU emulation. The refusal comes
+// before any build, metadata or staging effect, and names the remedy.
+func TestBuildSignerImageArch_RefusesAForeignHostArchitecture(t *testing.T) {
+	for _, host := range []string{"amd64", ""} {
+		t.Run("host="+host, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			writeAuthFileForSignerImage(t, "auth.json")
+
+			tool := &fakeSignerImageTool{}
+
+			_, err := appcontainer.BuildSignerImageArch(context.Background(), tool, io.Discard, appcontainer.SignerImageBuildArchInput{
+				AuthFile: "auth.json", Arch: "arm64", HostArch: host, SourceSHA: strings.Repeat("d", 40),
+				ServerURL: "https://registry.example", Repository: "owner/app", MetadataDir: "meta",
+			})
+			if !errors.Is(err, errs.ErrValidation) || !strings.Contains(err.Error(), "native arm64 host") ||
+				!strings.Contains(err.Error(), "runner of that architecture") {
+				t.Fatalf("err = %v, want a validation refusal naming the native-host remedy", err)
+			}
+
+			if len(tool.buildReqs) != 0 {
+				t.Errorf("build requested despite refusal: %+v", tool.buildReqs)
+			}
+
+			if _, statErr := os.Stat("meta"); !errors.Is(statErr, os.ErrNotExist) {
+				t.Errorf("metadata directory created despite refusal: %v", statErr)
+			}
+		})
+	}
+}
+
 // TestSignerImage_EachFailureStopsEverythingAfterIt fails each operation of
 // both phases in turn, and a registry answer that is not a manifest. Nothing
 // after the failing step runs, no metadata file is written, and no output or
@@ -582,7 +613,7 @@ func TestSignerImage_EachFailureStopsEverythingAfterIt(t *testing.T) {
 	repo := "codeberg.org/itiquette/forgejo-ci-signer"
 
 	archInput := appcontainer.SignerImageBuildArchInput{
-		AuthFile: "auth.json", Arch: "amd64", SourceSHA: sourceSHA, ServerURL: "https://codeberg.org", Repository: "itiquette/forgejo-ci",
+		AuthFile: "auth.json", Arch: "amd64", HostArch: "amd64", SourceSHA: sourceSHA, ServerURL: "https://codeberg.org", Repository: "itiquette/forgejo-ci",
 		RepositorySuffix: "-signer", TagPrefix: "signer-", Name: "signer-image", RetryAttempts: 1,
 	}
 
