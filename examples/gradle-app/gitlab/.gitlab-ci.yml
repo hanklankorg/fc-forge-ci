@@ -42,7 +42,7 @@ include:
   - component: gitlab.example.com/team/ci/forge-ci/nanolinter@0.90.0
     inputs:
       forge-ci-repository: team/ci/forge-ci
-      nanolinter-image: "ghcr.io/itiquette/nanolinter:java@sha256:PIN_DIGEST"
+      nanolinter-image: "ghcr.io/itiquette/nanolinter:kotlin@sha256:PIN_DIGEST"
 
   # The consumer's own checks at the pipeline commit, in an image that carries
   # Bash, Git, curl, sha256sum and a JDK for the Gradle wrapper.
