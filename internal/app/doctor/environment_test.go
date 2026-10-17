@@ -101,3 +101,22 @@ func TestFormatEnvironment_CompleteCapabilityMatrix(t *testing.T) {
 		})
 	}
 }
+
+// TestFormatEnvironment_LocalSkipsCapabilityTable pins the laptop case: the
+// local forge has no capability, so the table would be eight "[ no]" rows
+// about a forge the operator is not on. One line replaces it and names the
+// flag that shows a real forge's table.
+func TestFormatEnvironment_LocalSkipsCapabilityTable(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	appdoctor.FormatEnvironment(&out, appdoctor.Environment{
+		Provider: "local", ForgeAPI: provider.ForgeLocal.String(), Runner: "local",
+	})
+
+	want := "Environment:\n  provider (forge API): local (local)\n  runner conventions:   local\n" +
+		"  not in a CI job; capability table skipped, pass --provider github to see it\n"
+	if got := out.String(); got != want {
+		t.Errorf("local report:\n%s\nwant:\n%s", got, want)
+	}
+}

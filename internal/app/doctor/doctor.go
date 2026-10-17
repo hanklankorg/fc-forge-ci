@@ -345,10 +345,21 @@ type Environment struct {
 // block. Capabilities that are unavailable carry a one-line hint on how
 // findings/behaviour degrade, so a missing feature (e.g. Forgejo has no
 // SARIF ingestion) is visible before it surprises an adopter.
+//
+// Outside a CI job the forge resolves to local, which has no capability at
+// all; eight alarming "[ no]" rows would then lead the report on every
+// laptop. One line says why they are absent and how to see a forge's table.
 func FormatEnvironment(w io.Writer, env Environment) { //nolint:varnamelen // idiomatic short name (testing/http/io conventions).
 	_, _ = fmt.Fprintf(w, "Environment:\n")
 	_, _ = fmt.Fprintf(w, "  provider (forge API): %s (%s)\n", env.Provider, env.ForgeAPI)
 	_, _ = fmt.Fprintf(w, "  runner conventions:   %s\n", env.Runner)
+
+	if env.ForgeAPI == provider.ForgeLocal.String() {
+		_, _ = fmt.Fprintf(w, "  not in a CI job; capability table skipped, pass --provider github to see it\n")
+
+		return
+	}
+
 	_, _ = fmt.Fprintf(w, "Capabilities:\n")
 
 	rows := []struct {

@@ -25,7 +25,16 @@ then the environment variables listed per flag, then the flag default.
 | `--provider` | forge API override: auto, github, gitlab, forgejo, local | string | `"auto"` | `$FORGE_CI_PROVIDER` |
 | `--runner` | runner conventions override: auto, github, forgejo, gitlab, local | string | `"auto"` | `$FORGE_CI_RUNNER` |
 
-## Command groups
+## Commands to run directly
+
+- [`config validate`](#forge-ci-config-validate) — validate .forge-ci/artifacts.yml against the schema
+- [`container login`](#forge-ci-container-login) — store container registry credentials (podman, buildah, cosign)
+- [`doctor`](#forge-ci-doctor) — check that a repository is configured correctly for forge-ci
+- [`platform checkout`](#forge-ci-platform-checkout) — check out a repository without persisting credentials
+- [`sbom assemble`](#forge-ci-sbom-assemble) — assemble the project's SBOM layer set after a build
+- [`version bump`](#forge-ci-version-bump) — update the recorded project version (pom.xml, package.json, …)
+
+## Command groups (run by the workflows)
 
 - [`artifact`](#forge-ci-artifact) — upload/download per-run CI artifacts
 - [`build`](#forge-ci-build) — toolchain build wrappers (go, cargo, maven, npm, gradle, gradle-android, xcode-ios)

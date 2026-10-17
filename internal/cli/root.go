@@ -205,8 +205,15 @@ func applyParentGuard(cmd *cli.Command) {
 	}
 
 	cmd.Action = func(_ context.Context, group *cli.Command) error {
-		return fmt.Errorf("%q requires a subcommand (one of: %s): %w",
-			group.Name, strings.Join(subcommandNames(group), ", "), errs.ErrUsage)
+		// `forge-ci version` is the one bare group a person types meaning
+		// something else: the tool's own version, which is a flag.
+		hint := ""
+		if group.Name == "version" {
+			hint = "; the installed forge-ci version is printed by forge-ci --version"
+		}
+
+		return fmt.Errorf("%q requires a subcommand (one of: %s)%s: %w",
+			group.Name, strings.Join(subcommandNames(group), ", "), hint, errs.ErrUsage)
 	}
 }
 

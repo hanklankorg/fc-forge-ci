@@ -68,7 +68,7 @@ func TestRender_TableOfContentsHasOneEntryPerGroup(t *testing.T) {
 	root := internalcli.New(internalcli.BuildInfo{})
 	body := internalcli.Render(root)
 
-	tocStart := strings.Index(body, "## Command groups\n")
+	tocStart := strings.Index(body, "## Command groups (run by the workflows)\n")
 	if tocStart < 0 {
 		t.Fatal("no ToC")
 	}
@@ -109,6 +109,41 @@ func TestRender_TableOfContentsHasOneEntryPerGroup(t *testing.T) {
 	for i, name := range names {
 		if want := "forge-ci-" + name; anchors[i] != want {
 			t.Errorf("ToC entry %s links to #%s, want #%s", name, anchors[i], want)
+		}
+	}
+}
+
+// TestRender_DirectCommandsLeadAndLinkToTheirHeadings requires the reference
+// to open with the commands a person runs by hand, the same list that leads
+// `forge-ci --help`, before the groups the workflows run, and every entry to
+// link to a heading the render actually emits.
+func TestRender_DirectCommandsLeadAndLinkToTheirHeadings(t *testing.T) {
+	t.Parallel()
+
+	body := internalcli.Render(internalcli.New(internalcli.BuildInfo{}))
+
+	direct := strings.Index(body, "## Commands to run directly\n")
+	groups := strings.Index(body, "## Command groups (run by the workflows)\n")
+
+	if direct < 0 || groups < 0 || direct > groups {
+		t.Fatalf("direct-use section at %d, workflow groups at %d; want both, direct first", direct, groups)
+	}
+
+	entries := regexp.MustCompile("(?m)^- \\[`([^`]+)`\\]\\(#([^)]*)\\) ").FindAllStringSubmatch(body[direct:groups], -1)
+	if len(entries) != 6 {
+		t.Fatalf("direct-use entries = %d, want the six of forge-ci --help", len(entries))
+	}
+
+	for _, match := range entries {
+		path, anchor := match[1], match[2]
+
+		depth := strings.Count(path, " ") + 2
+		if heading := strings.Repeat("#", depth) + " `forge-ci " + path + "`\n"; !strings.Contains(body, heading) {
+			t.Errorf("direct-use entry %q has no heading %q", path, heading)
+		}
+
+		if want := "forge-ci-" + strings.ReplaceAll(path, " ", "-"); anchor != want {
+			t.Errorf("direct-use entry %q links to #%s, want #%s", path, anchor, want)
 		}
 	}
 }

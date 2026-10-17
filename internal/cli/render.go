@@ -43,8 +43,19 @@ func Render(root *cli.Command) string {
 	_, _ = fmt.Fprintln(&b)
 	renderFlags(&b, root.Flags)
 
+	// The commands a person runs by hand come first, the same six that lead
+	// `forge-ci --help`; everything else is what the workflows run.
+	_, _ = fmt.Fprintln(&b, "## Commands to run directly")
+	_, _ = fmt.Fprintln(&b)
+
+	for _, c := range porcelainCommands {
+		_, _ = fmt.Fprintf(&b, "- [`%s`](#%s) — %s\n", c.path, slug(root.Name+" "+c.path), escapeText(c.what))
+	}
+
+	_, _ = fmt.Fprintln(&b)
+
 	// Top-level table of contents.
-	_, _ = fmt.Fprintln(&b, "## Command groups")
+	_, _ = fmt.Fprintln(&b, "## Command groups (run by the workflows)")
 	_, _ = fmt.Fprintln(&b)
 
 	for _, sub := range visibleCommands(root.Commands) {
