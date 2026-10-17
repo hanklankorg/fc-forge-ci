@@ -7,7 +7,7 @@
 spec:
   component: [sha, reference]
   inputs:
-    engine-project:
+    forge-ci-repository:
       description: Project serving this component and its public engine package, including any subgroups.
       regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
     job-image:
@@ -35,7 +35,7 @@ spec:
   variables:
     GIT_STRATEGY: empty
     GIT_SUBMODULE_STRATEGY: none
-    RC_ENGINE_PROJECT: "$[[ inputs.engine-project ]]"
+    RC_FORGE_CI_REPOSITORY: "$[[ inputs.forge-ci-repository ]]"
   before_script:
     - |
       set -euo pipefail
@@ -67,7 +67,7 @@ spec:
         exit 1
       fi
       export FORGE_CI_PACKAGE_PROVIDER=gitlab
-      export FORGE_CI_REPOSITORY_URL="${CI_SERVER_URL:?}/${RC_ENGINE_PROJECT:?}.git"
+      export FORGE_CI_REPOSITORY_URL="${CI_SERVER_URL:?}/${RC_FORGE_CI_REPOSITORY:?}.git"
       RC_HELPERS_DIR=$(mktemp -d /tmp/forge-ci-helpers.XXXXXXXX)
       readonly RC_HELPERS_DIR
       trap 'rm -rf -- "${RC_HELPERS_DIR}"' EXIT

@@ -21,7 +21,7 @@ include:
   - component: $CI_SERVER_FQDN/$CI_PROJECT_PATH/nanolinter@$CI_COMMIT_SHA
     inputs:
       job-name: selftest-nanolinter
-      engine-project: $CI_PROJECT_PATH
+      forge-ci-repository: $CI_PROJECT_PATH
       # forge-ci is a Go + just project; use the Go flavour to self-test.
       nanolinter-image: "ghcr.io/itiquette/nanolinter:go"
       # Keep the self-test hermetic: the SAST step needs this commit's engine

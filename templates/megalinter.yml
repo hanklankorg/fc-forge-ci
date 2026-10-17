@@ -37,7 +37,7 @@ spec:
       default: true
       description: >-
         Convert MegaLinter's SARIF to a GitLab SAST report and publish it as artifacts:reports:sast (populates the MR Security tab; display needs GitLab Ultimate). When false, the SARIF is kept as a plain artifact only.
-    engine-project:
+    forge-ci-repository:
       description: >-
         Project serving this component and its public engine package, including any subgroups. The SARIF to GitLab-SAST conversion runs the engine binary that this component's commit records, downloaded from that project's generic packages and checked against the recorded checksum. May name $CI_PROJECT_PATH: lib-forge-ci.sh refuses an expanded path that is not a project on CI_SERVER_URL before any download.
 ---
@@ -57,7 +57,7 @@ spec:
     SARIF_REPORTER: "true"
     DISABLE_ERRORS: "false"
     ENABLE_GITLAB_SAST: "$[[ inputs.enable-gitlab-sast ]]"
-    RC_ENGINE_PROJECT: "$[[ inputs.engine-project ]]"
+    RC_FORGE_CI_REPOSITORY: "$[[ inputs.forge-ci-repository ]]"
     SARIF_FILE: megalinter-reports/megalinter-report.sarif
     GL_SAST_FILE: gl-sast-report.json
   script:
@@ -106,7 +106,7 @@ spec:
 
       # --- SARIF -> GitLab SAST --------------------------------------------
       # Convert MegaLinter's SARIF to the GitLab SAST schema for the MR Security
-      # tab. The engine comes from engine-project at this component's commit:
+      # tab. The engine comes from forge-ci-repository at this component's commit:
       # the checkout records the binary's checksum, and the binary is
       # downloaded from that project's generic packages and checked against
       # it. Conversion is best-effort and does not change the lint gate's exit
@@ -116,7 +116,7 @@ spec:
           set -euo pipefail
           expected='$[[ component.sha ]]'
           export FORGE_CI_PACKAGE_PROVIDER=gitlab
-          export FORGE_CI_REPOSITORY_URL="${CI_SERVER_URL:?}/${RC_ENGINE_PROJECT:?}.git"
+          export FORGE_CI_REPOSITORY_URL="${CI_SERVER_URL:?}/${RC_FORGE_CI_REPOSITORY:?}.git"
           helpers=$(mktemp -d /tmp/forge-ci-helpers.XXXXXXXX)
           trap 'rm -rf -- "${helpers}"' EXIT
           git_options=(-c core.hooksPath=/dev/null -c credential.helper=)

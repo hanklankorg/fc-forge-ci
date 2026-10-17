@@ -97,7 +97,7 @@ func runGitLabCheck(t *testing.T, private bool) {
 	workflow := `include:
   - component: ` + strings.TrimPrefix(target.BaseURL(), "https://") + "/" + livetest.RepoSlug(target, engine) + "/check@" + commit.ID + `
     inputs:
-      engine-project: ` + livetest.RepoSlug(target, engine) + `
+      forge-ci-repository: ` + livetest.RepoSlug(target, engine) + `
       job-image: ` + livetest.ProbeImage + `
       commands:
         - 'test "$(git rev-parse HEAD)" = "$CI_COMMIT_SHA"'

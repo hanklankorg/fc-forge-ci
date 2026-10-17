@@ -1039,7 +1039,7 @@ source publication, and private trials must refuse anonymous repository reads.
 
 The consumer must be a clean committed checkout with its own `.gitlab-ci.yml`.
 The focused trial accepts one full-SHA-pinned `check` component and, beside
-it, at most one `nanolinter` component, each matching `engine-project` and
+it, at most one `nanolinter` component, each matching `forge-ci-repository` and
 leaving its image to the trial: `job-image: $CI_JOB_IMAGE` and
 `nanolinter-image: $CI_LINT_IMAGE`. A gate with the nanolinter component needs
 `FORGE_CI_LIVE_LINT_IMAGE_ARCHIVE`, a nanolinter flavour image archive. The

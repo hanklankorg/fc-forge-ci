@@ -4519,15 +4519,15 @@ render CHANGELOG.md and commit-msg.txt with git-chglog or git-cliff
 
 ```
 EXAMPLE:
-   forge-ci version render-changelog --backend git-chglog --tag v1.2.3 \
+   forge-ci version render-changelog --backend git-cliff --tag v1.2.3 \
      --repository-url https://forgejo.example/owner/repository \
-     --changelog-config .chglog/config-keepachangelog.yml \
-     --commit-body-config .chglog/config-minimal.yml
+     --changelog-config .forge-ci/gitcliff/keepachangelog.toml \
+     --commit-body-config .forge-ci/gitcliff/minimal.toml
 ```
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
-| `--backend` | changelog renderer backend: git-chglog or git-cliff | string | `"git-chglog"` | `$CHANGELOG_BACKEND` |
+| `--backend` | changelog renderer backend: git-cliff or git-chglog | string | `"git-cliff"` | `$CHANGELOG_BACKEND` |
 | `--tag` | final stable release tag (vMAJOR.MINOR.PATCH) (required) | string | `""` | `$RELEASE_TAG`, `$TAG_NAME` |
 | `--repository-url` | canonical HTTPS web URL of the repository used for generated changelog links (required) | string | `""` | `$CHANGELOG_REPOSITORY_URL` |
 | `--changelog-config` | renderer config for CHANGELOG.md (required) | string | `""` | `$CHANGELOG_CONFIG` |

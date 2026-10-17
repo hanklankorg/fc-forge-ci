@@ -206,17 +206,17 @@ func bindGitLabGateComponent(entry *yaml.Node, layer Layer, images GitLabGateIma
 	}
 
 	use := gitlabGateImageInputs[name]
-	engineProject := gitlabMappingValue(inputs, "engine-project")
+	forgeCIRepository := gitlabMappingValue(inputs, "forge-ci-repository")
 
 	jobImage := gitlabMappingValue(inputs, use.input)
-	for _, field := range []*yaml.Node{engineProject, jobImage} {
+	for _, field := range []*yaml.Node{forgeCIRepository, jobImage} {
 		if field == nil || field.Kind != yaml.ScalarNode {
 			return "", fmt.Errorf("%s component coordinates must be scalars: %w", name, errs.ErrValidation)
 		}
 	}
 
-	if !fixtureObjectID(pin) || project != engineProject.Value || jobImage.Value != use.placeholder {
-		return "", fmt.Errorf("pin the %s component by full SHA, match engine-project and use %s: %s: %w",
+	if !fixtureObjectID(pin) || project != forgeCIRepository.Value || jobImage.Value != use.placeholder {
+		return "", fmt.Errorf("pin the %s component by full SHA, match forge-ci-repository and use %s: %s: %w",
 			name, use.input, use.placeholder, errs.ErrValidation)
 	}
 
@@ -226,7 +226,7 @@ func bindGitLabGateComponent(entry *yaml.Node, layer Layer, images GitLabGateIma
 	}
 
 	component.Value = strings.TrimPrefix(layer.ServerURL, "https://") + "/" + layer.Repository + "/" + name + "@" + layer.Commit
-	engineProject.Value = layer.Repository
+	forgeCIRepository.Value = layer.Repository
 	jobImage.Value = image
 
 	return name, nil

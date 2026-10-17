@@ -84,13 +84,13 @@ own package registry.
    include:
      - component: gitlab.example.com/team/ci/forge-ci/nanolinter@0.90.0
        inputs:
-         engine-project: team/ci/forge-ci
+         forge-ci-repository: team/ci/forge-ci
          nanolinter-image: "ghcr.io/itiquette/nanolinter:go@sha256:PIN_DIGEST"
      # check is checksum-bound: include it by the engine commit, never a version;
      # see Checksum-bound engine bootstrap in docs/gitlab.md.
      - component: gitlab.example.com/team/ci/forge-ci/check@PIN_FORGE_CI_SHA
        inputs:
-         engine-project: team/ci/forge-ci
+         forge-ci-repository: team/ci/forge-ci
          job-image: registry.example.com/team/check-tools@sha256:PIN_IMAGE_DIGEST
          commands:
            - just test-unit
@@ -125,10 +125,10 @@ images and pins, a validating regex. The inputs that are not obvious:
 
 | Component | Input | Meaning |
 |---|---|---|
-| `check` | `engine-project` | The project serving the component and its engine package, including subgroups. |
+| `check` | `forge-ci-repository` | The project serving the component and its engine package, including subgroups. |
 | | `job-image` | Digest-pinned image for the check job. |
 | | `commands` | The consumer's check commands; a failure fails the job. `job-name` (default `check`) and `stage` (default `test`) name the job. |
-| `release` | `engine-project`, `consumer-project` | The engine project, and the only project allowed to run this policy. |
+| `release` | `forge-ci-repository`, `consumer-project` | The engine project, and the only project allowed to run this policy. |
 | | `job-image`, `build-image`, `signer-image` | Digest-pinned images for key-free jobs, the build job, and the signing jobs. |
 | | `publication-project`, `publication-image-repository` | The separate project that owns final images, and the exact registry repository in it. |
 | | `cosign-public-key-sha256` | SHA-256 of your Cosign public key, written out. |
@@ -136,14 +136,14 @@ images and pins, a validating regex. The inputs that are not obvious:
 | | `request-allowed-signers` | OpenSSH allowed-signers text for the people who may sign a request tag. |
 | | `bot-name`, `bot-email` | The release bot identity; no default. |
 | | `checks`, `build` | Consumer commands: checks on the request commit, and the build that writes `dist/release-files.json` and `release-notes.md`. |
-| | `changelog-creator`, `changelog-config`, `commit-body-config` | `git-chglog` (default) or `git-cliff`, and the consumer's configuration files. git-cliff renders offline, without remote metadata, and reads stable `vX.Y.Z` tags only, overriding any `tag_pattern` in the configuration. |
+| | `changelog-creator`, `changelog-config`, `commit-body-config` | `git-cliff` (default) or `git-chglog`, and the consumer's configuration files, by default `.forge-ci/gitcliff/keepachangelog.toml` and `.forge-ci/gitcliff/minimal.toml`, copies of this repository's [`templates/gitcliff/`](../templates/gitcliff/). git-cliff renders offline, without remote metadata, and reads stable `vX.Y.Z` tags only, overriding any `tag_pattern` in the configuration. |
 | | `release-branch` | The branch a release lands on; empty, the default, takes the project's default branch. The request must be its head. |
 | | `transparency-log` | `none` (default) or `public`: whether Cosign signatures are also written to the public Sigstore transparency log. See [Signing](#signing). |
 | | `sign-distro-packages` | Default `true`: GPG `.sig` sidecars for `.deb`, `.rpm` and `.apk`, which makes the GPG variables required. |
 | | `release-asset-retention` | How many of the newest releases keep every file; older ones keep their checksums and signatures, upload and link both deleted. Empty, the default, deletes nothing. See [Old releases' files](#old-releases-files). |
 | | `base-images` | Default `false`; see [Content-addressed base images](#content-addressed-base-images). |
-| `nanolinter` | `engine-project`, `nanolinter-image`, `required-lints`, `enable-gitlab-sast` | The project serving the component and its engine package (required), the flavour image (default `core`), the mandated floor (default `secrets,sast`), and the SAST report. |
-| `megalinter` | `engine-project`, `megalinter-image`, `enable-gitlab-sast` | Required digest-pinned image; the rest as for `nanolinter`. |
+| `nanolinter` | `forge-ci-repository`, `nanolinter-image`, `required-lints`, `enable-gitlab-sast` | The project serving the component and its engine package (required), the flavour image (default the `core` tag; pin your flavour by digest as the examples show), the mandated floor (default `secrets,sast`), and the SAST report. |
+| `megalinter` | `forge-ci-repository`, `megalinter-image`, `enable-gitlab-sast` | Required digest-pinned image; the rest as for `nanolinter`. |
 | `build-*` | `working-directory`, `version`, `skip-tests`, `enable-build-sbom`, `runtime-image` | Common to every build component; `build-go` and `build-cargo` add `platforms` and `artifact-name`, `build-maven` `build-type` and `profile`, `build-gradle-android` the module, flavour and signing inputs. |
 | `publish-*` | `project-type`, `working-directory`, `runtime-image` | `publish-maven-central` adds `profile` and `settings-path`; `publish-apple-appstore` adds `platform`, `runner-tags` and `macos-image`. |
 
@@ -333,7 +333,7 @@ MegaLinter instead, include it in its place:
 include:
   - component: gitlab.example.com/team/ci/forge-ci/megalinter@0.90.0
     inputs:
-      engine-project: team/ci/forge-ci
+      forge-ci-repository: team/ci/forge-ci
       megalinter-image: "REPLACE_WITH_REVIEWED_IMAGE_AT_SHA256_DIGEST"
 ```
 
@@ -354,14 +354,14 @@ include:
   # see Checksum-bound engine bootstrap in docs/gitlab.md.
   - component: gitlab.example.com/team/ci/forge-ci/check@PIN_FORGE_CI_SHA
     inputs:
-      engine-project: team/ci/forge-ci
+      forge-ci-repository: team/ci/forge-ci
       job-image: registry.example.com/team/check-tools@sha256:PIN_IMAGE_DIGEST
       commands:
         - just test-unit
         - just lint
 ```
 
-Replace both pins with reviewed immutable values. `engine-project` is the
+Replace both pins with reviewed immutable values. `forge-ci-repository` is the
 project serving the component, including subgroups. The image must contain
 Bash, Git, curl, sha256sum and the consumer's check tools. Optional input
 `job-name` defaults to `check`; `stage` defaults to `test`.
@@ -491,7 +491,7 @@ A policy file includes the component with the [inputs above](#inputs-and-variabl
 include:
   - component: gitlab.example.com/team/ci/forge-ci/release@PIN_FORGE_CI_SHA
     inputs:
-      engine-project: team/ci/forge-ci
+      forge-ci-repository: team/ci/forge-ci
       consumer-project: team/app
       job-image: registry.example.com/team/check-tools@sha256:PIN_DIGEST
       build-image: registry.example.com/team/build-tools@sha256:PIN_DIGEST
@@ -563,7 +563,7 @@ include:
   # see Checksum-bound engine bootstrap in docs/gitlab.md.
   - component: $CI_SERVER_FQDN/team/ci/forge-ci/check@PIN_FORGE_CI_SHA
     inputs:
-      engine-project: team/ci/forge-ci
+      forge-ci-repository: team/ci/forge-ci
       job-image: registry.example.com/team/check-tools@sha256:PIN_DIGEST
       commands:
         - bash .gitlab/check-release.sh
@@ -636,10 +636,13 @@ symlinks and leaves private workspaces outside that operation. Dist handoffs
 use content digests rooted at `.` so different runner paths remain compatible.
 
 The component owns input defaults and forwards explicit values to the child.
-Its default `git-chglog` configuration paths match the Forgejo component:
-`.chglog/config-keepachangelog.yml` and `.chglog/config-minimal.yml`. Set
-`changelog-config` and `commit-body-config` to the consumer's actual paths when
-using another layout or `git-cliff`; the renderer CLI requires filenames.
+Its default renderer is `git-cliff`, and its default configuration paths match
+the Forgejo layer: `.forge-ci/gitcliff/keepachangelog.toml` for `CHANGELOG.md`
+and `.forge-ci/gitcliff/minimal.toml` for the release commit body. Copy the two
+files of this repository's [`templates/gitcliff/`](../templates/gitcliff/) there
+to start. Set `changelog-config` and `commit-body-config` to the consumer's
+actual paths when using another layout or `git-chglog`; the renderer CLI
+requires filenames.
 
 ### Old releases' files
 
@@ -811,7 +814,7 @@ GitLab Ultimate. `enable-gitlab-sast: false` keeps the SARIF as a plain
 artifact only.
 
 The conversion runs the engine the way `check` does: it checks out
-`engine-project` at the component's commit and downloads the binary that
+`forge-ci-repository` at the component's commit and downloads the binary that
 commit records from the project's generic packages, refusing any other
 bytes. A component included by version therefore needs the engine of that
 version's commit published; see
@@ -853,7 +856,7 @@ What does not follow the fork, and must be overridden:
 - The lint components select `ghcr.io/itiquette/nanolinter`; pass a verified,
   available digest through `nanolinter-image`, including for a mirror.
 
-`engine-project` and `consumer-project` are the fork's and the consumer's
+`forge-ci-repository` and `consumer-project` are the fork's and the consumer's
 paths; nothing else in the checksum-bound components or the lint components'
 SAST conversion names an owner.
 

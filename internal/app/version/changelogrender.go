@@ -17,8 +17,12 @@ import (
 	"github.com/diggsweden/forge-ci/internal/runcontext"
 )
 
-// backendGitChglog is the default changelog renderer backend.
-const backendGitChglog = "git-chglog"
+// backendGitCliff is the default changelog renderer backend; backendGitChglog
+// stays selectable.
+const (
+	backendGitChglog = "git-chglog"
+	backendGitCliff  = "git-cliff"
+)
 
 type changelogRenderGit interface {
 	FetchBranch(ctx context.Context, remote, branch string, cred runcontext.Credential) error
@@ -33,7 +37,7 @@ type changelogRenderer interface {
 
 // ChangelogRenderInput drives `forge-ci version render-changelog`.
 type ChangelogRenderInput struct {
-	Backend           string // git-chglog or git-cliff; empty defaults to git-chglog
+	Backend           string // git-cliff or git-chglog; empty defaults to git-cliff
 	Tag               string // final stable release tag
 	RepositoryURL     string // canonical HTTPS web URL used in generated changelog links
 	Remote            string // empty defaults to origin
@@ -136,10 +140,10 @@ func validateChangelogRenderInput(in ChangelogRenderInput) error {
 
 	backend := in.Backend
 	if backend == "" {
-		backend = backendGitChglog
+		backend = backendGitCliff
 	}
 
-	if backend != backendGitChglog && backend != "git-cliff" {
+	if backend != backendGitChglog && backend != backendGitCliff {
 		return fmt.Errorf("render-changelog: backend must be git-chglog or git-cliff: %s: %w", backend, errs.ErrValidation)
 	}
 
@@ -210,7 +214,7 @@ func ownerAndRepositoryPath(path string) bool {
 
 func withChangelogRenderDefaults(in ChangelogRenderInput) ChangelogRenderInput {
 	if in.Backend == "" {
-		in.Backend = backendGitChglog
+		in.Backend = backendGitCliff
 	}
 
 	if in.Remote == "" {

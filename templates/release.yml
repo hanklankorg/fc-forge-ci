@@ -6,7 +6,7 @@
 spec:
   component: [sha, reference]
   inputs:
-    engine-project:
+    forge-ci-repository:
       regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
     consumer-project:
       regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
@@ -39,14 +39,14 @@ spec:
     build:
       type: array
     changelog-creator:
-      default: git-chglog
+      default: git-cliff
       options: [git-chglog, git-cliff]
     changelog-config:
       description: Consumer config used by the selected changelog renderer.
-      default: .chglog/config-keepachangelog.yml
+      default: .forge-ci/gitcliff/keepachangelog.toml
     commit-body-config:
       description: Consumer config used to render the release commit body.
-      default: .chglog/config-minimal.yml
+      default: .forge-ci/gitcliff/minimal.toml
     sign-distro-packages:
       type: boolean
       default: true
@@ -89,13 +89,13 @@ release:
       yaml_variables: false
       pipeline_variables: false
     include:
-      - project: $[[ inputs.engine-project ]]
+      - project: $[[ inputs.forge-ci-repository ]]
         ref: $[[ component.sha ]]
         file: /templates/release-jobs.yml
         inputs:
           engine-sha: $[[ component.sha ]]
           engine-reference: $[[ component.reference ]]
-          engine-project: $[[ inputs.engine-project ]]
+          forge-ci-repository: $[[ inputs.forge-ci-repository ]]
           consumer-project: $[[ inputs.consumer-project ]]
           job-image: $[[ inputs.job-image ]]
           build-image: $[[ inputs.build-image ]]

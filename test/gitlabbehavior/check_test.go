@@ -86,7 +86,7 @@ func TestCheckRefusesSigningMaterialAndMutablePinsBeforeCheckout(t *testing.T) {
 			command := exec.CommandContext(ctx, "/bin/bash", "--noprofile", "--norc", "-c", script) //nolint:gosec // Reviewed component shell, closed environment and an inert Git executable.
 			command.Dir = dir
 			command.Env = []string{"PATH=" + dir + ":/usr/bin:/bin", "HOME=" + dir, "TMPDIR=" + dir, "MARKER=" + marker,
-				"CI_SERVER_URL=https://gitlab.invalid", "RC_ENGINE_PROJECT=owner/engine", "CI_COMMIT_SHA=not-a-commit"}
+				"CI_SERVER_URL=https://gitlab.invalid", "RC_FORGE_CI_REPOSITORY=owner/engine", "CI_COMMIT_SHA=not-a-commit"}
 
 			if tc.variable != "" {
 				command.Env = append(command.Env, tc.variable+"="+canary)

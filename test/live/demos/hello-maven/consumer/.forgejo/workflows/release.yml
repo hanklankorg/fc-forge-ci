@@ -31,6 +31,11 @@ jobs:
       signer-image: forgejo.example/diggsweden/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
       bot-name: Hello Maven Release Bot
       bot-email: hello-release-bot@lab.invalid
+      # The demo renders with git-chglog from .chglog/; the layer default is
+      # git-cliff from .forge-ci/gitcliff/.
+      changelog-creator: git-chglog
+      changelog-config: .chglog/config-keepachangelog.yml
+      commit-body-config: .chglog/config-minimal.yml
       release-git-url: ${{ vars.RELEASE_GIT_URL }}
       release-git-host-key-fingerprint: ${{ vars.RELEASE_GIT_HOST_KEY_FINGERPRINT }}
       verify-release-request-signature: 'false'

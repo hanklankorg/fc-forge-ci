@@ -96,7 +96,7 @@ func TestChangelogRender_EachBackendAndPathWritesExactFiles(t *testing.T) {
 
 				wantBackend := backend
 				if wantBackend == "" {
-					wantBackend = "git-chglog"
+					wantBackend = "git-cliff"
 				}
 
 				require.Equal(t, []renderCall{

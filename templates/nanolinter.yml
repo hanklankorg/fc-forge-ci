@@ -17,7 +17,7 @@
 #      `artifacts:reports:sast`, so blocking findings land on the merge-request
 #      Security tab (the GitLab analog of GitHub Code Scanning). The conversion
 #      uses `forge-ci security report to-gitlab-sast`; forge-ci is not baked
-#      into the flavour image, so the job checks out engine-project at this
+#      into the flavour image, so the job checks out forge-ci-repository at this
 #      component's commit and runs the engine binary that commit records,
 #      downloaded from that project's generic packages and checked against the
 #      recorded checksum, as the check component does.
@@ -26,7 +26,7 @@
 #   include:
 #     - component: $CI_SERVER_FQDN/diggsweden/forge-ci/nanolinter@0.90.0
 #       inputs:
-#         engine-project: diggsweden/forge-ci
+#         forge-ci-repository: diggsweden/forge-ci
 #         nanolinter-image: "ghcr.io/itiquette/nanolinter:java@sha256:PIN_DIGEST"
 spec:
   component: [sha]
@@ -50,7 +50,7 @@ spec:
       default: true
       description: >-
         Convert nanolinter's SARIF to a GitLab SAST report and publish it as artifacts:reports:sast (populates the MR Security tab; display needs GitLab Ultimate). When false, the SARIF is kept as a plain artifact only.
-    engine-project:
+    forge-ci-repository:
       description: >-
         Project serving this component and its public engine package, including any subgroups. The SARIF to GitLab-SAST conversion runs the engine binary that this component's commit records, downloaded from that project's generic packages and checked against the recorded checksum. May name $CI_PROJECT_PATH: lib-forge-ci.sh refuses an expanded path that is not a project on CI_SERVER_URL before any download.
 ---
@@ -67,7 +67,7 @@ spec:
     GIT_DEPTH: "0"
     REQUIRED_LINTS: "$[[ inputs.required-lints ]]"
     ENABLE_GITLAB_SAST: "$[[ inputs.enable-gitlab-sast ]]"
-    RC_ENGINE_PROJECT: "$[[ inputs.engine-project ]]"
+    RC_FORGE_CI_REPOSITORY: "$[[ inputs.forge-ci-repository ]]"
     SARIF_FILE: nanolinter-security.sarif
     GL_SAST_FILE: gl-sast-report.json
   script:
@@ -122,7 +122,7 @@ spec:
 
       # --- SARIF -> GitLab SAST --------------------------------------------
       # Convert nanolinter's unified SARIF to the GitLab SAST schema for the MR
-      # Security tab with the engine of engine-project at this component's
+      # Security tab with the engine of forge-ci-repository at this component's
       # commit; the binary must match the checksum that commit records.
       # Best-effort: a SARIF tooling failure must not turn the lint gate red,
       # so it never changes the exit code (the gate below is the only thing
@@ -132,7 +132,7 @@ spec:
           set -euo pipefail
           expected='$[[ component.sha ]]'
           export FORGE_CI_PACKAGE_PROVIDER=gitlab
-          export FORGE_CI_REPOSITORY_URL="${CI_SERVER_URL:?}/${RC_ENGINE_PROJECT:?}.git"
+          export FORGE_CI_REPOSITORY_URL="${CI_SERVER_URL:?}/${RC_FORGE_CI_REPOSITORY:?}.git"
           helpers=$(mktemp -d /tmp/forge-ci-helpers.XXXXXXXX)
           trap 'rm -rf -- "${helpers}"' EXIT
           git_options=(-c core.hooksPath=/dev/null -c credential.helper=)

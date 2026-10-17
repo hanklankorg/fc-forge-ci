@@ -7,13 +7,13 @@
 # .gitlab-ci.yml and replace the placeholders, all literal so that
 # `git grep` finds them:
 #
-#   gitlab.example.com                   your instance
-#   team/ci/forge-ci (engine-project)    the project on it that serves
-#                                        forge-ci, including subgroups
-#   PIN_FORGE_CI_SHA                     the engine commit you authenticated:
-#                                        `check` is checksum-bound and must be
-#                                        included by full commit SHA
-#   PIN_DIGEST, PIN_IMAGE_DIGEST         digests of the reviewed images
+#   gitlab.example.com                        your instance
+#   team/ci/forge-ci (forge-ci-repository)    the project on it that serves
+#                                             forge-ci, including subgroups
+#   PIN_FORGE_CI_SHA                          the engine commit you authenticated:
+#                                             `check` is checksum-bound and must be
+#                                             included by full commit SHA
+#   PIN_DIGEST, PIN_IMAGE_DIGEST              digests of the reviewed images
 #
 # The pipeline status is the gate: GitLab fails the pipeline, and the merge
 # request, when any job fails. Require successful pipelines and refuse merging
@@ -39,7 +39,7 @@ include:
   # the secrets,sast floor, and its findings as a SAST report.
   - component: gitlab.example.com/team/ci/forge-ci/nanolinter@0.90.0
     inputs:
-      engine-project: team/ci/forge-ci
+      forge-ci-repository: team/ci/forge-ci
       nanolinter-image: "ghcr.io/itiquette/nanolinter:go@sha256:PIN_DIGEST"
 
   # The consumer's own checks at the pipeline commit, in an image that carries
@@ -48,7 +48,7 @@ include:
   # see Checksum-bound engine bootstrap in docs/gitlab.md.
   - component: gitlab.example.com/team/ci/forge-ci/check@PIN_FORGE_CI_SHA
     inputs:
-      engine-project: team/ci/forge-ci
+      forge-ci-repository: team/ci/forge-ci
       job-image: registry.example.com/team/check-tools@sha256:PIN_IMAGE_DIGEST
       commands:
         - go vet ./...

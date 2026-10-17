@@ -33,6 +33,11 @@ jobs:
       signer-image: RENDER_SIGNER_IMAGE
       bot-name: Layer acceptance
       bot-email: layer-acceptance@invalid.example
+      # The fixtures render with git-chglog from .chglog/, as the layer did
+      # before git-cliff became the default; the three inputs keep that.
+      changelog-creator: git-chglog
+      changelog-config: .chglog/config-keepachangelog.yml
+      commit-body-config: .chglog/config-minimal.yml
       release-git-url: RENDER_RELEASE_GIT_URL
       release-git-host-key-fingerprint: RENDER_RELEASE_GIT_HOST_KEY_FINGERPRINT
       sign-distro-packages: 'false'

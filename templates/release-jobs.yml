@@ -8,7 +8,7 @@ spec:
       regex: '^([0-9a-f]{40}|[0-9a-f]{64})$'
     engine-reference:
       type: string
-    engine-project:
+    forge-ci-repository:
       regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
     consumer-project:
       regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
@@ -71,7 +71,7 @@ stages: [check, prepare, build, sign, publish]
   variables:
     GIT_STRATEGY: empty
     GIT_SUBMODULE_STRATEGY: none
-    RC_ENGINE_PROJECT: $[[ inputs.engine-project ]]
+    RC_FORGE_CI_REPOSITORY: $[[ inputs.forge-ci-repository ]]
     RC_CONSUMER_PROJECT: $[[ inputs.consumer-project ]]
     RC_SIGNER_IMAGE: $[[ inputs.signer-image ]]
     RC_PUBLICATION_PROJECT: $[[ inputs.publication-project ]]
@@ -121,7 +121,7 @@ stages: [check, prepare, build, sign, publish]
       export SIGN_AND_PUBLISH_STATE_DIR="${RC_WORK}/state"
       mkdir -m 0700 "${SIGN_AND_PUBLISH_STATE_DIR}"
       export FORGE_CI_PACKAGE_PROVIDER=gitlab
-      export FORGE_CI_REPOSITORY_URL="${CI_SERVER_URL:?}/${RC_ENGINE_PROJECT:?}.git"
+      export FORGE_CI_REPOSITORY_URL="${CI_SERVER_URL:?}/${RC_FORGE_CI_REPOSITORY:?}.git"
       git_options=(-c core.hooksPath=/dev/null -c credential.helper=)
       if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
         for bundle in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; do

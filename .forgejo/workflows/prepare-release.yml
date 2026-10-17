@@ -68,20 +68,20 @@ on:
         type: string
         required: true
       changelog-config:
-        description: git-chglog changelog config path (mirrors the prepare-release action default).
+        description: Changelog renderer config path (mirrors the render-changelog action default).
         type: string
         required: false
-        default: .chglog/config-keepachangelog.yml
+        default: .forge-ci/gitcliff/keepachangelog.toml
       commit-body-config:
-        description: git-chglog commit-body config path (mirrors the prepare-release action default).
+        description: Commit-body renderer config path (mirrors the render-changelog action default).
         type: string
         required: false
-        default: .chglog/config-minimal.yml
+        default: .forge-ci/gitcliff/minimal.toml
       changelog-creator:
         description: Changelog renderer (git-chglog or git-cliff).
         type: string
         required: false
-        default: git-chglog
+        default: git-cliff
       verify-release-request-signature:
         description: Verify the human release-request tag with the configured SSH allowed-signers file.
         type: string

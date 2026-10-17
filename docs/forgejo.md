@@ -770,6 +770,13 @@ jobs:
     uses: OWNER/forge-ci/.forgejo/workflows/prepare-release.yml@<commit>
 ```
 
+The changelog renderer is `changelog-creator`, `git-cliff` by default or
+`git-chglog`, reading the consumer's `changelog-config` and `commit-body-config`,
+by default `.forge-ci/gitcliff/keepachangelog.toml` and
+`.forge-ci/gitcliff/minimal.toml`: copy the two files of this repository's
+[`templates/gitcliff/`](../templates/gitcliff/) there to start, the same
+defaults the GitLab `release` component has.
+
 The workflow keeps the boundaries a hand-composed job has to get right itself:
 every secret is checked for presence before any checkout, no token enters the
 job that holds the SSH signing key, and the request is admitted only at the

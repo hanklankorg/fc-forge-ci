@@ -21,7 +21,7 @@ workflow:
 include:
   - component: $CI_SERVER_FQDN/team/engine/check@` + strings.Repeat("a", 40) + `
     inputs:
-      engine-project: team/engine
+      forge-ci-repository: team/engine
       job-image: $CI_JOB_IMAGE
       commands:
         - 'nanolinter verify --require secrets,sast'
@@ -43,9 +43,9 @@ include:
 		Include []struct {
 			Component string `yaml:"component"`
 			Inputs    struct {
-				EngineProject string   `yaml:"engine-project"`
-				JobImage      string   `yaml:"job-image"`
-				Commands      []string `yaml:"commands"`
+				ForgeCIRepository string   `yaml:"forge-ci-repository"`
+				JobImage          string   `yaml:"job-image"`
+				Commands          []string `yaml:"commands"`
 			} `yaml:"inputs"`
 		} `yaml:"include"`
 	}
@@ -55,7 +55,7 @@ include:
 
 	entry := parsed.Include[0]
 	if entry.Component != "gitlab.k3s.forgelab/forgeci/fci-engine/check@"+layer.Commit ||
-		entry.Inputs.EngineProject != layer.Repository || entry.Inputs.JobImage != image {
+		entry.Inputs.ForgeCIRepository != layer.Repository || entry.Inputs.JobImage != image {
 		t.Fatal("the trial did not bind all three coordinates")
 	}
 
@@ -67,7 +67,7 @@ include:
 	for _, bad := range []string{
 		pipeline + "\n---\nunexpected: job\n",
 		strings.ReplaceAll(pipeline, strings.Repeat("a", 40), "main"),
-		strings.ReplaceAll(pipeline, "engine-project: team/engine", "engine-project: other/engine"),
+		strings.ReplaceAll(pipeline, "forge-ci-repository: team/engine", "forge-ci-repository: other/engine"),
 		strings.ReplaceAll(pipeline, "job-image: $CI_JOB_IMAGE", "job-image: unreviewed:latest"),
 	} {
 		if _, err := renderGitLabConsumer([]byte(bad), layer, GitLabGateImages{Job: image}); err == nil {
@@ -84,7 +84,7 @@ func TestGitLabConsumerRefusesAGateThatNeverRunsForMergeRequests(t *testing.T) {
 	pipeline := `include:
   - component: $CI_SERVER_FQDN/team/engine/check@` + strings.Repeat("a", 40) + `
     inputs:
-      engine-project: team/engine
+      forge-ci-repository: team/engine
       job-image: $CI_JOB_IMAGE
       commands: ['go test ./...']
 `
@@ -109,12 +109,12 @@ func TestGitLabConsumerBindsTheNanolinterComponentToo(t *testing.T) {
 include:
   - component: $CI_SERVER_FQDN/team/engine/nanolinter@` + strings.Repeat("a", 40) + `
     inputs:
-      engine-project: team/engine
+      forge-ci-repository: team/engine
       job-name: "Check: lint"
       nanolinter-image: $CI_LINT_IMAGE
   - component: $CI_SERVER_FQDN/team/engine/check@` + strings.Repeat("a", 40) + `
     inputs:
-      engine-project: team/engine
+      forge-ci-repository: team/engine
       job-image: $CI_JOB_IMAGE
       commands: ['mvn verify']
 `
@@ -141,7 +141,7 @@ include:
 
 	lint, check := parsed.Include[0], parsed.Include[1]
 	if lint.Component != "gitlab.k3s.forgelab/forgeci/fci-engine/nanolinter@"+layer.Commit ||
-		lint.Inputs["engine-project"] != layer.Repository || lint.Inputs["nanolinter-image"] != images.Lint ||
+		lint.Inputs["forge-ci-repository"] != layer.Repository || lint.Inputs["nanolinter-image"] != images.Lint ||
 		lint.Inputs["job-name"] != "Check: lint" || check.Inputs["job-image"] != images.Job {
 		t.Fatalf("the components were not bound: %+v", parsed.Include)
 	}

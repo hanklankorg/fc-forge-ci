@@ -6,13 +6,13 @@ description: Render project-controlled changelog configuration in a job without 
 inputs:
   changelog-config:
     description: Renderer config used to generate CHANGELOG.md.
-    default: .chglog/config-keepachangelog.yml
+    default: .forge-ci/gitcliff/keepachangelog.toml
   commit-body-config:
     description: Renderer config used for the release commit body.
-    default: .chglog/config-minimal.yml
+    default: .forge-ci/gitcliff/minimal.toml
   changelog-creator:
     description: Changelog renderer backend, git-chglog or git-cliff, pinned in versions.env.
-    default: git-chglog
+    default: git-cliff
   repository-url:
     description: Canonical HTTPS web URL used for generated changelog links.
     required: true

@@ -186,6 +186,16 @@ func gitlabConsumerSettings(t *testing.T, consumerRoot string) (livetest.GitLabR
 	return settings, buildCommand
 }
 
+// withGitChglog keeps the fixtures and the demo rendering with git-chglog from
+// .chglog/, as the layer did before git-cliff became the default.
+func withGitChglog(inputs map[string]any) map[string]any {
+	inputs["changelog-creator"] = "git-chglog"
+	inputs["changelog-config"] = ".chglog/config-keepachangelog.yml"
+	inputs["commit-body-config"] = ".chglog/config-minimal.yml"
+
+	return inputs
+}
+
 func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private bool) {
 	t.Helper()
 
@@ -279,8 +289,8 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 	}
 	policyIncludes := []any{map[string]any{
 		"component": strings.TrimPrefix(target.BaseURL(), "https://") + "/" + layer.Repository + "/release@" + layer.Commit,
-		"inputs": map[string]any{
-			"engine-project": layer.Repository, "consumer-project": project,
+		"inputs": withGitChglog(map[string]any{
+			"forge-ci-repository": layer.Repository, "consumer-project": project,
 			"job-image": jobImage, "build-image": buildImage, "signer-image": signerImage,
 			"publication-project":          livetest.RepoSlug(target, publication),
 			"publication-image-repository": registry + "/" + livetest.RepoSlug(target, publication),
@@ -293,7 +303,7 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 			"base-images":          bases,
 			"checks":               checks,
 			"build":                build,
-		},
+		}),
 	}}
 	// The consumer's own merge-request gate, for merge-request pipelines only,
 	// read at the merge request's commit: docs/gitlab.md, The merge-request
@@ -306,7 +316,7 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 	if bases {
 		policyIncludes = append(policyIncludes, map[string]any{
 			"component": strings.TrimPrefix(target.BaseURL(), "https://") + "/" + layer.Repository + "/check@" + layer.Commit,
-			"inputs": map[string]any{"engine-project": layer.Repository, "job-image": jobImage,
+			"inputs": map[string]any{"forge-ci-repository": layer.Repository, "job-image": jobImage,
 				"job-name": "candidate-check", "commands": []string{"test -f warm-request.txt"}},
 		})
 		policyConfig["candidate-check"] = map[string]any{
