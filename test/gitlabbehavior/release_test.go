@@ -5,6 +5,7 @@ package gitlabbehavior
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,7 +66,10 @@ func TestReleaseHandoffNeverSourcesItsDigestAsShell(t *testing.T) {
 	defer cancel()
 
 	script := filepath.Join(reporoot.Path(t), ".gitlab", "bin", "release.sh")
-	command := exec.CommandContext(ctx, "/bin/bash", "--noprofile", "--norc", "-c", `set -eu; source "$1"; rc_engine() { echo engine-called; }; rc_read_handoff "$2"`, "handoff-guard", script, dir) //nolint:gosec // Reviewed script and inert CLI, reading only fixture data.
+
+	const invocation = `set -eu; source "$1"; engine_status=$3; rc_engine() { echo engine-called; return "$engine_status"; }; if rc_read_handoff "$2"; then exit 0; else exit $?; fi`
+
+	command := exec.CommandContext(ctx, "/bin/bash", "--noprofile", "--norc", "-c", invocation, "handoff-guard", script, dir, "0") //nolint:gosec // Reviewed script and inert CLI. Conditional invocation proves refusal does not depend on errexit.
 	command.Dir = dir
 	command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + dir}
 
@@ -76,6 +80,45 @@ func TestReleaseHandoffNeverSourcesItsDigestAsShell(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(dir, "exploited")); !os.IsNotExist(err) {
 		t.Fatal("handoff data was evaluated as shell")
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "digest"), []byte(strings.Repeat("a", 64)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Mkdir(filepath.Join(dir, "dist"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, status := range []string{"17", "0"} {
+		control := exec.CommandContext(ctx, "/bin/bash", "--noprofile", "--norc", "-c", invocation, "handoff-guard", script, dir, status) //nolint:gosec // Same inert fixture with a valid digest and explicit engine status.
+		control.Dir, control.Env = t.TempDir(), command.Env
+
+		output, err := control.CombinedOutput()
+		if !strings.Contains(string(output), "engine-called") {
+			t.Fatalf("valid digest did not reach validation: %v\n%s", err, output)
+		}
+
+		if status != "0" {
+			var exit *exec.ExitError
+			if !errors.As(err, &exit) || exit.ExitCode() != 17 {
+				t.Fatalf("engine failure lost its status: %v\n%s", err, output)
+			}
+
+			if _, statErr := os.Stat(filepath.Join(control.Dir, "dist")); !os.IsNotExist(statErr) {
+				t.Fatal("rejected handoff was copied")
+			}
+
+			continue
+		}
+
+		if err != nil {
+			t.Fatalf("valid handoff was refused: %v\n%s", err, output)
+		}
+
+		if _, statErr := os.Stat(filepath.Join(control.Dir, "dist")); statErr != nil {
+			t.Fatal(statErr)
+		}
 	}
 }
 

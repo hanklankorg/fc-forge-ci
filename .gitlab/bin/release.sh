@@ -199,14 +199,16 @@ rc_build_handoff() {
 
 rc_read_handoff() {
 	local directory=$1 digest
-	rc_require_regular_file "${directory}/digest"
-	digest=$(<"${directory}/digest")
-	[[ "${digest}" =~ ^[0-9a-f]{64}$ ]]
-	rc_engine release validate-dist --dist-dir "${directory}/dist" --expected-digest "${digest}" --manifest-root .
+	rc_require_regular_file "${directory}/digest" || return 1
+	digest=$(<"${directory}/digest") || return 1
+	# A conditional caller disables Bash errexit inside this function. Each
+	# failed validation must return before the handoff can be copied or exposed.
+	[[ "${digest}" =~ ^[0-9a-f]{64}$ ]] || return 1
+	rc_engine release validate-dist --dist-dir "${directory}/dist" --expected-digest "${digest}" --manifest-root . || return
 	# Preserve the manifest's dist/... paths in a private checkout, not in the
 	# runner's artifact extraction directory. Consumer files cannot preseed it.
-	rc_require_absent dist
-	cp -R -- "${directory}/dist" dist
+	rc_require_absent dist || return 1
+	cp -R -- "${directory}/dist" dist || return
 	export DIST_DIR=dist RELEASE_FILES_MANIFEST=dist/release-files.json
 }
 
