@@ -30,6 +30,7 @@ then the environment variables listed per flag, then the flag default.
 - [`config validate`](#forge-ci-config-validate) — validate .forge-ci/artifacts.yml against the schema
 - [`container login`](#forge-ci-container-login) — store container registry credentials (podman, buildah, cosign)
 - [`doctor`](#forge-ci-doctor) — check that a repository is configured correctly for forge-ci
+- [`init`](#forge-ci-init) — write a repository's first Forge CI files from an example
 - [`platform checkout`](#forge-ci-platform-checkout) — check out a repository without persisting credentials
 - [`sbom assemble`](#forge-ci-sbom-assemble) — assemble the project's SBOM layer set after a build
 - [`version bump`](#forge-ci-version-bump) — update the recorded project version (pom.xml, package.json, …)
@@ -41,6 +42,7 @@ then the environment variables listed per flag, then the flag default.
 - [`config`](#forge-ci-config) — artifacts.yml schema helpers
 - [`container`](#forge-ci-container) — container-image helpers (name resolution, manifests, namespace policy, tag/label metadata, …)
 - [`doctor`](#forge-ci-doctor) — check that a repository is configured correctly for forge-ci
+- [`init`](#forge-ci-init) — write a repository's first Forge CI files from an example
 - [`lint`](#forge-ci-lint) — code-style lint wrappers (swift-format, swiftlint)
 - [`plan`](#forge-ci-plan) — typed release, snapshot-release, and pull-request plan composition
 - [`platform`](#forge-ci-platform) — CI-runtime git + workspace operations (check out a repo, resolve a ref, inspect the workspace)
@@ -1994,6 +1996,37 @@ Exit codes:
 | `--root` | repository root to inspect (default: cwd) | string | `""` | `$FORGE_CI_DOCTOR_ROOT` |
 | `--artifacts-file` | path to the artifacts.yml to inspect (default: <root>/.forge-ci/artifacts.yml) | string | `""` | `$FORGE_CI_DOCTOR_ARTIFACTS` |
 | `--forge-ci-repository` | owner/repo this binary belongs to, for the workflow-pin check (default: derived from the binary's own module path) | string | `""` | `$FORGE_CI_REPO_SLUG` |
+
+## `forge-ci init`
+
+write a repository's first Forge CI files from an example
+
+```
+Copies the example for the repository's ecosystem and forge into place,
+pinned to the newest release tag of the Forge CI repository the URL names.
+The examples and the values its operator records in .forge-ci/consumer-defaults.yml
+are read from that repository at that tag, so the files match the release
+they pin. github.com is GitHub; any other host is the forge that file
+names. Existing files are never overwritten. The report lists what is
+still left to fill in.
+
+EXAMPLES:
+   # GitHub, from the published Forge CI:
+   forge-ci init https://github.com/diggsweden/forge-ci
+
+   # Forgejo or GitLab, from your organization's mirror:
+   forge-ci init https://codefloe.com/itiquette/forge-ci
+
+   # Another directory, a chosen example and tag:
+   forge-ci init https://codefloe.com/itiquette/forge-ci ../hello --example go-service --ref v0.90.0
+```
+
+**Usage:** `forge-ci init <forge-ci URL> [directory]`
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--example` | example to start from, one of android-app, cargo-app, go-cli, go-service, gradle-app, maven-app, npm-app (default: from the repository's build files) | string | `""` | n/a |
+| `--ref` | release tag to pin (default: the newest vX.Y.Z tag of the Forge CI repository) | string | `""` | n/a |
 
 ## `forge-ci lint`
 

@@ -32,7 +32,9 @@ and the flow creates `vX.Y.Z` once: never push the final tag yourself.
 `forge-ci doctor` in a job shows what the detected forge supports.
 
 On a laptop, `go install github.com/diggsweden/forge-ci/cmd/forge-ci@v0.90.0`
-installs the CLI; `forge-ci doctor` then checks a repository's setup.
+installs the CLI. `forge-ci init <Forge CI URL>` writes a repository's first
+files for its forge and ecosystem, and `forge-ci doctor` then checks the
+setup.
 
 ### GitHub
 

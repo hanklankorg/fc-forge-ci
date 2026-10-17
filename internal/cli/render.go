@@ -43,7 +43,7 @@ func Render(root *cli.Command) string {
 	_, _ = fmt.Fprintln(&b)
 	renderFlags(&b, root.Flags)
 
-	// The commands a person runs by hand come first, the same six that lead
+	// The commands a person runs by hand come first, the same ones that lead
 	// `forge-ci --help`; everything else is what the workflows run.
 	_, _ = fmt.Fprintln(&b, "## Commands to run directly")
 	_, _ = fmt.Fprintln(&b)

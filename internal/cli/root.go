@@ -23,6 +23,7 @@ import (
 	cmdconfig "github.com/diggsweden/forge-ci/internal/cli/commands/config"
 	cmdcontainer "github.com/diggsweden/forge-ci/internal/cli/commands/container"
 	cmddoctor "github.com/diggsweden/forge-ci/internal/cli/commands/doctor"
+	cmdinit "github.com/diggsweden/forge-ci/internal/cli/commands/initcmd"
 	cmdlint "github.com/diggsweden/forge-ci/internal/cli/commands/lint"
 	cmdplan "github.com/diggsweden/forge-ci/internal/cli/commands/plan"
 	cmdplatform "github.com/diggsweden/forge-ci/internal/cli/commands/platform"
@@ -400,6 +401,7 @@ func newRoot(info BuildInfo, versionString string) *cli.Command {
 			cmdconfig.New(),
 			cmdcontainer.New(),
 			cmddoctor.New(),
+			cmdinit.New(),
 			cmdplan.New(),
 			cmdpublish.New(),
 			cmdrelease.New(),
@@ -427,6 +429,7 @@ var porcelainCommands = []struct {
 	{"config validate", "validate .forge-ci/artifacts.yml against the schema"},
 	{"container login", "store container registry credentials (podman, buildah, cosign)"},
 	{"doctor", "check that a repository is configured correctly for forge-ci"},
+	{"init", "write a repository's first Forge CI files from an example"},
 	{"platform checkout", "check out a repository without persisting credentials"},
 	{"sbom assemble", "assemble the project's SBOM layer set after a build"},
 	{"version bump", "update the recorded project version (pom.xml, package.json, …)"},

@@ -37,6 +37,7 @@ func TestEveryCommandGroupHasALiveDisposition(t *testing.T) {
 		"config":    {gap: "DEFERRED: config validation reaches domain/build and provider-backed summary types; no config CLI conformance invocation"},
 		"container": {scenario: "TestLedger_Cleanup_RemovesTheCandidateAndKeepsTheRelease"},
 		"doctor":    {scenario: "TestJSON_DoctorReport_HasTheSameShapeOnEveryForge"},
+		"initcmd":   {gap: "DEFERRED: init reads a mirror anonymously over git and writes local files; unit tests cover it against the repository's own examples, no forge API is involved"},
 		"lint":      {gap: "DEFERRED: the Git adapter reaches runcontext; no lint CLI conformance invocation, and native linter parity is not established"},
 		"plan":      {gap: "DEFERRED: pipeline planning reaches provider-backed domain types; no plan CLI conformance invocation"},
 		"platform":  {scenario: "TestCheckout_ProducesAWorkingTreeAtTheRequestedRef"},

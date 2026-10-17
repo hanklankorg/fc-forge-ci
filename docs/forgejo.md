@@ -161,6 +161,21 @@ without a commit. Neither is a trust input, since the clone must be exactly
 
 ### Quick start
 
+The organization's mirror can make `forge-ci init <mirror URL>` write a
+consumer's files with every pin filled in. The operator commits
+`.forge-ci/consumer-defaults.yml` to the mirror; init reads it at the release
+tag it pins, never from a branch, and refuses unknown keys:
+
+```yaml
+forge: forgejo                       # required outside github.com
+signer-image: <host>/<owner>/forge-ci-signer@sha256:<digest>
+cosign-public-key-sha256: <sha256 of the public key>
+```
+
+A key left out leaves its placeholder, and init lists it. Consumers then run
+`forge-ci init https://<host>/<owner>/forge-ci` in their repository; by hand,
+the steps are these.
+
 1. **Copy the two examples** of your ecosystem, `pullrequest.yml` and
    `release.yml` from `examples/<ecosystem>/forgejo/` (see the
    [examples index](../examples/README.md)), at the commit you will pin, into

@@ -75,6 +75,22 @@ runs from. **Each consumer, per project:** the merge-request gate in its
 `.gitlab-ci.yml`, its `nanolinter.toml`, its project settings and the
 protected variables (steps 3 to 6).
 
+The organization's mirror can make `forge-ci init <mirror URL>` write a
+consumer's files with every pin filled in. The operator commits
+`.forge-ci/consumer-defaults.yml` to the mirror; init reads it at the release
+tag it pins, never from a branch, and refuses unknown keys:
+
+```yaml
+forge: gitlab                       # required outside github.com
+check-image: <registry>/<image>@sha256:<digest>   # the check component's job image
+nanolinter-images:                                # by flavour, digest-pinned
+  go: ghcr.io/itiquette/nanolinter:go@sha256:<digest>
+```
+
+A key left out leaves its placeholder, and init lists it. Consumers then run
+`forge-ci init https://<host>/<owner>/forge-ci` in their repository; by hand,
+the steps are these.
+
 1. **Host the components.** Put this repository on your instance (see
    [Forks](#forks)), and choose and authenticate the engine commit you will pin.
 2. **Publish the engine binary** for that commit; see

@@ -19,7 +19,7 @@ import (
 // change to this list rather than something the tests absorb.
 func publicGroups() []string {
 	return []string{
-		"artifact", "build", "config", "container", "doctor", "lint", "plan", "platform",
+		"artifact", "build", "config", "container", "doctor", "init", "lint", "plan", "platform",
 		"publish", "release", "report", "sbom", "security", "toolchain", "validate", "version",
 	}
 }
@@ -130,8 +130,8 @@ func TestRender_DirectCommandsLeadAndLinkToTheirHeadings(t *testing.T) {
 	}
 
 	entries := regexp.MustCompile("(?m)^- \\[`([^`]+)`\\]\\(#([^)]*)\\) ").FindAllStringSubmatch(body[direct:groups], -1)
-	if len(entries) != 6 {
-		t.Fatalf("direct-use entries = %d, want the six of forge-ci --help", len(entries))
+	if len(entries) != 7 {
+		t.Fatalf("direct-use entries = %d, want the seven of forge-ci --help", len(entries))
 	}
 
 	for _, match := range entries {

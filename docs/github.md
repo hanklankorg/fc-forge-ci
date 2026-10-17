@@ -54,6 +54,12 @@ see the [Artifacts Reference](artifacts-reference.md).
 
 ## Getting started
 
+`forge-ci init https://github.com/diggsweden/forge-ci` in the repository does
+steps 1 to 3 for the example its build files imply (`--example` picks
+another): it writes the workflows, `.forge-ci/artifacts.yml` and
+`nanolinter.toml`, pinned to the newest release, and never overwrites a
+file. By hand:
+
 1. **Pick an example** from [`examples/`](../examples/README.md) for your
    ecosystem, and a signing backend from
    [`examples/signing/`](../examples/signing/).

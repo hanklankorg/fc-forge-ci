@@ -19,7 +19,8 @@ func TestDomainPlatformBranchingIsConfinedToPresentation(t *testing.T) {
 
 	// repo-relative path -> why the forge-specific branching is acceptable here.
 	allowed := map[string]string{
-		"internal/domain/summary/urls.go": "run/commit URL shapes differ per forge",
+		"internal/domain/summary/urls.go":        "run/commit URL shapes differ per forge",
+		"internal/domain/consumerinit/layout.go": "a consumer's file layout and an example's placeholder tokens differ per forge",
 	}
 
 	branches := []string{
