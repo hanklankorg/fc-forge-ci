@@ -227,6 +227,31 @@ what found GitLab's missing delete-then-create on re-release, the registry
 adapter reporting permanent failures as retryable, and that Forgejo drops
 untagged manifests while GitLab keeps them.
 
+#### Operator card
+
+The four commands an operator types, in order; the sections below say what
+each one needs and what it leaves behind.
+
+```bash
+# In Forge Lab: providers, fixtures, runners and the forgeci contract.
+just lab --account forgeci --fixtures --runners gitlab forgejo
+# Here: the contract and CA check alone, in seconds, before anything heavier.
+just test-live-preflight full
+# A consumer's own workflow against this checkout, both visibilities.
+just test-live-consumer /absolute/consumer pull-request CI_JOB_IMAGE=<digest reference>
+# A kept demo: make one, see what exists, delete one when done with.
+just demo forgejo hello-maven version=0.2.0 CI_JOB_IMAGE=<reference>
+just demo-list forgejo
+just demo-delete forgejo hello-maven
+```
+
+Before any launch, check that no other live run holds the lock and no
+`run-live-tests.sh` or `forge-labctl release run` process exists; two runs on
+one lab account clobber each other, and the full-release wrapper swaps the
+runner. [Running it](#running-it) prepares the lab, [Trying a
+consumer](#trying-a-consumer) explains the trial, [Showing a
+consumer](#showing-a-consumer) the demo.
+
 #### Running it
 
 The tier needs one input: a neutral live-target contract, version 4, for this
