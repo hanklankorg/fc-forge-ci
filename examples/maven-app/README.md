@@ -63,6 +63,7 @@ See [github/pullrequest-workflow.yml](github/pullrequest-workflow.yml).
    ```bash
    mkdir -p .github/workflows .forge-ci
    cp examples/maven-app/artifacts.yml .forge-ci/
+   cp examples/maven-app/nanolinter.toml .
    cp examples/maven-app/github/pullrequest-workflow.yml .github/workflows/
    cp examples/maven-app/github/release-workflow.yml .github/workflows/
    ```

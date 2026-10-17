@@ -164,7 +164,10 @@ without a commit. Neither is a trust input, since the clone must be exactly
 1. **Copy the two examples** of your ecosystem, `pullrequest.yml` and
    `release.yml` from `examples/<ecosystem>/forgejo/` (see the
    [examples index](../examples/README.md)), at the commit you will pin, into
-   a draft directory outside `.forgejo/workflows/`.
+   a draft directory outside `.forgejo/workflows/`. Copy the example's
+   `nanolinter.toml` to the repository root: the pull-request workflow's lint
+   job runs `nanolinter verify` against it and requires at least the
+   `required-lints` floor, default `secrets,sast`.
 2. **Replace the placeholders**: `FORGE_HOST`, `OWNER`, `PIN_FORGE_CI_SHA`,
    `PIN_SIGNER_IMAGE_DIGEST` and `PIN_COSIGN_PUBLIC_KEY_SHA256`. The header of
    `release.yml` says what each one is.

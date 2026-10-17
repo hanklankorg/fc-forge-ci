@@ -16,8 +16,9 @@ Complete working examples for different project types.
 ## Available Examples
 
 One directory per ecosystem, shared by all three forges. Each holds the
-forge-neutral `artifacts.yml`, a README with a short "Per forge" list, and a
-subdirectory per forge that builds it: `github/` with the caller workflows,
+forge-neutral `artifacts.yml`, a `nanolinter.toml` verify plan for the lint
+gate, a README with a short "Per forge" list, and a subdirectory per forge
+that builds it: `github/` with the caller workflows,
 `gitlab/.gitlab-ci.yml`, and `forgejo/pullrequest.yml` with
 `forgejo/release.yml`. A forge without a directory cannot build that
 ecosystem; [Delivery layers side by side](../docs/providers.md#delivery-layers-side-by-side)
@@ -28,7 +29,7 @@ has the capability table.
 | [Go CLI](go-cli/): standalone binaries, cross-compiled per platform | [workflows](go-cli/github/) | [pipeline](go-cli/gitlab/.gitlab-ci.yml) | [workflows](go-cli/forgejo/) |
 | [Go Service](go-service/): a multi-arch container, compiled in the Containerfile (Pattern B) | [workflows](go-service/github/) | [pipeline](go-service/gitlab/.gitlab-ci.yml) | [workflows](go-service/forgejo/) |
 | [Rust Application](cargo-app/): a Cargo workspace shipped as containers, with the private-registry build-secrets pattern | [workflows](cargo-app/github/) | [pipeline](cargo-app/gitlab/.gitlab-ci.yml) | [workflows](cargo-app/forgejo/) |
-| [Maven Application](maven-app/): a Java service shipped as a multi-platform container (Pattern A) | [workflows](maven-app/github/) | [pipeline](maven-app/gitlab/.gitlab-ci.yml) | not available |
+| [Maven Application](maven-app/): a Java service shipped as a multi-platform container (Pattern A) | [workflows](maven-app/github/) | [pipeline](maven-app/gitlab/.gitlab-ci.yml) | [workflows](maven-app/forgejo/) |
 | [Gradle JVM](gradle-app/): a JVM-only Gradle build | [workflows](gradle-app/github/) | [pipeline](gradle-app/gitlab/.gitlab-ci.yml) | not available |
 | [NPM Application](npm-app/): a Node service published as a package and shipped as a container (Pattern A) | [workflows](npm-app/github/) | [pipeline](npm-app/gitlab/.gitlab-ci.yml) | not available |
 | [Android Application](android-app/): APK and AAB with product flavors, optional Google Play upload | [workflows](android-app/github/) | [pipeline](android-app/gitlab/.gitlab-ci.yml) | not available |
@@ -72,6 +73,8 @@ with a Cosign key pair of the organization; see their guides.
    ```bash
    # The artifacts configuration, when your forge reads one
    cp examples/maven-app/artifacts.yml /path/to/your/project/.forge-ci/
+   # The lint plan every forge's pull-request gate runs
+   cp examples/maven-app/nanolinter.toml /path/to/your/project/
 
    # GitHub
    cp examples/maven-app/github/*.yml /path/to/your/project/.github/workflows/
@@ -86,6 +89,8 @@ with a Cosign key pair of the organization; see their guides.
    - Review artifact config versions and paths
    - Verify paths (working-directory, container-file)
    - Replace every placeholder and `FIXME` the file's header lists
+   - Extend `nanolinter.toml` as you like; the gate's `required-lints` floor
+     (default `secrets,sast`) runs and blocks whatever the plan says
 
 4. **Configure release secrets:**
    Follow the [secrets and permissions reference](../docs/reference.md) and

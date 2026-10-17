@@ -59,8 +59,11 @@ see the [Artifacts Reference](artifacts-reference.md).
    [`examples/signing/`](../examples/signing/).
 2. **Copy** its `github/pullrequest-workflow.yml` and
    `github/release-workflow.yml` (and `github/release-snapshot-workflow.yml`
-   if you want branch snapshots) into `.github/workflows/`, and its
-   `artifacts.yml` into `.forge-ci/` when you need one.
+   if you want branch snapshots) into `.github/workflows/`, its
+   `nanolinter.toml` into the repository root, and its `artifacts.yml` into
+   `.forge-ci/` when you need one. The lint gate runs `nanolinter verify`
+   against `nanolinter.toml` and requires at least the `required-lints`
+   floor, default `secrets,sast`.
 3. **Pin the references.** `uses: ...@v0.90.0`, `forge-ci-binary-ref` and any
    `runtime-image*` override move together; see
    [Advanced Pinning Recipe](runtime-images.md#advanced-pinning-recipe).

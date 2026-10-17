@@ -58,6 +58,7 @@ See [github/pullrequest-workflow.yml](github/pullrequest-workflow.yml).
    ```bash
    mkdir -p .github/workflows .forge-ci
    cp examples/npm-app/artifacts.yml .forge-ci/
+   cp examples/npm-app/nanolinter.toml .
    cp examples/npm-app/github/pullrequest-workflow.yml .github/workflows/
    cp examples/npm-app/github/release-workflow.yml .github/workflows/
    ```

@@ -52,6 +52,7 @@ See [github/release-workflow.yml](github/release-workflow.yml). Uses the release
    ```bash
    mkdir -p .github/workflows .forge-ci
    cp examples/gradle-app/artifacts.yml .forge-ci/
+   cp examples/gradle-app/nanolinter.toml .
    cp examples/gradle-app/github/release-workflow.yml .github/workflows/
    cp examples/gradle-app/github/pullrequest-workflow.yml .github/workflows/
    ```

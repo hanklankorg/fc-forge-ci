@@ -94,6 +94,9 @@ own package registry.
            - just test-unit
    ```
 
+   Copy the example's `nanolinter.toml` to the consumer's repository root.
+   The lint component runs `nanolinter verify` against it and requires at
+   least the `required-lints` floor, default `secrets,sast`.
 4. **Configure the project** to require successful pipelines and refuse
    merging on skipped pipelines, and protect the target branch.
 5. **For releases**, create an independently controlled policy project that
