@@ -2,18 +2,11 @@
 
 ## Source checkout
 
-Use a reviewed checkout of the revision you want to build. The current
-[`go.mod`](../go.mod) replaces `codefloe.com/itiquette/forge-lab-contract` with
-a local directory until that module is published. The live suite and checks
-that load it need a reviewed contract checkout at the replacement path.
-If your directory layout differs, point the replacement at your local checkout:
-
-```bash
-go mod edit -replace=codefloe.com/itiquette/forge-lab-contract=/absolute/path/to/forge-lab-contract
-```
-
-Keep this machine-local path change out of commits. Install the CLI from the
-forge-ci checkout, and check that it runs:
+Use a reviewed checkout of the revision you want to build. [`go.mod`](../go.mod)
+requires only published modules, among them
+`codefloe.com/itiquette/forge-lab-contract`, so a checkout builds from the
+module proxy and needs no sibling directory or `replace` directive. Install the
+CLI from the forge-ci checkout, and check that it runs:
 
 ```bash
 go install ./cmd/forge-ci
@@ -22,13 +15,15 @@ forge-ci --version
 
 Your Go bin directory (normally `$(go env GOPATH)/bin`) must be on `PATH`. To
 install another reviewed source revision, check out that revision and run the
-same command.
+same command, or install a pushed commit or tag without a checkout:
 
-Go rejects version-suffixed `go install …@<ref>` for a module with this local
-replacement. Until a published contract version replaces it, use checkout
-installation. The upstream branch/SHA bootstrap path also uses versioned
-`go install`, so those plain-runner jobs cannot install such revisions;
-overriding a runtime image does not change their installation path.
+```bash
+go install github.com/diggsweden/forge-ci/cmd/forge-ci@<ref>
+```
+
+The bootstrap installer takes the same path for a branch or SHA
+`forge-ci-binary-ref`; release tags install the signed archive instead. See
+[CLI binary channels](runtime-images.md#cli-binary-channels).
 
 ## Prerequisites - Linux
 
@@ -442,10 +437,9 @@ an explicit `@<ref>`.
 
 Manual merged-image publication requires the configured prerelease branch;
 `publish=true` on another branch does not establish that the required tags were
-published. The current local contract-module replacement also affects producer
-builds and source installation. Resolve those prerequisites and confirm the
-published images before selecting consumer pins. Commit refs select source;
-image digests select exact content. The linked guide describes both boundaries.
+published. Confirm the published images before selecting consumer pins. Commit
+refs select source; image digests select exact content. The linked guide
+describes both boundaries.
 
 ## Forks and Other Branches
 

@@ -18,8 +18,9 @@ signing, SLSA provenance and pinned third-party actions yourself.
   `.forge-ci/artifacts.yml` only when you need more.
 
 The first planned release is **0.90.0**, and it is not published yet. The
-`@v0.90.0` pins in the docs are forward-looking; until the tag and its runtime
-images exist, test from a reviewed branch as described in
+`@v0.90.0` pins in the docs are forward-looking; consumers wait for the tag
+and its runtime images, and maintainers test unreleased changes with the
+pre-release branch's `sha-*` images as described in
 [Runtime Images](docs/runtime-images.md#branch-testing).
 [Project Reference](docs/project.md) has names, versioning and release
 readiness.

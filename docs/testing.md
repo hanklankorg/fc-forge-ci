@@ -740,8 +740,7 @@ just test-live-consumer /absolute/nanolinter-clone release RELEASE_PLATFORMS=lin
 The layer is served from `HEAD`. After a change to Go source, `go.mod` or
 `go.sum`, run `just refresh-forgejo-binary` and commit before a trial; it
 refuses a checksum that is not this tree's build and a `.forgejo/` that differs
-from `HEAD`. A clone elsewhere must keep `go.mod`'s relative `replace` of the
-contract module resolvable.
+from `HEAD`.
 
 Do not publish an image while a trial runs: a scenario that checks the owner's
 packages are unchanged then fails. The log's header records the checkout, the

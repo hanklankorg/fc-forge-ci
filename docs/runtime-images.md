@@ -11,8 +11,8 @@ execution tools. An image digest pins image content for a selected platform;
 it does not pin the runner environment or dependencies fetched during a job.
 
 > **Unpublished 0.90.0:** `@v0.90.0` and `:v0.90.0` examples below are prospective.
-> For branch testing, satisfy the producer prerequisites and confirm image
-> publication before selecting reviewed workflow, binary and image refs. See
+> Consumers wait for the tag and its images. Maintainers test unreleased
+> changes with the `sha-*` images of the pre-release branch; see
 > [Branch Testing](#branch-testing).
 
 ## Image roster
@@ -228,26 +228,21 @@ Renovate-driven bumps in the consumer repo + the workflow ref bump
 
 ## Branch Testing
 
-Current source prerequisites apply to both installation and image production:
-
-- The upstream branch/SHA `go install` path cannot install revisions containing
-  the local `forge-lab-contract` replacement.
-- The GoReleaser configuration used by `build-cli.yml` and `release-binary.yml`
-  runs `go mod tidy`. That hook also needs the reviewed contract checkout at the
-  replacement path. The shipped producer workflows do not provision it, so a
-  fresh checkout cannot complete the hook until the dependency is supplied or
-  the local replacement is replaced by a published module.
-
-See [Source checkout](DEVELOPMENT.md#source-checkout). The procedure below
-assumes those producer prerequisites have been resolved; an image override
-alone does not resolve them.
+Consumers wait for the `v0.90.0` tag: its publication produces the runtime
+images and the release CLI that the `@v0.90.0` pins in the examples name.
+Maintainers test unreleased workflow changes with the `sha-<short-commit>`
+runtime images that the `Self Runtime Container` workflow
+(`.github/workflows/self-runtime-container.yml`) publishes for every push to
+the configured `FORGE_CI_PRERELEASE_BRANCH` (default `main`); see
+[Tag convention](#tag-convention). A workflow branch alone changes neither its
+runtime-image defaults nor the CLI the plain-runner jobs install.
 
 Testing unreleased forge-ci workflow changes from a consumer repository
 requires coordinated selections:
 
 1. A reviewed workflow commit (`uses: diggsweden/forge-ci/.github/workflows/...@<sha>`).
 2. Published runtime images for that revision and the required platforms.
-3. A matching CLI ref for plain-runner jobs, subject to the installation requirements above.
+3. A matching CLI ref for plain-runner jobs.
 
 For Linux containerized jobs, run `Self Runtime Container` with `publish=true`
 on the configured `FORGE_CI_PRERELEASE_BRANCH` (default `main`). Manual
@@ -278,10 +273,10 @@ jobs:
 The plain-runner jobs (container publish and macOS workflows) do not use the
 runtime image. They install the binary selected by `forge-ci-binary-ref`, so
 that value must point at the same forge-ci commit as the workflow and runtime
-images being tested. Branch/SHA refs use source installation and must satisfy
-the module restriction above. For installable revisions, commit SHAs avoid
-source-ref drift. The corresponding image labels can still be rewritten by a
-rerun; a digest is the content pin.
+images being tested. Branch/SHA refs use source installation
+(`go install …@<ref>` of a pushed commit; `go.mod` requires only published
+modules). Commit SHAs avoid source-ref drift. The corresponding image labels
+can still be rewritten by a rerun; a digest is the content pin.
 
 ## Testing consumer configuration
 
