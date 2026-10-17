@@ -54,14 +54,27 @@ See [Getting started](docs/github.md#getting-started) and the
 ### GitLab
 
 Include the components, hosted on your own instance, in `.gitlab-ci.yml`; the
-example's `gitlab/.gitlab-ci.yml` is the whole merge-request gate:
+example's `gitlab/.gitlab-ci.yml` is the merge-request gate, the lint
+component and the `check` component:
 
 ```yaml
 include:
   - component: gitlab.example.com/team/ci/forge-ci/nanolinter@0.90.0
     inputs:
-      engine-project: team/ci/forge-ci
+      forge-ci-repository: team/ci/forge-ci
+      nanolinter-image: "ghcr.io/itiquette/nanolinter:go@sha256:PIN_DIGEST"
+  - component: gitlab.example.com/team/ci/forge-ci/check@PIN_FORGE_CI_SHA
+    inputs:
+      forge-ci-repository: team/ci/forge-ci
+      job-image: registry.example.com/team/check-tools@sha256:PIN_IMAGE_DIGEST
+      commands:
+        - just test-unit
 ```
+
+Releases run from a separate, pinned policy project that includes the
+`release` component; once it is the project's CI configuration path, GitLab
+runs it instead of `.gitlab-ci.yml` and the policy includes this gate for
+merge requests.
 
 See [Getting started](docs/gitlab.md#getting-started) and the
 [examples](examples/README.md).

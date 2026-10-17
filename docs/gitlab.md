@@ -68,6 +68,13 @@ own package registry.
 
 ## Getting started
 
+Two roles share the work. **The organization, once:** host the components
+(steps 1 and 2), build the job, build and signer images, hold the Cosign key
+pair and the release bot's deploy key, and own the policy project a release
+runs from. **Each consumer, per project:** the merge-request gate in its
+`.gitlab-ci.yml`, its `nanolinter.toml`, its project settings and the
+protected variables (steps 3 to 6).
+
 1. **Host the components.** Put this repository on your instance (see
    [Forks](#forks)), and choose and authenticate the engine commit you will pin.
 2. **Publish the engine binary** for that commit; see
@@ -239,7 +246,9 @@ describes its contents and a manual `buildah build`.
 The delivery binary has one build definition and one checksum, shared with
 Forgejo. The established paths remain `scripts/ci/forgejo-binary.sh` and
 `.forgejo/bin/forge-ci.sha256`; do not maintain a second GitLab build or
-checksum copy.
+checksum copy. The script is named for the layer it was written for first;
+its `build` and `refresh` know no forge, and `publish` uploads to GitLab when
+`FORGE_CI_PACKAGE_PROVIDER=gitlab`, as shown below.
 
 Checksum-bound check/release jobs use the **Linux/amd64** delivery binary.
 Select a compatible runner and job/signer image. This package coordinate does

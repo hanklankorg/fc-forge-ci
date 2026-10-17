@@ -222,6 +222,8 @@ func TestMegaLinterImageFailsClosedUnlessDigestPinned(t *testing.T) {
 // image to `forge-ci plan pr`, which derives the flavour from project-type;
 // the direct-call leaf workflow and the GitLab component know no project type,
 // so they default to the same core image the resolver uses for an unknown one.
+// The default stays a tag until the image is published and a served digest
+// can be reviewed; callers pin by digest, as the examples show.
 func TestNanolinterImageDefaultsFollowTheFlavourResolver(t *testing.T) {
 	t.Parallel()
 

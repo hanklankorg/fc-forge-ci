@@ -5,6 +5,15 @@ preserve immutable evidence, identify the last successful mutation, and rerun
 the same release request at the same commit. Never make a failed run appear to
 have succeeded by moving or force-replacing a tag.
 
+## Simple case
+
+If a release fails partway, re-run the failed jobs of that run. Do not delete
+the tag, the release or a published image: once the prepare job has pushed the
+final tag, the pipeline retries forward and converges. A release is never
+resumed from its final tag; if the prepare job itself fails after pushing
+`vX.Y.Z`, release the next patch version with a new request tag. The rest of
+this runbook is for a run whose failure is not that simple.
+
 ## 1. Freeze and inventory
 
 1. Stop automatic retries while the failure is classified.

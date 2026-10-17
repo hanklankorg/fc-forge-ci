@@ -429,8 +429,11 @@ pr` picks the flavour from `project-type`:
 
 The `nanolinter-image` input overrides the derived image verbatim, for example to
 pin `@sha256:` or use a mirror. A direct call of `lint-nanolinter.yml` knows no
-project type, so it defaults to `core`; pass the flavour for your ecosystem. A
-polyglot repository runs one lint job per ecosystem, each in its own flavour.
+project type, so it defaults to the `core` tag, as does the GitLab
+`nanolinter` component; pass the flavour for your ecosystem, pinned by digest as
+the examples show (Renovate's docker manager then moves tag and digest
+together). The defaults become digests once the images are published. A polyglot repository runs one lint job per
+ecosystem, each in its own flavour.
 
 **The same choice on each forge.** "Lint with nanolinter for my ecosystem" is
 said once per forge, in the place that forge has for it:

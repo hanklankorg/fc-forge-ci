@@ -81,6 +81,22 @@ see the [Artifacts Reference](artifacts-reference.md).
    The flow creates the final `v1.0.0` tag once, at the prepared branch head.
    Never create, move or force-push the final tag yourself.
 
+   `git tag -s` signs with your own key, the one `user.signingkey` names on
+   your machine: an SSH key with `gpg.format ssh`, or a GPG key. That key is
+   what the committed allowlist must list, `.forge-ci/allowed_signers` for
+   SSH or `.forge-ci/allowed_gpg_keys.asc` for GPG, with the principal you
+   sign as. It is distinct from the bot's `RELEASE_*` secrets, which sign the
+   release commit, the final tag and the artifacts after the request is
+   admitted. [Local Git signature setup](DEVELOPMENT.md#local-git-signature-setup)
+   says how to install and inspect signing keys locally.
+
+   If a release fails partway, re-run the failed jobs of that run. Do not
+   delete the tag, the release or a published image: once the prepare job has
+   pushed the final tag, the pipeline retries forward and converges. A release
+   is never resumed from its final tag; if the prepare job itself fails after
+   pushing `vX.Y.Z`, release the next patch version with a new request tag.
+   [Failed Release Recovery](failed-release-recovery.md) covers the rest.
+
 The [examples](../examples/README.md) show the caller workflows in full; the
 snapshot caller is under [Snapshots](#snapshots). `forge-ci doctor` in a job reports what the detected forge supports.
 
@@ -94,7 +110,7 @@ carries a description. The orchestrator inputs most callers set:
 | `project-type` | PR | `maven`, `npm`, `gradle`, `gradle-android`, `xcode-ios`, `cargo` or `go`; selects the nanolinter flavour. |
 | `lint-engine` | PR | `nanolinter` (default), `megalinter` or `none`. |
 | `required-lints` | PR | The mandated nanolinter floor, default `secrets,sast`. |
-| `nanolinter-image`, `megalinter-image` | PR | Override the derived nanolinter flavour; the MegaLinter image, required and digest-pinned. |
+| `nanolinter-image`, `megalinter-image` | PR | Override the derived nanolinter flavour; the MegaLinter image, required and digest-pinned. A direct call of `lint-nanolinter.yml` defaults to the `core` tag; pin your flavour by digest as the examples show. |
 | `branch` | release, snapshot | The branch to prepare and release from, or the snapshot branch. |
 | `artifacts-config` | release, snapshot | Path to `artifacts.yml`, default `.forge-ci/artifacts.yml`. |
 | `release-publisher` | release | `github-cli` creates the GitHub release; empty skips it. |
