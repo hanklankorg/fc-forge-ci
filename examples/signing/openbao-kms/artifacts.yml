@@ -2,7 +2,10 @@
 #
 # SPDX-License-Identifier: CC0-1.0
 
-# Example: Maven library signed via self-hosted OpenBao (Transit engine).
+# Example: release artifacts signed via self-hosted OpenBao (Transit engine).
+# What this example adds is the `sign:` block below; copy it into your
+# artifacts.yml. The artifact entry, a Maven library, is a placeholder: take
+# yours from your ecosystem example.
 #
 # `sign.method: kms` with a `hashivault://` URI tells cosign to send
 # the artefact hash to OpenBao's Transit endpoint. OpenBao signs

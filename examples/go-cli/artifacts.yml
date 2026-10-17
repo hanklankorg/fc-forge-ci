@@ -27,3 +27,10 @@ artifacts:
 # defaults to gpg, preserving the pre-cosign contract for existing repos.
 sign:
   method: sigstore
+
+# The release commit and tag are signed separately, with the bot's SSH key in
+# RELEASE_SSH_SIGNING_KEY; the request tag's signer is checked against the
+# committed .forge-ci/allowed_signers. This is the examples/signing/sigstore-keyless
+# setup: one secret and an allowlist.
+git-signing:
+  method: ssh

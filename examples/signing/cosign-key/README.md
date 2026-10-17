@@ -8,6 +8,12 @@ This example sets `sign.transparency: none`, so signing contacts no public
 Sigstore endpoint and writes nothing to the public Rekor log. A signature is
 verified against the public key alone.
 
+What this example adds is the `sign:` block of `artifacts.yml` and the
+`secrets:` and `cosign-public-key*` lines of `github/release-workflow.yml`:
+copy the block into your `.forge-ci/artifacts.yml` and the lines into your
+release workflow. The rest of both files is the [Go CLI](../../go-cli/)
+example.
+
 ## One-time setup
 
 ```bash

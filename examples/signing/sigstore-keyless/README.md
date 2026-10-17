@@ -15,11 +15,17 @@ Git-object signing.
 
 ## Files
 
+What this example adds is the `sign:` and `git-signing:` blocks of
+`artifacts.yml` and the `secrets:` lines of `github/release-workflow.yml`:
+copy the blocks into your `.forge-ci/artifacts.yml` and the lines into your
+release workflow. The rest of both files is the [Go CLI](../../go-cli/)
+example, which ships this setup.
+
 - `artifacts.yml` declares `sign.method: sigstore` and
   `git-signing.method: ssh`.
 - `github/release-workflow.yml` is the caller workflow with the required
   `id-token: write` permission so cosign can mint the runner-issued
-  OIDC token.
+  OIDC token, and `RELEASE_SSH_SIGNING_KEY` as its one signing secret.
 - `.forge-ci/allowed_signers.example` shows the OpenSSH allowed-signers
   format required to verify release commits and tags. Its bundled key is only a
   demonstration key and must be replaced.

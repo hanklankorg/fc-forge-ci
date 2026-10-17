@@ -2,24 +2,23 @@
 #
 # SPDX-License-Identifier: CC0-1.0
 
-# Example: Go CLI artifacts signed with Sigstore keyless.
+# Example: release artifacts signed with Sigstore keyless. What this example
+# adds is the `sign:` and `git-signing:` blocks below; copy them into your
+# artifacts.yml. The artifact entry is the one of examples/go-cli, a
+# placeholder: take yours from your ecosystem example.
 #
 # `sign.method: sigstore` tells `release sign` (and container image
-# signing) to use cosign with the runner's OIDC token. There is no
-# long-lived artifact-signing key to manage — Fulcio issues a 10-minute
-# certificate bound to the workflow identity for each release.
+# signing) to use cosign with the runner's OIDC token, which needs
+# `id-token: write` in the caller workflow. There is no long-lived
+# artifact-signing key: Fulcio issues a short-lived certificate bound to the
+# workflow identity for each release.
 #
 # Git commits and tags are a separate trust domain. This example selects
 # git-native SSH signing, which requires RELEASE_SSH_SIGNING_KEY and a matching
 # principal in .forge-ci/allowed_signers. forge-ci does not currently
 # support keyless Git-object signing.
 #
-# Requirements on the caller workflow:
-#   permissions:
-#     id-token: write   # required to request the OIDC token
-#     contents: write   # required to create the release
-#
-# See docs/verification.md#signing-methods-for-release-artefacts.
+# See docs/verification.md#signing-methods-for-release-artifacts.
 artifacts:
   - name: my-cli
     project-type: go

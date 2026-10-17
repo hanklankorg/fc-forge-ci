@@ -2,7 +2,10 @@
 #
 # SPDX-License-Identifier: CC0-1.0
 
-# Example: a Go CLI signed with a Cosign key pair held as secrets.
+# Example: release artifacts signed with a Cosign key pair held as secrets.
+# What this example adds is the `sign:` block below; copy it into your
+# artifacts.yml. The artifact entry is the one of examples/go-cli, a
+# placeholder: take yours from your ecosystem example.
 #
 # `sign.key: env://COSIGN_KEY` is the one environment reference the layer
 # accepts. The release workflow passes RELEASE_COSIGN_PRIVATE_KEY and

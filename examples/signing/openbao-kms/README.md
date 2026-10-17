@@ -66,6 +66,12 @@ EOF
 
 ## Files
 
+What this example adds is the `sign:` block of `artifacts.yml` and the
+`secrets:` lines and OpenBao wrapper of `github/release-workflow.yml`: copy
+the block into your `.forge-ci/artifacts.yml` and the lines into your release
+workflow. The artifact entry and the rest of the workflow are placeholders
+from the ecosystem examples.
+
 - `artifacts.yml` declares `sign.method: kms`, the
   `hashivault://transit/keys/release-signing` URI, and
   `sign.transparency: none`.

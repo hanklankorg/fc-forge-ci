@@ -17,14 +17,13 @@ jobs:
     permissions:
       contents: write
       packages: write
+      # id-token: write is required for Sigstore-keyless signing.
       id-token: write
       actions: read
     secrets:
       RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-      # GPG signs the release commit and tag (the git-signing default).
-      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
-      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
-      RELEASE_GPG_PUBLIC_KEY: ${{ secrets.RELEASE_GPG_PUBLIC_KEY }}
+      # Signs the release commit and tag (git-signing.method: ssh).
+      RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
     with:
       branch: main
       forge-ci-binary-ref: v0.90.0

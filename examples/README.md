@@ -47,9 +47,12 @@ that serves the layer, not for a consumer.
 ### By signing backend: [`signing/`](signing/)
 
 How a GitHub release is signed, independent of what is being released.
-Combine one with any ecosystem example above. Each holds `artifacts.yml`, a
-README and `github/release-workflow.yml`. The GitLab and Forgejo layers sign
-with a Cosign key pair of the organization; see their guides.
+Combine one with any ecosystem example above: what each adds is the `sign:`
+(and `git-signing:`) block of its `artifacts.yml` and the `secrets:` lines of
+its `github/release-workflow.yml`; its README says where they go, and the rest
+of both files is the Go CLI example, which ships the Sigstore keyless setup.
+The GitLab and Forgejo layers sign with a Cosign key pair of the organization;
+see their guides.
 
 - **[Sigstore keyless](signing/sigstore-keyless/)**: the recommended
   default on a keyless-capable forge: no secret management and no key on
