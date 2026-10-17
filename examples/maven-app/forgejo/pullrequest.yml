@@ -57,6 +57,9 @@ jobs:
     name: "Check: lint"
     runs-on: ${{ vars.CI_RUNNER_LABEL }}
     container:
+      # A nanolinter flavour image for your ecosystem, pinned by digest: the
+      # lint step runs the nanolinter it finds in the job image and installs
+      # nothing. The build job below runs in the same image.
       image: ${{ vars.CI_JOB_IMAGE }}
     timeout-minutes: 15
     steps:

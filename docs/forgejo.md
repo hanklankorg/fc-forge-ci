@@ -170,7 +170,12 @@ without a commit. Neither is a trust input, since the clone must be exactly
    `required-lints` floor, default `secrets,sast`.
 2. **Replace the placeholders**: `FORGE_HOST`, `OWNER`, `PIN_FORGE_CI_SHA`,
    `PIN_SIGNER_IMAGE_DIGEST` and `PIN_COSIGN_PUBLIC_KEY_SHA256`. The header of
-   `release.yml` says what each one is.
+   `release.yml` says what each one is. The tokens are the same in both files,
+   so one command fills them:
+
+   ```bash
+   sed -i 's|FORGE_HOST|forgejo.example.org|g; s|OWNER|myorg|g; s|PIN_FORGE_CI_SHA|<commit>|g; s|PIN_SIGNER_IMAGE_DIGEST|<digest>|g; s|PIN_COSIGN_PUBLIC_KEY_SHA256|<sha256>|g' pullrequest.yml release.yml
+   ```
 3. **Fill in every `FIXME`**: the bot identity and the name of your binary in
    `release.yml`, and in the Go service example the image title. For an
    ecosystem without an example, keep the hand-off the build job ends with.
@@ -294,6 +299,16 @@ names, which are not these.
 | `RELEASE_GPG_FINGERPRINT` | Fingerprint the imported OpenPGP key must have | The same package signatures. | no such secret |
 | `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE` | Cosign private key and its passphrase | Checksum, SBOM, provenance and image signatures and attestations. | no such secret: that layer signs keyless |
 | `RELEASE_REGISTRY_TOKEN` | Token that may write packages of the owner, or, for images on another registry, a token for that registry | Signing, promoting and cleaning up container images, and, in the signer-image workflow, pushing the signer image and uploading the layer's binary. A release without an image ledger does not need it. | no such secret |
+
+Four of these are needed by every release and the prepare workflow checks
+them by name before any checkout: `RELEASE_SSH_SIGNING_KEY`, `RELEASE_TOKEN`,
+`RELEASE_COSIGN_PRIVATE_KEY` and `RELEASE_COSIGN_PASSPHRASE`. The three
+`RELEASE_GPG_*` secrets are required only with `sign-distro-packages: 'true'`,
+and `RELEASE_REGISTRY_TOKEN` only with `publish-container-images: 'true'` or a
+release that publishes images. The examples hand all eight over, configured
+or not, so the workflow's own check is the one place that decides; an
+unconfigured secret arrives empty and is named only if an enabled feature
+needs it.
 
 Where both layers have a secret, the name is the same, so an organization on
 both forges configures one set of names.

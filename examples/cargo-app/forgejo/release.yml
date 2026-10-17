@@ -102,8 +102,13 @@ jobs:
       sign-distro-packages: 'false'
       publish-container-images: 'false'
     secrets:
-      # Keep the complete explicit hand-off in lockstep with the reusable
-      # workflow contract. Disabled feature groups may be unconfigured.
+      # Hand every contract secret over, configured or not. The workflow
+      # checks by name, before any checkout, the ones the enabled features
+      # need: RELEASE_SSH_SIGNING_KEY, RELEASE_TOKEN and the two RELEASE_COSIGN_*
+      # always, the three RELEASE_GPG_* with
+      # sign-distro-packages: 'true', RELEASE_REGISTRY_TOKEN with
+      # publish-container-images: 'true'. An unconfigured one arrives empty
+      # and is named if it is needed.
       RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
       RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
       RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
@@ -241,6 +246,8 @@ jobs:
       # to the public Sigstore transparency log. `transparency-log: public`
       # here writes every signature to it, permanently; see docs/forgejo.md.
     secrets:
+      # The same complete hand-off; the signer uses the GPG and registry
+      # secrets only for distro packages and images.
       RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
       RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
       RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
