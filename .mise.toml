@@ -37,7 +37,9 @@ go = "1.27.2"
 
 # Lint/security orchestrator — derives a verify plan from the repo and
 # runs the configured checks. See nanolinter.toml for the plan.
-"forgejo:itiquette/nanolinter" = "0.8.6"
+# Published binaries are Linux-only; on macOS/BSD build the pinned source
+# as described in docs/DEVELOPMENT.md instead of installing the source archive as a tool.
+"forgejo:itiquette/nanolinter" = { version = "0.8.6", os = ["linux"] }
 
 # Per-check tools nanolinter delegates to. Inline comments name the
 # nanolinter check ID each tool backs.
@@ -58,6 +60,8 @@ go = "1.27.2"
 "aqua:crate-ci/typos" = "1.50.1"
 "aqua:ossf/scorecard" = "5.5.0"                # security-scorecard
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.8.0"  # go-vulncheck
+"aqua:golangci/golangci-lint" = "2.14.0"         # go-golangci
+"go:github.com/bombsimon/wsl/v5/cmd/wsl" = "5.9.0" # go-wsl
 jq = "1.8.2"                                      # workflow/live-tier JSON utilities
 
 # Runtime dependency: SBOM generation and container-ledger signing invoke syft.
@@ -73,8 +77,9 @@ jq = "1.8.2"                                      # workflow/live-tier JSON util
 "aqua:astral-sh/uv" = "0.12.11"
 
 # Misc dev-loop utilities (not bound to a nanolinter check).
+"aqua:goreleaser/goreleaser" = "2.18.2"          # release-snapshot
 "aqua:sharkdp/fd" = "v10.5.0"
 "aqua:BurntSushi/ripgrep" = "15.2.0"
 "aqua:tldr-pages/tlrc" = "v1.13.1"
 yq = "4.53.6"
-"pipx:reuse" = "6.2.0"                        # license
+"pipx:reuse" = { version = "6.2.0", uvx = "true", extras = "charset-normalizer" } # license

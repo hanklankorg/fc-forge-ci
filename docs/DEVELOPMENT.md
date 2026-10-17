@@ -6,10 +6,11 @@ Use a reviewed checkout of the revision you want to build. [`go.mod`](../go.mod)
 requires only published modules, among them
 `codefloe.com/itiquette/forge-lab-contract`, so a checkout builds from the
 module proxy and needs no sibling directory or `replace` directive. Install the
-CLI from the forge-ci checkout, and check that it runs:
+CLI from the forge-ci checkout using the pinned toolchain, and check that it
+runs:
 
 ```bash
-go install ./cmd/forge-ci
+mise exec -- go install ./cmd/forge-ci
 forge-ci --version
 ```
 
@@ -51,21 +52,22 @@ The bootstrap installer takes the same path for a branch or SHA
    workflow/live-tier utilities:
 
    ```bash
-   mise install
+   just install-dev-tools
    ```
 
 4. Run quality checks:
 
    ```bash
-   just verify
+   mise exec -- just verify
    ```
 
 ## Prerequisites - macOS
 
-1. Install [mise](https://mise.jdx.dev/) (manages linting tools):
+1. Install host tools through [MacPorts](https://www.macports.org/):
 
    ```bash
-   brew install mise
+   sudo port install mise just bash coreutils findutils gsed flock libxml2
+   export PATH="/opt/local/bin:/opt/local/sbin:$HOME/.local/bin:$PATH"
    ```
 
 2. Activate mise in your shell:
@@ -82,24 +84,51 @@ The bootstrap installer takes the same path for a branch or SHA
    ```
 
    Then restart your terminal.
-3. Install newer bash than macOS default:
+3. Check that MacPorts Bash is selected ahead of macOS's older `/bin/bash`:
 
    ```bash
-   brew install bash
+   bash --version
    ```
 
 4. Install the pinned project tools, including the uv-backed REUSE checker and
    workflow/live-tier utilities:
 
    ```bash
-   mise install
+   mise trust
+   just install-dev-tools
    ```
 
-5. Run quality checks:
+5. Nanolinter's pinned release currently supplies Linux binaries only. Build
+   the pinned revision from a Nanolinter source checkout, following the native
+   source-build steps in its `docs/modules/ROOT/pages/install.adoc`, and place
+   it on `PATH`. Check `nanolinter --version` names that revision: a
+   development build of another revision is not the pinned plan. Mise
+   excludes its Linux-only release here instead of accepting a source archive
+   with no executable.
+6. Run native checks with the pinned tools:
 
    ```bash
-   just verify
+   mise exec -- just doctor
+   mise exec -- just test-unit
    ```
+
+The unit suite's inert Linux shell fixtures require GNU coreutils/findutils,
+GNU sed and `flock`. Their private command paths expose the selected real GNU
+tools, including MacPorts' prefixed commands, without replacing native tools
+for other tests. Keep the normal macOS utility path for native Go tests so
+GNU tools do not hide portability defects. `xmllint` comes from `libxml2`.
+Install success or a focused test is not a passing `just verify`.
+
+`lint`, `lint-go` and `lint-go-golangci` also check the Linux build on a
+non-Linux host, so platform-specific imports still reach depguard. The semantic
+environment guard inspects Linux and the native build through compiler metadata.
+Neither operation executes cross-compiled code; native runtime checks remain
+separate.
+
+Container and VM runtime evidence must match the execution host: run AMD64
+jobs on AMD64 hosts, and ARM64 jobs on ARM64 hosts, including this Mac.
+Cross-compilation is separate from execution. Linux-only integration requires
+a native Linux environment; the companion's strict profile is a Linux gate.
 
 ## Available Commands
 
@@ -112,6 +141,10 @@ workflow-contract, smoke/fuzz and companion strict gates; see
 [Testing conventions](testing.md) for the scope and full live prerequisites.
 `just lint-fix` formats the justfile and runs nanolinter's supported fixers.
 
+`just release-snapshot` validates the GoReleaser configuration and produces
+unsigned local archives, SBOMs and checksums. Snapshot mode disables publication;
+the recipe also explicitly disables signing, which snapshot mode alone does not.
+
 `just clean` removes `bin/` and `dist/` before asking whether to clear caches.
 Declining keeps the caches only. `clean-caches` clears the configured Go
 module/build/test/fuzz caches, shared across checkouts by default, and the
@@ -121,7 +154,11 @@ each other's diagnostic paths. `GOLANGCI_LINT_CACHE` overrides the location.
 
 ## Local verification tools
 
-Project contributors get the repository's pinned toolchain with `mise install`.
+Project contributors get the repository's pinned toolchain with
+`just install-dev-tools`, which installs Go before Go-based check tools.
+Use `mise exec -- just ...` when mise is not activated in the shell. The pins
+include golangci-lint, WSL, GoReleaser and REUSE's charset detector; tool health
+must not depend on another checkout having installed them.
 For ad-hoc verification outside that toolchain, mise's aqua backend can install
 the portable release verifiers:
 
@@ -350,7 +387,8 @@ Pipeline-level determinism is documented in `docs/verification.md#deterministic-
 When changing workflows or workflow-facing binary behavior:
 
 1. Keep public workflow contracts stable unless the change is explicitly versioned.
-2. Follow `docs/workflow-design-policy.md` for workflow structure and binary command rules.
+2. Follow `docs/workflow-design-policy.md` for workflow structure and binary
+   command rules.
 3. Run `actionlint .github/workflows/*.yml`.
 4. Parse workflow YAML and check reusable-workflow input compatibility.
 5. Run `bash -n` for touched bootstrap scripts.

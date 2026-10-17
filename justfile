@@ -30,6 +30,8 @@ bin := "./bin"
 dist := "./dist"
 executable := "forge-ci"
 tool_args_help := 'Extra arguments forwarded to nanolinter; use its --help for options'
+# mise installs nanolinter's Linux release only; elsewhere it is built from source.
+nanolinter_hint := 'Install: just install-dev-tools; on macOS/BSD build it from source as docs/DEVELOPMENT.md describes'
 
 # Dynamic build metadata. Mirrors .goreleaser.yml's ldflags so local builds
 # report the same `--version` shape as released binaries. Backtick failures
@@ -62,13 +64,14 @@ default:
 # ▪ Install the pinned development tools; network
 [group('setup')]
 install-dev-tools: (_job "install-dev-tools" "tools=.mise.toml; scope=user installation; network=allowed")
-    @mise install
+    @mise install go aqua:astral-sh/uv
+    @mise exec --no-deps go aqua:astral-sh/uv -- mise install
 
 # Lists the checks in nanolinter's verify plan, the tool each one needs,
 # and whether that tool is installed.
 [doc('Show the lint plan and its tools')]
 [group('setup')]
-doctor: (_require-tool "nanolinter" "Install: mise install  (pinned in .mise.toml)")
+doctor: (_require-tool "nanolinter" nanolinter_hint)
     @nanolinter doctor
 
 # ==================================================================================== #
@@ -78,19 +81,19 @@ doctor: (_require-tool "nanolinter" "Install: mise install  (pinned in .mise.tom
 # The hook runs `nanolinter verify --staged-with-stash`.
 [doc('▪ Install the nanolinter pre-commit hook')]
 [group('hook')]
-hook-install: (_require-tool "nanolinter" "Install: mise install")
+hook-install: (_require-tool "nanolinter" nanolinter_hint)
     @nanolinter hook install
 
 # Covers both the local and the global hook.
 [doc('Show whether the pre-commit hook is installed')]
 [group('hook')]
-hook-status: (_require-tool "nanolinter" "Install: mise install")
+hook-status: (_require-tool "nanolinter" nanolinter_hint)
     @nanolinter hook status
 
 # Refuses when the installed hook is not nanolinter's.
 [doc('Remove the nanolinter pre-commit hook')]
 [group('hook')]
-hook-uninstall: (_require-tool "nanolinter" "Install: mise install")
+hook-uninstall: (_require-tool "nanolinter" nanolinter_hint)
     @nanolinter hook remove
 
 # ==================================================================================== #
@@ -180,21 +183,10 @@ test-unit *args: (_job "test-unit" "suite=untagged unit + local fixtures; execut
 [arg('args', help='Arguments passed literally to integration-tagged go test, for example -v or -run TestReleaseImages')]
 [doc('Test (skips shown); container, network')]
 [group('test')]
-test-integration *args: (_job "test-integration" "suites=unit + integration; execution=native plus tool/container fixtures; network=allowed")
-    #!/usr/bin/env bash
-    set -uo pipefail
-    printf 'Integration profile: %s (default reports missing evidence; strict rejects it)\n' "${FORGE_CI_TEST_PROFILE:-default}" >&2
-    mkdir -p {{ bin }}
-    rm -f {{ bin }}/not-proven.txt
-    FORGE_CI_TEST_NOT_PROVEN_FILE={{ quote(absolute_path(bin / "not-proven.txt")) }} \
-        go test -shuffle=on -tags=integration -count=1 -race -buildvcs=false "$@" ./...
-    status=$?
-    if [[ -s {{ bin }}/not-proven.txt ]]; then
-        printf '\n'
-        cat {{ bin }}/not-proven.txt
-        printf 'Run `just test-integration-strict` to make these an error.\n'
-    fi
-    exit "$status"
+test-integration *args: (_job "test-integration" "suites=unit + integration; execution=native plus tool/container fixtures; network=allowed") (_require-tool "gpg" "Install GnuPG 2 with your package manager; on macOS: sudo port install gnupg2")
+    @printf 'Integration profile: %s (default reports missing evidence; strict rejects it)\n' "${FORGE_CI_TEST_PROFILE:-default}" >&2
+    @"{{ just_executable() }}" --justfile "{{ justfile() }}" _go-test-not-proven 'Run `just test-integration-strict` to make these an error.' \
+        -shuffle=on -tags=integration -count=1 -race -buildvcs=false "$@" ./...
 
 # The gate shape of the tier above: a missing tool is an error rather than a
 # tallied skip, because a gate that may skip its evidence is not a gate. The
@@ -202,7 +194,7 @@ test-integration *args: (_job "test-integration" "suites=unit + integration; exe
 # line has to become a failure, or before cutting a release.
 [doc('Test without skips; container, network')]
 [group('test')]
-test-integration-strict: (_job "test-integration-strict" "suites=unit + integration; execution=native plus tool/container fixtures; profile=strict; missing evidence=error; network=allowed")
+test-integration-strict: (_job "test-integration-strict" "suites=unit + integration; execution=native plus tool/container fixtures; profile=strict; missing evidence=error; network=allowed") (_require-tool "gpg" "Install GnuPG 2 with your package manager; on macOS: sudo port install gnupg2")
     @FORGE_CI_TEST_PROFILE=strict go test -shuffle=on -tags=integration -count=1 -race -buildvcs=false ./...
 
 # Builds the forge-ci binary and exercises it as a black box. Reach for it
@@ -223,14 +215,21 @@ test-smoke *args: (_job "test-smoke" "suite=CLI black-box smoke; execution=nativ
 #
 # Vet rather than test: this answers "does it still build", in seconds, without a
 # forge or a gpg keyring. The tiers themselves stay separate because they need
-# those things.
+# those things. On a non-Linux host the Linux reference build is vetted too, so
+# Linux-only test files still compile there; nothing cross-built is executed.
 [doc('Compile every build-tagged tier')]
 [group('test')]
-test-tags-compile: (_job "test-tags-compile" "operation=vet; tags=integration,smoke,live; execution=compile-only")
+test-tags-compile: (_job "test-tags-compile" "operation=vet; tags=integration,smoke,live; targets=host + Linux reference; execution=compile-only")
     @for tag in integration smoke live; do \
         printf 'vet -tags %s\n' "$tag"; \
         go vet -tags "$tag" ./... || exit 1; \
     done
+    @if [[ "$(go env GOOS)" != linux ]]; then \
+        for tag in "" integration smoke live; do \
+            printf 'vet GOOS=linux -tags %s\n' "${tag:-(none)}"; \
+            GOOS=linux go vet -tags "$tag" ./... || exit 1; \
+        done; \
+    fi
 
 # CI-safe: replays the committed seed corpora only. This is the regression
 # half of fuzzing, so by design it finds nothing new -- it keeps past
@@ -328,7 +327,7 @@ test-coverage: (_job "test-coverage" ("suites=unit + integration; outputs=" + bi
 [arg('args', help=tool_args_help)]
 [doc('▪ Run the full lint suite; network')]
 [group('lint')]
-lint *args: (_require-tool "nanolinter" "Install: mise install")
+lint *args: (_require-tool "nanolinter" nanolinter_hint) _lint-linux-platform
     @"{{ just_executable() }}" --justfile "{{ justfile() }}" --fmt --check
     @nanolinter verify "$@"
 
@@ -336,7 +335,7 @@ lint *args: (_require-tool "nanolinter" "Install: mise install")
 [arg('args', help=tool_args_help)]
 [doc('Run the Go lint suite')]
 [group('lint')]
-lint-go *args:
+lint-go *args: _lint-linux-platform
     @nanolinter lint go "$@"
 
 # Individual Go checks (each is also part of the umbrella above).
@@ -356,8 +355,17 @@ lint-go-staticcheck *args:
 # Run golangci-lint
 [arg('args', help=tool_args_help)]
 [group('lint')]
-lint-go-golangci *args:
+lint-go-golangci *args: _lint-linux-platform
     @nanolinter lint go-golangci "$@"
+
+# The reference platform's build-tagged files must not disappear from depguard
+# when a contributor lints on macOS/BSD. This is analysis, not guest execution.
+[private]
+_lint-linux-platform:
+    @if [[ "$(go env GOOS)" != linux ]]; then \
+        "{{ just_executable() }}" --justfile "{{ justfile() }}" _require-tool golangci-lint "Install: just install-dev-tools"; \
+        GOOS=linux nanolinter lint go-golangci; \
+    fi
 
 # Check Go whitespace
 [arg('args', help=tool_args_help)]
@@ -467,7 +475,7 @@ lint-yaml *args:
 [arg('args', help=tool_args_help)]
 [doc('▪ Format Just; apply nanolinter fixes')]
 [group('lint-fix')]
-lint-fix *args: (_require-tool "nanolinter" "Install: mise install")
+lint-fix *args: (_require-tool "nanolinter" nanolinter_hint)
     @"{{ just_executable() }}" --justfile "{{ justfile() }}" --fmt
     @nanolinter fix "$@"
 
@@ -628,12 +636,12 @@ check-artifacts-schema:
 # RELEASE - Pre-tag validation
 # ==================================================================================== #
 
-# Snapshot build via goreleaser; validates .goreleaser.yml without tagging.
+# Unsigned snapshot via goreleaser; validates .goreleaser.yml without tagging.
 [doc('▪ Build a local release snapshot')]
 [group('release')]
-release-snapshot: (_job "release-snapshot" "steps=validate + GoReleaser snapshot; config=.goreleaser.yml; output=dist/") (_require-tool "goreleaser" "Install: mise install goreleaser  (see https://goreleaser.com/install/)")
+release-snapshot: (_job "release-snapshot" "steps=validate + unsigned GoReleaser snapshot; config=.goreleaser.yml; output=dist/") (_require-tool "goreleaser" "Install: mise install goreleaser  (see https://goreleaser.com/install/)")
     @goreleaser check
-    @goreleaser release --clean --snapshot
+    @goreleaser release --clean --snapshot --skip=sign
 
 # Rewrite every pinned forge-ci-runtime-*:vX.Y.Z workflow default to a new
 # version (release-cut step; the TestRuntimeImageTagsShareOneVersion guard
@@ -1139,7 +1147,7 @@ _require-tool tool hint="":
 _host-goarch:
     #!/usr/bin/env bash
     case "$(uname -m)" in
-        x86_64) printf "amd64" ;;
+        x86_64|amd64) printf "amd64" ;;
         aarch64|arm64) printf "arm64" ;;
         *) printf "{{ RED }}✗ Unsupported host architecture: %s{{ NC }}\n" "$(uname -m)" >&2; exit 1 ;;
     esac

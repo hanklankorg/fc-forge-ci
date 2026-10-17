@@ -34,7 +34,13 @@ The provider-free tiers require `bash` and `jq` because `mockbinary` records
 subprocess calls through a shell fixture. Untagged tests also use Git for local
 fixtures, including `git init`; they do not require real GPG or containers.
 `jq` and the rest of the project
-toolchain are pinned in `.mise.toml`; run `mise install` before the gates.
+toolchain are pinned in `.mise.toml`; run `just install-dev-tools` before the
+gates. On macOS/BSD mise skips Nanolinter, whose release is Linux-only; build
+it from source as [DEVELOPMENT.md](DEVELOPMENT.md) describes.
+
+Integration requires real GnuPG 2 and Git. On macOS install GnuPG with
+`sudo port install gnupg2`; the integration recipes refuse early when `gpg`
+is missing. Buildah and other optional tools retain the evidence policy below.
 
 `just verify` is the local lint plan plus tagged compilation and integration
 tests (which include untagged tests). Integration can run containers, fetch
@@ -95,8 +101,8 @@ isolated test and reading it there would silently downgrade a strict run.
 
 Architecture guards use bounded source analysis, not proof of executed behavior.
 The environment-read guard uses the matching installed Go compiler's export
-metadata and a populated module cache, with downloads disabled. It follows the
-selected build configuration; it does not scan every platform/tag variant.
+metadata and a populated module cache, with downloads disabled. It inspects the
+Linux reference build and the native build, not every platform/tag variant.
 Its compiled working-directory check supplies the effective module cache before
 replacing HOME and uses a fresh owned build cache. Exec-path analysis rejects
 unsupported tracked paths but does not discover arbitrary command values carried
@@ -126,8 +132,8 @@ Neither is wrong; neither announces itself. Every build-constrained product
 file is therefore declared in
 `TestGuardEligibility_ConstrainedAndGeneratedProductFilesAreDeclared`, and an
 undeclared or changed one fails until someone says how the scanners treat it. A
-variant the current build excludes must contain no direct environment read and
-no internal import: the check that would judge it cannot see it, and the fix
+variant outside the Linux reference must contain no direct environment read and
+no internal import: reference CI cannot judge it, and the fix
 for a variant that needs one is to run that check under a matching GOOS, not to
 widen the list. No product file in this repository is machine generated; a
 guard fails if one appears, because a violation inside generated code is a
@@ -200,6 +206,9 @@ real consumer checkout's own workflow against it; see
 
 `cmd/forge-ci/smoke_test.go` is a smoke harness: it builds the binary and
 checks the root contract (help, version, flag parsing, the exit-code ladder).
+It captures the compiler and Go cache locations before per-test HOME isolation,
+then builds offline from those caches. Product subprocesses retain the isolated
+HOME and refusing proxies; captured cache settings are added only to builds.
 The bulk of the black-box scenarios (every ecosystem's real toolchain, the
 signing round-trips, reproducibility, host isolation) are in the companion
 repository, which drives the built binary against committed fixtures.
