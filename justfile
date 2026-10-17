@@ -267,7 +267,8 @@ test-fuzz-all time="14s": (_job "test-fuzz-all" ("suite=generated fuzz campaign;
 [doc('Test the Forgejo layer')]
 [group('test')]
 test-forgejo *args: (_job "test-forgejo" "suite=Forgejo layer guards + fake-backed behavior; execution=native; race=enabled")
-    @go test -count=1 -race -buildvcs=false "$@" ./test/forgejoguard ./test/forgejobehavior
+    @"{{ just_executable() }}" --justfile "{{ justfile() }}" _go-test-not-proven '' \
+        -count=1 -race -buildvcs=false "$@" ./test/forgejoguard ./test/forgejobehavior
 
 # One package, once the failure is located:
 #
@@ -1103,6 +1104,25 @@ help recipe="":
 
 # Fail fast with an actionable hint when a required external tool is missing.
 # Use as a recipe prerequisite: `release-snapshot: (_require-tool "goreleaser" "Install: …")`.
+# Runs `go test ARGS`, then lists the tests that reported missing evidence
+# ("not proven"), followed by HINT when it is not empty. Keeps go test's status.
+[private]
+_go-test-not-proven hint *args:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    hint=$1
+    shift
+    mkdir -p {{ bin }}
+    rm -f {{ bin }}/not-proven.txt
+    FORGE_CI_TEST_NOT_PROVEN_FILE={{ quote(absolute_path(bin / "not-proven.txt")) }} go test "$@"
+    status=$?
+    if [[ -s {{ bin }}/not-proven.txt ]]; then
+        printf '\n'
+        cat {{ bin }}/not-proven.txt
+        [[ -z "$hint" ]] || printf '%s\n' "$hint"
+    fi
+    exit "$status"
+
 _require-tool tool hint="":
     #!/usr/bin/env bash
     if command -v "$1" >/dev/null 2>&1; then
