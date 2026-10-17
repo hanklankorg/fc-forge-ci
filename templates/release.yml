@@ -38,7 +38,7 @@ spec:
       type: array
     build:
       type: array
-    changelog-backend:
+    changelog-creator:
       default: git-chglog
       options: [git-chglog, git-cliff]
     changelog-config:
@@ -110,7 +110,7 @@ release:
           bot-email: $[[ inputs.bot-email ]]
           checks: $[[ inputs.checks ]]
           build: $[[ inputs.build ]]
-          changelog-backend: $[[ inputs.changelog-backend ]]
+          changelog-creator: $[[ inputs.changelog-creator ]]
           changelog-config: $[[ inputs.changelog-config ]]
           commit-body-config: $[[ inputs.commit-body-config ]]
           sign-distro-packages: $[[ inputs.sign-distro-packages ]]

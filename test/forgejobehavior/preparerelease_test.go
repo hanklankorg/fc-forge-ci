@@ -615,7 +615,7 @@ func TestPrepareReleaseInstallsThePinnedRenderer(t *testing.T) {
 	selected := action.step(t, "Install changelog renderer")
 	script := action.script(t, "Install changelog renderer")
 
-	if len(selected.Env) != 1 || selected.Env["CHANGELOG_BACKEND"] != "${{ inputs.changelog-backend }}" {
+	if len(selected.Env) != 1 || selected.Env["CHANGELOG_BACKEND"] != "${{ inputs.changelog-creator }}" {
 		t.Fatalf("the install step binds %v, want the backend input alone", selected.Env)
 	}
 
@@ -660,7 +660,7 @@ func TestPrepareReleaseInstallsThePinnedRenderer(t *testing.T) {
 		box.write(rendererPins, string(reporoot.ReadFile(t, rendererPins)), 0o600)
 
 		got := box.run(script, "CHANGELOG_BACKEND=aqua:other/tool", "FORGEJO_PATH=/runner/path")
-		if got.status == 0 || box.argv() != nil || !strings.Contains(got.stderr, "changelog-backend must be git-chglog or git-cliff") {
+		if got.status == 0 || box.argv() != nil || !strings.Contains(got.stderr, "changelog-creator must be git-chglog or git-cliff") {
 			t.Fatalf("status %d argv %q; stderr %s", got.status, box.argv(), got.stderr)
 		}
 	})

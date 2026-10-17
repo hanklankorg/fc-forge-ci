@@ -77,7 +77,7 @@ on:
         type: string
         required: false
         default: .chglog/config-minimal.yml
-      changelog-backend:
+      changelog-creator:
         description: Changelog renderer (git-chglog or git-cliff).
         type: string
         required: false
@@ -428,7 +428,7 @@ jobs:
         with:
           changelog-config: ${{ inputs['changelog-config'] }}
           commit-body-config: ${{ inputs['commit-body-config'] }}
-          changelog-backend: ${{ inputs['changelog-backend'] }}
+          changelog-creator: ${{ inputs['changelog-creator'] }}
           repository-url: ${{ forgejo.server_url }}/${{ forgejo.repository }}
           forgejo-ref-name: ${{ forgejo.ref_name }}
           release-branch: ${{ needs.coordinates.outputs.release_branch }}

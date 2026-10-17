@@ -10,7 +10,7 @@ inputs:
   commit-body-config:
     description: Renderer config used for the release commit body.
     default: .chglog/config-minimal.yml
-  changelog-backend:
+  changelog-creator:
     description: Changelog renderer backend, git-chglog or git-cliff, pinned in versions.env.
     default: git-chglog
   repository-url:
@@ -45,7 +45,7 @@ runs:
     - name: Install changelog renderer
       shell: bash
       env:
-        CHANGELOG_BACKEND: ${{ inputs.changelog-backend }}
+        CHANGELOG_BACKEND: ${{ inputs.changelog-creator }}
       run: |
         set -euo pipefail
         unset GITHUB_TOKEN GH_TOKEN FORGEJO_TOKEN GITEA_TOKEN SSH_SIGNING_KEY
@@ -63,7 +63,7 @@ runs:
             linux_arm64_sha256=${GIT_CLIFF_LINUX_ARM64_SHA256:?}
             ;;
           *)
-            echo "ERROR: changelog-backend must be git-chglog or git-cliff" >&2
+            echo "ERROR: changelog-creator must be git-chglog or git-cliff" >&2
             exit 1
             ;;
         esac
@@ -79,7 +79,7 @@ runs:
     - name: Generate changelog without SSH key
       shell: bash
       env:
-        CHANGELOG_BACKEND: ${{ inputs.changelog-backend }}
+        CHANGELOG_BACKEND: ${{ inputs.changelog-creator }}
         CHANGELOG_CONFIG: ${{ inputs.changelog-config }}
         COMMIT_BODY_CONFIG: ${{ inputs.commit-body-config }}
         CHANGELOG_REPOSITORY_URL: ${{ inputs.repository-url }}

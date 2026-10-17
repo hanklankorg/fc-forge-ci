@@ -40,7 +40,7 @@ spec:
     build:
       type: array
       description: Consumer build commands producing dist/release-files.json and release-notes.md.
-    changelog-backend:
+    changelog-creator:
       options: [git-chglog, git-cliff]
     changelog-config:
       type: string
@@ -82,7 +82,7 @@ stages: [check, prepare, build, sign, publish]
     RC_REQUEST_ALLOWED_SIGNERS: $[[ inputs.request-allowed-signers ]]
     RC_BOT_NAME: $[[ inputs.bot-name ]]
     RC_BOT_EMAIL: $[[ inputs.bot-email ]]
-    RC_CHANGELOG_BACKEND: $[[ inputs.changelog-backend ]]
+    RC_CHANGELOG_BACKEND: $[[ inputs.changelog-creator ]]
     RC_CHANGELOG_CONFIG: $[[ inputs.changelog-config ]]
     RC_COMMIT_BODY_CONFIG: $[[ inputs.commit-body-config ]]
     RC_SIGN_DISTRO_PACKAGES: '$[[ inputs.sign-distro-packages ]]'
