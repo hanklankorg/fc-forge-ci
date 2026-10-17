@@ -310,6 +310,9 @@ func requireReleaseJobs(t *testing.T, jobs []livetest.RunJob, runID int64, label
 		"Check: signing settings",
 		"Prepare: changelog",
 		"Prepare: release commit and tag",
+		// Runs with every step skipped when no bump is asked for: Forgejo
+		// skips the dependant of a skipped job on the server.
+		"Prepare: version",
 		"Publish: images",
 		"Publish: release",
 		"Publish: tidy up",
