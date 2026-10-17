@@ -48,6 +48,8 @@ include:
 
   # The consumer's own checks at the pipeline commit, in an image that carries
   # Bash, Git, curl, sha256sum, a JDK and Maven.
+  # check is checksum-bound: include it by the engine commit, never a version;
+  # see Checksum-bound engine bootstrap in docs/gitlab.md.
   - component: gitlab.example.com/team/ci/forge-ci/check@PIN_FORGE_CI_SHA
     inputs:
       engine-project: team/ci/forge-ci

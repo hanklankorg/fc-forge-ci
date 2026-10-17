@@ -86,6 +86,8 @@ own package registry.
        inputs:
          engine-project: team/ci/forge-ci
          nanolinter-image: "ghcr.io/itiquette/nanolinter:go@sha256:PIN_DIGEST"
+     # check is checksum-bound: include it by the engine commit, never a version;
+     # see Checksum-bound engine bootstrap in docs/gitlab.md.
      - component: gitlab.example.com/team/ci/forge-ci/check@PIN_FORGE_CI_SHA
        inputs:
          engine-project: team/ci/forge-ci
@@ -347,6 +349,8 @@ and publish that commit's binary first:
 
 ```yaml
 include:
+  # check is checksum-bound: include it by the engine commit, never a version;
+  # see Checksum-bound engine bootstrap in docs/gitlab.md.
   - component: gitlab.example.com/team/ci/forge-ci/check@PIN_FORGE_CI_SHA
     inputs:
       engine-project: team/ci/forge-ci
@@ -554,6 +558,8 @@ workflow:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
 include:
+  # check is checksum-bound: include it by the engine commit, never a version;
+  # see Checksum-bound engine bootstrap in docs/gitlab.md.
   - component: $CI_SERVER_FQDN/team/ci/forge-ci/check@PIN_FORGE_CI_SHA
     inputs:
       engine-project: team/ci/forge-ci
