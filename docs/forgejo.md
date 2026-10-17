@@ -66,7 +66,7 @@ What each of the three layers has, capability by capability, is in
 |---|---|
 | Forgejo | v16 or later (reusable-workflow job expansion) |
 | Runner | one reviewed, trusted runner, selected by the `CI_RUNNER_LABEL` variable; it must run job containers for the signer image. The layer assumes each job gets a fresh container and filesystem: on a runner that keeps state between jobs, a pull-request job can leave something that a later privileged job runs. |
-| Runner architecture | **linux/amd64.** The binary every workflow and action runs is built and published for that platform only, so no job of the layer runs on an arm64 runner. Images and binaries the jobs produce can be for other platforms. |
+| Runner architecture | **linux/amd64 or linux/arm64.** The binary every workflow and action runs is built and published for both, and each job runs the one of its runner's architecture natively. A runner of another architecture is refused. Images and binaries the jobs produce can be for other platforms. |
 | Runner job image | Bash, Git, curl and `sha256sum` for every job; Node as well for a job that uses `setup-toolchain`, whose cache and Go set-up steps are JavaScript actions. The signer jobs run in the signer image, which brings its own tools. |
 | Instance | this repository, or a fork of it, hosted on the **same instance** as the consumer: a reusable workflow is called as `owner/repository/path@ref` |
 | Serving repository | **Readable without credentials** by the runners, and so are the packages of its owner. Every job clones the layer over HTTPS with no token, so a repository that needs a sign-in fails the clone (`could not read Username`), and downloads the layer's binary from that owner's generic packages the same way. |
@@ -361,8 +361,11 @@ commit, which the other jobs then run; see
 this repository out at that commit, verify the checkout, build the image for
 linux/amd64 and linux/arm64, push the manifest list to the instance's registry as
 `<host>/<engine owner>/forge-ci-signer`, and print the
-digest-pinned reference. The layer sets up no emulation: building the arm64
-half on an amd64 runner depends on what the runner host provides.
+digest-pinned reference. Each architecture builds on a native runner of its
+own architecture (`CI_RUNNER_LABEL` for amd64, `CI_RUNNER_LABEL_ARM64` for
+arm64), with that architecture's engine binary. The layer sets up no
+emulation, and the engine refuses to build an architecture other than its
+host's.
 
 `FORGE_CI_COMMIT_SHA` names the engine checkout and is passed as `--source-sha`;
 the OCI source URL and revision therefore both identify that checkout.
@@ -438,17 +441,22 @@ start, which is after the prepare job has pushed the final tag.
 
 ### The binary in the layer
 
-The actions and workflows run one build of this repository's own CLI, for
-linux/amd64. The tree does not hold it. It holds one line,
-`.forgejo/bin/forge-ci.sha256`: the SHA-256 of the binary that belongs to
-that commit. Every job gets the binary by that line.
+The actions and workflows run one build of this repository's own CLI per
+architecture, linux/amd64 and linux/arm64. The tree does not hold them. It
+holds one line per architecture, `.forgejo/bin/forge-ci-linux-amd64.sha256`
+and `.forgejo/bin/forge-ci-linux-arm64.sha256`: the SHA-256 of the binary
+that belongs to that commit. Every job gets the binary of its host's
+architecture by that architecture's line.
 
+- **Which.** `lib-forge-ci.sh` reads `uname -m` and takes `x86_64` or
+  `amd64` as amd64 and `aarch64` or `arm64` as arm64. It refuses any other
+  host rather than run a binary under emulation.
 - **From where.** The generic package registry of the instance that serves
   the layer, under the owner of the repository that serves it, with the
   digest as the version:
 
   ```text
-  https://FORGE_HOST/api/packages/OWNER/generic/forge-ci/<sha256>/forge-ci-linux-amd64
+  https://FORGE_HOST/api/packages/OWNER/generic/forge-ci/<sha256>/forge-ci-linux-<amd64|arm64>
   ```
 
   The owner is the layer's, never the consumer's. An action the runner
@@ -460,8 +468,8 @@ that commit. Every job gets the binary by that line.
   to HTTPS, refusing more than 128 MiB, into a temporary file beside the
   destination.
 - **Verified before it exists.** The file is moved into place only when its
-  SHA-256 is the recorded one. `lib-forge-ci.sh` checks it against the
-  same line again before every use, a version probe included.
+  SHA-256 is the recorded one for the host's architecture. `lib-forge-ci.sh`
+  checks it against the same line again before every use, a version probe included.
 - **To where.** In a job that checked the layer out, beside the checksum in
   that checkout. In an action fetched by URL, whose directory the runner
   discards after the step, a directory named by the digest in the job's
@@ -474,14 +482,14 @@ job accepts only the build its pinned commit records. The checksum detects a
 changed executable for a revision. It does not authenticate the revision:
 that is what pinning an authenticated commit is for.
 
-**A commit works once its binary is published.** Publishing is the first job
-of the organization's
+**A commit works once its binaries are published.** Publishing is the first
+job of the organization's
 [signer-image workflow](../examples/forgejo/signer-image.yml), run at the
-commit it pins. A job of a commit whose binary is not there fails in the
-first step that needs the CLI, and the message names the address and that
-workflow. A version of a generic package cannot be uploaded twice, so a
-published binary stays what it is; a commit that changes no Go code names a
-binary that is already there.
+commit it pins; it publishes both architectures. A job of a commit whose
+binary is not there fails in the first step that needs the CLI, and the
+message names the address and that workflow. A version of a generic package
+cannot be uploaded twice, so a published binary stays what it is; a commit
+that changes no Go code names binaries that are already there.
 
 **A privileged job downloads in a step of its own**, "Fetch engine binary",
 before the toolchain check and before any secret; see
@@ -503,11 +511,14 @@ two commits, in two directories with separate caches, and in a clean
   report another release; neither can see a patch.
 - The checksum in a commit was recorded on its author's machine, from that
   machine's module cache, with the module proxy and the checksum database
-  switched off. That cache is therefore part of what the recorded line rests
+  switched off. That cache is therefore part of what the recorded lines rest
   on. The binary job of the signer-image workflow is the independent
   rebuild: it downloads the modules itself, verified against `go.sum`,
-  builds, and publishes only a build that is byte for byte the recorded one.
-- Nothing is promised across platforms. The one build is linux/amd64.
+  builds both architectures, and publishes only builds that are byte for
+  byte the recorded ones.
+- The builds are linux/amd64 and linux/arm64, cross-compiled without cgo, so
+  any host records and rebuilds both without emulation. Each runs only on a
+  native host of its architecture. Nothing is promised for other platforms.
 
 `forge-ci --version` of this binary answers `forgejo-layer` at every
 commit. `setup-forge-ci` prints the SHA-256 beside it, and the digest is
@@ -967,7 +978,7 @@ reviewed as one set.
   can. Signing does not move back into shell, and not onto a runner without
   the signer container.
 - **Two pins, two subjects.** `forge-ci-sha` identifies the revision;
-  `.forgejo/bin/forge-ci.sha256` identifies the executable inside it. They
+  `.forgejo/bin/forge-ci-linux-<arch>.sha256` identifies the executable inside it. They
   are never merged.
 - **The request is bound.** Each privileged job re-validates the release tag
   and, through `release-request-sha` from the caller's event context, its
@@ -1157,17 +1168,20 @@ release:
    [`examples/forgejo/signer-image.yml`](../examples/forgejo/signer-image.yml)
    into one repository of your organization, set its two placeholders to your
    copy and the commit of step 2, and run it. It needs the `CI_RUNNER_LABEL`
-   variable and two credentials: `RELEASE_REGISTRY_TOKEN` writes the engine
-   owner's generic package on this forge; `SIGNER_REGISTRY_TOKEN`, with
-   `SIGNER_REGISTRY_USER`, authenticates to the signer image registry.
+   variable (a native AMD64 runner), `CI_RUNNER_LABEL_ARM64` (a native ARM64
+   runner for the arm64 image build, which never runs under emulation) and two
+   credentials: `RELEASE_REGISTRY_TOKEN` writes the engine owner's generic
+   package on this forge; `SIGNER_REGISTRY_TOKEN`, with `SIGNER_REGISTRY_USER`,
+   authenticates to the signer image registry.
    To host the signer on another registry, set the workflow's literal
    `SIGNER_IMAGE_REPOSITORY` to its full OCI repository without a tag or digest.
    Both architecture builds and assembly use that destination; source labels
    still identify the authenticated engine checkout.
-   - Its first job builds the CLI of the pinned commit from modules it
-     downloads itself, stops unless the build is the one the commit's
-     `.forgejo/bin/forge-ci.sha256` names, and uploads it to the generic
-     packages of the owner of your copy. Until that has run, every job of the
+   - Its first job builds the CLI of the pinned commit for both
+     architectures from modules it downloads itself, stops unless each build
+     is the one the commit's `.forgejo/bin/forge-ci-linux-<arch>.sha256`
+     names, and uploads both to the generic packages of the owner of your
+     copy. Until that has run, every job of the
      layer at that commit fails in its first step that needs the CLI, with the
      address it asked for.
    - The owner's packages must be **readable without credentials**, as the
@@ -1272,9 +1286,9 @@ instance. Record the actual revision and selected scenarios with each result.
 
 Not supported yet, and known:
 
-- A runner that is not linux/amd64. The binary is published for that
-  platform alone; its file name carries the architecture, and nothing is
-  promised about another one.
+- A runner that is neither linux/amd64 nor linux/arm64. The binary is
+  published for those two; its file name carries the architecture, and the
+  resolver refuses another one.
 - A serving repository that needs credentials to read, or one whose owner's
   packages do. The download of the binary sends no token, and has no input
   for one. The lab has only shown the download for a public owner.

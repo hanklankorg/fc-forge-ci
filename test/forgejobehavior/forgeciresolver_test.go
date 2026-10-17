@@ -10,6 +10,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -48,7 +49,7 @@ run_forge_ci fail
 		{
 			name: "refuses a checksum file with a second line",
 			setup: func(s *sandbox, digest string) []string {
-				s.write(".forgejo/bin/forge-ci.sha256", digest+"  bin/forge-ci\n"+strings.Repeat("0", 64)+"  bin/forge-ci\n", 0o600)
+				s.write(trackedChecksum(runtime.GOARCH), digest+"  bin/forge-ci\n"+strings.Repeat("0", 64)+"  bin/forge-ci\n", 0o600)
 
 				return nil
 			},
@@ -57,7 +58,7 @@ run_forge_ci fail
 		{
 			name: "refuses a missing checksum file",
 			setup: func(s *sandbox, _ string) []string {
-				if err := os.Remove(filepath.Join(s.root, ".forgejo", "bin", "forge-ci.sha256")); err != nil {
+				if err := os.Remove(filepath.Join(s.root, filepath.FromSlash(trackedChecksum(runtime.GOARCH)))); err != nil {
 					s.t.Fatal(err)
 				}
 
@@ -97,6 +98,42 @@ run_forge_ci fail
 
 			if got.status != test.status || string(argv) != test.argv || !strings.Contains(got.stderr, test.reason) {
 				t.Fatalf("status %d argv %q, want %d %q; stderr %s", got.status, argv, test.status, test.argv, got.stderr)
+			}
+		})
+	}
+}
+
+// The resolver runs the binary of the host's architecture, as uname -m names
+// it on Linux and the BSDs, and refuses a host the layer has no binary for
+// rather than run one under emulation.
+func TestForgeCIResolverSelectsTheHostArchitecture(t *testing.T) {
+	t.Parallel()
+
+	const body = `printf 'ran %s\n' "$*"`
+
+	for machine, arch := range map[string]string{"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64", "riscv64": ""} {
+		t.Run(machine, func(t *testing.T) {
+			t.Parallel()
+
+			s, digest, _ := setupForgeCISandbox(t, body)
+			if err := os.Remove(filepath.Join(s.root, filepath.FromSlash(trackedChecksum(runtime.GOARCH)))); err != nil {
+				t.Fatal(err)
+			}
+
+			if arch != "" {
+				s.write(trackedChecksum(arch), digest+"  bin/forge-ci\n", 0o600)
+			}
+
+			s.write("fake-bin/uname", "#!/bin/sh\nprintf '%s\\n' '"+machine+"'\n", 0o700)
+
+			got := s.run(`source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"`+"\nrun_forge_ci sign\n",
+				"PATH="+filepath.Join(s.root, "fake-bin")+":"+os.Getenv("PATH"))
+
+			switch {
+			case arch == "" && (got.status != 69 || got.stdout != "" || !strings.Contains(got.stderr, "this host is '"+machine+"'; use a native host")):
+				t.Fatalf("status %d stdout %q, want a refusal of %s; stderr %s", got.status, got.stdout, machine, got.stderr)
+			case arch != "" && (got.status != 0 || got.stdout != "ran sign\n"):
+				t.Fatalf("status %d stdout %q, want the %s binary to run; stderr %s", got.status, got.stdout, arch, got.stderr)
 			}
 		})
 	}

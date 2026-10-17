@@ -52,9 +52,10 @@ const (
 	// layerDir holds everything a job fetches from the served repository.
 	layerDir = ".forgejo"
 
-	// layerChecksum is the tracked line that names the binary the layer runs:
-	// `<sha256>  bin/forge-ci`.
-	layerChecksum = layerDir + "/bin/forge-ci.sha256"
+	// layerChecksum is the tracked line that names the binary the layer runs
+	// on the lab's AMD64 runners: `<sha256>  bin/forge-ci`. The launcher
+	// builds that architecture (scripts/ci/run-live-tests.sh).
+	layerChecksum = layerDir + "/bin/forge-ci-linux-amd64.sha256"
 
 	// The generic package a job downloads the binary from, under the sha256
 	// as its version: the coordinate .forgejo/bin/lib-forge-ci.sh builds.

@@ -7,12 +7,13 @@
 # Publishes the two things a commit of forge-ci's Forgejo layer needs on
 # your instance before any consumer can pin it, in this order:
 #
-#   1. The engine binary. The layer tracks the checksum of its CLI and not
-#      the CLI. The first job builds the binary of the pinned commit from
-#      freshly downloaded modules, requires the build to be the one the
-#      commit's checksum names, and uploads it to the generic packages of
-#      OWNER, where every job of the layer downloads it by that checksum and
-#      without credentials.
+#   1. The engine binary. The layer tracks the checksums of its CLI, one per
+#      architecture, and not the CLI. The first job builds the linux/amd64
+#      and linux/arm64 binaries of the pinned commit from freshly downloaded
+#      modules (cross-compiled, so no emulation), requires each build to be
+#      the one the commit's checksum names, and uploads both to the generic
+#      packages of OWNER, where every job of the layer downloads the one of
+#      its runner's architecture by that checksum and without credentials.
 #   2. Your organization's signer image: the image the four signer workflows
 #      run their privileged jobs in, which every consumer passes by digest as
 #      signer-image. forge-ci ships the definition,
@@ -30,7 +31,12 @@
 #                        checkouts. Use the commit your consumers pin, so the
 #                        binary, the image and the workflows are one revision.
 #
-# Then set CI_RUNNER_LABEL, SIGNER_REGISTRY_USER and two separate secrets:
+# Then set the variables CI_RUNNER_LABEL, CI_RUNNER_LABEL_ARM64 and
+# SIGNER_REGISTRY_USER and two separate secrets. CI_RUNNER_LABEL names a
+# native AMD64 runner, which runs every job but the arm64 build; that build
+# runs on the native ARM64 runner CI_RUNNER_LABEL_ARM64 names, because the
+# image build executes its steps and no leg may rely on CPU emulation. The
+# engine refuses an architecture other than its host's.
 # RELEASE_REGISTRY_TOKEN writes the engine owner's generic package on this
 # forge; SIGNER_REGISTRY_TOKEN authenticates only to the signer image registry.
 # The engine package and signer image must be readable without credentials.
@@ -149,32 +155,37 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: Build the engine binary from fresh modules
+      - name: Build the engine binaries from fresh modules
         run: |
           set -euo pipefail
           # An empty module cache of this job, filled from the network with
           # what the CLI is built from, each module verified against go.sum.
           export GOMODCACHE="${RUNNER_TEMP:?}/engine-modules" GOCACHE="${RUNNER_TEMP:?}/engine-build-cache"
-          GOFLAGS=-mod=readonly CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go list -deps ./cmd/forge-ci >/dev/null
-          # The one definition of the build; it reads that cache and no network.
-          bash scripts/ci/forgejo-binary.sh build .forgejo/bin/forge-ci
-          if ! (cd .forgejo && sha256sum --check --quiet bin/forge-ci.sha256); then
-            echo "ERROR: the build of ${FORGE_CI_COMMIT_SHA:?} is not the binary its .forgejo/bin/forge-ci.sha256 records, so nothing is published. Pin a commit whose checksum is a build of its tree." >&2
-            sha256sum .forgejo/bin/forge-ci >&2
-            exit 1
-          fi
+          for arch in amd64 arm64; do
+            GOFLAGS=-mod=readonly CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" go list -deps ./cmd/forge-ci >/dev/null
+            # The one definition of the build; it reads that cache and no network.
+            bash scripts/ci/forgejo-binary.sh build "${arch}" "${RUNNER_TEMP:?}/engine-${arch}/bin/forge-ci"
+            if ! (cd "${RUNNER_TEMP:?}/engine-${arch}" && sha256sum --check --quiet "${GITHUB_WORKSPACE:?}/.forgejo/bin/forge-ci-linux-${arch}.sha256"); then
+              echo "ERROR: the linux/${arch} build of ${FORGE_CI_COMMIT_SHA:?} is not the binary its .forgejo/bin/forge-ci-linux-${arch}.sha256 records, so nothing is published. Pin a commit whose checksums are builds of its tree." >&2
+              sha256sum "${RUNNER_TEMP:?}/engine-${arch}/bin/forge-ci" >&2
+              exit 1
+            fi
+          done
 
-      - name: Publish the engine binary
+      - name: Publish the engine binaries
         env:
           FORGE_CI_PACKAGE_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
         run: |
           set -euo pipefail
-          bash scripts/ci/forgejo-binary.sh publish .forgejo/bin/forge-ci
+          for arch in amd64 arm64; do
+            bash scripts/ci/forgejo-binary.sh publish "${arch}" "${RUNNER_TEMP:?}/engine-${arch}/bin/forge-ci"
+          done
 
   build-signer-arch:
     name: Build signer image (${{ matrix.arch }})
     needs: publish-engine-binary
-    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    # Each architecture builds on a runner of its own architecture.
+    runs-on: ${{ matrix.arch == 'arm64' && vars.CI_RUNNER_LABEL_ARM64 || vars.CI_RUNNER_LABEL }}
     timeout-minutes: 90
     strategy:
       fail-fast: false

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -34,14 +35,14 @@ func signerToolchainSandbox(t *testing.T) (*sandbox, string) {
 	box.write(".forgejo/bin/forge-ci", engineBody, 0o700)
 
 	sum := sha256.Sum256([]byte(engineBody))
-	box.write(".forgejo/bin/forge-ci.sha256", hex.EncodeToString(sum[:])+"  bin/forge-ci\n", 0o600)
+	box.write(trackedChecksum(runtime.GOARCH), hex.EncodeToString(sum[:])+"  bin/forge-ci\n", 0o600)
 
 	tools := filepath.Join(box.root, "tools")
 	if err := os.Mkdir(tools, 0o700); err != nil {
 		t.Fatal(err)
 	}
 
-	for _, tool := range []string{"bash", "awk", "sed", "dirname", "sha256sum", "env"} {
+	for _, tool := range []string{"bash", "awk", "sed", "dirname", "sha256sum", "env", "uname"} {
 		host, err := exec.LookPath(tool)
 		if err != nil {
 			t.Fatalf("the host has no %s: %v", tool, err)
@@ -87,7 +88,7 @@ func TestVerifySignerToolchainHoldsTheLayerEngineToItsPin(t *testing.T) {
 		{
 			name: "refuses an engine without a checksum", want: 1, say: "the recorded pin is missing",
 			spoil: func(box *sandbox) {
-				if err := os.Remove(filepath.Join(box.root, ".forgejo", "bin", "forge-ci.sha256")); err != nil {
+				if err := os.Remove(filepath.Join(box.root, filepath.FromSlash(trackedChecksum(runtime.GOARCH)))); err != nil {
 					box.t.Fatal(err)
 				}
 			},
@@ -103,8 +104,8 @@ func TestVerifySignerToolchainHoldsTheLayerEngineToItsPin(t *testing.T) {
 		{
 			name: "accepts the image build, which has no checkout", want: 0,
 			spoil: func(box *sandbox) {
-				for _, name := range []string{"forge-ci", "forge-ci.sha256"} {
-					if err := os.Remove(filepath.Join(box.root, ".forgejo", "bin", name)); err != nil {
+				for _, name := range []string{".forgejo/bin/forge-ci", trackedChecksum(runtime.GOARCH)} {
+					if err := os.Remove(filepath.Join(box.root, filepath.FromSlash(name))); err != nil {
 						box.t.Fatal(err)
 					}
 				}

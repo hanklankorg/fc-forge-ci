@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -29,13 +30,20 @@ import (
 const (
 	// binaryScript is the one definition of how the layer's binary is built.
 	binaryScript = "scripts/ci/forgejo-binary.sh"
-	// trackedChecksum names the binary the layer runs: the tree tracks this
-	// one line and a job downloads the binary by it.
-	trackedChecksum = ".forgejo/bin/forge-ci.sha256"
 )
 
-// builtEngine is the CLI of this tree, built once per test binary by
-// binaryScript into a directory TestMain removes.
+// engineArchitectures are the architectures the layer's binary is built and
+// recorded for.
+func engineArchitectures() []string { return []string{"amd64", "arm64"} }
+
+// trackedChecksum names the binary the layer runs on arch: the tree tracks
+// this one line and a job of that architecture downloads the binary by it.
+func trackedChecksum(arch string) string {
+	return ".forgejo/bin/forge-ci-linux-" + arch + ".sha256"
+}
+
+// builtEngine is the CLI of this tree for one architecture, built once per
+// test binary by binaryScript into a directory TestMain removes.
 type builtEngine struct {
 	once sync.Once
 	dir  string
@@ -43,8 +51,8 @@ type builtEngine struct {
 	err  error
 }
 
-//nolint:gochecknoglobals // one build shared by every test of the package; TestMain removes it.
-var engine builtEngine
+//nolint:gochecknoglobals // one build per architecture shared by every test of the package; TestMain removes them.
+var engines = map[string]*builtEngine{"amd64": {}, "arm64": {}}
 
 func TestMain(m *testing.M) {
 	// The layer's shell and the engine run the developer's git, which would
@@ -60,8 +68,10 @@ func TestMain(m *testing.M) {
 
 	cleanup()
 
-	if engine.dir != "" {
-		_ = os.RemoveAll(engine.dir)
+	for _, engine := range engines {
+		if engine.dir != "" {
+			_ = os.RemoveAll(engine.dir)
+		}
 	}
 
 	os.Exit(code)
@@ -106,10 +116,27 @@ func git(t *testing.T, root string, arguments ...string) (string, error) {
 // built from this tree, so a change to a verb and to the workflow shell that
 // calls it are tested together. TestRecordedEngineChecksumIsABuildOfThisTree
 // holds the checksum a job downloads the binary by to the same build.
+//
+// It is the build of the host's architecture, which the tests run natively.
+// A host of an architecture the layer is not built for reports the engine
+// tier as not proven.
 func forgeCIEngine(t *testing.T) string {
 	t.Helper()
 
+	if _, built := engines[runtime.GOARCH]; !built {
+		evidence.NotProvenf(t, "the delivery-engine binary is built for amd64 and arm64, not %s; run its execution tier on one of those hosts", runtime.GOARCH)
+	}
+
+	return engineBuild(t, runtime.GOARCH)
+}
+
+// engineBuild returns the path of the engine build for arch without executing
+// it, for tests that inspect or publish its bytes.
+func engineBuild(t *testing.T, arch string) string {
+	t.Helper()
+
 	root := reporoot.Path(t)
+	engine := engines[arch]
 
 	engine.once.Do(func() {
 		// Not t.TempDir: the build outlives the test that first asks for it.
@@ -122,7 +149,7 @@ func forgeCIEngine(t *testing.T) string {
 		defer cancel()
 
 		engine.path = filepath.Join(engine.dir, "forge-ci")
-		_, engine.err = script(ctx, root, "build", engine.path)
+		_, engine.err = script(ctx, root, "build", arch, engine.path)
 	})
 
 	if engine.err != nil {
@@ -145,22 +172,22 @@ func fileSHA256(t *testing.T, path string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// recordedChecksum returns the digest in the tracked checksum file, which is
-// one line naming bin/forge-ci, the path relative to the layer root.
-func recordedChecksum(t *testing.T) string {
+// recordedChecksum returns the digest in the tracked checksum file of arch,
+// which is one line naming bin/forge-ci, the path relative to the layer root.
+func recordedChecksum(t *testing.T, arch string) string {
 	t.Helper()
 
-	digest, name, found := strings.Cut(strings.TrimSuffix(string(reporoot.ReadFile(t, trackedChecksum)), "\n"), "  ")
+	digest, name, found := strings.Cut(strings.TrimSuffix(string(reporoot.ReadFile(t, trackedChecksum(arch))), "\n"), "  ")
 	if !found || name != "bin/forge-ci" || len(digest) != sha256.Size*2 || strings.ContainsAny(digest, "\n ") {
-		t.Fatalf("%s is not one `<sha256>  bin/forge-ci` line; rewrite it with `just refresh-forgejo-binary`", trackedChecksum)
+		t.Fatalf("%s is not one `<sha256>  bin/forge-ci` line; rewrite it with `just refresh-forgejo-binary`", trackedChecksum(arch))
 	}
 
 	return digest
 }
 
-// The checksum the tree records is the build of the tree it sits in, so the
-// binary a job downloads by it cannot be other code than the sources beside
-// it. The build names no commit: it follows the working tree as it is, and a
+// The checksum the tree records for each architecture is that build of the
+// tree it sits in, so the binary a job downloads by it cannot be other code
+// than the sources beside it. The build names no commit: it follows the working tree as it is, and a
 // commit that changes no build input leaves it valid. A change to Go source,
 // go.mod or go.sum fails here until the checksum is recorded again, in the
 // same commit or in one after it; what must hold is the tip.
@@ -172,16 +199,22 @@ func TestRecordedEngineChecksumIsABuildOfThisTree(t *testing.T) {
 	t.Parallel()
 
 	root := reporoot.Path(t)
-	recorded := recordedChecksum(t)
 
 	if pinned, local := pinnedToolchain(t, root), localToolchain(t); local != pinned {
 		evidence.NotProvenf(t, "the local Go toolchain is not the release go.mod pins, so it cannot reproduce the layer binary")
 	}
 
-	if built := fileSHA256(t, forgeCIEngine(t)); built != recorded {
-		t.Fatalf("%s does not record the build of this tree: recorded %s, built %s.\n"+
-			"A build input changed since it was recorded. Run `just refresh-forgejo-binary`, or write this line to the file, and commit it:\n%s  bin/forge-ci",
-			trackedChecksum, recorded, built, built)
+	for _, arch := range engineArchitectures() {
+		t.Run(arch, func(t *testing.T) {
+			t.Parallel()
+
+			recorded := recordedChecksum(t, arch)
+			if built := fileSHA256(t, engineBuild(t, arch)); built != recorded {
+				t.Fatalf("%s does not record the build of this tree: recorded %s, built %s.\n"+
+					"A build input changed since it was recorded. Run `just refresh-forgejo-binary`, or write this line to the file, and commit it:\n%s  bin/forge-ci",
+					trackedChecksum(arch), recorded, built, built)
+			}
+		})
 	}
 }
 
@@ -230,18 +263,24 @@ func TestBuildInputsCoverEveryPackageOfTheCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	command := exec.CommandContext(t.Context(), "go", "list", "-deps",
-		"-f", "{{if .Module}}{{if or .Module.Main .Module.Replace}}{{.Dir}}{{end}}{{end}}", "./cmd/forge-ci")
-	command.Dir = root
+	var listed strings.Builder
 
-	command.Env = append(os.Environ(), "GOFLAGS=", "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0")
+	for _, arch := range engineArchitectures() {
+		command := exec.CommandContext(t.Context(), "go", "list", "-deps",
+			"-f", "{{if .Module}}{{if or .Module.Main .Module.Replace}}{{.Dir}}{{end}}{{end}}", "./cmd/forge-ci")
+		command.Dir = root
 
-	out, err := command.Output()
-	if err != nil {
-		t.Fatalf("go list: %v", err)
+		command.Env = append(os.Environ(), "GOFLAGS=", "GOOS=linux", "GOARCH="+arch, "CGO_ENABLED=0")
+
+		out, err := command.Output()
+		if err != nil {
+			t.Fatalf("go list for %s: %v", arch, err)
+		}
+
+		listed.Write(out)
 	}
 
-	packages := strings.Fields(string(out))
+	packages := strings.Fields(listed.String())
 	if len(packages) == 0 {
 		t.Fatal("go list named no package of this module; the check proves nothing")
 	}

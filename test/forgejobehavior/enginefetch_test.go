@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -100,8 +101,10 @@ func fetchSandbox(t *testing.T) (*sandbox, string, string) {
 const (
 	sourceResolver = `source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"` + "\n"
 	packagePath    = "/generic/forge-ci/"
-	packageFile    = "/forge-ci-linux-amd64"
 )
+
+// packageFile is the file name of arch's binary in a version of the package.
+func packageFile(arch string) string { return "/forge-ci-linux-" + arch }
 
 // The binary is not in the checkout. The resolver downloads it by the
 // recorded checksum from the generic packages of the owner of the repository
@@ -183,7 +186,7 @@ func TestResolverDownloadsTheBinaryByItsRecordedChecksum(t *testing.T) {
 				}
 			}
 
-			want := []string{"GET " + test.wantPath + packagePath + digest + packageFile}
+			want := []string{"GET " + test.wantPath + packagePath + digest + packageFile(runtime.GOARCH)}
 			if seen := forge.seen(); len(seen) != 1 || seen[0] != want[0] {
 				t.Fatalf("the forge was asked %q, want once %q", seen, want)
 			}
@@ -240,7 +243,7 @@ func TestSetupForgeCIExposesTheDownloadedBinary(t *testing.T) {
 		t.Errorf("outputs = %q, want %q", box.output(), want)
 	}
 
-	if seen := forge.seen(); len(seen) != 1 || seen[0] != "GET /api/packages/fork"+packagePath+digest+packageFile {
+	if seen := forge.seen(); len(seen) != 1 || seen[0] != "GET /api/packages/fork"+packagePath+digest+packageFile(runtime.GOARCH) {
 		t.Errorf("the forge was asked %q", seen)
 	}
 }
@@ -375,18 +378,19 @@ func TestStrictModeDownloadsOnlyInTheFetchStep(t *testing.T) {
 		}
 	}
 
-	if seen := forge.seen(); got.stdout != "ran release sign\n" || len(seen) != 1 || !strings.HasSuffix(seen[0], packagePath+digest+packageFile) {
+	if seen := forge.seen(); got.stdout != "ran release sign\n" || len(seen) != 1 || !strings.HasSuffix(seen[0], packagePath+digest+packageFile(runtime.GOARCH)) {
 		t.Fatalf("stdout %q, forge asked %q, want one download and the engine run", got.stdout, seen)
 	}
 }
 
-// publishScript runs `forgejo-binary.sh publish` on a file, against a forge.
-func publishScript(t *testing.T, forge *packageForge, binary string, env ...string) (int, string) {
+// publishScript runs `forgejo-binary.sh publish` on a file of arch, against
+// a forge.
+func publishScript(t *testing.T, forge *packageForge, arch, binary string, env ...string) (int, string) {
 	t.Helper()
 
 	var output bytes.Buffer
 
-	command := exec.CommandContext(t.Context(), "bash", filepath.Join(reporoot.Path(t), binaryScript), "publish", binary) //nolint:gosec // G204: this repository's own script.
+	command := exec.CommandContext(t.Context(), "bash", filepath.Join(reporoot.Path(t), binaryScript), "publish", arch, binary) //nolint:gosec // G204: this repository's own script.
 	command.Stdout, command.Stderr = &output, &output
 
 	command.Env = append([]string{
@@ -406,11 +410,12 @@ func publishScript(t *testing.T, forge *packageForge, binary string, env ...stri
 	return 0, output.String()
 }
 
-// Publishing uploads only the build the tree records, to the generic packages
-// of the engine repository's owner, with the token in a header and in no
-// output, and then downloads it as a job does. A version that is already
-// there cannot be replaced and is not an error: what counts is that the
-// download verifies.
+// Publishing uploads only the build the tree records for an architecture, to
+// the generic packages of the engine repository's owner, with the token in a
+// header and in no output, and then downloads it as a job does. A version
+// that is already there cannot be replaced and is not an error: what counts
+// is that the download verifies. Each architecture is published from any
+// host, as the signer-image workflow's one publishing job does.
 func TestPublishUploadsOnlyTheRecordedBuild(t *testing.T) {
 	t.Parallel()
 
@@ -426,15 +431,48 @@ func TestPublishUploadsOnlyTheRecordedBuild(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		status, output := publishScript(t, forge, other, "FORGE_CI_PACKAGE_TOKEN="+token)
-		if status != 1 || !strings.Contains(output, "is not the one the tree records") || len(forge.seen()) != 0 {
+		status, output := publishScript(t, forge, "amd64", other, "FORGE_CI_PACKAGE_TOKEN="+token)
+		if status != 1 || !strings.Contains(output, "is not the linux/amd64 one the tree records") || len(forge.seen()) != 0 {
 			t.Fatalf("status %d, forge asked %q\n%s", status, forge.seen(), output)
 		}
 	})
 
-	engine := forgeCIEngine(t)
+	t.Run("refuses one architecture's build as another's", func(t *testing.T) {
+		t.Parallel()
 
-	recorded := recordedChecksum(t)
+		forge := newPackageForge(t, "", http.StatusOK, http.StatusCreated)
+
+		status, output := publishScript(t, forge, "arm64", engineBuild(t, "amd64"), "FORGE_CI_PACKAGE_TOKEN="+token)
+		if status != 1 || !strings.Contains(output, "is not the linux/arm64 one the tree records") || len(forge.seen()) != 0 {
+			t.Fatalf("status %d, forge asked %q\n%s", status, forge.seen(), output)
+		}
+	})
+
+	t.Run("refuses an architecture it does not build", func(t *testing.T) {
+		t.Parallel()
+
+		forge := newPackageForge(t, "", http.StatusOK, http.StatusCreated)
+
+		status, output := publishScript(t, forge, "riscv64", engineBuild(t, "amd64"), "FORGE_CI_PACKAGE_TOKEN="+token)
+		if status != 2 || !strings.Contains(output, "usage:") || len(forge.seen()) != 0 {
+			t.Fatalf("status %d, forge asked %q\n%s", status, forge.seen(), output)
+		}
+	})
+
+	for _, arch := range engineArchitectures() {
+		t.Run(arch, func(t *testing.T) {
+			t.Parallel()
+			testPublishRecordedBuild(t, arch, token)
+		})
+	}
+}
+
+func testPublishRecordedBuild(t *testing.T, arch, token string) {
+	t.Helper()
+
+	engine := engineBuild(t, arch)
+
+	recorded := recordedChecksum(t, arch)
 
 	if fileSHA256(t, engine) != recorded {
 		evidence.NotProvenf(t, "the build of this tree is not the recorded one, so there is nothing the script would publish")
@@ -445,7 +483,7 @@ func TestPublishUploadsOnlyTheRecordedBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "/api/packages/acme" + packagePath + recorded + packageFile
+	want := "/api/packages/acme" + packagePath + recorded + packageFile(arch)
 
 	for _, test := range []struct {
 		name      string
@@ -466,7 +504,7 @@ func TestPublishUploadsOnlyTheRecordedBuild(t *testing.T) {
 
 			forge := newPackageForge(t, string(body), test.getStatus, test.putStatus)
 
-			status, output := publishScript(t, forge, engine, "FORGE_CI_PACKAGE_TOKEN="+test.token)
+			status, output := publishScript(t, forge, arch, engine, "FORGE_CI_PACKAGE_TOKEN="+test.token)
 			if status != test.status || !strings.Contains(output, test.say) {
 				t.Fatalf("status %d, want %d with %q\n%s", status, test.status, test.say, output)
 			}
@@ -515,9 +553,9 @@ func requirePublishRequests(t *testing.T, forge *packageForge, path, token strin
 func TestPublishGitLabUsesTheSelectedTokenAndAnonymousReadBack(t *testing.T) {
 	t.Parallel()
 
-	engine := forgeCIEngine(t)
+	engine := engineBuild(t, runtime.GOARCH)
 
-	recorded := recordedChecksum(t)
+	recorded := recordedChecksum(t, runtime.GOARCH)
 	if fileSHA256(t, engine) != recorded {
 		evidence.NotProvenf(t, "the current engine build differs from the recorded checksum")
 	}
@@ -535,7 +573,7 @@ func TestPublishGitLabUsesTheSelectedTokenAndAnonymousReadBack(t *testing.T) {
 
 			forge := newPackageForge(t, string(body), http.StatusOK, http.StatusCreated)
 
-			status, output := publishScript(t, forge, engine,
+			status, output := publishScript(t, forge, runtime.GOARCH, engine,
 				"FORGE_CI_PACKAGE_PROVIDER=gitlab", "CI_SERVER_URL="+forge.server.URL,
 				"FORGE_CI_PACKAGE_TOKEN_TYPE="+tokenType, "FORGE_CI_PACKAGE_TOKEN="+token)
 			if strings.Contains(output, token) {
@@ -551,7 +589,7 @@ func TestPublishGitLabUsesTheSelectedTokenAndAnonymousReadBack(t *testing.T) {
 				return
 			}
 
-			want := "/api/v4/projects/acme%2Fdelivery/packages" + packagePath + recorded + packageFile
+			want := "/api/v4/projects/acme%2Fdelivery/packages" + packagePath + recorded + packageFile(runtime.GOARCH)
 			if status != 0 || len(seen) != 2 || seen[0] != "PUT "+want || seen[1] != "GET "+want || !bytes.Equal(forge.uploaded, body) {
 				t.Fatalf("GitLab publication: status=%d requests=%v\n%s", status, seen, output)
 			}

@@ -53,7 +53,7 @@ func TestGitLabBootstrap_PublishesAndDownloadsTheRecordedBinary(t *testing.T) {
 
 		script.WriteString("set -eu\nmkdir -p layer/scripts/ci layer/.forgejo/bin\n")
 
-		for _, path := range []string{"scripts/ci/forgejo-binary.sh", ".forgejo/bin/lib-forge-ci.sh", ".forgejo/bin/forge-ci.sha256"} {
+		for _, path := range []string{"scripts/ci/forgejo-binary.sh", ".forgejo/bin/lib-forge-ci.sh", ".forgejo/bin/forge-ci-linux-amd64.sha256"} {
 			body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
 			if err != nil {
 				t.Fatal(err)
@@ -68,7 +68,7 @@ export FORGE_CI_REPOSITORY_URL="${CI_SERVER_URL}/${CI_PROJECT_PATH}.git"
 export CURL_CA_BUNDLE="${CI_SERVER_TLS_CA_FILE:?}"
 export FORGE_CI_PACKAGE_TOKEN_TYPE=job
 export FORGE_CI_PACKAGE_TOKEN="${CI_JOB_TOKEN:?}"
-bash layer/scripts/ci/forgejo-binary.sh publish engine
+bash layer/scripts/ci/forgejo-binary.sh publish amd64 engine
 unset FORGE_CI_PACKAGE_TOKEN CI_JOB_TOKEN
 source layer/.forgejo/bin/lib-forge-ci.sh
 fetch_forge_ci
@@ -89,7 +89,7 @@ func publishGitLabBootstrap(t *testing.T, target livetest.Target, repo string) {
 	ctx, cancel := context.WithTimeout(livetest.Context(t), 3*time.Minute)
 	defer cancel()
 
-	command := exec.CommandContext(ctx, "bash", filepath.Join(reporoot.Path(t), "scripts", "ci", "forgejo-binary.sh"), "publish", livetest.LayerBinary(t)) //nolint:gosec // Reviewed repository script and launcher-supplied build, with target-scoped credentials and transport.
+	command := exec.CommandContext(ctx, "bash", filepath.Join(reporoot.Path(t), "scripts", "ci", "forgejo-binary.sh"), "publish", "amd64", livetest.LayerBinary(t)) //nolint:gosec // Reviewed repository script and launcher-supplied build, with target-scoped credentials and transport.
 	command.Env = livetest.ToolEnvironment(t, target, map[string]string{
 		"FORGE_CI_PACKAGE_PROVIDER": "gitlab", "CI_SERVER_URL": target.BaseURL(),
 		"FORGE_CI_REPOSITORY_URL": target.BaseURL() + "/" + target.Owner + "/" + repo + ".git",

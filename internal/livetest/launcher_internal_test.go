@@ -144,7 +144,7 @@ func newLauncherFixture(t *testing.T, root string) (string, string) {
 	}
 	script := write("repo/scripts/ci/run-live-tests.sh", string(reporoot.ReadFile(t, "scripts/ci/run-live-tests.sh")))
 	write("repo/justfile", string(reporoot.ReadFile(t, "justfile")))
-	write("repo/scripts/ci/forgejo-binary.sh", "#!/bin/sh\nprintf '#!/bin/sh\\nexit 0\\n' > \"$2\"\n")
+	write("repo/scripts/ci/forgejo-binary.sh", "#!/bin/sh\nprintf '#!/bin/sh\\nexit 0\\n' > \"$3\"\n")
 	write("tools/go", inertLiveGo)
 
 	for _, name := range []string{"git", "cosign", "syft", "buildah"} {

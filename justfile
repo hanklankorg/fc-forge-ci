@@ -576,10 +576,11 @@ build-all: (_job "build-all" ("targets=linux,darwin x amd64,arm64; output=" + bi
     done
 
 # The Forgejo layer tracks the checksum of its binary, not the binary:
-# .forgejo/bin/forge-ci.sha256, by which every job downloads and verifies
-# it. This is the only way to write that line: it builds the CLI of this tree
-# reproducibly, with the Go release go.mod names, and records the sha256.
-# Commit the file with the change it follows, or after it.
+# .forgejo/bin/forge-ci-linux-<amd64|arm64>.sha256, by which every job
+# downloads and verifies the binary of its runner's architecture. This is the
+# only way to write those lines: it builds the CLI of this tree reproducibly
+# for both architectures, with the Go release go.mod names, and records the
+# sha256s. Commit the files with the change they follow, or after it.
 #
 # TestRecordedEngineChecksumIsABuildOfThisTree fails until this is done after
 # a change to Go source, go.mod or go.sum, and prints the line to record.

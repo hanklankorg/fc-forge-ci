@@ -7,9 +7,10 @@
 # lives in the binary; this file only owns the layer's pin and
 # signing-boundary policy.
 #
-# The checkout tracks one line, bin/forge-ci.sha256, and not the binary. A
-# job downloads the binary by that digest from the generic packages of the
-# forge that serves the layer, without credentials. The storage is not
+# The checkout tracks one line per architecture, bin/forge-ci-linux-<arch>.sha256,
+# and not the binary. A job takes the line of its host's architecture and
+# downloads the binary by that digest from the generic packages of the forge
+# that serves the layer, without credentials. The storage is not
 # trusted: the layer's binary, and under SIGNER_STRICT=1 any FORGE_CI_BIN
 # override, must match the recorded checksum before it runs, including a
 # caller's version probe. A non-strict override is an internal test and
@@ -24,18 +25,38 @@ HELPERS_ROOT=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 HELPERS_ENGINE_VERIFIED=
 HELPERS_ENGINE_SHA256=
 HELPERS_ENGINE_RECORDED=
+HELPERS_ENGINE_ARCH=
 
 # The largest download accepted. The binary is about 25 MB.
 HELPERS_ENGINE_MAX_BYTES=134217728
 
-# _forge_ci_recorded reads the ONE recorded pin for the binary into
-# HELPERS_ENGINE_RECORDED. It ships in the same SHA-verified checkout as the
-# workflows, so an inline per-workflow copy would add nothing except a second
-# value that can drift.
+# _forge_ci_arch sets HELPERS_ENGINE_ARCH to the host's architecture, as the
+# binary's name spells it. The binary runs natively or not at all: a host of
+# another architecture would run it under emulation, if at all, so it is
+# refused.
+_forge_ci_arch() {
+	local machine
+	machine=$(uname -m) || machine=
+	case "${machine}" in
+	x86_64 | amd64) HELPERS_ENGINE_ARCH=amd64 ;;
+	aarch64 | arm64) HELPERS_ENGINE_ARCH=arm64 ;;
+	*)
+		echo "ERROR: the forge-ci binary is built for amd64 and arm64 hosts, and this host is '${machine}'; use a native host of one of those architectures" >&2
+		return 69
+		;;
+	esac
+}
+
+# _forge_ci_recorded reads the ONE recorded pin for the host architecture's
+# binary into HELPERS_ENGINE_RECORDED. It ships in the same SHA-verified
+# checkout as the workflows, so an inline per-workflow copy would add nothing
+# except a second value that can drift.
 _forge_ci_recorded() {
-	local checksum_path=${HELPERS_ROOT}/bin/forge-ci.sha256
-	local recorded='' name='' extra=''
+	local checksum_path recorded='' name='' extra=''
 	local -a lines=()
+
+	_forge_ci_arch || return
+	checksum_path=${HELPERS_ROOT}/bin/forge-ci-linux-${HELPERS_ENGINE_ARCH}.sha256
 
 	if [ -f "${checksum_path}" ] && [ ! -L "${checksum_path}" ]; then
 		mapfile -t lines <"${checksum_path}"
@@ -65,11 +86,12 @@ _forge_ci_local_path() {
 	fi
 }
 
-# forge_ci_package_url prints the address of the binary with digest $1:
+# forge_ci_package_url DIGEST ARCH prints the address of the binary with
+# that digest, built for ARCH (amd64 or arm64):
 #
-#   <forge>/api/packages/<engine owner>/generic/forge-ci/<sha256>/forge-ci-linux-amd64
+#   <forge>/api/packages/<engine owner>/generic/forge-ci/<sha256>/forge-ci-linux-<arch>
 # or, with FORGE_CI_PACKAGE_PROVIDER=gitlab:
-#   <CI_SERVER_URL>/api/v4/projects/<encoded project>/packages/generic/forge-ci/<sha256>/forge-ci-linux-amd64
+#   <CI_SERVER_URL>/api/v4/projects/<encoded project>/packages/generic/forge-ci/<sha256>/forge-ci-linux-<arch>
 #
 # The owner is the owner of the repository that serves the layer, never the
 # consumer's. Two rules name that repository, and they cover every context:
@@ -82,7 +104,15 @@ _forge_ci_local_path() {
 # Nothing is read from Git: the runner's copy of an action is not a usable
 # repository.
 forge_ci_package_url() {
-	local digest=$1 repository owner root project
+	local digest=$1 arch=${2:-} repository owner root project
+
+	case "${arch}" in
+	amd64 | arm64) ;;
+	*)
+		echo "ERROR: the forge-ci binary is built for amd64 and arm64, not '${arch}'" >&2
+		return 69
+		;;
+	esac
 
 	if [ -n "${GITHUB_ACTION_REPOSITORY:-}" ]; then
 		repository=${GITHUB_SERVER_URL:-}
@@ -108,8 +138,8 @@ forge_ci_package_url() {
 			echo "ERROR: GitLab helpers must name a project on CI_SERVER_URL and a lowercase SHA-256 binary digest" >&2
 			return 69
 		fi
-		printf '%s/api/v4/projects/%s/packages/generic/forge-ci/%s/forge-ci-linux-amd64\n' \
-			"${root}" "${project//\//%2F}" "${digest}"
+		printf '%s/api/v4/projects/%s/packages/generic/forge-ci/%s/forge-ci-linux-%s\n' \
+			"${root}" "${project//\//%2F}" "${digest}" "${arch}"
 		return 0
 		;;
 	forgejo) ;;
@@ -126,7 +156,7 @@ forge_ci_package_url() {
 		echo "ERROR: the repository that serves the forge-ci layer must be an HTTPS URL ending in owner/repository, without credentials, query or fragment: ${repository}" >&2
 		return 69
 	fi
-	printf '%s/api/packages/%s/generic/forge-ci/%s/forge-ci-linux-amd64\n' "${root}" "${owner}" "${digest}"
+	printf '%s/api/packages/%s/generic/forge-ci/%s/forge-ci-linux-%s\n' "${root}" "${owner}" "${digest}" "${arch}"
 }
 
 # download_forge_ci URL SHA256 DESTINATION downloads over HTTPS without
@@ -189,7 +219,7 @@ fetch_forge_ci() {
 		actual=$(sha256sum -- "${binary}") || actual=
 		[ "${actual%% *}" != "${HELPERS_ENGINE_RECORDED}" ] || return 0
 	fi
-	url=$(forge_ci_package_url "${HELPERS_ENGINE_RECORDED}") || return
+	url=$(forge_ci_package_url "${HELPERS_ENGINE_RECORDED}" "${HELPERS_ENGINE_ARCH}") || return
 	directory=${binary%/*}
 	# The directory holds an executable: it is the job's own, and no link.
 	# shellcheck disable=SC2174 # The mode is meant for the deepest directory alone.
@@ -235,7 +265,7 @@ verify_forge_ci() {
 		fi
 		actual=${actual%% *}
 		if [ "${actual}" != "${HELPERS_ENGINE_RECORDED}" ]; then
-			echo "ERROR: forge-ci binary does not match the recorded pin (bin/forge-ci.sha256)" >&2
+			echo "ERROR: forge-ci binary does not match the recorded pin (bin/forge-ci-linux-${HELPERS_ENGINE_ARCH}.sha256)" >&2
 			echo "  recorded: ${HELPERS_ENGINE_RECORDED}" >&2
 			echo "  actual:   ${actual}" >&2
 			return 69

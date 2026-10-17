@@ -12,6 +12,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -19,7 +20,8 @@ import (
 )
 
 // setupForgeCISandbox lays out the real setup script and resolver next to a
-// fixture bin/forge-ci running body, recorded in bin/forge-ci.sha256.
+// fixture bin/forge-ci running body, recorded in the checksum file of the
+// host's architecture.
 // Every fixture start appends to the returned log, so a refusal can prove the
 // binary never ran.
 func setupForgeCISandbox(t *testing.T, body string) (*sandbox, string, string) {
@@ -32,7 +34,7 @@ func setupForgeCISandbox(t *testing.T, body string) (*sandbox, string, string) {
 	box.write(".forgejo/bin/forge-ci", fixture, 0o755)
 	sum := sha256.Sum256([]byte(fixture))
 	digest := hex.EncodeToString(sum[:])
-	box.write(".forgejo/bin/forge-ci.sha256", digest+"  bin/forge-ci\n", 0o600)
+	box.write(trackedChecksum(runtime.GOARCH), digest+"  bin/forge-ci\n", 0o600)
 
 	return box, digest, starts
 }
@@ -121,7 +123,7 @@ func testSetupForgeCIRefusal(t *testing.T, script string, test setupForgeCIRefus
 
 	box, digest, starts := setupForgeCISandbox(t, test.body)
 	if test.mismatch {
-		box.write(".forgejo/bin/forge-ci.sha256", strings.Repeat("0", 64)+"  bin/forge-ci\n", 0o600)
+		box.write(trackedChecksum(runtime.GOARCH), strings.Repeat("0", 64)+"  bin/forge-ci\n", 0o600)
 	}
 
 	env := []string{"ADD_TO_PATH=false"}

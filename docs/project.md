@@ -17,7 +17,7 @@ Forgejo delivery layers. Its first planned release is **0.90.0**.
 | Workflow input prefix | `forge-ci-*` |
 | Installer | `install-forge-ci.sh` |
 | Layer setup action | `setup-forge-ci` |
-| Layer binary checksum | `.forgejo/bin/forge-ci.sha256` |
+| Layer binary checksums | `.forgejo/bin/forge-ci-linux-amd64.sha256`, `.forgejo/bin/forge-ci-linux-arm64.sha256` |
 | Package and image prefix | `forge-ci` |
 | Development branch | `main` |
 | Release baseline | `v0.90.0` |

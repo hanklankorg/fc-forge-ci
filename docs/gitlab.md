@@ -52,7 +52,7 @@ fan-out.
 | GitLab | 18.7 or later for `check`; `release` uses the same component context. CE/Free is enough: protected-environment approvals and paid pipeline-execution policies are not used. |
 | Hosting | The components, and for checksum-bound components the engine project, on the **same instance** as the consumer. |
 | Engine project | **Readable without credentials**, and its generic package downloadable anonymously. Downloads send no credential. |
-| Runner architecture | **linux/amd64** for checksum-bound jobs: the recorded engine is built for that platform only. Catalog runtime images are linux/amd64 and linux/arm64, except Android (amd64 only). |
+| Runner architecture | **linux/amd64 or linux/arm64** for checksum-bound jobs: the engine is recorded for both, and each job runs the one of its runner's architecture. Catalog runtime images are linux/amd64 and linux/arm64, except Android (amd64 only). |
 | Executor | Docker or Kubernetes. The components clear the entrypoint of `job-image`, `build-image`, `nanolinter-image` and `megalinter-image`, so an image that starts a tool of its own still runs the job's shell. |
 | Job images | For `check`: Bash, Git, curl, `sha256sum` and the consumer's check tools, pinned by digest. For the lint components' SAST conversion: Bash, Git, curl and `sha256sum` in the lint image; Nanolinter's flavours and MegaLinter have them. For `release`: a non-root `job-image`, a `build-image`, and the organization's `signer-image`; see [Images and the engine binary](#images-and-the-engine-binary). |
 | Artifact size | Enough native artifact capacity for the release handoff; the GitLab default of 100 MB can be too small. See [Releases and promotion](#releases-and-promotion). |
@@ -259,16 +259,17 @@ describes its contents and a manual `buildah build`.
 
 ### Checksum-bound engine bootstrap
 
-The delivery binary has one build definition and one checksum, shared with
-Forgejo. The established paths remain `scripts/ci/forgejo-binary.sh` and
-`.forgejo/bin/forge-ci.sha256`; do not maintain a second GitLab build or
-checksum copy. The script is named for the layer it was written for first;
-its `build` and `refresh` know no forge, and `publish` uploads to GitLab when
-`FORGE_CI_PACKAGE_PROVIDER=gitlab`, as shown below.
+The delivery binary has one build definition and one checksum per
+architecture, shared with Forgejo. The established paths remain
+`scripts/ci/forgejo-binary.sh` and
+`.forgejo/bin/forge-ci-linux-<amd64|arm64>.sha256`; do not maintain a second
+GitLab build or checksum copy. The script is named for the layer it was
+written for first; its `build` and `refresh` know no forge, and `publish`
+uploads to GitLab when `FORGE_CI_PACKAGE_PROVIDER=gitlab`, as shown below.
 
-Checksum-bound check/release jobs use the **Linux/amd64** delivery binary.
-Select a compatible runner and job/signer image. This package coordinate does
-not select a native ARM64 or macOS engine; other components' runtime-image
+Checksum-bound check/release jobs use the **Linux** delivery binary of the
+runner's architecture, amd64 or arm64, and refuse any other runner. Select a
+compatible runner and job/signer image. There is no macOS engine; other components' runtime-image
 platforms are described in the [runtime image roster](runtime-images.md#image-roster).
 
 Set these coordinates for GitLab:
@@ -282,7 +283,7 @@ export FORGE_CI_REPOSITORY_URL=https://gitlab.example.com/team/ci/forge-ci.git
 The resolver uses the full project path, including subgroups:
 
 ```text
-https://gitlab.example.com/api/v4/projects/team%2Fci%2Fforge-ci/packages/generic/forge-ci/<sha256>/forge-ci-linux-amd64
+https://gitlab.example.com/api/v4/projects/team%2Fci%2Fforge-ci/packages/generic/forge-ci/<sha256>/forge-ci-linux-<amd64|arm64>
 ```
 
 The engine repository must be on `CI_SERVER_URL`. The package must permit
@@ -292,11 +293,13 @@ the recorded SHA-256 is verified before the binary can run.
 #### Publish the recorded build
 
 From a trusted checkout at the selected engine commit, with its pinned Go
-toolchain and cached dependencies:
+toolchain and cached dependencies, for each architecture:
 
 ```bash
-bash scripts/ci/forgejo-binary.sh build /absolute/private/staging/forge-ci
-bash scripts/ci/forgejo-binary.sh publish /absolute/private/staging/forge-ci
+for arch in amd64 arm64; do
+  bash scripts/ci/forgejo-binary.sh build "$arch" "/absolute/private/staging/forge-ci-$arch"
+  bash scripts/ci/forgejo-binary.sh publish "$arch" "/absolute/private/staging/forge-ci-$arch"
+done
 ```
 
 Publication requires `FORGE_CI_PACKAGE_TOKEN` in the environment, supplied
@@ -308,12 +311,12 @@ For GitLab, `FORGE_CI_PACKAGE_TOKEN_TYPE` selects the authentication header:
 | `private` (default) | `PRIVATE-TOKEN` | Access token authorized to publish to the engine project |
 | `job` | `JOB-TOKEN` | Native `CI_JOB_TOKEN` with the required project package access |
 
-For publication from the engine project's own job:
+For publication from the engine project's own job, once per architecture:
 
 ```bash
 FORGE_CI_PACKAGE_TOKEN_TYPE=job \
   FORGE_CI_PACKAGE_TOKEN="${CI_JOB_TOKEN:?}" \
-  bash scripts/ci/forgejo-binary.sh publish /absolute/private/staging/forge-ci
+  bash scripts/ci/forgejo-binary.sh publish "$arch" "/absolute/private/staging/forge-ci-$arch"
 ```
 
 The publisher rejects a binary that differs from the checkout's recorded
@@ -909,7 +912,7 @@ SAST conversion names an owner.
 - **No Google Play, container-publishing or Xcode-build components**; Gradle
   publishing is not wired in `publish-forge-packages`.
 - **No `:dev`/`:staging` promotion ladder.**
-- **Checksum-bound jobs run on linux/amd64 only.**
+- **Checksum-bound jobs run on linux/amd64 or linux/arm64 only.**
 - **No run-artifact API**: files move between jobs through native artifacts.
 - **SAST display needs GitLab Ultimate.**
 - **The engine project and its packages must be readable anonymously.**

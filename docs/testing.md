@@ -172,11 +172,19 @@ GitLab examples under `examples/`, `.github/workflows/`, `templates/` and
 `.gitlab/bin/` against the built CLI's own help). Nothing in the tier
 reaches a forge, a registry or a container runtime.
 
-The same build is the reference for the binary the layer runs, which is not
-in the tree: a job downloads it by the checksum in
-`.forgejo/bin/forge-ci.sha256`.
-`TestRecordedEngineChecksumIsABuildOfThisTree` fails when that line is not
-the digest of this build, which is what happens after a change to Go source,
+The tier builds the engine for the host's architecture, amd64 or arm64, and
+runs it natively; on another architecture it reports "not proven" rather
+than running under emulation, and the strict profile fails.
+`test/forgejobehavior` is built for Linux only, so on macOS/BSD it reports
+one "not proven" entry instead. The checksum comparison and publish tests
+build both architectures and only read their bytes, so they run on any Linux
+host.
+
+The same builds are the reference for the binaries the layer runs, which are
+not in the tree: a job downloads the one of its host's architecture by the
+checksum in `.forgejo/bin/forge-ci-linux-<amd64|arm64>.sha256`.
+`TestRecordedEngineChecksumIsABuildOfThisTree` fails when a line is not
+the digest of its build, which is what happens after a change to Go source,
 `go.mod` or `go.sum` until `just refresh-forgejo-binary` is run, and its
 message prints the line to record. The build names no commit, so the test
 needs no Git history and follows the working tree as it is. It is not
@@ -191,8 +199,9 @@ so a checksum that is not a build of the tree fails every pull request.
 runs the whole tier strictly.
 
 The download itself is tested against a local HTTPS server standing in for
-the package registry: the address per context, the refusals, the strict
-mode, and `forgejo-binary.sh publish`.
+the package registry: the address per context, the choice of binary by a
+faked `uname -m` and the refusal of other architectures, the refusals, the
+strict mode, and `forgejo-binary.sh publish`.
 
 What this tier cannot show is the runner: how Forgejo expands a called
 workflow, resolves `vars`, or schedules the jobs. That is acceptance on a real

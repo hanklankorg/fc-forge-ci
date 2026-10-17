@@ -51,7 +51,7 @@ func runGitLabCheck(t *testing.T, private bool) {
 		t.Fatal(err)
 	}
 
-	paths := []string{"templates/check.yml", ".forgejo/bin/lib-forge-ci.sh", ".forgejo/bin/forge-ci.sha256"}
+	paths := []string{"templates/check.yml", ".forgejo/bin/lib-forge-ci.sh", ".forgejo/bin/forge-ci-linux-amd64.sha256"}
 	actions := make([]*gitlabapi.CommitActionOptions, 0, len(paths))
 
 	for _, path := range paths {

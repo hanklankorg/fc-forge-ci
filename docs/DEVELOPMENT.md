@@ -403,35 +403,37 @@ its shell against the CLI built from your tree.
 ## The Forgejo layer's engine binary
 
 The workflows and actions under `.forgejo/` run this repository's CLI, built
-for linux/amd64. The tree tracks its SHA-256 and not the binary:
-`.forgejo/bin/forge-ci.sha256` is one line, and a job downloads the binary
-by it from the generic packages of the forge that serves the layer, then
-verifies it. [The binary in the layer](forgejo.md#the-binary-in-the-layer)
-describes the download; this section is about the line.
+for linux/amd64 and linux/arm64. The tree tracks their SHA-256 and not the
+binaries: `.forgejo/bin/forge-ci-linux-amd64.sha256` and
+`.forgejo/bin/forge-ci-linux-arm64.sha256` are one line each, and a job
+downloads the binary of its host's architecture by its line from the generic
+packages of the forge that serves the layer, then verifies it.
+[The binary in the layer](forgejo.md#the-binary-in-the-layer) describes the
+download; this section is about the lines.
 
-One recipe writes it, and nothing else may:
+One recipe writes them, and nothing else may:
 
 ```bash
 just refresh-forgejo-binary
-git add .forgejo/bin/forge-ci.sha256
+git add .forgejo/bin/forge-ci-linux-amd64.sha256 .forgejo/bin/forge-ci-linux-arm64.sha256
 ```
 
 It refuses a toolchain other than the Go release `go.mod` pins, builds the
-CLI of your tree as
-[`scripts/ci/forgejo-binary.sh`](../scripts/ci/forgejo-binary.sh) defines,
-and records the digest. Run it after a change to a build input (`cmd/`,
+CLI of your tree for both architectures as
+[`scripts/ci/forgejo-binary.sh`](../scripts/ci/forgejo-binary.sh) defines
+(cross-compiled, so any host records both), and records the digests. Run it after a change to a build input (`cmd/`,
 `internal/`, `go.mod`, `go.sum`); a change to documentation, workflows or
 tests names the same binary and needs nothing.
 
-**The tip must be consistent, not every commit.** Commit the line with the
-change it follows, or in a commit after it. Two branches that both change Go
-code both change the line; after merging them, record it once more. What a
-consumer pins is a commit whose line is a build of its tree.
+**The tip must be consistent, not every commit.** Commit the lines with the
+change they follow, or in a commit after it. Two branches that both change Go
+code both change the lines; after merging them, record them once more. What a
+consumer pins is a commit whose lines are builds of its tree.
 
 `TestRecordedEngineChecksumIsABuildOfThisTree` (in `just test-forgejo`, and
-in `go test ./...`) rebuilds and compares, so the line cannot drift from the
-tree unnoticed: it fails until the line is recorded, and its message prints
-the line to write. It needs no Git history. Under another Go release than
+in `go test ./...`) rebuilds both architectures and compares, so a line cannot drift from
+the tree unnoticed: it fails until the line is recorded, and its message
+prints the line to write. It needs no Git history. Under another Go release than
 `go.mod` names it cannot reproduce the build and says "not proven"; the
 pull-request gate runs it with that release and in the strict profile, where
 it can only pass or fail.
@@ -443,22 +445,22 @@ therefore build the same bytes at any commit, in any directory. The limits
 are the toolchain, which must be the pinned Go release as the Go project
 distributes it, and your module cache, which the build reads with the proxy
 and the checksum database off. The second is why a forge does not take the
-line on trust: the job that publishes the binary downloads the modules
-itself and publishes only a build that matches.
+lines on trust: the job that publishes the binaries downloads the modules
+itself and publishes only builds that match.
 
-`scripts/ci/forgejo-binary.sh build <output>` writes the binary for local
-use, and the tests of `test/forgejobehavior` build theirs the same way. A
+`scripts/ci/forgejo-binary.sh build <amd64|arm64> <output>` writes a binary
+for local use, and the tests of `test/forgejobehavior` build theirs the same way. A
 binary at `.forgejo/bin/forge-ci` is ignored by Git.
 
-**Publishing.** A forge serves a commit of the layer once the binary that
-commit names is in the generic packages of the serving repository's owner.
+**Publishing.** A forge serves a commit of the layer once the binaries that
+commit names are in the generic packages of the serving repository's owner.
 The first job of
 [`examples/forgejo/signer-image.yml`](../examples/forgejo/signer-image.yml)
 does it, with `scripts/ci/forgejo-binary.sh publish`; the live tier does the
 same for its scratch owner on the lab. Nothing is published from a
 workstation.
 
-Do not hand-edit the file, and do not build the binary any other way.
+Do not hand-edit the files, and do not build the binary any other way.
 
 ## Branch Testing Reusable Workflows
 

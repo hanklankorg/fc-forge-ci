@@ -60,7 +60,8 @@ if [ "${SIGNER_STRICT:-0}" = "1" ]; then
 	#
 	# Signing-boundary policy: the forge-ci Go CLI is the ONE non-shell executable
 	# that may run in the signing boundary — and only when its sha256 matches the
-	# recorded pin (bin/forge-ci.sha256) in the SHA-verified helpers checkout.
+	# recorded pin of the host's architecture (bin/forge-ci-linux-<arch>.sha256)
+	# in the SHA-verified helpers checkout.
 	# The checkout's commit is pinned by EXPECTED_HELPERS_SHA, so the pin file is
 	# exactly as reviewed as an inline workflow copy — without a second value
 	# that can drift. Check the explicit resolver override, PATH, and the helper
@@ -78,7 +79,15 @@ if [ "${SIGNER_STRICT:-0}" = "1" ]; then
 	[ -z "${path_forge_ci_bin}" ] || forge_ci_bins+=("${path_forge_ci_bin}")
 	script_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 	layer_forge_ci_bin="${script_dir}/../bin/forge-ci"
-	forge_ci_pin_file="${script_dir}/../bin/forge-ci.sha256"
+	case "$(uname -m)" in
+	x86_64 | amd64) forge_ci_arch=amd64 ;;
+	aarch64 | arm64) forge_ci_arch=arm64 ;;
+	*)
+		echo "verify-signer-toolchain: no forge-ci binary is recorded for this host's architecture: $(uname -m)" >&2
+		exit 1
+		;;
+	esac
+	forge_ci_pin_file="${script_dir}/../bin/forge-ci-linux-${forge_ci_arch}.sha256"
 	if [ -e "${layer_forge_ci_bin}" ] || [ -L "${layer_forge_ci_bin}" ]; then
 		forge_ci_bins+=("${layer_forge_ci_bin}")
 	elif [ -e "${forge_ci_pin_file}" ] || [ -L "${forge_ci_pin_file}" ]; then

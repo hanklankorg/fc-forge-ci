@@ -27,6 +27,11 @@ const (
 	// binary, and binaryScriptPath the script it builds and uploads with.
 	publishBinaryJob = "publish-engine-binary"
 	binaryScriptPath = "scripts/ci/forgejo-binary.sh"
+
+	// signerBuildArchJob builds each architecture on a native runner of that
+	// architecture: the build executes the image's steps, never under emulation.
+	signerBuildArchJob    = "build-signer-arch"
+	signerBuildArchRunner = "${{ matrix.arch == 'arm64' && vars.CI_RUNNER_LABEL_ARM64 || vars.CI_RUNNER_LABEL }}"
 )
 
 func TestSignerImageExampleDefersRegistryWritesUntilAllBuildsSucceed(t *testing.T) {
@@ -67,8 +72,9 @@ func TestSignerImageExampleDefersRegistryWritesUntilAllBuildsSucceed(t *testing.
 
 // The signer-image example is what an organization copies to publish the
 // engine binary and build its signer image from its copy of this repository.
-// Every job runs on the repository's runner, checks the engine out at one
-// placeholder commit under a placeholder owner, verifies that checkout
+// Every job runs on the repository's runner (the arm64 build on its ARM64
+// runner), checks the engine out at one placeholder commit under a
+// placeholder owner, verifies that checkout
 // against the same placeholder before anything else runs, and then uses only
 // actions of that checkout; the binary job also sets Go up. The one secret is
 // the registry token, and the workflow starts by hand or by a change to
@@ -149,10 +155,17 @@ func TestSignerImageExamplePublishesTheEngineBinaryFirst(t *testing.T) {
 
 	assertOrderedFragments(t, "the build step", scalarString(mappingValue(build, "run")), []string{
 		`export GOMODCACHE="${RUNNER_TEMP:?}/engine-modules"`,
-		"go list -deps ./cmd/forge-ci",
-		binaryScriptPath + " build .forgejo/bin/forge-ci",
-		"sha256sum --check --quiet bin/forge-ci.sha256",
+		"for arch in amd64 arm64; do",
+		`GOARCH="${arch}" go list -deps ./cmd/forge-ci`,
+		binaryScriptPath + ` build "${arch}" "${RUNNER_TEMP:?}/engine-${arch}/bin/forge-ci"`,
+		`sha256sum --check --quiet "${GITHUB_WORKSPACE:?}/.forgejo/bin/forge-ci-linux-${arch}.sha256"`,
 		"exit 1",
+	})
+
+	// Each architecture's checked build, and nothing else, is published.
+	assertOrderedFragments(t, "the upload step", scalarString(mappingValue(upload, "run")), []string{
+		"for arch in amd64 arm64; do",
+		binaryScriptPath + ` publish "${arch}" "${RUNNER_TEMP:?}/engine-${arch}/bin/forge-ci"`,
 	})
 
 	if anyString(build, secretReference.MatchString) {
@@ -212,8 +225,13 @@ func assertSignerImageJob(t *testing.T, name string, target job) {
 	pinnedSetupGo := regexp.MustCompile(`^https://code\.forgejo\.org/actions/setup-go@[0-9a-f]{40}$`)
 	pinnedForgejoAction := regexp.MustCompile(`^https://code\.forgejo\.org/actions/checkout@[0-9a-f]{40}$`)
 
-	if got := target.runsOn(); got != repositoryRunner {
-		t.Errorf("job %s runs on %q, want %q", name, got, repositoryRunner)
+	wantRunner := repositoryRunner
+	if name == signerBuildArchJob {
+		wantRunner = signerBuildArchRunner
+	}
+
+	if got := target.runsOn(); got != wantRunner {
+		t.Errorf("job %s runs on %q, want %q", name, got, wantRunner)
 	}
 
 	steps := target.steps()
