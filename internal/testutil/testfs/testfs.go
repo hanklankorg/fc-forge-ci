@@ -23,11 +23,18 @@ type Real struct {
 	Root string
 }
 
-// NewReal returns a temp-dir-backed filesystem helper.
+// NewReal returns a temp-dir-backed filesystem helper with a physical root.
+// Resolve only the owned root, so subprocess cwd and canonical product paths
+// agree even when TMPDIR has a symlinked ancestor (as on macOS).
 func NewReal(t *testing.T) *Real {
 	t.Helper()
 
-	return &Real{t: t, Root: t.TempDir()}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("testfs: resolve temporary root: %v", err)
+	}
+
+	return &Real{t: t, Root: root}
 }
 
 // Path returns an absolute path under the helper's temp root. The parts must

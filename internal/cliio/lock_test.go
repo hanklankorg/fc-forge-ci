@@ -36,16 +36,22 @@ func TestWithLock_SerializesReadModifyWrite(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			_ = cliio.WithLock(counter, func() error {
+			err := cliio.WithLock(counter, func() error {
 				b, err := os.ReadFile(counter) //nolint:gosec // test fixture path
 				if err != nil {
 					return err
 				}
 
-				v, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+				v, err := strconv.Atoi(strings.TrimSpace(string(b)))
+				if err != nil {
+					return err
+				}
 
 				return os.WriteFile(counter, []byte(strconv.Itoa(v+1)), 0o600)
 			})
+			if err != nil {
+				t.Errorf("increment counter: %v", err)
+			}
 		}()
 	}
 
@@ -56,7 +62,11 @@ func TestWithLock_SerializesReadModifyWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	got, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if got != n {
 		t.Errorf("counter = %d, want %d — lost updates mean locking is broken", got, n)
 	}

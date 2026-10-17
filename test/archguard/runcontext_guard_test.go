@@ -88,8 +88,18 @@ func ownedNames() map[string]string {
 func TestLayersDoNotNameRunContextVars(t *testing.T) {
 	t.Parallel()
 
+	for _, goos := range slices.Compact([]string{"linux", runtime.GOOS}) {
+		t.Run(goos, func(t *testing.T) {
+			checkRunContextVars(t, goos)
+		})
+	}
+}
+
+func checkRunContextVars(t *testing.T, goos string) {
+	t.Helper()
+
 	owned := ownedNames()
-	packages, imp, fset := envGuardPackages(t, "./internal/...")
+	packages, imp, fset := envGuardPackagesForOS(t, goos, "./internal/...")
 	checked := 0
 
 	for _, pkg := range packages {
@@ -150,12 +160,20 @@ type envGuardPackage struct {
 func envGuardPackages(t *testing.T, patterns ...string) ([]envGuardPackage, types.Importer, *token.FileSet) {
 	t.Helper()
 
+	return envGuardPackagesForOS(t, runtime.GOOS, patterns...)
+}
+
+// The Linux reference build is checked even on a non-Linux contributor host.
+// Only compiler metadata is loaded; cross-compiled code is never executed.
+func envGuardPackagesForOS(t *testing.T, goos string, patterns ...string) ([]envGuardPackage, types.Importer, *token.FileSet) {
+	t.Helper()
+
 	args := append([]string{"list", "-mod=readonly", "-buildvcs=false", "-deps", "-export", "-compiled", "-json"}, patterns...)
 	goRoot := guardGoRoot(t)
 	cmd := exec.CommandContext(t.Context(), filepath.Join(goRoot, "bin", "go"), args...) //nolint:gosec // matching installed Go executable; callers supply fixed source/metadata package patterns.
 	cmd.Dir = reporoot.Path(t)
 
-	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local")
+	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOOS="+goos, "GOARCH="+runtime.GOARCH, "CGO_ENABLED=0")
 
 	var stderr bytes.Buffer
 

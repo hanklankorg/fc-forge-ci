@@ -6,7 +6,9 @@
 package gpgkey_test
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -14,6 +16,33 @@ import (
 	"github.com/diggsweden/forge-ci/internal/adapters/openpgp"
 	"github.com/diggsweden/forge-ci/internal/testutil/gpgkey"
 )
+
+func TestKey_NestedTemporaryRootAndCleanup(t *testing.T) {
+	longRoot := filepath.Join(t.TempDir(), strings.Repeat("nested-", 24))
+	if err := os.Mkdir(longRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", longRoot)
+
+	var keyring string
+	t.Run("generate", func(t *testing.T) {
+		key := gpgkey.New(t)
+		keyring = key.GNUPGHOME
+		info, err := os.Stat(keyring)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o700 {
+			t.Fatalf("keyring permissions = %v, want owner-only", info.Mode())
+		}
+		if !slices.Contains(listSecretFingerprints(t, keyring), key.Fingerprint) {
+			t.Fatal("generated key is absent from its private keyring")
+		}
+	})
+	if _, err := os.Stat(keyring); !os.IsNotExist(err) {
+		t.Fatalf("keyring remains after its test: %v", err)
+	}
+}
 
 // TestArmoredKeys_ParseAsTheKeyTheyClaimToBe parses the armor, not its headers.
 // Substring assertions on BEGIN/END lines are satisfied by two header lines

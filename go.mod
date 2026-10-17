@@ -7,6 +7,7 @@ require (
 	codefloe.com/itiquette/forge-lab-contract v0.90.0
 	github.com/ProtonMail/go-crypto v1.4.1
 	github.com/bmatcuk/doublestar/v4 v4.10.0
+	github.com/creack/pty v1.1.24
 	github.com/docker/cli v29.8.0+incompatible
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/goccy/go-yaml v1.19.2

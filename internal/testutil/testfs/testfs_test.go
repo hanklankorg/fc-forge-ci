@@ -6,10 +6,40 @@ package testfs_test
 import (
 	"io/fs"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/diggsweden/forge-ci/internal/testutil/testfs"
 )
+
+func TestReal_ResolvesLinkedTemporaryParent(t *testing.T) {
+	parent := t.TempDir()
+	alias := filepath.Join(parent, "alias")
+
+	physicalParent := filepath.Join(parent, "real")
+	if err := os.Mkdir(physicalParent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Symlink(physicalParent, alias); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("TMPDIR", alias)
+
+	t.Run("physical root", func(t *testing.T) {
+		fsys := testfs.NewReal(t)
+
+		physical, err := filepath.EvalSymlinks(fsys.Root)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if fsys.Root != physical {
+			t.Fatalf("root = %q, want physical path %q", fsys.Root, physical)
+		}
+	})
+}
 
 func TestMemory_ListsParentDirectories(t *testing.T) {
 	fsys := testfs.NewMemory(t)

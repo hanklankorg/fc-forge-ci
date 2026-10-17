@@ -116,7 +116,15 @@ func refuseAliasedLockPaths(root *os.Root, names ...string) error {
 // the open and the flock, the path can be replaced, and a lock held on a
 // descriptor nobody else will open serialises nothing.
 func openVerifiedLockFile(root *os.Root, name, display string) (*os.File, error) {
-	file, err := root.OpenFile(name, os.O_CREATE|os.O_RDWR, 0o644)
+	// Exclusive creation distinguishes the creator from concurrent openers.
+	// On APFS, concurrent O_CREATE without O_EXCL can return ENOENT even
+	// though another opener has just created the file. Open the existing
+	// sidecar only on EEXIST; never retry other failures or replace a lock.
+	file, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o644)
+	if errors.Is(err, os.ErrExist) {
+		file, err = root.OpenFile(name, os.O_RDWR, 0)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("open lock %s: %w", display, err)
 	}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/diggsweden/forge-ci/internal/domain/container"
 	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
+	"github.com/diggsweden/forge-ci/internal/testutil/testenv"
 )
 
 // These tests drive run-live-tests.sh offline: a fake go on PATH records its
@@ -117,10 +118,7 @@ func newLiveRun(t *testing.T, extraEnv ...string) liveRun {
 
 	hostDir := t.TempDir()
 
-	for _, utility := range []string{
-		"bash", "sh", "env", "sed", "tee", "install", "find", "date", "mktemp",
-		"cut", "chmod", "rm", "dirname", "sha256sum", "base64", "git", "flock",
-	} {
+	for _, utility := range []string{"sh", "env", "tee", "git", "flock", "date", "mktemp", "cut", "chmod", "rm", "dirname", "base64"} {
 		resolved, err := exec.LookPath(utility)
 		if err != nil {
 			t.Fatalf("host utility %s: %v", utility, err)
@@ -139,7 +137,8 @@ func newLiveRun(t *testing.T, extraEnv ...string) liveRun {
 		envFile:      filepath.Join(state, "go-env"),
 	}
 	run.env = append([]string{
-		"PATH=" + fakeDir + string(os.PathListSeparator) + hostDir,
+		"PATH=" + fakeDir + string(os.PathListSeparator) + testenv.GNUPath(t,
+			"bash", "sed", "install", "find", "sha256sum") + string(os.PathListSeparator) + hostDir,
 		"HOME=" + t.TempDir(),
 		"XDG_STATE_HOME=" + run.stateHome,
 		"TMPDIR=" + t.TempDir(),

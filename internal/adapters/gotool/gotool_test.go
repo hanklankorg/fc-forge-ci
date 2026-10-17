@@ -14,6 +14,7 @@ import (
 	domainbuild "github.com/diggsweden/forge-ci/internal/domain/build"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/testutil/mockbinary"
+	"github.com/diggsweden/forge-ci/internal/testutil/testfs"
 )
 
 // TestGo_RunPassesArgsDirAndEnv covers the three things run() threads
@@ -23,7 +24,7 @@ func TestGo_RunPassesArgsDirAndEnv(t *testing.T) {
 	m.OnPath()
 	m.Add("go", `printf 'args=%s cwd=%s goos=%s\n' "$*" "$(pwd)" "${GOOS:-unset}"`)
 
-	dir := t.TempDir()
+	dir := testfs.NewReal(t).Root
 
 	var stdout bytes.Buffer
 

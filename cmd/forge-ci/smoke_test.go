@@ -33,9 +33,14 @@ import (
 // smoke is the state TestMain prepares once for the whole package: the shared
 // build root, the package directory the test process started in, and the
 // binary built on first use.
+//
+//nolint:gochecknoglobals // TestMain owns the package's shared build and cache state.
 var smoke struct {
 	baseTemp   string
 	packageDir string
+	goBinary   string
+	buildEnv   []string
+	inputsErr  error
 	buildOnce  sync.Once
 	binary     string
 	buildErr   error
@@ -62,6 +67,14 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
+	// Resolve build inputs before a test isolates HOME. Otherwise the first
+	// build downloads a second, read-only module cache into a test's home,
+	// whose ordinary cleanup cannot remove it. Only builds get these caches;
+	// the product still runs with each test's isolated environment.
+	// Self-executed signal/panic fixtures have no compiler on their closed
+	// PATH. Retain a setup error for a test that actually requests a build.
+	smoke.goBinary, smoke.buildEnv, smoke.inputsErr = smokeBuildInputs()
+
 	dir, err := os.MkdirTemp("", "forge-ci-smoke-*")
 	if err != nil {
 		panic(err)
@@ -76,6 +89,39 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 	os.Exit(cleanupSmokeRoot(dir, os.Stderr, code))
+}
+
+// smokeBuildInputs captures the compiler and its caches for the builds.
+//
+// test/archguard has a GOMODCACHE lookup, but it is a *testing.T helper of
+// another test package and this runs in TestMain, before any test, and also
+// needs GOCACHE: one `go env -json` query here is smaller than a shared
+// package for it.
+func smokeBuildInputs() (string, []string, error) {
+	goBinary, err := exec.LookPath("go")
+	if err != nil {
+		return "", nil, fmt.Errorf("smoke build setup: find go: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), binaryRunTimeout)
+	defer cancel()
+	query := exec.CommandContext(ctx, goBinary, "env", "-json", "GOMODCACHE", "GOCACHE") //nolint:gosec // Installed compiler resolved before test isolation; metadata-only arguments.
+	query.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+	cacheJSON, err := query.Output()
+	if err != nil {
+		return "", nil, fmt.Errorf("smoke build setup: go env GOMODCACHE GOCACHE: %w", err)
+	}
+	var caches struct {
+		Modules string `json:"GOMODCACHE"`
+		Build   string `json:"GOCACHE"`
+	}
+	if err := json.Unmarshal(cacheJSON, &caches); err != nil {
+		return "", nil, fmt.Errorf("smoke build setup: parse go env: %w", err)
+	}
+
+	return goBinary, []string{
+		"GOMODCACHE=" + caches.Modules, "GOCACHE=" + caches.Build,
+		"GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off",
+	}, nil
 }
 
 // cleanupSmokeRoot removes the shared build root and folds a failure into the
@@ -101,18 +147,23 @@ func cleanupSmokeRoot(dir string, stderr io.Writer, code int) int {
 
 func buildBinary(t *testing.T) string {
 	t.Helper()
+	if smoke.inputsErr != nil {
+		t.Fatal(smoke.inputsErr)
+	}
 	smoke.buildOnce.Do(func() {
 		if smoke.baseTemp == "" {
-			smoke.buildErr = fmt.Errorf("smoke temp root not initialized")
+			smoke.buildErr = fmt.Errorf("smoke temp root not initialized: %w", os.ErrInvalid)
+
 			return
 		}
 		bin := filepath.Join(smoke.baseTemp, "forge-ci")
-		cmd := exec.Command("go", "build", "-buildvcs=false", "-o", bin, "./cmd/forge-ci")
+		cmd := exec.CommandContext(t.Context(), smoke.goBinary, "build", "-buildvcs=false", "-o", bin, "./cmd/forge-ci") //nolint:gosec // Captured compiler and owned output path; fixed source package.
 		cmd.Dir = repoRoot(t)
-		cmd.Env = os.Environ()
+		cmd.Env = append(os.Environ(), smoke.buildEnv...)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			smoke.buildErr = fmt.Errorf("go build forge-ci: %w\n%s", err, out)
+
 			return
 		}
 		smoke.binary = bin
@@ -120,6 +171,7 @@ func buildBinary(t *testing.T) string {
 	if smoke.buildErr != nil {
 		t.Fatal(smoke.buildErr)
 	}
+
 	return smoke.binary
 }
 
@@ -155,7 +207,7 @@ func runBinary(t *testing.T, bin string, args ...string) (string, string, int) {
 	ctx, cancel := context.WithTimeout(t.Context(), binaryRunTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec // Exact smoke artifact with test-authored CLI arguments, isolated environment and bounded execution.
 	cmd.Env = append(os.Environ(),
 		"HTTP_PROXY="+refusingProxy, "HTTPS_PROXY="+refusingProxy, "ALL_PROXY="+refusingProxy,
 		"http_proxy="+refusingProxy, "https_proxy="+refusingProxy, "all_proxy="+refusingProxy,
@@ -251,12 +303,15 @@ func TestBinary_VersionFlag(t *testing.T) {
 // can be smoke-tested without the release toolchain (F8 / DIST-03).
 func buildBinaryWithVersion(t *testing.T, version, commit, date string) string {
 	t.Helper()
+	if smoke.inputsErr != nil {
+		t.Fatal(smoke.inputsErr)
+	}
 
 	bin := filepath.Join(t.TempDir(), "forge-ci-versioned")
 	ldflags := fmt.Sprintf("-X main.version=%s -X main.commit=%s -X main.date=%s", version, commit, date)
-	cmd := exec.Command("go", "build", "-buildvcs=false", "-ldflags", ldflags, "-o", bin, "./cmd/forge-ci")
+	cmd := exec.CommandContext(t.Context(), smoke.goBinary, "build", "-buildvcs=false", "-ldflags", ldflags, "-o", bin, "./cmd/forge-ci") //nolint:gosec // Captured compiler, test-authored metadata and owned output path.
 	cmd.Dir = repoRoot(t)
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), smoke.buildEnv...)
 
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("go build (ldflags): %v\n%s", err, out)
@@ -588,7 +643,7 @@ func TestBinary_Doctor_ArtifactsFlagOverride(t *testing.T) {
 	customPath := filepath.Join(fsys.Root, "custom-artifacts.yml")
 	if err := os.WriteFile(customPath, []byte(
 		"artifacts:\n  - name: x\n    project-type: meta\n",
-	), 0o644); err != nil { //nolint:gosec // test fixture
+	), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

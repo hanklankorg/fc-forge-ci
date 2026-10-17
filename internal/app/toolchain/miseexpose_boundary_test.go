@@ -15,6 +15,7 @@ import (
 
 	"github.com/diggsweden/forge-ci/internal/app/toolchain"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/testutil/testfs"
 )
 
 func TestMiseExposure_PreflightPreservesState(t *testing.T) { //nolint:gocognit,gocyclo // each late refusal shares exact earlier-source, destination and PATH canaries.
@@ -145,7 +146,7 @@ func TestMiseExposure_SameFileAndSourceLinks(t *testing.T) { //nolint:gocognit /
 
 	for _, scenario := range []string{"same directory", "hardlink destination", "same target symlink", "relative source link", "absolute source link", "linked source directory", "same-file duplicate", "rustup source links"} {
 		t.Run(scenario, func(t *testing.T) {
-			root := t.TempDir()
+			root := testfs.NewReal(t).Root
 			source := filepath.Join(root, "source bin")
 			binHome := filepath.Join(root, "bin")
 			writeExecutable(t, filepath.Join(source, "tool"))
@@ -372,7 +373,7 @@ func TestMiseExposure_DestinationSymlinkParentResolution(t *testing.T) { //nolin
 		}
 
 		t.Run(name, func(t *testing.T) {
-			root := t.TempDir()
+			root := testfs.NewReal(t).Root
 			fixtures := filepath.Join(root, "fixtures")
 			source := filepath.Join(fixtures, "source", "tool")
 
@@ -456,7 +457,7 @@ func TestMiseExposure_PATHInsideNewBinHome(t *testing.T) { //nolint:gocognit // 
 
 	for _, scenario := range []string{"success", "late source conflict", "late PATH collision", "late rustup conflict"} {
 		t.Run(scenario, func(t *testing.T) {
-			root := t.TempDir()
+			root := testfs.NewReal(t).Root
 			fixtures := filepath.Join(root, "fixtures")
 			first, later, cargo := filepath.Join(fixtures, "first"), filepath.Join(fixtures, "later"), filepath.Join(fixtures, "rustup")
 			writeExecutable(t, filepath.Join(first, "early"))

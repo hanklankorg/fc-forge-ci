@@ -71,7 +71,7 @@ func TestReleaseHandoffNeverSourcesItsDigestAsShell(t *testing.T) {
 
 	command := exec.CommandContext(ctx, "/bin/bash", "--noprofile", "--norc", "-c", invocation, "handoff-guard", script, dir, "0") //nolint:gosec // Reviewed script and inert CLI. Conditional invocation proves refusal does not depend on errexit.
 	command.Dir = dir
-	command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + dir}
+	command.Env = []string{"PATH=" + componentTools(t), "HOME=" + dir}
 
 	output, err := command.CombinedOutput()
 	if err == nil || strings.Contains(string(output), "engine-called") {
@@ -278,7 +278,7 @@ func runReleasePrepareIn(t *testing.T, dir, script, input string, extraEnv ...st
 		"branch-guard", script)
 	command.Dir = dir
 	command.Env = []string{
-		"PATH=/usr/bin:/bin", "HOME=" + dir, "CI_JOB_NAME=Prepare: release commit and tag", "CI_PROJECT_DIR=" + dir,
+		"PATH=" + componentTools(t), "HOME=" + dir, "CI_JOB_NAME=Prepare: release commit and tag", "CI_PROJECT_DIR=" + dir,
 		"CI_COMMIT_TAG=release-request/v1.2.3", "CI_COMMIT_SHA=" + strings.Repeat("a", 40), "CI_PROJECT_PATH=team/app",
 		"RELEASE_SSH_SIGNING_KEY=inert", "RC_GIT_URL=ssh://git@gitlab.invalid/team/app.git", "RC_GIT_HOST_KEY=SHA256:x",
 		"RC_BOT_NAME=bot", "RC_BOT_EMAIL=bot@invalid.example", "CI_DEFAULT_BRANCH=main", "RC_RELEASE_BRANCH_INPUT=" + input,

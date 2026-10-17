@@ -238,7 +238,7 @@ func TestSwiftDirectoryBoundary_RequestedProjectAndErrors(t *testing.T) {
 
 func TestCargoSelectionBoundary_ExactSourceAndAmbiguousRefusal(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
+	dir := testfs.NewReal(t).Root
 	tool := &fakeCargoTool{binaryNames: []string{"selected", "decoy"}}
 
 	in := appbuild.CargoBuildBinariesInput{Dir: dir, BinaryName: "renamed", CrateBinaryName: "selected", Version: "1.2.3", Platforms: "linux/amd64"}

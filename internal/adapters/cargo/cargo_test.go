@@ -12,6 +12,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/adapters/cargo"
 	domainbuild "github.com/diggsweden/forge-ci/internal/domain/build"
 	"github.com/diggsweden/forge-ci/internal/testutil/mockbinary"
+	"github.com/diggsweden/forge-ci/internal/testutil/testfs"
 )
 
 func TestAdapter_RunInheritAndAvailable(t *testing.T) {
@@ -64,7 +65,7 @@ func TestAdapter_RunForwardsEnvOnTopOfTheEnvironment(t *testing.T) {
 	m.Add("cargo", `printf 'linker=%s marker=%s cwd=%s\n' "${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER:-unset}" "${FORGE_CI_TEST_MARKER:-unset}" "$(pwd)"; printf 'warn\n' >&2`)
 	t.Setenv("FORGE_CI_TEST_MARKER", "inherited")
 
-	dir := t.TempDir()
+	dir := testfs.NewReal(t).Root
 
 	var stdout, stderr bytes.Buffer
 

@@ -52,14 +52,20 @@ func TestOpenLockNoFollow_RefusesANonRegularPath(t *testing.T) {
 		why    string
 	}{
 		{
-			name:   "a directory",
-			create: func(t *testing.T, path string) { require.NoError(t, os.Mkdir(path, 0o700)) },
-			why:    "refused by the kernel: O_RDWR on a directory is EISDIR",
+			name: "a directory",
+			create: func(t *testing.T, path string) {
+				t.Helper()
+				require.NoError(t, os.Mkdir(path, 0o700))
+			},
+			why: "refused by the kernel: O_RDWR on a directory is EISDIR",
 		},
 		{
-			name:   "a FIFO",
-			create: func(t *testing.T, path string) { require.NoError(t, syscall.Mkfifo(path, 0o600)) },
-			why:    "opens fine, so only the explicit type check refuses it; flocking it would serialise nothing",
+			name: "a FIFO",
+			create: func(t *testing.T, path string) {
+				t.Helper()
+				require.NoError(t, syscall.Mkfifo(path, 0o600))
+			},
+			why: "opens fine, so only the explicit type check refuses it; flocking it would serialise nothing",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -102,6 +108,6 @@ func TestOpenLockNoFollow_OpensAndReopensARegularFile(t *testing.T) {
 func TestGlobalLockPath_IsUserScopedAndKept(t *testing.T) {
 	require.Contains(t, globalLockPath, strconv.Itoa(os.Getuid()),
 		"the lock path is shared across users; two people on one machine would block each other")
-	require.Equal(t, os.TempDir(), filepath.Dir(globalLockPath),
+	require.Equal(t, filepath.Clean(os.TempDir()), filepath.Dir(globalLockPath),
 		"the lock must be somewhere every test binary in the run agrees on")
 }

@@ -120,10 +120,10 @@ func TestGuardEligibility_ConstrainedAndGeneratedProductFilesAreDeclared(t *test
 	}
 }
 
-// TestGuardEligibility_UnbuiltVariantsDoNotReadTheEnvironment covers the half of
-// the eligibility question that has teeth. A file whose constraint the current
-// build does not satisfy is invisible to the environment guard, so an
-// os.Getenv in it would be reported by nothing at all.
+// TestGuardEligibility_UnbuiltVariantsDoNotReadTheEnvironment checks variants
+// outside the Linux reference build. The semantic environment guard loads Linux
+// and the contributor's native GOOS, and lint also checks Linux on other hosts.
+// Keep the reference independent of the machine running this policy test.
 //
 // The rule is deliberately not "widen this list when a variant needs one". If a
 // non-Linux variant genuinely has to read the environment, the fix is to run
@@ -135,7 +135,7 @@ func TestGuardEligibility_UnbuiltVariantsDoNotReadTheEnvironment(t *testing.T) {
 	checked := 0
 
 	for rel, tag := range buildConstrainedProductFiles() {
-		if satisfiedByCurrentBuild(t, tag) {
+		if satisfiedByReferenceBuild(t, tag) {
 			continue
 		}
 
@@ -148,20 +148,20 @@ func TestGuardEligibility_UnbuiltVariantsDoNotReadTheEnvironment(t *testing.T) {
 
 		for _, call := range environmentReadsIn(t, rel, string(body)) {
 			t.Errorf("%s reads the environment via %s, but //go:build %s excludes it from the environment "+
-				"guard on %s, so nothing checks that call. Run the guard under a matching GOOS instead of "+
-				"leaving the read unpoliced.", rel, call, tag, runtime.GOOS)
+				"guard on linux, so nothing checks that call. Run the guard under a matching GOOS instead of "+
+				"leaving the read unpoliced.", rel, call, tag)
 		}
 	}
 
 	if checked == 0 {
-		t.Fatalf("no declared variant is excluded on %s; this check measured nothing", runtime.GOOS)
+		t.Fatal("no declared variant is excluded from the Linux reference; this check measured nothing")
 	}
 }
 
 // TestGuardEligibility_UnbuiltVariantsImportNoInternalPackage is the layering
 // half of the same question. The depguard layer rules run inside golangci-lint,
-// which loads only what the current build satisfies, so an internal import in
-// an excluded variant is judged by nothing. None needs one today; a variant
+// including the Linux reference build on every host. An internal import in
+// a variant outside that baseline needs explicit coverage. None needs one today; a variant
 // that does should be linted under its GOOS rather than exempted here.
 func TestGuardEligibility_UnbuiltVariantsImportNoInternalPackage(t *testing.T) {
 	t.Parallel()
@@ -170,7 +170,7 @@ func TestGuardEligibility_UnbuiltVariantsImportNoInternalPackage(t *testing.T) {
 	checked := 0
 
 	for rel, tag := range buildConstrainedProductFiles() {
-		if satisfiedByCurrentBuild(t, tag) {
+		if satisfiedByReferenceBuild(t, tag) {
 			continue
 		}
 
@@ -183,14 +183,14 @@ func TestGuardEligibility_UnbuiltVariantsImportNoInternalPackage(t *testing.T) {
 
 		for _, spec := range file.Imports {
 			if path, err := strconv.Unquote(spec.Path.Value); err != nil || strings.HasPrefix(path, internalPrefix) {
-				t.Errorf("%s imports %s, but //go:build %s hides it from the depguard layer rules on %s. "+
-					"Lint it under a matching GOOS instead of leaving the import unjudged.", rel, spec.Path.Value, tag, runtime.GOOS)
+				t.Errorf("%s imports %s, but //go:build %s hides it from the depguard layer rules on linux. "+
+					"Lint it under a matching GOOS instead of leaving the import unjudged.", rel, spec.Path.Value, tag)
 			}
 		}
 	}
 
 	if checked == 0 {
-		t.Fatalf("no declared variant is excluded on %s; this check measured nothing", runtime.GOOS)
+		t.Fatal("no declared variant is excluded from the Linux reference; this check measured nothing")
 	}
 }
 
@@ -252,10 +252,9 @@ func buildConstraintOf(t *testing.T, name, source string) (string, bool) {
 	return "", false
 }
 
-// satisfiedByCurrentBuild evaluates a //go:build expression the way the
-// toolchain would for this GOOS, using go/build/constraint rather than a
-// hand-rolled reading of the string.
-func satisfiedByCurrentBuild(t *testing.T, expr string) bool {
+// satisfiedByReferenceBuild evaluates constraints for the Linux baseline that
+// both the semantic guard and golangci-lint inspect, regardless of host GOOS.
+func satisfiedByReferenceBuild(t *testing.T, expr string) bool {
 	t.Helper()
 
 	parsed, err := constraint.Parse("//go:build " + expr)
@@ -263,14 +262,8 @@ func satisfiedByCurrentBuild(t *testing.T, expr string) bool {
 		t.Fatalf("parse constraint %q: %v", expr, err)
 	}
 
-	unixGOOS := []string{
-		"aix", "android", "darwin", "dragonfly", "freebsd", "hurd", "illumos",
-		"ios", "linux", "netbsd", "openbsd", "solaris",
-	}
-
 	return parsed.Eval(func(tag string) bool {
-		return tag == runtime.GOOS || tag == runtime.GOARCH ||
-			(tag == "unix" && slices.Contains(unixGOOS, runtime.GOOS))
+		return tag == "linux" || tag == runtime.GOARCH || tag == "unix"
 	})
 }
 

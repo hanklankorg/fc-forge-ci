@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/creack/pty"
 )
 
 // The colour decision has two inputs — the process-wide policy and whether the
@@ -15,10 +17,9 @@ import (
 // That single case is satisfied by a colorize that returns the plain glyph
 // unconditionally, so neither input was actually constraining anything.
 //
-// The cases below isolate each. The terminal-positive one uses /dev/ptmx: a
-// pseudo-terminal master this test opens and closes itself, which is owned
-// state rather than the developer's console, and is the only way to reach the
-// branch that emits colour at all.
+// The cases below isolate each. The terminal-positive one uses a private PTY
+// pair, not the developer's console. Its slave is a terminal on Linux, macOS
+// and BSD; an uninitialised /dev/ptmx master is not portable terminal evidence.
 
 // withPolicy sets the process-wide flag for one test and restores it.
 func withPolicy(t *testing.T, off bool) {
@@ -35,18 +36,21 @@ func withPolicy(t *testing.T, off bool) {
 func terminalWriter(t *testing.T) *os.File {
 	t.Helper()
 
-	f, err := os.OpenFile("/dev/ptmx", os.O_RDWR, 0)
+	master, tty, err := pty.Open()
 	if err != nil {
 		t.Skipf("no pseudo-terminal available here: %v", err)
 	}
 
-	t.Cleanup(func() { _ = f.Close() })
+	t.Cleanup(func() {
+		_ = tty.Close()
+		_ = master.Close()
+	})
 
-	if !isTerminal(f) {
-		t.Fatal("isTerminal said /dev/ptmx is not a terminal: an O_RDWR open of it is a pty master, so this is the check being wrong rather than the platform lacking one")
+	if !isTerminal(tty) {
+		t.Fatal("isTerminal rejected the private PTY slave")
 	}
 
-	return f
+	return tty
 }
 
 //nolint:paralleltest // shares process-wide state (the spool directory / the colour policy).

@@ -66,6 +66,7 @@ func gpgRoundTrip(t *testing.T, key *gpgkey.Key, sink *fakeoutputsink.Sink, in a
 	if md.Email != key.Email {
 		t.Errorf("Email = %q, want %q", md.Email, key.Email)
 	}
+
 	return out.String()
 }
 

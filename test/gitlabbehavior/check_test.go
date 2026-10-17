@@ -18,7 +18,16 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
+	"github.com/diggsweden/forge-ci/internal/testutil/testenv"
 )
+
+// Release components run under GNU coreutils on Linux. Expose those tools
+// explicitly without importing the developer's full PATH into isolated scripts.
+func componentTools(t *testing.T) string {
+	t.Helper()
+
+	return testenv.GNUPath(t, "cp", "chmod", "wc", "sha256sum") + ":/usr/bin:/bin"
+}
 
 // Execute the actual component's guard. A fake Git records any attempted
 // checkout; all files stay in the test directory and no network tool is called.

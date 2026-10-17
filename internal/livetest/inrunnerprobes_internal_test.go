@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
+	"github.com/diggsweden/forge-ci/internal/testutil/testenv"
 	"gopkg.in/yaml.v3"
 )
 
@@ -354,7 +355,7 @@ while :; do sleep 1; done
 				}
 
 				environment := append(withoutProbeCredentials(os.Environ()),
-					"PATH="+bin+":"+os.Getenv("PATH"),
+					"PATH="+bin+":"+testenv.GNUPath(t, "sha256sum")+":"+os.Getenv("PATH"),
 					"LC_ALL=C",
 					"CI_PROJECT_PATH=fixture/project",
 					"GITHUB_REPOSITORY=fixture/project",
@@ -660,6 +661,8 @@ func TestInRunnerProbes_EveryDownloadedExecutableIsDigestCheckedFirst(t *testing
 
 					command := exec.CommandContext(t.Context(), "/bin/sh", "-c", check) //nolint:gosec // Fixed shell runs the rendered digest check.
 					command.Dir = dir
+
+					command.Env = append(os.Environ(), "PATH="+testenv.GNUPath(t, "sha256sum")+":"+os.Getenv("PATH"))
 
 					if output, err := command.CombinedOutput(); (err == nil) != wantOK {
 						t.Errorf("%s digest check with %q: err = %v, want success %t\n%s", tc.file, content, err, wantOK, output)

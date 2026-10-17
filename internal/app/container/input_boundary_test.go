@@ -115,7 +115,9 @@ func TestDigestMarkerBoundary_RejectsNormalizedCollisionsAndTypes(t *testing.T) 
 
 			switch kind {
 			case "case":
-				require.NoError(t, os.WriteFile(filepath.Join(dir, strings.ToUpper(lower)), nil, 0o600))
+				// The prefix keeps the two markers distinct on case-insensitive
+				// filesystems while still requiring case-folding to detect the collision.
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "sha256:"+strings.ToUpper(lower)), nil, 0o600))
 			case "directory":
 				require.NoError(t, os.Mkdir(other, 0o700))
 			case "link":

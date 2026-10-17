@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
+	"github.com/diggsweden/forge-ci/internal/testutil/testenv"
 )
 
 // Exercise the actual launcher with inert build/preflight collaborators and
@@ -29,8 +30,9 @@ func TestLiveLauncherWaitsForCleanupAndReleasesLock(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 			defer cancel()
 
-			command := liveLauncherCommand(t, ctx, root, script, mode)
-			command.Env = []string{"PATH=" + filepath.Join(root, "tools") + ":/usr/bin:/bin", "HOME=" + root,
+			gnu := testenv.GNUPath(t, "bash", "sed", "sha256sum", "install", "find")
+			command := liveLauncherCommand(t, ctx, root, script, mode, gnu)
+			command.Env = []string{"PATH=" + filepath.Join(root, "tools") + ":" + testenv.ToolPath(t, "flock", "jq") + ":" + gnu + ":/usr/bin:/bin", "HOME=" + root,
 				"XDG_STATE_HOME=" + filepath.Join(root, "state"), "TMPDIR=" + root,
 				"FORGE_CI_LIVE_SIGNAL_FIXTURE=" + root, "FORGE_CI_LIVE_FIXTURE_BINARY=" + os.Args[0], "FORGE_CI_LIVE_PACKAGE_DIR=" + packageDir,
 				"FORGE_CI_LIVE_CLEANUP_HANDSHAKE=1"}
@@ -87,11 +89,11 @@ func TestLiveLauncherWaitsForCleanupAndReleasesLock(t *testing.T) {
 	}
 }
 
-func liveLauncherCommand(t *testing.T, ctx context.Context, root, script, mode string) *exec.Cmd {
+func liveLauncherCommand(t *testing.T, ctx context.Context, root, script, mode, gnu string) *exec.Cmd {
 	t.Helper()
 
 	if !strings.HasPrefix(mode, "just ") {
-		return exec.CommandContext(ctx, "/bin/bash", script, "focused", "^TestSuiteSignalFixture$") //nolint:gosec // Actual launcher under inert tools and an owned fake repository.
+		return exec.CommandContext(ctx, filepath.Join(gnu, "bash"), script, "focused", "^TestSuiteSignalFixture$") //nolint:gosec // Actual launcher under inert tools and an owned fake repository.
 	}
 
 	just, err := exec.LookPath("just")

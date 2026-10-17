@@ -66,26 +66,28 @@ func TestBuildConstraintOf_ReadsOnlyRealConstraintLines(t *testing.T) {
 	}
 }
 
-func TestSatisfiedByCurrentBuild_AgreesWithTheToolchain(t *testing.T) {
+func TestSatisfiedByReferenceBuild_LinuxIndependentOfHost(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
 		expr string
 		want bool
 	}{
-		{runtime.GOOS, true},
-		{"!" + runtime.GOOS, false},
-		{runtime.GOOS + " || plan9", true},
-		{runtime.GOOS + " && plan9", false},
-		{"!" + runtime.GOOS + " && !plan9", false},
+		{"linux", true},
+		{"!linux", false},
+		{"linux || plan9", true},
+		{"linux && plan9", false},
+		{"!linux && !plan9", false},
+		{"darwin", false},
+		{"unix", true},
 		{runtime.GOARCH, true},
 		{"some_tag_nobody_sets", false},
 	} {
 		t.Run(strings.ReplaceAll(tc.expr, " ", "_"), func(t *testing.T) {
 			t.Parallel()
 
-			if got := satisfiedByCurrentBuild(t, tc.expr); got != tc.want {
-				t.Errorf("%q evaluated to %v under GOOS=%s, want %v", tc.expr, got, runtime.GOOS, tc.want)
+			if got := satisfiedByReferenceBuild(t, tc.expr); got != tc.want {
+				t.Errorf("%q evaluated to %v for the Linux reference, want %v", tc.expr, got, tc.want)
 			}
 		})
 	}

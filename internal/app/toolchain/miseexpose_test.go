@@ -15,6 +15,7 @@ import (
 
 	"github.com/diggsweden/forge-ci/internal/app/toolchain"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/testutil/testfs"
 )
 
 type fakeMiseRunner struct {
@@ -48,7 +49,7 @@ func (f *fakeMiseRunner) Run(_ context.Context, env []string, args ...string) (s
 func TestExposeMiseTools_AppendsBinPathsAndSymlinksExecutables(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
+	root := testfs.NewReal(t).Root
 	binHome := filepath.Join(root, "home-bin")
 	pathFile := filepath.Join(root, "path-file")
 	toolBin := filepath.Join(root, "mise-tools", "bin")
@@ -102,7 +103,7 @@ func TestExposeMiseTools_AppendsBinPathsAndSymlinksExecutables(t *testing.T) {
 func TestExposeMiseTools_ExposesLockedRustupCargoBins(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
+	root := testfs.NewReal(t).Root
 	writeToolchainFile(t, root, "mise.lock", "# owned lock fixture\n")
 	writeToolchainFile(t, root, ".mise.toml", "[tools]\n\"aqua:rust-lang/rustup\" = \"1.28.2\"\n")
 	writeToolchainFile(t, root, "rust-toolchain.toml", "[toolchain]\nchannel = \"1.90.0\"\n")

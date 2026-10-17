@@ -114,6 +114,13 @@ func TestCheckoutCommand_TokenReadFailureBeforeMetadata(t *testing.T) { //nolint
 func requireCheckoutWorkDir(t *testing.T, workspace, dir string) {
 	t.Helper()
 
+	// The destination may not exist yet, but its staging parent must. Compare
+	// physical paths even when the fixture's TMPDIR has a linked ancestor.
+	parent, err := filepath.EvalSymlinks(filepath.Dir(workspace))
+	require.NoError(t, err)
+
+	workspace = filepath.Join(parent, filepath.Base(workspace))
+
 	if dir == workspace {
 		return
 	}

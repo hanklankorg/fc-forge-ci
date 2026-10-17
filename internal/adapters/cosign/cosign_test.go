@@ -127,8 +127,10 @@ func TestCopyImage_AuthConfigIsPrivateAndRemovedAfterTheChildExits(t *testing.T)
 set -eu
 test "$MARKER" = kept
 cmp -s "$DOCKER_CONFIG/config.json" %q
-test "$(stat -c %%a "$DOCKER_CONFIG")" = 700
-test "$(stat -c %%a "$DOCKER_CONFIG/config.json")" = 600
+# GNU and BSD stat use different format flags; check the real permission bits.
+mode() { stat -c %%a "$1" 2>/dev/null || stat -f %%Lp "$1"; }
+test "$(mode "$DOCKER_CONFIG")" = 700
+test "$(mode "$DOCKER_CONFIG/config.json")" = 600
 printf '%%s' "$DOCKER_CONFIG" > %q
 exit %d
 `, authFile, capture, exit))

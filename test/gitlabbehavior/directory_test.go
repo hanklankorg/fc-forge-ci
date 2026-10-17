@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/diggsweden/forge-ci/internal/testutil/testfs"
 )
 
 func TestComponentWorkingDirectoryIsLiteralData(t *testing.T) {
@@ -19,7 +21,7 @@ func TestComponentWorkingDirectoryIsLiteralData(t *testing.T) {
 	for _, file := range []string{"build-maven.yml", "build-gradle.yml", "build-gradle-android.yml", "publish-maven-central.yml", "publish-forge-packages.yml"} {
 		t.Run(file, func(t *testing.T) {
 			t.Parallel()
-			root := t.TempDir()
+			root := testfs.NewReal(t).Root
 
 			const directory = "project $(touch EXPLOITED)"
 

@@ -8,8 +8,10 @@
 // The key has no passphrase and uses an ed25519 sign-only primary, which is
 // fast to generate (~50ms) and keeps tests under one second each.
 //
-// On t.Cleanup the gpg-agent for the isolated GNUPGHOME is killed and the
-// keyring is removed. No real-developer keyring is ever touched.
+// On t.Cleanup the agents of the private GNUPGHOME are stopped and, only when
+// that succeeds, exactly that keyring is removed; a failed shutdown fails the
+// test and keeps the keyring for inspection. No real-developer keyring is
+// ever touched.
 package gpgkey
 
 import (
@@ -25,15 +27,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/diggsweden/forge-ci/internal/testutil/isolatedenv"
 	"github.com/diggsweden/forge-ci/internal/testutil/testenv"
 )
 
 // Cross-process GPG lock state.
 //
 // The stated reason used to be that parallel test packages share one on-disk
-// GNUPGHOME. That is no longer true — every key gets its own GNUPGHOME under
-// t.TempDir(), and cleanup kills only its own agent by --homedir. The lock is
+// GNUPGHOME. That is no longer true — every key gets its own private GNUPGHOME,
+// and cleanup kills only its own agent by --homedir. The lock is
 // still necessary, which was established by removing it and running the three
 // GPG-using packages in parallel: the second repetition hung and every package
 // timed out at ten minutes. Something below the homedir boundary serialises
@@ -48,7 +49,12 @@ import (
 //
 //nolint:gochecknoglobals // process-singleton lock; intentional.
 var (
-	globalLockPath = filepath.Join(os.TempDir(),
+	// tempRoot is the temporary root the process started with, captured
+	// before TestMain or per-test isolation nests TMPDIR. It holds the lock
+	// and each private keyring: test-name paths under an isolated home can
+	// exceed the agent's Unix-socket limit even on Linux.
+	tempRoot       = os.TempDir()
+	globalLockPath = filepath.Join(tempRoot,
 		fmt.Sprintf("forge-ci-gpgkey-%d.lock", os.Getuid()))
 	globalLockMu   sync.Mutex
 	globalLockFile *os.File
@@ -65,8 +71,9 @@ type Key struct {
 	Fingerprint string
 }
 
-// New generates a throwaway key in t.TempDir(), exports the metadata,
-// and registers cleanup that kills gpg-agent + removes the keyring.
+// New generates a throwaway key in a short private directory, exports the
+// metadata, and registers cleanup that stops the keyring's agents and then
+// removes the keyring.
 func New(t *testing.T) *Key {
 	t.Helper()
 
@@ -85,7 +92,9 @@ func NewProtected(t *testing.T, passphrase string) *Key {
 	}
 
 	k := generate(t, passphrase)
-	k.cleanup()
+	if err := k.stopAgents(); err != nil {
+		t.Fatalf("gpgkey: stop the agent that generated the key: %v", err)
+	}
 
 	return k
 }
@@ -94,21 +103,27 @@ func generate(t *testing.T, passphrase string) *Key {
 	t.Helper()
 	lockGlobalGPG(t)
 
-	env := testenv.New(t)
+	// Isolate HOME and TMPDIR for this test and every gpg it starts. The
+	// keyring itself is not placed there: see tempRoot.
+	testenv.New(t)
 
-	// The isolated environment owns the path, which must not be $HOME/.gnupg.
-	dir := isolatedenv.GNUPGHome(env.Home)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatalf("gpgkey: mkdir %q: %v", dir, err)
+	dir, err := os.MkdirTemp(tempRoot, "gpg-") //nolint:usetesting // t.TempDir nests test names beneath isolated homes and exceeds Unix-socket limits.
+	if err != nil {
+		t.Fatalf("gpgkey: create private keyring: %v", err)
 	}
+
+	t.Setenv("GNUPGHOME", dir)
 
 	name := "Forge CI Test"
 	email := "ci-test@example.invalid"
 	uid := name + " <" + email + ">"
 
-	if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // a GnuPG home is a directory and needs owner search permission.
-		t.Fatalf("gpgkey: chmod 700 %q: %v", dir, err)
+	k := &Key{ //nolint:varnamelen // idiomatic short name for the fixture key.
+		t: t, GNUPGHOME: dir, Name: name, Email: email, UID: uid,
 	}
+	// Registered before any gpg runs, so an agent started by a failed
+	// generation or metadata read is stopped too.
+	t.Cleanup(k.cleanup)
 
 	// --quick-generate-key creates a key non-interactively. ed25519 + sign-only
 	// is the fastest valid combination for our purposes.
@@ -119,17 +134,7 @@ func generate(t *testing.T, passphrase string) *Key {
 		t.Fatalf("gpgkey: generate: %v\n%s", err, out)
 	}
 
-	fpr := readFingerprint(t, dir)
-
-	k := &Key{ //nolint:varnamelen // idiomatic short name (testing/http/io conventions).
-		t:           t,
-		GNUPGHOME:   dir,
-		Name:        name,
-		Email:       email,
-		UID:         uid,
-		Fingerprint: fpr,
-	}
-	t.Cleanup(k.cleanup)
+	k.Fingerprint = readFingerprint(t, dir)
 
 	return k
 }
@@ -138,7 +143,7 @@ func generate(t *testing.T, passphrase string) *Key {
 // the GPG_PRIVATE_KEY input for adapter/gpg.Import).
 func (k *Key) ArmoredPrivateKey() string {
 	k.t.Helper()
-	//nolint:gosec // test infra; GNUPGHOME is t.TempDir().
+	//nolint:gosec // test infra; GNUPGHOME is the owned private keyring.
 	cmd := exec.CommandContext(k.t.Context(), "gpg", "--homedir", k.GNUPGHOME, "--batch", "--armor", "--export-secret-keys", k.Fingerprint)
 
 	// Output, not CombinedOutput: gpg writes progress and warnings to stderr,
@@ -163,7 +168,7 @@ func (k *Key) ArmoredPrivateKey() string {
 // signature-verification fixtures).
 func (k *Key) ArmoredPublicKey() string {
 	k.t.Helper()
-	//nolint:gosec // test infra; GNUPGHOME is t.TempDir().
+	//nolint:gosec // test infra; GNUPGHOME is the owned private keyring.
 	cmd := exec.CommandContext(k.t.Context(), "gpg", "--homedir", k.GNUPGHOME, "--batch", "--armor", "--export", k.Fingerprint)
 
 	// Output, not CombinedOutput -- see ArmoredPrivateKey.
@@ -193,16 +198,38 @@ func (k *Key) KeyID() string {
 // test binary.
 const cleanupTimeout = 10 * time.Second
 
-func (k *Key) cleanup() {
-	// Best-effort. The temp GNUPGHOME is removed by t.TempDir(). t.Context()
-	// is already cancelled when cleanups run, so the shutdown gets its own
-	// bounded context; with the test's context gpgconf never started and every
-	// key left its agent running.
+// stopAgents stops every agent of the private keyring. t.Context() is
+// already cancelled when cleanups run, so the shutdown gets its own bounded
+// context; with the test's context gpgconf never started and every key left
+// its agent running.
+func (k *Key) stopAgents() error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(k.t.Context()), cleanupTimeout)
 	defer cancel()
 
-	//nolint:gosec // test infra; GNUPGHOME is t.TempDir().
-	_ = exec.CommandContext(ctx, "gpgconf", "--homedir", k.GNUPGHOME, "--kill", "gpg-agent").Run()
+	//nolint:gosec // test infra; GNUPGHOME is the owned private keyring.
+	cmd := exec.CommandContext(ctx, "gpgconf", "--homedir", k.GNUPGHOME, "--kill", "all")
+	cmd.WaitDelay = time.Second
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("gpgconf --kill all: %w\n%s", err, out)
+	}
+
+	return nil
+}
+
+// cleanup stops the keyring's agents and then removes exactly that keyring.
+// A failed shutdown fails the test and keeps the keyring: removing it under
+// a live agent would hide the leak.
+func (k *Key) cleanup() {
+	if err := k.stopAgents(); err != nil {
+		k.t.Errorf("gpgkey: stop test GPG agents; keyring retained at %s: %v", k.GNUPGHOME, err)
+
+		return
+	}
+
+	if err := os.RemoveAll(k.GNUPGHOME); err != nil {
+		k.t.Errorf("gpgkey: remove owned keyring %s: %v", k.GNUPGHOME, err)
+	}
 }
 
 func readFingerprint(t *testing.T, homedir string) string {

@@ -126,7 +126,7 @@ func runReleaseAfterScript(t *testing.T, workspace, job string) {
 
 	command := exec.CommandContext(ctx, "/bin/bash", "--noprofile", "--norc", "-c", script) //nolint:gosec // Actual component hook, with only owned fixture paths and no provider access.
 	command.Dir = workspace
-	command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + workspace, "CI_PROJECT_DIR=" + workspace, "CI_JOB_NAME=" + job, "CI_JOB_STATUS=failed"}
+	command.Env = []string{"PATH=" + componentTools(t), "HOME=" + workspace, "CI_PROJECT_DIR=" + workspace, "CI_JOB_NAME=" + job, "CI_JOB_STATUS=failed"}
 
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("artifact hook failed: %v\n%s", err, output)

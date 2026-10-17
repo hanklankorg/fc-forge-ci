@@ -15,6 +15,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/diggsweden/forge-ci/internal/testutil/testenv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -134,7 +135,7 @@ func TestProbePrelude_ChecksBytesBeforeExecutingFixture(t *testing.T) {
 
 			cmd := exec.CommandContext(ctx, "/bin/bash", "--noprofile", "--norc", "-eu", "-c", script) //nolint:gosec // bounded fixture script, owned curl substitute and closed environment.
 			cmd.Dir = root
-			cmd.Env = []string{"PATH=" + tools + ":/usr/bin:/bin", "HOME=" + root, "TMPDIR=" + root, "FIXTURE_BINARY=" + fixture}
+			cmd.Env = []string{"PATH=" + tools + ":" + testenv.GNUPath(t, "sha256sum") + ":/usr/bin:/bin", "HOME=" + root, "TMPDIR=" + root, "FIXTURE_BINARY=" + fixture}
 			out, err := cmd.CombinedOutput()
 
 			require.NoError(t, ctx.Err())

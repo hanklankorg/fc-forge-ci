@@ -19,9 +19,11 @@
 
 set -eo pipefail
 if [[ "${RC_INSTALLER_TEST_ISOLATED:-}" != "1" ]]; then
-	fixture_root="$(/usr/bin/mktemp -d)"
-	trap '/usr/bin/rm -rf "$fixture_root"' EXIT
-	/usr/bin/mkdir -p "$fixture_root/home"
+	# Resolve only host utilities, independently of the caller's PATH. Their
+	# locations differ between split-/usr systems (macOS/BSD) and merged-/usr Linux.
+	fixture_root="$(command -p mktemp -d)"
+	trap 'command -p rm -rf "$fixture_root"' EXIT
+	command -p mkdir -p "$fixture_root/home"
 	status=0
 	/usr/bin/env -i PATH=/usr/bin:/bin HOME="$fixture_root/home" TMPDIR="$fixture_root" LC_ALL=C \
 		RC_INSTALLER_TEST_ISOLATED=1 /bin/bash --noprofile --norc "${BASH_SOURCE[0]}" || status=$?
@@ -151,7 +153,7 @@ t_cosign_verify_rejects() (
 	output="$(PATH="$tmp/bin:$(path_without_cosign)" \
 		verify_forge_ci_cosign "$tmp/checksums.txt" "$tmp/checksums.txt.bundle" 2>&1)" || rc=$?
 	expect_refusal "$rc" "$output" "cosign verification of checksums.txt failed against identity" &&
-		[[ "$output" != *"verified"* && "$(wc -l <"$tmp/cosign-calls")" == 1 && "$(cat "$tmp/checksums.txt")" == tampered ]]
+		[[ "$output" != *"verified"* && "$(wc -l <"$tmp/cosign-calls")" -eq 1 && "$(cat "$tmp/checksums.txt")" == tampered ]]
 )
 
 t_sha256_rejects_tampered() (
