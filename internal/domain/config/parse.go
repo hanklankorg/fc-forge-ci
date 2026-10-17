@@ -8,6 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -65,7 +68,7 @@ func Parse(data []byte) (*Config, error) {
 			return nil, fmt.Errorf("config: no YAML document in artifacts.yml (empty or comments only): %w", errs.ErrInvalidConfig)
 		}
 
-		return nil, invalidConfig(err, "config: unknown or wrong-typed key in artifacts.yml")
+		return nil, invalidConfig(describeDecodeError(nil, err), "config: artifacts.yml")
 	}
 
 	var trailing any
@@ -105,7 +108,13 @@ func (a *Artifact) UnmarshalYAML(value *yaml.Node) error {
 
 	var s artifactSurface //nolint:varnamelen // idiomatic short name (testing/http/io conventions).
 	if err := strictDecodeNode(value, &s); err != nil {
-		return invalidConfig(err, "artifact entry has an unknown or wrong-typed key")
+		// The surface did not decode, so the entry is named by its own
+		// `name:` key when it has one, else by where it starts.
+		if _, name := lookupKey(value, "name"); name != nil && name.Value != "" {
+			return invalidConfig(describeDecodeError(value, err), "artifact %q", name.Value)
+		}
+
+		return invalidConfig(describeDecodeError(value, err), "artifact at line %d", value.Line)
 	}
 
 	var buildType BuildType
@@ -132,7 +141,14 @@ func (a *Artifact) UnmarshalYAML(value *yaml.Node) error {
 		return nil
 	}
 
-	return decodeEcosystemConfig(a, &s.Config)
+	// Decode the operator's own node where it can be found: the round-trip's
+	// copy carries the lines of the re-marshalled surface, not of their file.
+	configNode := &s.Config
+	if _, original := lookupKey(value, "config"); original != nil {
+		configNode = original
+	}
+
+	return decodeEcosystemConfig(a, configNode)
 }
 
 // decodeEcosystemConfig strict-decodes the raw config:-block node into
@@ -144,56 +160,56 @@ func decodeEcosystemConfig(a *Artifact, node *yaml.Node) error { //nolint:varnam
 	case projecttype.Maven:
 		var c MavenConfig
 		if err := strictDecodeNode(node, &c); err != nil {
-			return ecosystemError(a, "maven", err)
+			return ecosystemError(a, "maven", node, err)
 		}
 
 		a.Maven = &c
 	case projecttype.NPM:
 		var c NPMConfig
 		if err := strictDecodeNode(node, &c); err != nil {
-			return ecosystemError(a, "npm", err)
+			return ecosystemError(a, "npm", node, err)
 		}
 
 		a.NPM = &c
 	case projecttype.Gradle:
 		var c GradleConfig
 		if err := strictDecodeNode(node, &c); err != nil {
-			return ecosystemError(a, "gradle", err)
+			return ecosystemError(a, "gradle", node, err)
 		}
 
 		a.Gradle = &c
 	case projecttype.GradleAndroid:
 		var c GradleAndroidConfig
 		if err := strictDecodeNode(node, &c); err != nil {
-			return ecosystemError(a, "gradle-android", err)
+			return ecosystemError(a, "gradle-android", node, err)
 		}
 
 		a.GradleAndroid = &c
 	case projecttype.XcodeIOS:
 		var c XcodeIOSConfig
 		if err := strictDecodeNode(node, &c); err != nil {
-			return ecosystemError(a, "xcode-ios", err)
+			return ecosystemError(a, "xcode-ios", node, err)
 		}
 
 		a.XcodeIOS = &c
 	case projecttype.Go:
 		var c GoConfig
 		if err := strictDecodeNode(node, &c); err != nil {
-			return ecosystemError(a, "go", err)
+			return ecosystemError(a, "go", node, err)
 		}
 
 		a.Go = &c
 	case projecttype.Cargo:
 		var c CargoConfig
 		if err := strictDecodeNode(node, &c); err != nil {
-			return ecosystemError(a, "cargo", err)
+			return ecosystemError(a, "cargo", node, err)
 		}
 
 		a.Cargo = &c
 	case projecttype.Python:
 		var c PythonConfig
 		if err := strictDecodeNode(node, &c); err != nil {
-			return ecosystemError(a, "python", err)
+			return ecosystemError(a, "python", node, err)
 		}
 
 		a.Python = &c
@@ -273,8 +289,72 @@ func selfContained(node *yaml.Node) *yaml.Node {
 	return clone(node)
 }
 
-// ecosystemError wraps a strict-decode failure with the artifact name
-// and ecosystem so the operator sees which entry is wrong.
-func ecosystemError(a *Artifact, ecosystem string, err error) error {
-	return invalidConfig(err, "artifact %q (%s): config has unknown or wrong-typed key", a.Name, ecosystem)
+// ecosystemError wraps a strict-decode failure of the config: block node with
+// the artifact name and ecosystem so the operator sees which entry is wrong.
+func ecosystemError(a *Artifact, ecosystem string, node *yaml.Node, err error) error {
+	return invalidConfig(describeDecodeError(node, err), "artifact %q (%s) config block", a.Name, ecosystem)
+}
+
+// unknownField matches one entry of yaml.v3's strict-decode report.
+var unknownField = regexp.MustCompile(`^line (\d+): field (\S+) not found in type \S+$`)
+
+// describeDecodeError puts yaml.v3's strict-decode report in the operator's
+// terms. The library says "yaml: unmarshal errors:\n  line 2: field
+// project-typo not found in type config.artifactSurface": a Go type the
+// operator never wrote and, after strictDecodeNode's round-trip, a line of
+// the re-marshalled fragment rather than of their file. Each unknown key
+// becomes `unknown key "project-typo" (line 3)`, the line being that of the
+// key in node when one is given (the fragment of the operator's file) and
+// otherwise the library's own, which is right for a decode straight from
+// the file. Other entries, such as a wrong-typed value, keep their wording.
+// Any other error is returned unchanged, including a report a lower layer
+// has already wrapped: that layer described it. A report is the operator's
+// configuration being wrong, so this is where errs.ErrInvalidConfig is
+// attached; the layers above add context through invalidConfig.
+func describeDecodeError(node *yaml.Node, err error) error {
+	typeErr, ok := err.(*yaml.TypeError) //nolint:errorlint // deliberately the bare report only, see above.
+	if !ok {
+		return err
+	}
+
+	entries := make([]string, 0, len(typeErr.Errors))
+
+	for _, entry := range typeErr.Errors {
+		if match := unknownField.FindStringSubmatch(entry); match != nil {
+			line, key := match[1], match[2]
+			if keyNode, _ := lookupKey(node, key); keyNode != nil {
+				line = strconv.Itoa(keyNode.Line)
+			}
+
+			entry = fmt.Sprintf("unknown key %q (line %s)", key, line)
+		}
+
+		entries = append(entries, entry)
+	}
+
+	return fmt.Errorf("%s: %w", strings.Join(entries, "; "), errs.ErrInvalidConfig)
+}
+
+// lookupKey returns the key and value nodes of the first mapping entry named
+// key at or below node, searching depth-first, or nil when there is none.
+func lookupKey(node *yaml.Node, key string) (*yaml.Node, *yaml.Node) {
+	if node == nil {
+		return nil, nil
+	}
+
+	if node.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			if node.Content[i].Value == key {
+				return node.Content[i], node.Content[i+1]
+			}
+		}
+	}
+
+	for _, child := range node.Content {
+		if keyNode, valueNode := lookupKey(child, key); keyNode != nil {
+			return keyNode, valueNode
+		}
+	}
+
+	return nil, nil
 }

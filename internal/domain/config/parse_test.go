@@ -161,9 +161,12 @@ func TestParse_RejectsTrailingYAMLDocument(t *testing.T) {
 }
 
 // TestParse_RejectsUnknownKeysAtEveryLevel pins the strict-decode contract:
-// a typo'd key is refused with the key named, never silently dropped — at
-// the top level, the artifact level, and (pre-existing behavior) inside the
-// per-ecosystem config block.
+// a typo'd key is refused with the key named and the line it is on, never
+// silently dropped — at the top level, the artifact level, the container
+// level and inside the per-ecosystem config block. The message is in the
+// operator's terms: yaml.v3's "field X not found in type config.Y" names a Go
+// type they never wrote, and for the levels decoded through a round-trip its
+// line number is that of the re-marshalled fragment, not of their file.
 func TestParse_RejectsUnknownKeysAtEveryLevel(t *testing.T) {
 	t.Parallel()
 
@@ -172,11 +175,13 @@ func TestParse_RejectsUnknownKeysAtEveryLevel(t *testing.T) {
 		doc        string
 		key        string
 		correctKey string
-		context    string
+		want       string
 	}{
-		{"top_level", "artifactz:\n  - name: x\n    project-type: go\n", "artifactz", "artifacts", "config.Config"},
-		{"artifact_level", "artifacts:\n  - name: x\n    project-typ: go\n", "project-typ", "project-type", "artifact entry"},
-		{"container_level", "artifacts:\n  - name: x\n    project-type: npm\ncontainers:\n  - name: img\n    containerfilez: Containerfile\n", "containerfilez", "container-file", "config.Container"},
+		{"top_level", "artifactz:\n  - name: x\n    project-type: go\n", "artifactz", "artifacts", `config: artifacts.yml: unknown key "artifactz" (line 1)`},
+		{"artifact_level", "artifacts:\n  - name: x\n    project-typ: go\n", "project-typ", "project-type", `config: artifacts.yml: artifact "x": unknown key "project-typ" (line 3)`},
+		{"unnamed_artifact", "artifacts:\n  - title: x\n    project-type: go\n", "title", "name", `config: artifacts.yml: artifact at line 2: unknown key "title" (line 2)`},
+		{"container_level", "artifacts:\n  - name: x\n    project-type: npm\ncontainers:\n  - name: img\n    containerfilez: Containerfile\n", "containerfilez", "container-file", `config: artifacts.yml: unknown key "containerfilez" (line 6)`},
+		{"ecosystem_level", "artifacts:\n  - name: x\n    project-type: go\n\n    config:\n      binary-title: x\n", "binary-title", "binary-name", `config: artifacts.yml: artifact "x" (go) config block: unknown key "binary-title" (line 6)`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -184,10 +189,8 @@ func TestParse_RejectsUnknownKeysAtEveryLevel(t *testing.T) {
 			cfg, err := config.Parse([]byte(tc.doc))
 			require.ErrorIs(t, err, errs.ErrInvalidConfig)
 			require.Nil(t, cfg)
-			require.Equal(t, 1, strings.Count(err.Error(), "field "+tc.key+" not found"))
-			require.Equal(t, 1, strings.Count(err.Error(), "not found"))
-			require.Contains(t, err.Error(), "artifacts.yml")
-			require.Contains(t, err.Error(), tc.context)
+			require.Equal(t, tc.want+": "+errs.ErrInvalidConfig.Error(), err.Error())
+			require.NotContains(t, err.Error(), "not found in type")
 
 			cfg, err = config.Parse([]byte(strings.Replace(tc.doc, tc.key+":", tc.correctKey+":", 1)))
 			require.NoError(t, err)
