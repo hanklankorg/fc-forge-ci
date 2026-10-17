@@ -631,10 +631,10 @@ git-signing:
 **To enable `ssh`, provide three things:**
 
 1. **The signing key**: set the `RELEASE_SSH_SIGNING_KEY` secret to an OpenSSH **private** key (the workflow writes it 0600, configures git, and removes it in an `if: always()` cleanup).
-2. **The committer identity**: pass `committer-name` and `committer-email` to the release orchestrator. Unlike a GPG key, an SSH key carries no name/email, so this identity is supplied explicitly.
+2. **The committer identity**: pass `bot-name` and `bot-email` to the release orchestrator. Unlike a GPG key, an SSH key carries no name/email, so this identity is supplied explicitly.
 3. **The allowlist entry**: commit the matching SSH **public** key to `.forge-ci/allowed_signers` under a principal identifying its signer (commonly an email address).
 
-`committer-email` sets signed Git-object metadata. When verifying an SSH
+`bot-email` sets signed Git-object metadata. When verifying an SSH
 signature, Git discovers a principal from the allowed-signers entry for the
 signing key; it does not require that principal to match the tagger or committer
 email. Using the same email is a naming convention, not an equality check

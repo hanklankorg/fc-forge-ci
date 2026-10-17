@@ -78,13 +78,13 @@ on:
         required: false
         default: "gpg"
         type: string
-      committer-name:
-        description: "Committer display name for the bump commit when git-signing-method=ssh (cosmetic). Unused for gpg, which derives the identity from the key's UID."
+      bot-name:
+        description: "Release bot display name for the bump commit when git-signing-method=ssh (cosmetic). Unused for gpg, which derives the identity from the key's UID."
         required: false
         default: ""
         type: string
-      committer-email:
-        description: "Committer email recorded in the bump commit when git-signing-method=ssh. Unused for gpg, which derives the identity from the key's UID."
+      bot-email:
+        description: "Release bot email recorded in the bump commit when git-signing-method=ssh. Unused for gpg, which derives the identity from the key's UID."
         required: false
         default: ""
         type: string
@@ -182,8 +182,8 @@ jobs:
         if: ${{ inputs['git-signing-method'] == 'ssh' }}
         env:
           SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
-          COMMIT_AUTHOR_NAME: ${{ inputs['committer-name'] }}
-          COMMIT_AUTHOR_EMAIL: ${{ inputs['committer-email'] }}
+          COMMIT_AUTHOR_NAME: ${{ inputs['bot-name'] }}
+          COMMIT_AUTHOR_EMAIL: ${{ inputs['bot-email'] }}
           GIT_COMMIT_GPGSIGN: "true"
           FORGE_CI_GIT_CONFIG_GLOBAL: "true"
         run: forge-ci release ssh setup
@@ -226,9 +226,9 @@ jobs:
           BRANCH: ${{ inputs.branch }}
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           # gpg derives the committer from the imported key; ssh has no key
-          # identity, so fall back to the caller-supplied committer inputs.
-          COMMIT_AUTHOR_NAME: ${{ steps.import-gpg.outputs.name || inputs['committer-name'] }}
-          COMMIT_AUTHOR_EMAIL: ${{ steps.import-gpg.outputs.email || inputs['committer-email'] }}
+          # identity, so fall back to the caller-supplied bot inputs.
+          COMMIT_AUTHOR_NAME: ${{ steps.import-gpg.outputs.name || inputs['bot-name'] }}
+          COMMIT_AUTHOR_EMAIL: ${{ steps.import-gpg.outputs.email || inputs['bot-email'] }}
           COMMIT_MESSAGE: |
             chore(release): ${{ steps.relctx.outputs.release-tag }}
 

@@ -64,6 +64,16 @@
         "type": "string",
         "default": ".forge-ci/artifacts.yml"
       },
+      "bot-email": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "bot-name": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
       "branch": {
         "required": true,
         "type": "string"
@@ -82,16 +92,6 @@
         "required": false,
         "type": "boolean",
         "default": false
-      },
-      "committer-email": {
-        "required": false,
-        "type": "string",
-        "default": ""
-      },
-      "committer-name": {
-        "required": false,
-        "type": "string",
-        "default": ""
       },
       "cosign-public-key": {
         "required": false,

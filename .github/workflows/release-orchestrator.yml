@@ -200,13 +200,13 @@ on:
         required: false
         default: ""
         type: string
-      committer-name:
-        description: "Committer display name for the version-bump commit when artifacts.yml sets git-signing.method=ssh (cosmetic). SSH keys carry no UID, so the release-bot display name is supplied here. Unused for gpg, which derives it from the key UID."
+      bot-name:
+        description: "Release bot display name for the version-bump commit when artifacts.yml sets git-signing.method=ssh (cosmetic). SSH keys carry no UID, so the release-bot display name is supplied here. Unused for gpg, which derives it from the key UID."
         required: false
         default: ""
         type: string
-      committer-email:
-        description: "Committer email for the version-bump commit when git-signing.method=ssh. This is the SSH signing PRINCIPAL: it must match an entry in .forge-ci/allowed_signers, because that is what `validate tag signature` checks the SSH-signed release tag against. Pick the release-bot identity you listed in allowed_signers. Unused for gpg (which verifies by key fingerprint, not email)."
+      bot-email:
+        description: "Release bot email for the version-bump commit when git-signing.method=ssh. This is the SSH signing PRINCIPAL: it must match an entry in .forge-ci/allowed_signers, because that is what `validate tag signature` checks the SSH-signed release tag against. Pick the release-bot identity you listed in allowed_signers. Unused for gpg (which verifies by key fingerprint, not email)."
         required: false
         default: ""
         type: string
@@ -487,8 +487,8 @@ jobs:
       # git_signing.method comes from artifacts.yml via the parsed config plan;
       # defaults to gpg, so repos that never set git-signing are unchanged.
       git-signing-method: ${{ fromJson(needs.parse-config.outputs.config-plan-json).git_signing.method }}
-      committer-name: ${{ inputs['committer-name'] }}
-      committer-email: ${{ inputs['committer-email'] }}
+      bot-name: ${{ inputs['bot-name'] }}
+      bot-email: ${{ inputs['bot-email'] }}
       runtime-image: ${{ inputs['runtime-image'] }}
       runtime-image-java: ${{ inputs['runtime-image-java'] }}
       runtime-image-node: ${{ inputs['runtime-image-node'] }}
