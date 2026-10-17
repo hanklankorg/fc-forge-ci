@@ -83,7 +83,7 @@ func SigstoreEndpoints(opts EndpointOpts) []cli.Flag {
 		&cli.StringFlag{
 			Name:    "trusted-root",
 			Sources: sources(opts.PlanScope, "trusted-root", "SIGN_TRUSTED_ROOT"),
-			Usage:   "trust material cosign verifies the new signature against, as produced by `cosign trusted-root create` (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way." + forbidden,
+			Usage:   "trust material cosign verifies the new signature against, as produced by \"cosign trusted-root create\" (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way." + forbidden,
 		},
 		&cli.StringFlag{
 			Name:    "rekor-url",

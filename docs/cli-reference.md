@@ -17,7 +17,7 @@ then the environment variables listed per flag, then the flag default.
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
-| `--quiet`, `--q` | raise the log threshold to error (does not suppress command output) | bool | `false` | `$FORGE_CI_QUIET` |
+| `--quiet`, `-q` | raise the log threshold to error (does not suppress command output) | bool | `false` | `$FORGE_CI_QUIET` |
 | `--log-level` | logging level: debug, info, warn, error (DEBUG=1/true/yes/on is a shortcut for debug) | string | `"info"` | `$FORGE_CI_LOG` |
 | `--format` | output format: auto, text, json, github, forgejo, gitlab | string | `"auto"` | `$FORGE_CI_FORMAT` |
 | `--json` | shortcut for --format=json (overrides --format) | bool | `false` | `$FORGE_CI_JSON` |
@@ -552,7 +552,7 @@ EXAMPLES:
 | `--key` | cosign --key for --method=kms: KMS/PKCS#11 URI (awskms://, gcpkms://, hashivault://, azurekms://, pkcs11:), env://VAR, or file path. Forbidden for --method=sigstore. | string | `""` | `$SIGN_KEY` |
 | `--oidc-issuer` | OIDC issuer URL for --method=sigstore (default: cosign auto-detect). Forbidden for --method=kms. | string | `""` | `$SIGN_OIDC_ISSUER` |
 | `--fulcio-url` | certificate authority for --method=sigstore (default: public Sigstore). Set this for a self-hosted Sigstore: --oidc-issuer alone does not redirect it, so the token is minted by your issuer and then presented to the public CA. Forbidden for --method=kms. | string | `""` | `$SIGN_FULCIO_URL` |
-| `--trusted-root` | trust material cosign verifies the new signature against, as produced by `cosign trusted-root create` (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
+| `--trusted-root` | trust material cosign verifies the new signature against, as produced by "cosign trusted-root create" (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
 | `--rekor-url` | transparency log for --method=sigstore (default: public Sigstore). Where to publish, not whether: see FORGE_CI_COSIGN_TRANSPARENCY for that. Forbidden for --method=kms. | string | `""` | `$SIGN_REKOR_URL` |
 | `--builder-id` | override the SLSA provenance builder.id (e.g. an operator's documented KMS builder identity for an isolated L3 attestor); defaults to the CI-derived workflow identity | string | `""` | `$BUILDER_ID` |
 | `--flavor` | build variant recorded as externalParameters.flavor (e.g. a ci-builder flavor like "rust") | string | `""` | `$BUILD_FLAVOR` |
@@ -796,7 +796,7 @@ EXAMPLE:
 | `--key` | cosign --key for --method=kms: KMS/PKCS#11 URI (awskms://, gcpkms://, hashivault://, azurekms://, pkcs11:), env://VAR, or file path. Forbidden for --method=sigstore. | string | `""` | `$SIGN_KEY` |
 | `--oidc-issuer` | OIDC issuer URL for --method=sigstore (default: cosign auto-detect). Forbidden for --method=kms. | string | `""` | `$SIGN_OIDC_ISSUER` |
 | `--fulcio-url` | certificate authority for --method=sigstore (default: public Sigstore). Set this for a self-hosted Sigstore: --oidc-issuer alone does not redirect it, so the token is minted by your issuer and then presented to the public CA. Forbidden for --method=kms. | string | `""` | `$SIGN_FULCIO_URL` |
-| `--trusted-root` | trust material cosign verifies the new signature against, as produced by `cosign trusted-root create` (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
+| `--trusted-root` | trust material cosign verifies the new signature against, as produced by "cosign trusted-root create" (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
 | `--rekor-url` | transparency log for --method=sigstore (default: public Sigstore). Where to publish, not whether: see FORGE_CI_COSIGN_TRANSPARENCY for that. Forbidden for --method=kms. | string | `""` | `$SIGN_REKOR_URL` |
 
 #### `forge-ci container base-images validate`
@@ -861,8 +861,8 @@ EXAMPLES:
 | `--target` | multi-stage target stage to build | string | `""` | `$BUILD_TARGET` |
 | `--platform` | single target platform, e.g. linux/arm64 (built natively) | string | `""` | `$BUILD_PLATFORM` |
 | `--build-args` | newline-separated KEY=VALUE build args | string | `""` | `$BUILD_ARGS` |
-| `--secrets` | JSON array or newline-separated id=NAME,src=PATH secrets (the secret-mounts output of `container materialize-build-secrets`) | string | `""` | `$BUILD_SECRETS` |
-| `--labels` | newline-separated key=value OCI labels (the labels output of `container metadata`) | string | `""` | `$LABELS` |
+| `--secrets` | JSON array or newline-separated id=NAME,src=PATH secrets (the secret-mounts output of "container materialize-build-secrets") | string | `""` | `$BUILD_SECRETS` |
+| `--labels` | newline-separated key=value OCI labels (the labels output of "container metadata") | string | `""` | `$LABELS` |
 | `--source-date-epoch` | unix seconds; clamps image/layer timestamps for reproducible digests | string | `""` | `$SOURCE_DATE_EPOCH` |
 | `--cache-repo` | dedicated registry repo for the layer cache (e.g. ghcr.io/org/buildcache). Empty disables caching. Imported best-effort; --cache-push also exports. | string | `""` | `$BUILD_CACHE_REPO` |
 | `--cache-push` | also export the layer cache on trusted builds; disabled when --scan gates publication | bool | `false` | `$BUILD_CACHE_PUSH` |
@@ -1231,7 +1231,7 @@ ledger promote operation.
 | `--key` | cosign --key for --method=kms: KMS/PKCS#11 URI (awskms://, gcpkms://, hashivault://, azurekms://, pkcs11:), env://VAR, or file path. Forbidden for --method=sigstore. | string | `""` | `$SIGN_KEY` |
 | `--oidc-issuer` | OIDC issuer URL for --method=sigstore (default: cosign auto-detect). Forbidden for --method=kms. | string | `""` | `$SIGN_OIDC_ISSUER` |
 | `--fulcio-url` | certificate authority for --method=sigstore (default: public Sigstore). Set this for a self-hosted Sigstore: --oidc-issuer alone does not redirect it, so the token is minted by your issuer and then presented to the public CA. Forbidden for --method=kms. | string | `""` | `$SIGN_FULCIO_URL` |
-| `--trusted-root` | trust material cosign verifies the new signature against, as produced by `cosign trusted-root create` (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
+| `--trusted-root` | trust material cosign verifies the new signature against, as produced by "cosign trusted-root create" (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
 | `--rekor-url` | transparency log for --method=sigstore (default: public Sigstore). Where to publish, not whether: see FORGE_CI_COSIGN_TRANSPARENCY for that. Forbidden for --method=kms. | string | `""` | `$SIGN_REKOR_URL` |
 
 #### `forge-ci container ledger validate`
@@ -1766,7 +1766,7 @@ sign and attest release images from the confined release-image ledger
 | `--key` | cosign --key for --method=kms: KMS/PKCS#11 URI (awskms://, gcpkms://, hashivault://, azurekms://, pkcs11:), env://VAR, or file path. Forbidden for --method=sigstore. | string | `""` | `$SIGN_KEY` |
 | `--oidc-issuer` | OIDC issuer URL for --method=sigstore (default: cosign auto-detect). Forbidden for --method=kms. | string | `""` | `$SIGN_OIDC_ISSUER` |
 | `--fulcio-url` | certificate authority for --method=sigstore (default: public Sigstore). Set this for a self-hosted Sigstore: --oidc-issuer alone does not redirect it, so the token is minted by your issuer and then presented to the public CA. Forbidden for --method=kms. | string | `""` | `$SIGN_FULCIO_URL` |
-| `--trusted-root` | trust material cosign verifies the new signature against, as produced by `cosign trusted-root create` (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
+| `--trusted-root` | trust material cosign verifies the new signature against, as produced by "cosign trusted-root create" (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
 | `--rekor-url` | transparency log for --method=sigstore (default: public Sigstore). Where to publish, not whether: see FORGE_CI_COSIGN_TRANSPARENCY for that. Forbidden for --method=kms. | string | `""` | `$SIGN_REKOR_URL` |
 
 #### `forge-ci container release-images validate`
@@ -1879,7 +1879,7 @@ EXAMPLES:
 | `--key` | cosign --key for --method=kms: KMS/PKCS#11 URI (awskms://, gcpkms://, hashivault://, azurekms://, pkcs11:), env://VAR, or file path. Forbidden for --method=sigstore. | string | `""` | `$SIGN_KEY` |
 | `--oidc-issuer` | OIDC issuer URL for --method=sigstore (default: cosign auto-detect). Forbidden for --method=kms. | string | `""` | `$SIGN_OIDC_ISSUER` |
 | `--fulcio-url` | certificate authority for --method=sigstore (default: public Sigstore). Set this for a self-hosted Sigstore: --oidc-issuer alone does not redirect it, so the token is minted by your issuer and then presented to the public CA. Forbidden for --method=kms. | string | `""` | `$SIGN_FULCIO_URL` |
-| `--trusted-root` | trust material cosign verifies the new signature against, as produced by `cosign trusted-root create` (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
+| `--trusted-root` | trust material cosign verifies the new signature against, as produced by "cosign trusted-root create" (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
 | `--rekor-url` | transparency log for --method=sigstore (default: public Sigstore). Where to publish, not whether: see FORGE_CI_COSIGN_TRANSPARENCY for that. Forbidden for --method=kms. | string | `""` | `$SIGN_REKOR_URL` |
 | `--recursive` | walk manifest-list children, signing each per-arch digest in addition to the list itself. Default true (production releases use multi-arch manifest lists). | bool | `true` | `$SIGN_RECURSIVE` |
 
@@ -2212,7 +2212,7 @@ EXAMPLES:
 | `--object-format` | override the forge-reported object format (sha1\|sha256); skips the metadata lookup | string | `""` | `$CHECKOUT_OBJECT_FORMAT` |
 | `--fetch-base` | extra branch to also fetch (diff/commit-range checks) | string | `""` | `$CHECKOUT_FETCH_BASE` |
 | `--fetch-tags` | also fetch all tags (the JS actions/checkout fetch-tags:true; needed for git-cliff/changelog) | bool | `false` | `$CHECKOUT_FETCH_TAGS` |
-| `--fetch-all-refs` | fetch every branch into refs/remotes/origin/* plus all tags (the JS actions/checkout fetch-depth:0); needed by builds that read git topology, e.g. `git rev-list --count origin/main` or `git describe` | bool | `false` | `$CHECKOUT_FETCH_ALL_REFS` |
+| `--fetch-all-refs` | fetch every branch into refs/remotes/origin/* plus all tags (the JS actions/checkout fetch-depth:0); needed by builds that read git topology, e.g. "git rev-list --count origin/main" or "git describe" | bool | `false` | `$CHECKOUT_FETCH_ALL_REFS` |
 | `--depth` | shallow history depth for the checked-out ref (git --depth); 0 = full history (the JS actions/checkout fetch-depth, where 0 means all). Use 1 to speed up build/scan jobs that only need the tree. Orthogonal to --fetch-all-refs, which always brings full topology. | int | `0` | `$CHECKOUT_FETCH_DEPTH` |
 | `--sparse` | cone-mode sparse-checkout dir(s), e.g. scripts/bootstrap; restricts the working tree to these subtrees (repeatable / comma-separated) | string | `""` | `$CHECKOUT_SPARSE` |
 | `--path` | subdirectory to check out into, relative to $GITHUB_WORKSPACE (the JS actions/checkout path:); alternative to --workspace | string | `""` | `$CHECKOUT_PATH` |
@@ -2938,7 +2938,7 @@ EXAMPLES:
 | `--key` | cosign --key for --method=kms: KMS/PKCS#11 URI (awskms://, gcpkms://, hashivault://, azurekms://, pkcs11:), env://VAR, or file path. Forbidden for --method=sigstore. With no method configured, a key selects kms. | string | `""` | `$SIGN_KEY` |
 | `--oidc-issuer` | OIDC issuer URL for --method=sigstore (default: cosign auto-detect). Forbidden for --method=kms. | string | `""` | `$SIGN_OIDC_ISSUER` |
 | `--fulcio-url` | certificate authority for --method=sigstore (default: public Sigstore). Set this for a self-hosted Sigstore: --oidc-issuer alone does not redirect it, so the token is minted by your issuer and then presented to the public CA. Forbidden for --method=kms. | string | `""` | `$SIGN_FULCIO_URL` |
-| `--trusted-root` | trust material cosign verifies the new signature against, as produced by `cosign trusted-root create` (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
+| `--trusted-root` | trust material cosign verifies the new signature against, as produced by "cosign trusted-root create" (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
 | `--rekor-url` | transparency log for --method=sigstore (default: public Sigstore). Where to publish, not whether: see FORGE_CI_COSIGN_TRANSPARENCY for that. Forbidden for --method=kms. | string | `""` | `$SIGN_REKOR_URL` |
 
 ### `forge-ci release publish`
@@ -3036,7 +3036,7 @@ EXAMPLE:
 | `--oidc-issuer` | OIDC issuer URL for --method=sigstore (default: auto-detected — GitHub Actions / GitLab CI / $CI_SERVER_URL). Forbidden for --method=gpg/kms. | string | `""` | `$SIGN_OIDC_ISSUER` |
 | `--source-date-epoch` | Unix timestamp used for deterministic OpenPGP signatures; requires a v4 RSA or EdDSA key | string | `""` | `$SOURCE_DATE_EPOCH` |
 | `--fulcio-url` | certificate authority for --method=sigstore (default: public Sigstore). Set this for a self-hosted Sigstore: --oidc-issuer alone does not redirect it, so the token is minted by your issuer and then presented to the public CA. Forbidden for --method=gpg/kms. | string | `""` | `$SIGN_FULCIO_URL` |
-| `--trusted-root` | trust material cosign verifies the new signature against, as produced by `cosign trusted-root create` (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=gpg/kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
+| `--trusted-root` | trust material cosign verifies the new signature against, as produced by "cosign trusted-root create" (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=gpg/kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
 | `--rekor-url` | transparency log for --method=sigstore (default: public Sigstore). Where to publish, not whether: see FORGE_CI_COSIGN_TRANSPARENCY for that. Forbidden for --method=gpg/kms. | string | `""` | `$SIGN_REKOR_URL` |
 | `--private-key-file` | path to the armored GPG private key for --method=gpg ("-" for stdin; defaults to $GPG_PRIVATE_KEY). Lets the key be passed via file/stdin instead of the environment. Forbidden for --method=sigstore/kms. | string | `""` | n/a |
 | `--passphrase-file` | path to the GPG passphrase for --method=gpg ("-" for stdin; defaults to $GPG_PASSPHRASE). Forbidden for --method=sigstore/kms. | string | `""` | n/a |
@@ -3080,7 +3080,7 @@ EXAMPLES:
 | `--oidc-issuer` | OIDC issuer URL for --method=sigstore (default: auto-detected — GitHub Actions / GitLab CI / $CI_SERVER_URL). Forbidden for --method=gpg/kms. | string | `""` | `$SIGN_OIDC_ISSUER` |
 | `--source-date-epoch` | Unix timestamp used for deterministic OpenPGP signatures; requires a v4 RSA or EdDSA key | string | `""` | `$SOURCE_DATE_EPOCH` |
 | `--fulcio-url` | certificate authority for --method=sigstore (default: public Sigstore). Set this for a self-hosted Sigstore: --oidc-issuer alone does not redirect it, so the token is minted by your issuer and then presented to the public CA. Forbidden for --method=gpg/kms. | string | `""` | `$SIGN_FULCIO_URL` |
-| `--trusted-root` | trust material cosign verifies the new signature against, as produced by `cosign trusted-root create` (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=gpg/kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
+| `--trusted-root` | trust material cosign verifies the new signature against, as produced by "cosign trusted-root create" (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=gpg/kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
 | `--rekor-url` | transparency log for --method=sigstore (default: public Sigstore). Where to publish, not whether: see FORGE_CI_COSIGN_TRANSPARENCY for that. Forbidden for --method=gpg/kms. | string | `""` | `$SIGN_REKOR_URL` |
 | `--private-key-file` | path to the armored GPG private key for --method=gpg ("-" for stdin; defaults to $GPG_PRIVATE_KEY). Lets the key be passed via file/stdin instead of the environment. Forbidden for --method=sigstore/kms. | string | `""` | n/a |
 | `--passphrase-file` | path to the GPG passphrase for --method=gpg ("-" for stdin; defaults to $GPG_PASSPHRASE). Forbidden for --method=sigstore/kms. | string | `""` | n/a |
@@ -3613,19 +3613,19 @@ EXAMPLES:
 | `--working-dir` | directory syft scans | string | `"."` | n/a |
 | `--container-image` | container image to analyze (required for the analyzed-container layer) | string | `""` | n/a |
 | `--create-zip` | additionally bundle the layers into a release-attached zip | bool | `false` | n/a |
-| `--plan` | typed config-plan JSON: assemble one layer set per artifact in the plan (from `config parse-artifacts`) | string | `""` | `$CONFIG_PLAN_JSON` |
+| `--plan` | typed config-plan JSON: assemble one layer set per artifact in the plan (from "config parse-artifacts") | string | `""` | `$CONFIG_PLAN_JSON` |
 | `--sboms` | plan mode: sboms enum ("all", "build,source", …) selecting which layers to produce per artifact | string | `"all"` | `$SBOMS` |
 | `--image-name` | container mode: base image name without tag/digest; with --image-digest forms the syft target | string | `""` | `$IMAGE_NAME` |
 | `--image-digest` | container mode: sha256:… digest pinning the exact image manifest | string | `""` | `$IMAGE_DIGEST` |
 | `--artifact-types` | container mode: ecosystems embedded in the multi-artifact container SBOM | string | `""` | `$ARTIFACT_TYPES` |
 | `--ref-name` | container mode: git ref name (leading "v" stripped) used in the SBOM filename | string | `""` | `$REF_NAME`, `$CI_REF_NAME`, `$FORGEJO_REF_NAME`, `$GITHUB_REF_NAME` |
 | `--repository` | container mode: "owner/repo" used to derive the project slug | string | `""` | `$REPOSITORY`, `$CI_REPO`, `$CI_PROJECT_PATH`, `$FORGEJO_REPOSITORY`, `$FORGEJO_REPO`, `$GITHUB_REPOSITORY` |
-| `--sign` | cosign-sign each assembled SBOM (produces <file>.bundle); reuses the `release sign` signing path | bool | `false` | `$SIGN_SBOMS` |
+| `--sign` | cosign-sign each assembled SBOM (produces <file>.bundle); reuses the "release sign" signing path | bool | `false` | `$SIGN_SBOMS` |
 | `--method`, `--sign-method` | signing backend: sigstore (keyless cosign + OIDC) or kms (cosign + --key). Applies with --sign; sigstore when omitted. | string | `""` | `$SIGN_METHOD` |
 | `--key`, `--sign-key` | cosign --key for --method=kms: KMS/PKCS#11 URI (awskms://, gcpkms://, hashivault://, azurekms://, pkcs11:), env://VAR, or file path. Forbidden for --method=sigstore. Applies with --sign. | string | `""` | `$SIGN_KEY` |
 | `--oidc-issuer` | OIDC issuer URL for --method=sigstore (default: cosign auto-detect). Forbidden for --method=kms. | string | `""` | `$SIGN_OIDC_ISSUER` |
 | `--fulcio-url` | certificate authority for --method=sigstore (default: public Sigstore). Set this for a self-hosted Sigstore: --oidc-issuer alone does not redirect it, so the token is minted by your issuer and then presented to the public CA. Forbidden for --method=kms. | string | `""` | `$SIGN_FULCIO_URL` |
-| `--trusted-root` | trust material cosign verifies the new signature against, as produced by `cosign trusted-root create` (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
+| `--trusted-root` | trust material cosign verifies the new signature against, as produced by "cosign trusted-root create" (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
 | `--rekor-url` | transparency log for --method=sigstore (default: public Sigstore). Where to publish, not whether: see FORGE_CI_COSIGN_TRANSPARENCY for that. Forbidden for --method=kms. | string | `""` | `$SIGN_REKOR_URL` |
 
 ### `forge-ci sbom build`

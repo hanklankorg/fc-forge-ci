@@ -173,7 +173,7 @@ func flagNameCell(flag cli.Flag, primary string) string {
 	cells := make([]string, 0, len(names.Names()))
 	for _, n := range names.Names() {
 		if n != "" {
-			cells = append(cells, "`--"+n+"`")
+			cells = append(cells, "`"+flagDashes(n)+n+"`")
 		}
 	}
 
@@ -284,4 +284,14 @@ func escapeText(s string) string {
 	s = strings.ReplaceAll(s, "*", `\*`)
 
 	return s
+}
+
+// flagDashes is the prefix a flag name takes on the command line: one dash
+// for a one-letter alias, as urfave/cli parses and prints it, two otherwise.
+func flagDashes(name string) string {
+	if len(name) == 1 {
+		return "-"
+	}
+
+	return "--"
 }

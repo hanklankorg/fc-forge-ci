@@ -15,13 +15,13 @@ func TestRenderBoundary_RootAndTypedFlagMetadata(t *testing.T) {
 	root := &urfave.Command{Name: "fixture", Flags: []urfave.Flag{&urfave.StringFlag{Name: "mode", Aliases: []string{"m"}, Required: true, Value: "auto", Sources: urfave.EnvVars("MODE")}, &urfave.BoolFlag{Name: "enabled", Value: true}, &urfave.IntFlag{Name: "count", Value: 42}, &urfave.StringFlag{Name: "hidden-secret", Hidden: true}}, Commands: []*urfave.Command{{Name: "child", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "off", Value: false}}}}}
 
 	text := Render(root)
-	for _, fragment := range []string{"## Global options", "`--mode`, `--m`", "(required)", "`$MODE`", "string", "auto", "bool", "42", "`--off`"} {
+	for _, fragment := range []string{"## Global options", "`--mode`, `-m`", "(required)", "`$MODE`", "string", "auto", "bool", "42", "`--off`"} {
 		require.Contains(t, text, fragment)
 	}
 
 	require.NotContains(t, text, "hidden-secret")
 
-	for _, row := range []string{"| `--mode`, `--m` | Sets mode. (required) | string | `\"auto\"` | `$MODE` |", "| `--enabled` | Sets enabled. | bool | `true` | n/a |", "| `--count` | Sets count. | int | `42` | n/a |", "| `--off` | Sets off. | bool | `false` | n/a |"} {
+	for _, row := range []string{"| `--mode`, `-m` | Sets mode. (required) | string | `\"auto\"` | `$MODE` |", "| `--enabled` | Sets enabled. | bool | `true` | n/a |", "| `--count` | Sets count. | int | `42` | n/a |", "| `--off` | Sets off. | bool | `false` | n/a |"} {
 		require.Contains(t, text, row)
 	}
 

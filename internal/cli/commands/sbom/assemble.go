@@ -67,7 +67,7 @@ EXAMPLES:
 			&cli.StringFlag{Name: "container-image", Usage: "container image to analyze (required for the analyzed-container layer)"},
 			&cli.BoolFlag{Name: "create-zip", Usage: "additionally bundle the layers into a release-attached zip"},
 			// Plan mode (per-artifact matrix; was `sbom generate artifacts`).
-			&cli.StringFlag{Name: "plan", Sources: cli.EnvVars("CONFIG_PLAN_JSON"), Usage: "typed config-plan JSON: assemble one layer set per artifact in the plan (from `config parse-artifacts`)"},
+			&cli.StringFlag{Name: "plan", Sources: cli.EnvVars("CONFIG_PLAN_JSON"), Usage: "typed config-plan JSON: assemble one layer set per artifact in the plan (from \"config parse-artifacts\")"},
 			&cli.StringFlag{Name: "sboms", Value: "all", Sources: cli.EnvVars("SBOMS"), Usage: "plan mode: sboms enum (\"all\", \"build,source\", …) selecting which layers to produce per artifact"},
 			// Multi-artifact container mode (was `sbom generate container`).
 			&cli.StringFlag{Name: "image-name", Sources: cli.EnvVars("IMAGE_NAME"), Usage: "container mode: base image name without tag/digest; with --image-digest forms the syft target"}, //nolint:goconst // generic flag identifier shared across container commands.
@@ -76,7 +76,7 @@ EXAMPLES:
 			&cli.StringFlag{Name: "ref-name", Sources: cienv.RefName(), Usage: "container mode: git ref name (leading \"v\" stripped) used in the SBOM filename"},
 			&cli.StringFlag{Name: "repository", Sources: cienv.Repository(), Usage: "container mode: \"owner/repo\" used to derive the project slug"},
 			// Signing (any mode): cosign-sign each assembled SBOM into a .bundle.
-			&cli.BoolFlag{Name: "sign", Sources: cli.EnvVars("SIGN_SBOMS"), Usage: "cosign-sign each assembled SBOM (produces <file>.bundle); reuses the `release sign` signing path"},
+			&cli.BoolFlag{Name: "sign", Sources: cli.EnvVars("SIGN_SBOMS"), Usage: "cosign-sign each assembled SBOM (produces <file>.bundle); reuses the \"release sign\" signing path"},
 		}, assembleSignFlags()...),
 		// One verb: assemble (one of three modes), then optionally sign. The
 		// signer is built FIRST so a bad --sign-method fails fast, before any
