@@ -116,3 +116,30 @@ jobs:
           version: 0.0.0-pr
           commit: ${{ forgejo.sha }}
           enable-build-sbom: 'false'
+
+  # ===========================================================================
+  # JOB: summary — the pull request overview; Forgejo 17 shows it above the
+  # logs, older Forgejo prints it in this job's log.
+  # ===========================================================================
+  summary:
+    name: Summary
+    if: ${{ always() }}
+    needs: [lint, trust-boundary, build]
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 5
+    steps:
+      - name: Set up forge-ci
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA
+
+      - name: Write the pull request summary
+        env:
+          PROJECT_TYPE: go
+          CI_BRANCH: ${{ forgejo.head_ref }}
+          LINT_RESULT: ${{ needs.lint.result }}
+          ISOLATION_RESULT: ${{ needs.trust-boundary.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          forge-ci report pr \
+            --job "Check: lint=${LINT_RESULT}" \
+            --job "Check: release isolation=${ISOLATION_RESULT}" \
+            --job "Check: build and test=${BUILD_RESULT}"

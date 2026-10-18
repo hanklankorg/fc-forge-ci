@@ -15,6 +15,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/cli/cienv"
 	"github.com/diggsweden/forge-ci/internal/cli/deps"
 	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
+	domainsummary "github.com/diggsweden/forge-ci/internal/domain/summary"
 )
 
 // readJSONInput honours the convention: inline JSON on its own, or
@@ -46,12 +47,18 @@ func prCmd() *cli.Command {
 			&cli.StringFlag{Name: "run-url", Sources: cienv.RunURL(), Usage: "URL of the CI run linked from the summary"}, //nolint:goconst // test fixture / generic identifier — extracting would explode setup boilerplate.
 			&cli.StringFlag{Name: "quality-stage-result-json", Sources: cli.EnvVars("QUALITY_STAGE_RESULT_JSON"), Usage: "inline JSON of the quality-stage result table"},
 			&cli.StringFlag{Name: "quality-stage-result-path", Sources: cli.EnvVars("QUALITY_STAGE_RESULT_PATH"), Usage: "path to the quality-stage result JSON file (alternative to inline)"},
+			&cli.StringSliceFlag{Name: "job", Usage: "job outcome as \"Name=result\" (repeatable); lists these jobs in the status table instead of GitHub's stage targets, for GitLab and Forgejo"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			qsr, err := readJSONInput(
 				cmd.String("quality-stage-result-json"),
 				cmd.String("quality-stage-result-path"),
 			)
+			if err != nil {
+				return err
+			}
+
+			jobs, err := domainsummary.ParseJobRows(cmd.StringSlice("job"))
 			if err != nil {
 				return err
 			}
@@ -64,6 +71,7 @@ func prCmd() *cli.Command {
 					Actor:                  cmd.String("actor"),
 					RunURL:                 cmd.String("run-url"),
 					QualityStageResultJSON: qsr,
+					Jobs:                   jobs,
 				})
 			})
 		},
@@ -91,8 +99,14 @@ func releaseCmd() *cli.Command {
 			&cli.StringFlag{Name: "publish-stage-result-json", Sources: cli.EnvVars("PUBLISH_STAGE_RESULT_JSON"), Usage: "inline JSON of the publish-stage result table"},
 			&cli.StringFlag{Name: "server-url", Sources: cienv.ServerURL(), Usage: "CI server base URL (used to build release/run links)"},
 			&cli.StringFlag{Name: "repository", Sources: cienv.Repository(), Usage: "\"owner/repo\" used in the release link"}, //nolint:goconst // test fixture / generic identifier — extracting would explode setup boilerplate.
+			&cli.StringSliceFlag{Name: "job", Usage: "job outcome as \"Name=result\" (repeatable); lists these jobs in the status table instead of GitHub's stage targets, for GitLab and Forgejo"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
+			jobs, err := domainsummary.ParseJobRows(cmd.StringSlice("job"))
+			if err != nil {
+				return err
+			}
+
 			return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error { //nolint:varnamelen // idiomatic short name (testing/http/io conventions).
 				return appsummary.ReleaseSummary(ctx, d.SummarySink, appsummary.ReleaseSummaryInput{
 					ReleaseVersion:       cmd.String("release-version"),
@@ -107,6 +121,7 @@ func releaseCmd() *cli.Command {
 					PrepareStageJSON:     cmd.String("prepare-stage-result-json"),
 					BuildStageJSON:       cmd.String("build-stage-result-json"),
 					PublishStageJSON:     cmd.String("publish-stage-result-json"),
+					Jobs:                 jobs,
 					URLs:                 d.WebURLBuilder(),
 					ServerURL:            cmd.String("server-url"),
 					Repository:           cmd.String("repository"),

@@ -12,6 +12,7 @@ import (
 
 	appsummary "github.com/diggsweden/forge-ci/internal/app/summary"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	domainsummary "github.com/diggsweden/forge-ci/internal/domain/summary"
 )
 
 func fixedNow() time.Time {
@@ -138,5 +139,37 @@ func TestPRSummary_RejectsMalformedStageResultJSON(t *testing.T) {
 	// Refused before rendering: a half-written summary is worse than none.
 	if sink.buf.Len() != 0 {
 		t.Errorf("appended a summary despite the rejected input:\n%s", sink.buf.String())
+	}
+}
+
+func TestPRSummary_NamedJobsReplaceTheQualityTargets(t *testing.T) {
+	t.Parallel()
+
+	sink := &fakeSummarySink{}
+
+	err := appsummary.PRSummary(context.Background(), sink, appsummary.PRSummaryInput{
+		ProjectType: "maven",
+		Branch:      "feat/foo",
+		Commit:      "abcdef0123456789",
+		Actor:       "alice",
+		Jobs: []domainsummary.JobRow{
+			{Label: "Check: lint", Result: domainsummary.ResultSuccess},
+			{Label: "Check: build and test", Result: domainsummary.ResultFailure},
+		},
+		Now: fixedNow(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := sink.buf.String()
+	for _, want := range []string{"## Quality Check Status", "| `Check: lint` | ✓ |", "| `Check: build and test` | ✗ |"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("summary missing %q:\n%s", want, body)
+		}
+	}
+
+	if strings.Contains(body, "Swift Lint") {
+		t.Errorf("named jobs must replace the fixed rows:\n%s", body)
 	}
 }

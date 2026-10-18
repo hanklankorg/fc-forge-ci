@@ -255,3 +255,31 @@ jobs:
       RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
       RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+
+  # ===========================================================================
+  # JOB: summary — the release overview; Forgejo 17 shows it above the logs,
+  # older Forgejo prints it in this job's log.
+  # ===========================================================================
+  summary:
+    name: Summary
+    if: ${{ always() && startsWith(forgejo.ref, 'refs/tags/') }}
+    needs: [prepare, build, sign-and-publish]
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 5
+    steps:
+      - name: Set up forge-ci
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA
+
+      - name: Write the release summary
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release-tag }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.release-sha }}
+          RELEASE_ACTOR: ${{ forgejo.actor }}
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          PUBLISH_RESULT: ${{ needs.sign-and-publish.result }}
+        run: |
+          forge-ci report release \
+            --job "Prepare=${PREPARE_RESULT}" \
+            --job "Build: release files=${BUILD_RESULT}" \
+            --job "Sign and publish=${PUBLISH_RESULT}"

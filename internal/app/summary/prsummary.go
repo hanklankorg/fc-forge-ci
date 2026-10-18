@@ -25,6 +25,9 @@ type PRSummaryInput struct {
 	Actor                  string
 	RunURL                 string
 	QualityStageResultJSON string
+	// Jobs, when set, are the status table's rows in place of the quality-stage
+	// targets: GitLab and Forgejo name their own jobs.
+	Jobs []domainsummary.JobRow
 	// Now is baked in for deterministic testing. Empty → time.Now().
 	Now time.Time
 }
@@ -74,9 +77,15 @@ func PRSummary(ctx context.Context, sink ci.SummarySink, in PRSummaryInput) erro
 	_, _ = fmt.Fprintf(&b, "| **Checked At** | %s |\n", now.UTC().Format("2006-01-02 15:04:05 UTC"))
 	_, _ = fmt.Fprintf(&b, "\n## Quality Check Status\n")
 	_, _ = fmt.Fprintf(&b, "| Check | Status |\n")
+
 	_, _ = fmt.Fprintf(&b, "|-------|--------|\n")
-	_, _ = fmt.Fprintf(&b, "| %s | %s |\n", lintLabel, domainsummary.StatusIcon(lintResult))
-	_, _ = fmt.Fprintf(&b, "| Swift Lint | %s |\n", domainsummary.StatusIcon(swift))
+	if len(in.Jobs) > 0 {
+		writeJobRows(&b, in.Jobs)
+	} else {
+		_, _ = fmt.Fprintf(&b, "| %s | %s |\n", lintLabel, domainsummary.StatusIcon(lintResult))
+		_, _ = fmt.Fprintf(&b, "| Swift Lint | %s |\n", domainsummary.StatusIcon(swift))
+	}
+
 	_, _ = fmt.Fprintf(&b, "\n## Resources\n")
 	b.WriteString(resourceLine("Workflow Run", in.RunURL))
 
@@ -87,4 +96,11 @@ func PRSummary(ctx context.Context, sink ci.SummarySink, in PRSummaryInput) erro
 // being skipped because it was not the selected engine).
 func lintEngineRan(result string) bool {
 	return result == string(domainsummary.ResultSuccess) || result == string(domainsummary.ResultFailure) || result == string(domainsummary.ResultCancelled)
+}
+
+// writeJobRows writes one status-table row per named job.
+func writeJobRows(b *strings.Builder, jobs []domainsummary.JobRow) {
+	for _, job := range jobs {
+		_, _ = fmt.Fprintf(b, "| `%s` | %s |\n", domainsummary.SanitizeCell(job.Label), domainsummary.StatusIcon(string(job.Result)))
+	}
 }

@@ -366,3 +366,18 @@ rc_cleanup_release() {
 		--server-url "${CI_SERVER_URL}" --repository "${RC_PUBLICATION_PROJECT}" --registry "${CI_REGISTRY}" \
 		--expected-image-repository "${RC_PUBLICATION_IMAGE_REPOSITORY}"
 }
+
+# rc_release_summary writes the release overview. Its job runs only when every
+# release job succeeded, so each row is a success by construction.
+rc_release_summary() {
+	local name jobs=()
+	for name in "Check: signing access" "Check: publishing access" "Check: registry access" \
+		"Check: release request" "Prepare: changelog" "Prepare: version" \
+		"Prepare: release commit and tag" "Build: release files" "Sign: files and images" \
+		"Publish: images" "Publish: release" "Publish: tidy up"; do
+		if [ "${name}" = "Prepare: version" ] && [ -z "${RC_VERSION_BUMP:-}" ]; then continue; fi
+		jobs+=(--job "${name}=success")
+	done
+	rc_engine report release --release-version "${RELEASE_TAG:?}" --release-branch "${RC_RELEASE_BRANCH:?}" \
+		--release-actor "${GITLAB_USER_LOGIN:-}" "${jobs[@]}"
+}

@@ -3516,6 +3516,7 @@ EXAMPLE:
 | `--run-url` | URL of the CI run linked from the summary | string | `""` | `$CI_RUN_URL` |
 | `--quality-stage-result-json` | inline JSON of the quality-stage result table | string | `""` | `$QUALITY_STAGE_RESULT_JSON` |
 | `--quality-stage-result-path` | path to the quality-stage result JSON file (alternative to inline) | string | `""` | `$QUALITY_STAGE_RESULT_PATH` |
+| `--job` | job outcome as "Name=result" (repeatable); lists these jobs in the status table instead of GitHub's stage targets, for GitLab and Forgejo | string | `""` | n/a |
 
 ### `forge-ci report publish`
 
@@ -3611,6 +3612,7 @@ EXAMPLE:
 | `--publish-stage-result-json` | inline JSON of the publish-stage result table | string | `""` | `$PUBLISH_STAGE_RESULT_JSON` |
 | `--server-url` | CI server base URL (used to build release/run links) | string | `""` | `$CI_SERVER_URL`, `$FORGEJO_SERVER_URL`, `$FORGEJO_SERVER`, `$GITHUB_SERVER_URL` |
 | `--repository` | "owner/repo" used in the release link | string | `""` | `$REPOSITORY`, `$CI_REPO`, `$CI_PROJECT_PATH`, `$FORGEJO_REPOSITORY`, `$FORGEJO_REPO`, `$GITHUB_REPOSITORY` |
+| `--job` | job outcome as "Name=result" (repeatable); lists these jobs in the status table instead of GitHub's stage targets, for GitLab and Forgejo | string | `""` | n/a |
 
 ### `forge-ci report snapshot-release`
 

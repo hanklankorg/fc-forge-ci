@@ -34,10 +34,13 @@ type ReleaseSummaryInput struct {
 	PrepareStageJSON     string
 	BuildStageJSON       string
 	PublishStageJSON     string
-	URLs                 provider.WebURLBuilder // nil when the platform has no web UI
-	ServerURL            string                 // CI_SERVER_URL
-	Repository           string                 // CI_REPO
-	Now                  time.Time
+	// Jobs, when set, are the job table's rows in place of GitHub's fixed
+	// stage targets: GitLab and Forgejo name their own release jobs.
+	Jobs       []domainsummary.JobRow
+	URLs       provider.WebURLBuilder // nil when the platform has no web UI
+	ServerURL  string                 // CI_SERVER_URL
+	Repository string                 // CI_REPO
+	Now        time.Time
 }
 
 // ReleaseSummary appends the release summary block to the step summary.
@@ -87,8 +90,16 @@ func ReleaseSummary(ctx context.Context, sink ci.SummarySink, in ReleaseSummaryI
 	_, _ = fmt.Fprintf(&b, "| Property | Value |\n")
 	_, _ = fmt.Fprintf(&b, "|----------|-------|\n")
 	_, _ = fmt.Fprintf(&b, "| **Version** | `%s` |\n", domainsummary.SanitizeCell(in.ReleaseVersion))
-	_, _ = fmt.Fprintf(&b, "| **Branch** | `%s` |\n", domainsummary.SanitizeCell(in.ReleaseBranch))
-	_, _ = fmt.Fprintf(&b, "| **Commit** | `%s` |\n", domainsummary.SanitizeCell(in.ReleaseCommit))
+	// A value the forge cannot report, such as the commit of a release cut
+	// from a request tag, leaves its row out instead of an empty cell.
+	if in.ReleaseBranch != "" {
+		_, _ = fmt.Fprintf(&b, "| **Branch** | `%s` |\n", domainsummary.SanitizeCell(in.ReleaseBranch))
+	}
+
+	if in.ReleaseCommit != "" {
+		_, _ = fmt.Fprintf(&b, "| **Commit** | `%s` |\n", domainsummary.SanitizeCell(in.ReleaseCommit))
+	}
+
 	_, _ = fmt.Fprintf(&b, "| **Released By** | @%s |\n", domainsummary.LiteralText(in.ReleaseActor))
 	_, _ = fmt.Fprintf(&b, "| **Released At** | %s |\n\n", now.UTC().Format("2006-01-02 15:04:05 UTC"))
 	_, _ = fmt.Fprintf(&b, "## Job Status\n")
@@ -119,8 +130,12 @@ func ReleaseSummary(ctx context.Context, sink ci.SummarySink, in ReleaseSummaryI
 		{"Promote Image → release", reported(in.PromoteReleaseResult)},
 		{"Forge Release", in.CreateReleaseResult},
 	}
-	for _, r := range rows {
-		_, _ = fmt.Fprintf(&b, "| %s | %s |\n", r.label, icon(r.result))
+	if len(in.Jobs) > 0 {
+		writeJobRows(&b, in.Jobs)
+	} else {
+		for _, r := range rows {
+			_, _ = fmt.Fprintf(&b, "| %s | %s |\n", r.label, icon(r.result))
+		}
 	}
 
 	_, _ = fmt.Fprintf(&b, "\n## Resources\n")

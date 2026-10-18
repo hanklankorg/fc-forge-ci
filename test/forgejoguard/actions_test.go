@@ -120,8 +120,8 @@ func TestBuildAndCheckActionsReceiveNoCredential(t *testing.T) {
 
 // The pull-request examples are what a consumer copies for the event that
 // runs unreviewed code: each reads no secret anywhere, names no image of its
-// own (the job image is the consumer's variable), and its three jobs are the
-// lint action, the isolation gate and its ecosystem's build action.
+// own (the job image is the consumer's variable), and its jobs are the lint
+// action, the isolation gate, its ecosystem's build action and the summary.
 func TestConsumerPRTemplateIsTheLintGateAndBuild(t *testing.T) {
 	t.Parallel()
 
@@ -150,6 +150,7 @@ func checkConsumerPRTemplate(t *testing.T, kit consumerKit) {
 		"lint":           {"/.forgejo/actions/lint-nanolinter@", jobImage},
 		"trust-boundary": {"/.forgejo/actions/check-l3-isolation@", ""},
 		"build":          {"/.forgejo/actions/" + kit.buildAction + "@", jobImage},
+		"summary":        {"/.forgejo/actions/setup-forge-ci@", ""},
 	} {
 		entry, ok := parsed.jobs[name]
 		if !ok {
@@ -172,8 +173,8 @@ func checkConsumerPRTemplate(t *testing.T, kit consumerKit) {
 		}
 	}
 
-	if len(parsed.jobs) != 3 {
-		t.Errorf("%s has %d jobs, want the three above", path, len(parsed.jobs))
+	if len(parsed.jobs) != 4 {
+		t.Errorf("%s has %d jobs, want the four above", path, len(parsed.jobs))
 	}
 }
 

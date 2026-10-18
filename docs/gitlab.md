@@ -640,6 +640,7 @@ The child runs these jobs, in five stages that read the same on every forge
 | `Publish: images` | signer | Moves final image tags, with a journal. |
 | `Publish: release` | signer | Creates the GitLab release with notes and assets. |
 | `Publish: tidy up` | signer | Removes candidate tags. |
+| `Summary: release` | job | After a successful release, prints the release overview as a "Summary" section of its log; holds no release secret. |
 
 Which job may hold which release secret is written in roles, in
 `.gitlab/bin/release.sh` (`rc_job_role`); a job's name maps to its role there.

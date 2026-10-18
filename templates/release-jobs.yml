@@ -316,3 +316,15 @@ stages: [check, prepare, build, sign, publish]
       artifacts: false
   script:
     - rc_cleanup_release
+# The release overview, as a "Summary" section of this job's log. It needs the
+# last job of the chain, so it runs only after a successful release; GitLab's
+# pipeline view shows which job failed in an unsuccessful one. It holds no
+# release secret.
+"Summary: release":
+  extends: .forge-ci-release
+  stage: .post
+  needs:
+    - job: "Publish: tidy up"
+      artifacts: false
+  script:
+    - rc_release_summary

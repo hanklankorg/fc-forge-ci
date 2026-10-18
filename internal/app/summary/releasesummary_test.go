@@ -13,6 +13,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/adapters/gitlab"
 	appsummary "github.com/diggsweden/forge-ci/internal/app/summary"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	domainsummary "github.com/diggsweden/forge-ci/internal/domain/summary"
 )
 
 func TestReleaseSummary_HappyPath(t *testing.T) {
@@ -197,5 +198,33 @@ func TestReleaseSummary_NoWebUIRendersNoBrokenLinks(t *testing.T) {
 		if strings.Contains(body, broken) {
 			t.Errorf("summary contains a malformed link %q:\n%s", broken, body)
 		}
+	}
+}
+
+func TestReleaseSummary_NamedJobsReplaceTheStageTargets(t *testing.T) {
+	t.Parallel()
+
+	sink := &fakeSummarySink{}
+
+	err := appsummary.ReleaseSummary(context.Background(), sink, appsummary.ReleaseSummaryInput{
+		ReleaseVersion: "v1.2.3",
+		Jobs: []domainsummary.JobRow{
+			{Label: "Build: release files", Result: domainsummary.ResultSuccess},
+			{Label: "Publish: release", Result: domainsummary.ResultSkipped},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := sink.buf.String()
+	for _, want := range []string{"## Job Status", "| `Build: release files` | ✓ |", "| `Publish: release` | − |"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("summary missing %q:\n%s", want, body)
+		}
+	}
+
+	if strings.Contains(body, "Build Maven") {
+		t.Errorf("named jobs must replace the fixed rows:\n%s", body)
 	}
 }
