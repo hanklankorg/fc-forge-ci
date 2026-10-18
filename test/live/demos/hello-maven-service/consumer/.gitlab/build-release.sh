@@ -41,11 +41,12 @@ CI_OUTPUT="${auth_dir}/image.env" forge-ci container build-push-oci-image \
 	--builds-json '[{"platform":"linux/amd64"}]' --image "${CI_REGISTRY_IMAGE:?}" \
 	--title hello-maven-service --auth-file "${auth_dir}/auth.json" \
 	--scan-output-template 'dist/trivy-results-runtime-{arch}.json'
+# The outputs are GitLab dotenv lines, their keys in upper case.
 image='' digest=''
 while IFS= read -r line || [ -n "${line}" ]; do
 	case "${line}" in
-	image=*) image="${line#image=}" ;;
-	digest=*) digest="${line#digest=}" ;;
+	IMAGE=*) image="${line#IMAGE=}" ;;
+	DIGEST=*) digest="${line#DIGEST=}" ;;
 	esac
 done <"${auth_dir}/image.env"
 forge-ci container ledger add --role runtime --image-name "${image:?}" --digest "${digest:?}" \
