@@ -63,7 +63,14 @@ func TestCentralObservationNeverClaimsValidationIsPublication(t *testing.T) {
 
 			var out bytes.Buffer
 
-			err := apppublish.WaitCentralDeployment(t.Context(), probe, &out, "deployment-1", tc.automatic, 100*time.Millisecond, time.Millisecond)
+			// Only "unconfirmed" must run out of time; a short budget elsewhere
+			// fails a loaded test run before the probe reaches its last state.
+			budget := time.Minute
+			if tc.name == "unconfirmed" {
+				budget = 100 * time.Millisecond
+			}
+
+			err := apppublish.WaitCentralDeployment(t.Context(), probe, &out, "deployment-1", tc.automatic, budget, time.Millisecond)
 			if tc.fails {
 				require.Error(t, err)
 			} else {
