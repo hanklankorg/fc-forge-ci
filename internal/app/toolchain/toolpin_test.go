@@ -24,6 +24,7 @@ func TestImmutableToolPin_OneReleaseOrNothing(t *testing.T) {
 	for _, value := range []string{
 		"1.2.3", "v1.2.3", "0.0.0", "999.999.999",
 		"1.2.3-rc.1", "v1.2.3-rc.1", "1.2.3-beta1", "1.2.3+build.5", "1.2.3-rc.1+build.5",
+		"temurin-25.0.4+7.0.LTS", "zulu-21.36.17", "graalvm-community-21.0.2",
 	} {
 		require.Truef(t, immutableToolPinValue(value), "%q names exactly one release", value)
 	}
@@ -33,6 +34,8 @@ func TestImmutableToolPin_OneReleaseOrNothing(t *testing.T) {
 		"path:/opt/go", "1.2", "1", "1.2.x", "^1.2.3", "~1.2.3", ">=1.2.3", "1.2.3 || 1.2.4",
 		"", " ", "1.2.3 ", " 1.2.3", "v", "vv1.2.3", "V1.2.3", "1.2.3-", "1.2.3+",
 		"1.2.3-rc/1", "1.2.3-rc 1", "1.2.3\n", "1.2.3\x00", "01.2.3", "1.2.3.4",
+		"temurin-25", "temurin-latest", "temurin-", "Temurin-25.0.4", "temurin--25.0.4",
+		"temurin-v25.0.4", "temurin-25.0", "-25.0.4",
 	} {
 		require.Falsef(t, immutableToolPinValue(value), "%q is resolved at install time, not pinned", value)
 	}
@@ -65,6 +68,8 @@ func TestDeclaredToolPins_RefuseBeforeAnyEffect(t *testing.T) {
 	}{
 		{name: "exact string", body: "[tools]\ngo = \"1.26.6\"\n"},
 		{name: "tag spelling", body: "[tools]\n'aqua:rvben/rumdl' = \"v0.2.58\"\n"},
+		{name: "distribution prefix", body: "[tools]\njava = \"temurin-25.0.4+7.0.LTS\"\n"},
+		{name: "distribution major only", body: "[tools]\njava = \"temurin-25\"\n", refused: true},
 		{name: "table with a version", body: "[tools]\n'aqua:org/tool' = {version = \"1.2.3\"}\n"},
 		{name: "list of exact versions", body: "[tools]\npython = [\"3.12.0\", \"3.13.1\"]\n"},
 		{name: "alias", body: "[tools]\ngo = \"latest\"\n", refused: true},

@@ -27,6 +27,10 @@ import (
 //   - A registry entry is a tag, so a declared tool version may carry the "v"
 //     that tag spelling uses, and a prerelease or build suffix. Those still
 //     name one immutable release rather than a set to choose from.
+//
+// A declared version may also carry mise's distribution prefix, as java =
+// "temurin-25.0.4+7.0.LTS" does: lowercase words joined by hyphens, before a
+// version that is itself exact by the rules above. "temurin-25" still is not.
 
 // exactDownloadVersion reports whether a value may be interpolated into a
 // release download URL: a bare MAJOR.MINOR.PATCH with no prefix or suffix.
@@ -37,12 +41,48 @@ func exactDownloadVersion(value string) bool {
 // immutableToolPinValue reports whether a declared tool version names exactly
 // one release, in either spelling a registry hands back.
 func immutableToolPinValue(value string) bool {
-	core, suffix := splitReleaseSuffix(value)
+	core, suffix := splitReleaseSuffix(withoutDistribution(value))
 	if !exactDownloadVersion(domainversion.StripVPrefix(core)) || strings.HasPrefix(core, "vv") {
 		return false
 	}
 
 	return validReleaseSuffix(suffix)
+}
+
+// withoutDistribution drops a distribution prefix such as the temurin- of
+// "temurin-25.0.4+7.0.LTS" when a digit follows it; any other value is
+// returned unchanged, to be judged whole.
+func withoutDistribution(value string) string {
+	rest := value
+
+	for {
+		word, tail, found := strings.Cut(rest, "-")
+		if !found || !distributionWord(word) {
+			return value
+		}
+
+		if tail != "" && tail[0] >= '0' && tail[0] <= '9' {
+			return tail
+		}
+
+		rest = tail
+	}
+}
+
+// distributionWord is one lowercase word of a distribution name, starting with
+// a letter: temurin, graalvm, community.
+func distributionWord(word string) bool {
+	if word == "" || word[0] < 'a' || word[0] > 'z' {
+		return false
+	}
+
+	for _, char := range word {
+		if (char < 'a' || char > 'z') && (char < '0' || char > '9') {
+			return false
+		}
+	}
+
+	return true
 }
 
 // splitReleaseSuffix separates the release core from any prerelease or build
