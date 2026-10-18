@@ -87,6 +87,9 @@ jobs:
           cache-key-suffix: release-build
           install-dev-tools: false
           cache: 'false'
+          # The committed mise.lock pins each tool's download and checksum, so
+          # the install needs no GitHub token.
+          mise-locked: true
 
       # The tests gate the release; the image build below compiles the
       # binary that ships.

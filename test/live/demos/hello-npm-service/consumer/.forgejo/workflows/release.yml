@@ -89,6 +89,9 @@ jobs:
           cache-key-suffix: release-build
           install-dev-tools: false
           cache: 'false'
+          # The committed mise.lock pins each tool's download and checksum, so
+          # the install needs no GitHub token.
+          mise-locked: true
 
       # The release's version into package.json, then npm ci, the tests, the
       # build script, the Build SBOM (bom.json) and the packed
