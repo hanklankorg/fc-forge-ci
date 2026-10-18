@@ -77,13 +77,10 @@ func TestBuildMavenForwardsEveryInput(t *testing.T) {
 	bound := map[string]string{}
 
 	for _, input := range inputs {
-		actionInput := input
-		if input == "build-sbom" {
-			actionInput = "enable-build-sbom"
-		}
-
-		bound["BUILD_MAVEN_"+strings.ToUpper(strings.ReplaceAll(input, "-", "_"))] = "${{ inputs." + actionInput + " }}"
+		bound["BUILD_MAVEN_"+strings.ToUpper(strings.ReplaceAll(input, "-", "_"))] = "${{ inputs." + input + " }}"
 	}
+
+	bound["BUILD_MAVEN_BUILD_SBOM"] = "${{ inputs.enable-build-sbom }}"
 
 	action.requireStepEnv(t, 0, bound)
 
