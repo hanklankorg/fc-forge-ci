@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# One npm package and the runtime image built from it, signed keyless.
+sign:
+  method: sigstore
+artifacts:
+  - name: hello-npm-service
+    project-type: npm
+    working-directory: .
+    config:
+      node-version: 24
+containers:
+  - name: hello-npm-service
+    from: [hello-npm-service]
+    container-file: Containerfile
+    context: .
+    # Declared platforms; RELEASE_PLATFORMS narrows them, linux/amd64 by default.
+    platforms: linux/amd64,linux/arm64

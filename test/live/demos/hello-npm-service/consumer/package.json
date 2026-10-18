@@ -1,0 +1,19 @@
+{
+  "name": "hello-npm-service",
+  "version": "0.1.0",
+  "description": "A tiny Node HTTP service for showing Forge CI on Forge Lab",
+  "license": "CC0-1.0",
+  "private": true,
+  "main": "dist/server.js",
+  "files": [
+    "dist/"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "rm -rf dist && cp -R src dist",
+    "start": "node dist/server.js",
+    "test": "node --test"
+  }
+}

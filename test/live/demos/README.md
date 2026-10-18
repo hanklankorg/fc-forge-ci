@@ -23,7 +23,8 @@ the layer under test in its place, as it does for any consumer. Its Forgejo
 workflows sit in `.forgejo/workflows`, its GitLab merge-request gate in
 `.gitlab/merge-request.yml` with the scripts the release runs, and its GitHub
 workflows in `test/live/github/workflows`. `hello-maven` is a Maven jar;
-`hello-maven-service` adds the runtime image built from that jar. A demo for
+`hello-maven-service` adds the runtime image built from that jar;
+`hello-npm-service` is an npm package and the image built from it. A demo for
 another ecosystem or feature is one more directory in the same shape;
 `internal/livetest/demos_internal_test.go` renders every consumer here for
 all three forges, so one that the live tier could not run fails `just

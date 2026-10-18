@@ -1,0 +1,6 @@
+node_modules/
+dist/
+image/
+*.tgz
+bom.json
+release-notes.md

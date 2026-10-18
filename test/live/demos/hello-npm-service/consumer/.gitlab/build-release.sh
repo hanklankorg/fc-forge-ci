@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# Release build, called by the pinned release policy in a key-free job. It
+# leaves the unsigned hand-off in dist/: the packed package, its CycloneDX
+# Build SBOM, the ledger of the runtime image it pushed for staging, release
+# notes, checksums and the manifest. Forge CI's signer jobs sign and publish
+# it. The policy's version-bump knows maven only, so the release commit keeps
+# package.json's version and the build sets the release's before it packs.
+set -euo pipefail
+umask 077
+
+: "${RELEASE_TAG:?}" "${RELEASE_VERSION:?}" "${RELEASE_SHA:?}"
+test "$(git rev-parse HEAD)" = "${RELEASE_SHA}"
+
+forge-ci version bump --project-type npm --version "${RELEASE_VERSION}"
+NODE_VERSION=24 CYCLONEDX_VERSION=6.0.0 forge-ci build npm run
+
+package="hello-npm-service-${RELEASE_VERSION}.tgz"
+test -f "${package}"
+# The image is built from the package unpacked, as GitHub's container job
+# builds it. The build script's dist/ is in the package, and dist/ is the
+# hand-off, so the build's copy goes.
+rm -rf -- dist image
+mkdir -p dist image
+tar -xzf "${package}" --strip-components=1 -C image
+cp -- "${package}" dist/
+cp -- bom.json "dist/hello-npm-service-${RELEASE_VERSION}.cdx.json"
+
+if ! forge-ci release notes --changelog-file CHANGELOG.md \
+	--release-version "${RELEASE_TAG}" --target-file dist/release-notes.md; then
+	forge-ci release notes --source-file /dev/null/absent --target-file dist/release-notes.md \
+		--release-version "${RELEASE_TAG}" --release-commit "${RELEASE_SHA}"
+fi
+# The runtime image goes to this project's registry as an untrusted staging
+# image; the signing jobs import it into the publication project. The job
+# token pushes it, from an auth file that lives only in this job.
+auth_dir=$(mktemp -d)
+trap 'rm -rf -- "${auth_dir}"' EXIT
+printf '%s' "${CI_JOB_TOKEN:?}" | forge-ci container login --registry "${CI_REGISTRY:?}" \
+	--registry-username gitlab-ci-token --registry-password-file - --auth-file "${auth_dir}/auth.json"
+CI_OUTPUT="${auth_dir}/image.env" forge-ci container build-push-oci-image \
+	--tag "${RELEASE_TAG}" --containerfile Containerfile --context image \
+	--builds-json '[{"platform":"linux/amd64"}]' --image "${CI_REGISTRY_IMAGE:?}" \
+	--title hello-npm-service --auth-file "${auth_dir}/auth.json" \
+	--scan-output-template 'dist/trivy-results-runtime-{arch}.json'
+image='' digest=''
+while IFS= read -r line || [ -n "${line}" ]; do
+	case "${line}" in
+	image=*) image="${line#image=}" ;;
+	digest=*) digest="${line#digest=}" ;;
+	esac
+done <"${auth_dir}/image.env"
+forge-ci container ledger add --role runtime --image-name "${image:?}" --digest "${digest:?}" \
+	--final-tag-name "${RELEASE_TAG}" --tag "${RELEASE_TAG}" --default-sbom
+
+forge-ci release files declare \
+	--asset 'dist/*.tgz' \
+	--sbom "dist/hello-npm-service-${RELEASE_VERSION}.cdx.json"
+
+printf 'Release handoff files (bytes, path relative to dist):\n'
+find dist -type f -printf '%s\t%P\n' | LC_ALL=C sort -k2

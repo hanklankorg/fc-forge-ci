@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# The runtime image: the dist/ of the npm package the release packed, on a
+# distroless Node runtime, which carries no npm for the release scan to find.
+# The build context is that package unpacked, as GitHub's container job and
+# the Forgejo and GitLab release builds unpack it. Nothing runs at build time,
+# so every platform builds without CPU emulation.
+FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:59c479c9b8c123e66047315c968aa2d35e31ae5149c856e4110a79c8b3563f0b
+
+# The modes are set here, not taken from the build: GitLab's release build
+# packs and unpacks under umask 077, and the runtime user must read the files.
+COPY --chmod=0755 dist/ /app/
+
+USER 65532:65532
+EXPOSE 8080
+ENTRYPOINT ["/nodejs/bin/node", "/app/server.js"]

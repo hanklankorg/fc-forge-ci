@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# The release build runs on the runner host, where the image is built too:
+# setup-toolchain installs these.
+[tools]
+node = "24.22.0"
+# build-release-image scans every platform before it publishes.
+"aqua:aquasecurity/trivy" = "0.75.0"
