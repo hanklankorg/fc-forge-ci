@@ -40,7 +40,6 @@ func TestInRunner_KeylessSigningAgainstTheLabCA(t *testing.T) {
 	const tag = "v0.0.10-keyless"
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, claimsMintsOIDCToken, "keyless signing against an own CA"), livetest.NeedsInRunner, livetest.NeedsFulcio) {
-
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
 

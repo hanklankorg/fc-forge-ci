@@ -35,7 +35,6 @@ import (
 
 func TestInRunner_DetectsItsOwnRuntime(t *testing.T) {
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "an artifact store"), livetest.NeedsInRunner) {
-
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
 
@@ -113,7 +112,6 @@ func TestInRunner_ProductDetectsItsRunner(t *testing.T) {
 	const tag = "v0.0.1-inrunner"
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "releases"), livetest.NeedsInRunner) {
-
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
 
@@ -193,7 +191,6 @@ func TestInRunner_NoGitHubAnnotationsOnOtherForges(t *testing.T) {
 	const tag = "v0.0.2-annotations"
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "releases"), livetest.NeedsInRunner) {
-
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
 
@@ -231,7 +228,6 @@ func TestInRunner_StepSummaryReachesAReader(t *testing.T) {
 	const tag = "v0.0.3-summary"
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "releases"), livetest.NeedsInRunner) {
-
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
 
@@ -330,7 +326,6 @@ func TestInRunner_StepOutputsReachTheRunnersOutputFile(t *testing.T) {
 	const tag = "v0.0.6-outputs"
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "releases"), livetest.NeedsInRunner) {
-
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
 

@@ -50,6 +50,7 @@ func TestCheckout_ProducesAWorkingTreeAtTheRequestedRef(t *testing.T) {
 			// The durable fixture belongs to the lab's fixture owner; this
 			// suite's credential reads it.
 			target := livetest.Accept(t, forge).Reading(fixture.Owner)
+
 			repo, tag := fixture.Repository, fixture.Tag
 			if livetest.TagCommitSHA(t, target, repo, tag) != fixture.TagCommit ||
 				livetest.BranchCommitSHA(t, target, repo, fixture.DefaultBranch) != fixture.BranchCommit {

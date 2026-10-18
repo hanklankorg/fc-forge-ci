@@ -114,6 +114,7 @@ func TestForgejoLayer_MinimalBinaryRelease(t *testing.T) {
 
 func runLayerMinimalRelease(t *testing.T, private bool, objectFormat string) {
 	t.Helper()
+
 	const (
 		workflow = "layer-minimal-release"
 		name     = "layer-minimal-release"
@@ -190,6 +191,7 @@ func runLayerMinimalRelease(t *testing.T, private bool, objectFormat string) {
 		}
 
 		log := livetest.JobLog(t, target, repo, job)
+
 		for what, secret := range map[string]string{"SSH signing key": keys.sshPrivate, "Cosign private key": keys.cosignPrivate} {
 			for _, line := range strings.Split(strings.TrimSpace(secret), "\n") {
 				if !strings.HasPrefix(line, "-----") && len(line) >= 16 && strings.Contains(log, line) {

@@ -46,24 +46,31 @@ func checkObjectFormatRoundTrip(t *testing.T, target livetest.Target, format str
 	if private {
 		args = append(args, "--token-file", writeToken(t, target.Token))
 	}
+
 	result := livetest.CLI(t, target, repo, args...)
 	if result.ExitCode != 0 {
 		t.Fatalf("%s checkout failed: %s", format, result.Stderr)
 	}
+
 	if got := git(t, workspace, "rev-parse", "--show-object-format"); got != format {
 		t.Fatalf("checkout object format %q, expected %q", got, format)
 	}
+
 	if got := git(t, workspace, "rev-parse", "HEAD"); got != facts.TagCommit || got == facts.HeadCommit {
 		t.Fatalf("checkout selected %s instead of exact tag commit %s", got, facts.TagCommit)
 	}
+
 	if got := git(t, workspace, "rev-parse", "refs/tags/"+facts.Tag); got != facts.TagObject {
 		t.Fatalf("annotated tag object changed: %s, expected %s", got, facts.TagObject)
 	}
+
 	if body, err := os.ReadFile(filepath.Join(workspace, "README.md")); err != nil || string(body) != "Object-format acceptance.\n" {
 		t.Fatalf("checkout bytes changed: %v", err)
 	}
+
 	if _, err := os.Stat(filepath.Join(workspace, afterTagFile)); !os.IsNotExist(err) {
 		t.Fatalf("checkout did not stop at the requested tag: %v", err)
 	}
+
 	t.Logf("%s push/fetch verified: tagged commit=%s annotated tag=%s later main=%s", format, facts.TagCommit, facts.TagObject, facts.HeadCommit)
 }

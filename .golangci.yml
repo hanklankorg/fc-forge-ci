@@ -168,6 +168,10 @@ linters:
     - depguard
     - varnamelen
     - wastedassign
+    # Whitespace rules run here rather than as the standalone wsl tool, whose
+    # analysis library cannot read Go 1.27 packages; nanolinter then drops
+    # its separate go-wsl check as covered.
+    - wsl_v5
     - zerologlint
 
   settings:

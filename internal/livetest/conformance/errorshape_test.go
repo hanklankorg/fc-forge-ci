@@ -152,6 +152,7 @@ func assertReadableFailure(t *testing.T, forge provider.ForgeAPI, scenario strin
 	// Something identifying has to appear, or the reader cannot tell which of
 	// several inputs was wrong.
 	named := false
+
 	for _, subject := range []string{"token", "repository", "repo", "permission", "auth", "not found", string(forge)} {
 		if strings.Contains(lower, subject) {
 			named = true

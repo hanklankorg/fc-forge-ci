@@ -153,7 +153,9 @@ func recordVerifyPromote(
 		t.Fatalf("%s ledger validate-digests exited %d against the registry it just recorded\nstderr: %s",
 			forge, verify.ExitCode, verify.Stderr)
 	}
+
 	wrongLedger := writeWrongDigestLedger(t, filepath.Join(work, ledger), releaseTag)
+
 	wrong := livetest.CLIIn(t, target, repo, opts,
 		"container", "ledger", "validate-digests",
 		"--ledger", wrongLedger, "--auth-file", authFile, "--tag", releaseTag)

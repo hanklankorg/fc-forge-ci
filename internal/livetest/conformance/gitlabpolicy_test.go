@@ -32,6 +32,7 @@ func TestGitLabPolicy_ConsumerCannotReplaceTheSigningPipeline(t *testing.T) {
 	policyRepo := livetest.NewScratchRepo(t, target, "release-policy")
 	consumerRepo := livetest.NewScratchRepo(t, target, "policy-consumer")
 	project := livetest.RepoSlug(target, consumerRepo)
+
 	client, err := gitlabapi.NewClient(target.Token, gitlabapi.WithBaseURL(target.BaseURL()+"/api/v4/"),
 		gitlabapi.WithHTTPClient(livetest.HTTPClient(t, target, time.Minute)))
 	if err != nil {
@@ -44,6 +45,7 @@ func TestGitLabPolicy_ConsumerCannotReplaceTheSigningPipeline(t *testing.T) {
 	policyProject := livetest.RepoSlug(target, policyRepo)
 	policy := gitlabPolicyCommit(t, ctx, client, policyProject, "policy.yml", gitlabTrustedPolicy, gitlabapi.FileCreate)
 	coordinate := "policy.yml@" + policyProject + ":" + policy.ID
+
 	settings, _, err := client.Projects.EditProject(project, &gitlabapi.EditProjectOptions{
 		CIConfigPath:                           gitlabapi.Ptr(coordinate),
 		CIPipelineVariablesMinimumOverrideRole: gitlabapi.Ptr(gitlabapi.CIPipelineVariablesMinimumOverrideRoleValue("no_one_allowed")),
@@ -52,27 +54,32 @@ func TestGitLabPolicy_ConsumerCannotReplaceTheSigningPipeline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if settings.CIConfigPath != coordinate || settings.CIPipelineVariablesMinimumOverrideRole != "no_one_allowed" || settings.CIPushRepositoryForJobTokenAllowed {
 		t.Fatal("GitLab did not retain the external pinned policy and variable/token restrictions")
 	}
+
 	livetest.RestrictGitLabJobToken(t, target, consumerRepo)
 
 	// Moving the policy project's default branch must not move the consumer's
 	// authenticated policy revision. Consumer YAML must not merge into it.
 	gitlabPolicyCommit(t, ctx, client, policyProject, "policy.yml", "wrong-policy:\n  script: exit 97\n", gitlabapi.FileUpdate)
 	gitlabPolicyCommit(t, ctx, client, project, "build.sh", gitlabUntrustedBuild, gitlabapi.FileCreate)
+
 	consumer := gitlabPolicyCommit(t, ctx, client, project, ".gitlab-ci.yml", gitlabUntrustedPolicy, gitlabapi.FileCreate)
 	if _, _, seedErr := client.Releases.CreateRelease(project, &gitlabapi.CreateReleaseOptions{
 		TagName: gitlabapi.Ptr("v0.0.0-sentinel"), Ref: gitlabapi.Ptr(consumer.ID), Description: gitlabapi.Ptr("untouched publication sentinel"),
 	}, gitlabapi.WithContext(ctx)); seedErr != nil {
 		t.Fatal(seedErr)
 	}
+
 	if _, _, setErr := client.ProjectVariables.CreateVariable(project, &gitlabapi.CreateProjectVariableOptions{
 		Key: gitlabapi.Ptr("RELEASE_COSIGN_PRIVATE_KEY"), Value: gitlabapi.Ptr("inert-signing-policy-canary"),
 		Protected: gitlabapi.Ptr(true), Masked: gitlabapi.Ptr(true), EnvironmentScope: gitlabapi.Ptr("release-signing"),
 	}, gitlabapi.WithContext(ctx)); setErr != nil {
 		t.Fatal(setErr)
 	}
+
 	if _, _, protectErr := client.ProtectedTags.ProtectRepositoryTags(project, &gitlabapi.ProtectRepositoryTagsOptions{
 		Name: gitlabapi.Ptr("release-request/*"), CreateAccessLevel: gitlabapi.Ptr(gitlabapi.MaintainerPermissions),
 	}, gitlabapi.WithContext(ctx)); protectErr != nil {
@@ -96,21 +103,27 @@ func TestGitLabPolicy_ConsumerCannotReplaceTheSigningPipeline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	names := make([]string, 0, len(jobs))
 	for _, job := range jobs {
 		if job.Status != "success" || job.AllowFailure {
 			t.Fatalf("required policy job %s ended %s", job.Name, job.Status)
 		}
+
 		names = append(names, job.Name)
 	}
+
 	slices.Sort(names)
+
 	if !slices.Equal(names, []string{"build-from-policy", "sign-from-policy"}) {
 		t.Fatalf("the consumer replaced or extended the policy jobs: %v", names)
 	}
+
 	releases, _, err := client.Releases.ListReleases(project, nil, gitlabapi.WithContext(ctx))
 	if err != nil || len(releases) != 1 || releases[0].TagName != "v0.0.0-sentinel" || releases[0].Description != "untouched publication sentinel" {
 		t.Fatal("the source job changed the publication sentinel")
 	}
+
 	packages, _, err := client.Packages.ListProjectPackages(project, nil, gitlabapi.WithContext(ctx))
 	if err != nil || len(packages) != 0 {
 		t.Fatal("the source job published a package despite its read-only self-scope")
@@ -123,11 +136,13 @@ func TestGitLabPolicy_ConsumerCannotReplaceTheSigningPipeline(t *testing.T) {
 		!strings.Contains(overrideErr.Error(), "pipeline variables") {
 		t.Fatal("GitLab did not refuse caller-supplied pipeline variable overrides")
 	}
+
 	t.Logf("policy %s stayed pinned; pipeline %d used only trusted jobs, kept the canary out of source execution, and rejected variable overrides", policy.ID, run.ID)
 }
 
 func gitlabPolicyCommit(t *testing.T, ctx context.Context, client *gitlabapi.Client, project, path, body string, operation gitlabapi.FileActionValue) *gitlabapi.Commit {
 	t.Helper()
+
 	commit, _, err := client.Commits.CreateCommit(project, &gitlabapi.CreateCommitOptions{
 		Branch: gitlabapi.Ptr("main"), CommitMessage: gitlabapi.Ptr("livetest: stage policy fixture"),
 		Actions: []*gitlabapi.CommitActionOptions{{Action: gitlabapi.Ptr(operation), FilePath: gitlabapi.Ptr(path), Content: gitlabapi.Ptr(body)}},
@@ -151,11 +166,13 @@ func TestGitLabPolicy_JobTokenCannotWriteThePublicationRegistry(t *testing.T) {
 	build := livetest.NewScratchRepo(t, target, "publication-producer")
 	livetest.RestrictGitLabJobToken(t, target, build)
 	sentinel := livetest.PushImage(t, target, publication, "v0.0.0-sentinel")
+
 	const fixtureTag = "v0.0.1-probe"
 	livetest.PrepareTag(t, target, publication, fixtureTag)
 	assets := livetest.PublishRegistryAuthAssets(t, target, publication, fixtureTag, t.TempDir())
 	probe := assets.Asset(t, "probe-json", livetest.ReleaseAssetURL(t, target, publication, fixtureTag, "probe-json"))
 	publicationImage := strings.TrimSuffix(sentinel.Ref, ":v0.0.0-sentinel")
+
 	workflow := strings.NewReplacer(
 		"PROBE_IMAGE", livetest.ProbeImage,
 		"PROBE_URL", probe.URL,
@@ -170,6 +187,7 @@ func TestGitLabPolicy_JobTokenCannotWriteThePublicationRegistry(t *testing.T) {
 	if actual, present := livetest.ImageDigest(t, target, publication, "v0.0.0-sentinel"); !present || actual != sentinel.Digest {
 		t.Fatal("the source job changed the publication sentinel")
 	}
+
 	if _, present := livetest.ImageDigest(t, target, build, "staging-ci-boundary"); !present {
 		t.Fatal("the positive-control staging write did not arrive")
 	}
@@ -177,27 +195,33 @@ func TestGitLabPolicy_JobTokenCannotWriteThePublicationRegistry(t *testing.T) {
 
 func waitGitLabTagPipeline(t *testing.T, ctx context.Context, client *gitlabapi.Client, project, tag, sha string) *gitlabapi.Pipeline {
 	t.Helper()
+
 	for {
 		runs, _, err := client.Pipelines.ListProjectPipelines(project, &gitlabapi.ListProjectPipelinesOptions{Ref: gitlabapi.Ptr(tag)}, gitlabapi.WithContext(ctx))
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		if len(runs) > 1 {
 			t.Fatal("the release request unexpectedly created more than one pipeline")
 		}
+
 		if len(runs) == 1 {
 			run, _, readErr := client.Pipelines.GetPipeline(project, runs[0].ID, gitlabapi.WithContext(ctx))
 			if readErr != nil {
 				t.Fatal(readErr)
 			}
+
 			if run.SHA != sha || run.Source != "push" {
 				t.Fatal("the release pipeline is not bound to its tag event and exact source")
 			}
+
 			switch run.Status {
 			case "success", "failed", "canceled", "skipped", "manual":
 				return run
 			}
 		}
+
 		select {
 		case <-ctx.Done():
 			t.Fatal("the release policy pipeline did not finish within its bounded wait")

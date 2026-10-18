@@ -97,6 +97,7 @@ func TestToken_RejectedCredential_IsPermissionDeniedNotUnavailable(t *testing.T)
 			if err == nil {
 				t.Fatalf("%s accepted a credential it never issued", forge)
 			}
+
 			requirePermissionDenied(t, err)
 
 			if errors.Is(err, errs.ErrDependencyUnavailable) {

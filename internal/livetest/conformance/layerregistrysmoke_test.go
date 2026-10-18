@@ -72,6 +72,7 @@ func TestForgejoLayer_RegistrySignerSmoke(t *testing.T) {
 
 func runLayerRegistrySignerSmoke(t *testing.T, private bool) {
 	t.Helper()
+
 	const (
 		workflow = "layer-registry-smoke"
 		name     = "layer-registry-smoke"

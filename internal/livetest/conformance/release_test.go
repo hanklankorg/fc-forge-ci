@@ -520,6 +520,7 @@ func TestRelease_PublishReconcile_ConvergesOnTheGivenAssets(t *testing.T) {
 
 			publish := func(assets ...string) livetest.Run {
 				args := make([]string, 0, 11+2*len(assets))
+
 				args = append(args,
 					"release", "publish", "--strategy", "reconcile",
 					"--tag", tag,

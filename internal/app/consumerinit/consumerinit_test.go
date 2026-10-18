@@ -120,11 +120,13 @@ func checkFilled(t *testing.T, forge provider.ForgeAPI, mirror, example string) 
 			}
 		}
 	}
+
 	if forge == provider.ForgeGitHub && example == "go-cli" {
 		found := false
 		for _, p := range result.Remaining[".forge-ci/artifacts.yml"] {
 			found = found || p.Token == "my-cli"
 		}
+
 		if !found {
 			t.Fatal("generated Go build names and paths must be reported for customization")
 		}

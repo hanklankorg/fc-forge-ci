@@ -41,6 +41,7 @@ func TestForgejoLayer_ArtifactRoundTrip(t *testing.T) {
 
 func runLayerArtifactRoundTrip(t *testing.T, private bool) {
 	t.Helper()
+
 	const workflow = "layer-artifact-roundtrip"
 
 	scenario := newLayerScenario(t, "layer-artifact", private, "sha1")

@@ -75,19 +75,25 @@ func runGitLabBranchProtection(t *testing.T, root string, private bool) {
 	t.Helper()
 
 	target := livetest.Accept(t, provider.ForgeGitLab)
+
 	var consumer *livetest.Consumer
+
 	objectFormat := "sha1"
+
 	if root != "" {
 		opened := livetest.OpenConsumer(t, target, root)
 		consumer, objectFormat = &opened, opened.ObjectFormat
 	}
+
 	repo := livetest.NewBareScratchRepo(t, target, "consumer-branch-protection", objectFormat, private)
 	_, public := livetest.SSHKey(t, t.TempDir())
+
 	client, err := gitlabapi.NewClient(target.Token, gitlabapi.WithBaseURL(target.BaseURL()+"/api/v4/"),
 		gitlabapi.WithHTTPClient(livetest.HTTPClient(t, target, time.Minute)))
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	ctx, cancel := context.WithTimeout(livetest.Context(t), time.Minute)
 	defer cancel()
 
@@ -97,7 +103,9 @@ func runGitLabBranchProtection(t *testing.T, root string, private bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	livetest.RestrictGitLabReleaseBranch(t, target, repo, deploy.ID)
+
 	if consumer != nil {
 		consumer.PushSnapshot(t, repo)
 	} else {
@@ -128,10 +136,12 @@ func TestGitLabRelease_BuildImageCapability(t *testing.T) {
 	target := livetest.Accept(t, provider.ForgeGitLab)
 	repo := livetest.NewScratchRepo(t, target, "build-image-probe")
 	image := livetest.PushJobImage(t, target, repo, archive)
+
 	const tag = "v0.0.9-build-probe"
 	livetest.PrepareTag(t, target, repo, tag)
 	livetest.PublishBinaryAsset(t, target, repo, tag, t.TempDir())
 	prelude := livetest.ProbePrelude(target, livetest.ReleaseAssetURL(t, target, repo, tag, "forge-ci"))
+
 	body, err := yaml.Marshal(map[string]any{"probe": map[string]any{
 		// As release-jobs.yml declares a build image: its own entrypoint is not the job's shell.
 		"image":     map[string]any{"name": image, "entrypoint": []string{""}},
@@ -141,6 +151,7 @@ func TestGitLabRelease_BuildImageCapability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if conclusion := livetest.RunWorkflow(t, target, repo, "build-image-probe", string(body)); conclusion != "success" {
 		t.Fatalf("the prepared builder cannot complete its isolated RUN probe: %s", conclusion)
 	}
@@ -208,6 +219,40 @@ func withGitChglog(inputs map[string]any) map[string]any {
 	return inputs
 }
 
+// protectGitLabReleaseTags lets maintainers push release requests and lets
+// only maintainers and the signer's deploy key create version tags.
+func protectGitLabReleaseTags(ctx context.Context, t *testing.T, client *gitlabapi.Client, project string, deployKeyID int64) {
+	t.Helper()
+
+	if _, _, err := client.ProtectedTags.ProtectRepositoryTags(project, &gitlabapi.ProtectRepositoryTagsOptions{
+		Name: gitlabapi.Ptr("release-request/*"), CreateAccessLevel: gitlabapi.Ptr(gitlabapi.MaintainerPermissions),
+	}, gitlabapi.WithContext(ctx)); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := client.ProtectedTags.ProtectRepositoryTags(project, &gitlabapi.ProtectRepositoryTagsOptions{
+		Name: gitlabapi.Ptr("v*"), AllowedToCreate: gitlabapi.Ptr([]*gitlabapi.TagsPermissionOptions{
+			{AccessLevel: gitlabapi.Ptr(gitlabapi.MaintainerPermissions)}, {DeployKeyID: gitlabapi.Ptr(deployKeyID)},
+		}),
+	}, gitlabapi.WithContext(ctx)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// useGitLabReleasePolicy points the consumer's pipeline at the pinned policy
+// file and takes pipeline variables and job-token pushes away from everyone.
+func useGitLabReleasePolicy(ctx context.Context, t *testing.T, client *gitlabapi.Client, project, configPath string) {
+	t.Helper()
+
+	if _, _, err := client.Projects.EditProject(project, &gitlabapi.EditProjectOptions{
+		CIConfigPath:                           gitlabapi.Ptr(configPath),
+		CIPipelineVariablesMinimumOverrideRole: gitlabapi.Ptr(gitlabapi.CIPipelineVariablesMinimumOverrideRoleValue("no_one_allowed")),
+		CIPushRepositoryForJobTokenAllowed:     gitlabapi.Ptr(false),
+	}, gitlabapi.WithContext(ctx)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private bool) {
 	t.Helper()
 
@@ -226,12 +271,15 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 	requireGitLabDemoScenario(t, consumerRoot, bases)
 
 	target := livetest.Accept(t, provider.ForgeGitLab)
+
 	var consumer *livetest.Consumer
+
 	if consumerRoot != "" {
 		opened := livetest.OpenConsumer(t, target, consumerRoot)
 		if livetest.DemoName() != "" {
 			opened = opened.WithHistory()
 		}
+
 		consumer = &opened
 	}
 
@@ -240,10 +288,12 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 	jobImage, buildImage, signerImage := images.job, images.build, images.signer
 	publication := gitlabReleaseRepo(t, target, "release-publication")
 	policyRepo := gitlabReleaseRepo(t, target, "release-owned-policy")
+
 	objectFormat := "sha1"
 	if consumer != nil {
 		objectFormat = consumer.ObjectFormat
 	}
+
 	repo := gitlabReleaseConsumerRepo(t, target, objectFormat, private)
 	project := livetest.RepoSlug(target, repo)
 
@@ -252,53 +302,50 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	ctx, cancel := context.WithTimeout(livetest.Context(t), 75*time.Minute)
 	defer cancel()
 
 	keys := newReleaseKeys(t)
 	requestKeyDir := t.TempDir()
 	_, requestPublic := livetest.SSHKey(t, requestKeyDir)
+
 	gitURL, hostKey, supported := livetest.SSHRoute(t, target, repo)
 	if !supported {
 		t.Fatal("the selected GitLab endpoint needs a pinned runner-side SSH route")
 	}
+
 	deploy, _, err := client.DeployKeys.AddDeployKey(project, &gitlabapi.AddDeployKeyOptions{
 		Title: gitlabapi.Ptr("fixture release signer"), Key: gitlabapi.Ptr(keys.sshPublic), CanPush: gitlabapi.Ptr(true),
 	}, gitlabapi.WithContext(ctx))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, protectErr := client.ProtectedTags.ProtectRepositoryTags(project, &gitlabapi.ProtectRepositoryTagsOptions{
-		Name: gitlabapi.Ptr("release-request/*"), CreateAccessLevel: gitlabapi.Ptr(gitlabapi.MaintainerPermissions),
-	}, gitlabapi.WithContext(ctx)); protectErr != nil {
-		t.Fatal(protectErr)
-	}
-	if _, _, protectErr := client.ProtectedTags.ProtectRepositoryTags(project, &gitlabapi.ProtectRepositoryTagsOptions{
-		Name: gitlabapi.Ptr("v*"), AllowedToCreate: gitlabapi.Ptr([]*gitlabapi.TagsPermissionOptions{
-			{AccessLevel: gitlabapi.Ptr(gitlabapi.MaintainerPermissions)}, {DeployKeyID: gitlabapi.Ptr(deploy.ID)},
-		}),
-	}, gitlabapi.WithContext(ctx)); protectErr != nil {
-		t.Fatal(protectErr)
-	}
+
+	protectGitLabReleaseTags(ctx, t, client, project, deploy.ID)
 
 	// A kept demo holds no key or token once the run is over.
 	if livetest.DemoName() != "" {
 		livetest.DeleteSecretsAfter(t, target, repo, gitlabReleaseSecrets)
 	}
+
 	configureGitLabReleaseVariables(t, target, client, project, keys, consumer != nil)
 
 	registry, err := livetest.RegistryHost(target)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	checks, build := []string{"go test ./..."}, []string{gitlabMinimalBuild}
 	if consumer != nil {
 		checks = []string{"bash .gitlab/check-release.sh"}
 		build = []string{buildCommand}
 	}
+
 	if bases {
 		checks, build = []string{"test -f CHANGELOG.md"}, []string{gitlabBaseBuild}
 	}
+
 	policyIncludes := []any{map[string]any{
 		"component": strings.TrimPrefix(target.BaseURL(), "https://") + "/" + layer.Repository + "/release@" + layer.Commit,
 		"inputs": withGitChglog(map[string]any{
@@ -324,7 +371,9 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 	if gate {
 		policyIncludes = append([]any{gitlabGateInclude(project)}, policyIncludes...)
 	}
+
 	policyConfig := map[string]any{}
+
 	if bases {
 		policyIncludes = append(policyIncludes, map[string]any{
 			"component": strings.TrimPrefix(target.BaseURL(), "https://") + "/" + layer.Repository + "/check@" + layer.Commit,
@@ -335,20 +384,19 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 			"rules": []any{map[string]string{"if": `$CI_PIPELINE_SOURCE == "merge_request_event"`}},
 		}
 	}
+
 	policyConfig["include"] = policyIncludes
+
 	policyBody, err := yaml.Marshal(policyConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	policy := gitlabPolicyCommit(t, ctx, client, livetest.RepoSlug(target, policyRepo), "release.yml", string(policyBody), gitlabapi.FileCreate)
-	if _, _, policyErr := client.Projects.EditProject(project, &gitlabapi.EditProjectOptions{
-		CIConfigPath:                           gitlabapi.Ptr("release.yml@" + livetest.RepoSlug(target, policyRepo) + ":" + policy.ID),
-		CIPipelineVariablesMinimumOverrideRole: gitlabapi.Ptr(gitlabapi.CIPipelineVariablesMinimumOverrideRoleValue("no_one_allowed")),
-		CIPushRepositoryForJobTokenAllowed:     gitlabapi.Ptr(false),
-	}, gitlabapi.WithContext(ctx)); policyErr != nil {
-		t.Fatal(policyErr)
-	}
+	useGitLabReleasePolicy(ctx, t, client, project, "release.yml@"+livetest.RepoSlug(target, policyRepo)+":"+policy.ID)
+
 	livetest.RestrictGitLabJobToken(t, target, repo)
+
 	files := map[string]string{
 		"go.mod": "module example.invalid/layer-release-canary\n\ngo 1.27.2\n",
 		"go.sum": "", "cmd/layer-release-canary/main.go": releaseCanaryMain,
@@ -356,33 +404,42 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 		".chglog/config-minimal.yml": chglogMinimalConfig, ".chglog/CHANGELOG-minimal.tpl": chglogMinimalTemplate,
 		"CHANGELOG.md": releaseCanaryChangelog,
 	}
+
 	var request string
 	// Protect every empty consumer before its first write. Seeding the minimal
 	// fixture also needs one commit: later API writes cannot bypass protection.
 	livetest.RestrictGitLabReleaseBranch(t, target, repo, deploy.ID)
+
 	if consumer != nil {
 		request = consumer.PushGitLabRelease(t, repo, layer, livetest.GitLabGateImages{Job: jobImage, Lint: images.lint})
 	} else {
 		request = seedGitLabReleaseCanary(t, ctx, client, project, files)
 	}
+
 	requireObjectFormats(t, objectFormat, request, layer.Commit)
 	livetest.SignGitLabRequest(t, target, repo, request, requestTag, filepath.Join(requestKeyDir, "lab-ssh"))
 	run := waitGitLabTagPipeline(t, ctx, client, project, requestTag, request)
+
 	child := requireGitLabReleaseChild(t, ctx, client, project, run)
 	if consumer != nil {
 		logGitLabReleaseInventory(t, ctx, client, project, child)
 	}
+
 	requireReleaseGit(t, target, repo, keys, request, requestTag, finalTag)
 	verified := requireGitLabReleaseBundles(t, target, repo, keys, finalTag)
 	t.Logf("verified %d published Cosign bundles", verified)
+
 	if consumer != nil {
 		requireGitLabPackageSignatures(t, target, repo, keys, finalTag)
 		requireGitLabPublishedImages(t, client, target, repo, publication, child, keys)
 	}
+
 	t.Logf("GitLab release %s: parent %d, child %d, %d verified bundles", finalTag, run.ID, child, verified)
+
 	if bases {
 		requireGitLabBaseReuse(t, client, target, repo, publication, keys, requestKeyDir)
 	}
+
 	if gate {
 		requireGitLabPolicyMergeRequest(t, client, project, repo, *consumer, request)
 	}
@@ -465,10 +522,12 @@ func pushGitLabReleaseImages(t *testing.T, target livetest.Target, archives gitl
 	t.Helper()
 
 	images := gitlabReleaseImages{job: livetest.PushJobImage(t, target, gitlabReleaseRepo(t, target, "release-job-image"), archives.job)}
+
 	images.build = images.job
 	if archives.build != "" {
 		images.build = livetest.PushJobImage(t, target, gitlabReleaseRepo(t, target, "release-build-image"), archives.build)
 	}
+
 	images.signer = livetest.PushJobImage(t, target, gitlabReleaseRepo(t, target, "release-signer-image"), archives.signer)
 	if archives.lint != "" {
 		images.lint = livetest.PushJobImage(t, target, gitlabReleaseRepo(t, target, "release-lint-image"), archives.lint)
@@ -535,6 +594,7 @@ func seedGitLabReleaseCanary(t *testing.T, ctx context.Context, client *gitlabap
 			Action: gitlabapi.Ptr(gitlabapi.FileCreate), FilePath: gitlabapi.Ptr(path), Content: gitlabapi.Ptr(content),
 		})
 	}
+
 	commit, _, err := client.Commits.CreateCommit(project, &gitlabapi.CreateCommitOptions{
 		Branch: gitlabapi.Ptr("main"), CommitMessage: gitlabapi.Ptr("test: seed native release canary"), Actions: actions,
 	}, gitlabapi.WithContext(ctx))
@@ -552,7 +612,9 @@ func configureGitLabReleaseVariables(t *testing.T, target livetest.Target, clien
 	if distro {
 		storageRequest, storageLimit = "4Gi", "20Gi"
 	}
+
 	type projectVariable struct{ name, value, scope string }
+
 	variables := []projectVariable{
 		{"KUBERNETES_EPHEMERAL_STORAGE_REQUEST", storageRequest, "*"},
 		{"KUBERNETES_EPHEMERAL_STORAGE_LIMIT", storageLimit, "*"},
@@ -571,8 +633,10 @@ func configureGitLabReleaseVariables(t *testing.T, target livetest.Target, clien
 			projectVariable{"RELEASE_GPG_FINGERPRINT", fingerprint, "release/registry/signing"},
 			projectVariable{"RELEASE_GPG_PASSPHRASE", keys.passphrase, "release/registry/signing"})
 	}
+
 	ctx, cancel := context.WithTimeout(livetest.Context(t), time.Minute)
 	defer cancel()
+
 	for _, variable := range variables {
 		if _, _, variableErr := client.ProjectVariables.CreateVariable(project, &gitlabapi.CreateProjectVariableOptions{
 			Key: gitlabapi.Ptr(variable.name), Value: gitlabapi.Ptr(variable.value), Protected: gitlabapi.Ptr(true), EnvironmentScope: gitlabapi.Ptr(variable.scope),
@@ -586,7 +650,9 @@ func logGitLabReleaseInventory(t *testing.T, ctx context.Context, client *gitlab
 	t.Helper()
 
 	trace := gitlabTrialTrace(t, ctx, client, project, child, "Build: release files")
+
 	const marker = "Release handoff files (bytes, path relative to dist):"
+
 	_, inventory, found := strings.Cut(trace, marker)
 	if found {
 		inventory, _, _ = strings.Cut(inventory, "$ rc_build_handoff")
@@ -605,13 +671,16 @@ func requireGitLabPackageSignatures(t *testing.T, target livetest.Target, repo s
 
 	release := mustReadRelease(ctx, t, target, repo, tag)
 	verified := 0
+
 	for _, asset := range release.AssetNames() {
 		if !strings.HasSuffix(asset, ".deb") && !strings.HasSuffix(asset, ".rpm") && !strings.HasSuffix(asset, ".apk") {
 			continue
 		}
+
 		if _, present := release.Asset(asset + ".sig"); !present {
 			t.Fatalf("package %s has no published GPG sidecar", asset)
 		}
+
 		dir := t.TempDir()
 		for _, item := range []struct{ asset, file string }{{asset, "package"}, {asset + ".sig", "signature"}} {
 			body := livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, tag, item.asset), maxReleaseFile)
@@ -619,13 +688,17 @@ func requireGitLabPackageSignatures(t *testing.T, target livetest.Target, repo s
 				t.Fatal(err)
 			}
 		}
+
 		command := exec.CommandContext(ctx, "gpg", "--homedir", filepath.Join(keys.dir, "gnupg"), "--batch", "--no-auto-key-retrieve", "--verify", filepath.Join(dir, "signature"), filepath.Join(dir, "package")) //nolint:gosec // Generated fixture keyring and fixed owned download paths; no ambient trust or key lookup.
+
 		command.Env = livetest.ToolEnvironment(t, target, nil)
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("package signature failed for %s: %v\n%s", asset, err, output)
 		}
+
 		verified++
 	}
+
 	t.Logf("verified %d published GPG package sidecars", verified)
 }
 
@@ -636,22 +709,28 @@ func requireGitLabPublishedImages(t *testing.T, client *gitlabapi.Client, target
 	defer cancel()
 
 	project := livetest.RepoSlug(target, repo)
+
 	jobs, _, err := client.Jobs.ListPipelineJobs(project, pipeline, &gitlabapi.ListJobsOptions{ListOptions: gitlabapi.ListOptions{PerPage: 100}}, gitlabapi.WithContext(ctx))
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	var signerID int64
+
 	for _, job := range jobs {
 		if job.ArtifactsFile.Size > 0 {
 			t.Logf("job %s: native artifact archive %d bytes", job.Name, job.ArtifactsFile.Size)
 		}
+
 		if job.Name == "Sign: files and images" && job.Status == "success" {
 			signerID = job.ID
 		}
 	}
+
 	if signerID == 0 {
 		t.Fatal("the consumer release has no successful signer artifact")
 	}
+
 	address := fmt.Sprintf("%s/api/v4/projects/%s/jobs/%d/artifacts/_release-sign/dist/release-images-publication.json", target.BaseURL(), url.PathEscape(project), signerID)
 	// A release that built no image leaves no publication ledger; one that
 	// did must publish every image it records.
@@ -661,29 +740,36 @@ func requireGitLabPublishedImages(t *testing.T, client *gitlabapi.Client, target
 
 		return
 	}
+
 	entries, err := imageledger.Parse(ledger)
 	if err != nil || len(entries) == 0 {
 		t.Fatalf("consumer publication ledger: %v", err)
 	}
+
 	registry, err := livetest.RegistryHost(target)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	expected := registry + "/" + livetest.RepoSlug(target, publication)
 	auth := livetest.RegistryAuthConfigDir(t, target, t.TempDir())
+
 	for _, entry := range entries {
 		tag, err := name.NewTag(entry.FinalTag)
 		if err != nil || tag.Context().Name() != expected {
 			t.Fatalf("release image is outside the publication project: %q", entry.FinalTag)
 		}
+
 		actual, found := livetest.ImageDigest(t, target, publication, tag.TagStr())
 		if !found || actual != entry.Digest {
 			t.Fatalf("final image %s does not serve its signed digest", entry.FinalTag)
 		}
+
 		ref := expected + "@" + entry.Digest
 		verifyCosignSignature(t, target, ref, keys.cosignPublicPath, auth)
 		verifyCosignAttestations(t, target, ref, keys.cosignPublicPath, auth, entry.Digest)
 	}
+
 	t.Logf("verified %d final images and their attestations in the publication project", len(entries))
 }
 
@@ -695,22 +781,27 @@ func requireGitLabReleaseBundles(t *testing.T, target livetest.Target, repo stri
 
 	release := mustReadRelease(ctx, t, target, repo, tag)
 	verified := 0
+
 	for _, assetName := range release.AssetNames() {
 		plain, bundle := strings.CutSuffix(assetName, ".bundle")
 		if !bundle {
 			continue
 		}
+
 		_, present := release.Asset(plain)
 		if !present {
 			t.Fatalf("signature %s has no published subject", assetName)
 		}
+
 		if verifyErr := livetest.VerifyBlob(t, target, keys.cosignPublicPath,
 			livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, tag, plain), maxReleaseFile),
 			livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, tag, assetName), maxReleaseFile)); verifyErr != nil {
 			t.Fatalf("published signature failed verification: %v", verifyErr)
 		}
+
 		verified++
 	}
+
 	if verified < 3 {
 		t.Fatalf("expected checksums, SBOM and provenance bundles, got %d", verified)
 	}

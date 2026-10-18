@@ -42,6 +42,7 @@ func TestForgejoLayer_PrepareReleaseStopsOnAMissingSecret(t *testing.T) {
 
 func runLayerMissingSecret(t *testing.T, private bool) {
 	t.Helper()
+
 	const (
 		workflow     = "layer-missing-secret"
 		absentSecret = "RELEASE_REGISTRY_TOKEN"
@@ -73,6 +74,7 @@ func runLayerMissingSecret(t *testing.T, private bool) {
 		!slices.Contains(wrappers, "prepare-release-missing-secret") {
 		t.Fatalf("the run's jobs are %v on the runner and %v without one, want the render and coordinate jobs under one caller", onRunner, wrappers)
 	}
+
 	if status := statuses["Prepare: release commit and tag"]; status != "skipped" && status != "blocked" {
 		t.Errorf("the signing job ended %q after a missing secret, want skipped or blocked", status)
 	}

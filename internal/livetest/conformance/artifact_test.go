@@ -147,7 +147,6 @@ func TestInRunner_ArtifactRoundTripsThroughTheStore(t *testing.T) {
 	const tag = "v0.0.5-artifact"
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, claimsRunArtifacts, "run artifacts"), livetest.NeedsInRunner) {
-
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
 
@@ -225,6 +224,7 @@ func TestInRunner_GitLabNativeArtifactsReachTheNextJob(t *testing.T) {
 	for _, forge := range livetest.ForgesMeeting(t, []provider.ForgeAPI{provider.ForgeGitLab}, livetest.NeedsInRunner) {
 		t.Run(string(forge), func(t *testing.T) {
 			target := livetest.Accept(t, forge)
+
 			repo := livetest.NewScratchRepo(t, target, "native-artifact-handoff")
 			if conclusion := livetest.RunWorkflow(t, target, repo, "native-artifact-handoff", gitlabNativeArtifactProbe()); conclusion != "success" {
 				t.Fatalf("GitLab native artifact handoff concluded %q; the downstream job did not verify the payload", conclusion)

@@ -80,6 +80,7 @@ func TestForgejoLayer_ConsumerPullRequest(t *testing.T) {
 
 func runLayerConsumerPR(t *testing.T, private bool, objectFormat string) {
 	t.Helper()
+
 	const (
 		workflow = "layer-consumer-pr"
 		head     = "layer-pull-request"

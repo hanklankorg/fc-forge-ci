@@ -34,6 +34,7 @@ func TestGitLabLayer_ConsumerTrial(t *testing.T) {
 	if root == "" {
 		t.Skip("use just test-live-gitlab-consumer <checkout> <prepared-job-image.tar>")
 	}
+
 	for _, visibility := range livetest.ConsumerVisibilities(t) {
 		t.Run(visibility.Name, func(t *testing.T) {
 			runGitLabConsumerTrial(t, root, visibility.Private)
@@ -43,6 +44,7 @@ func TestGitLabLayer_ConsumerTrial(t *testing.T) {
 
 func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 	t.Helper()
+
 	if livetest.DemoName() != "" {
 		t.Fatal("this trial plants a failing canary; a GitLab demo is `just demo gitlab <name>`")
 	}
@@ -57,10 +59,12 @@ func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 	layer := livetest.PushLayer(t, target, engineRepo)
 	image := livetest.PushJobImage(t, target, engineRepo, os.Getenv("FORGE_CI_LIVE_CONSUMER_IMAGE_ARCHIVE"))
 	repo := livetest.NewBareScratchRepo(t, target, "gitlab-consumer-trial", consumer.ObjectFormat, private)
+
 	images := livetest.GitLabGateImages{Job: image}
 	if archive := os.Getenv("FORGE_CI_LIVE_LINT_IMAGE_ARCHIVE"); archive != "" {
 		images.Lint = livetest.PushJobImage(t, target, livetest.NewScratchRepo(t, target, "gitlab-consumer-lint-image"), archive)
 	}
+
 	main := consumer.PushGitLab(t, repo, layer, images)
 	requireObjectFormats(t, consumer.ObjectFormat, main, layer.Commit)
 	head := consumer.PushChange(t, repo, trialBranch, main)
@@ -73,11 +77,14 @@ func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 	}
 
 	project := livetest.RepoSlug(target, repo)
+
 	ctx, cancel := context.WithTimeout(livetest.Context(t), 60*time.Minute)
 	defer cancel()
 
-	const variable = "RELEASE_COSIGN_PRIVATE_KEY"
-	const canary = "inert-signer-scope-canary"
+	const (
+		variable = "RELEASE_COSIGN_PRIVATE_KEY"
+		canary   = "inert-signer-scope-canary"
+	)
 	if _, _, writeErr := client.ProjectVariables.CreateVariable(project, &gitlabapi.CreateProjectVariableOptions{
 		Key: gitlabapi.Ptr(variable), Value: gitlabapi.Ptr(canary), EnvironmentScope: gitlabapi.Ptr("*"),
 	}, gitlabapi.WithContext(ctx)); writeErr != nil {
@@ -108,20 +115,24 @@ func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 	if failed.Status != "failed" {
 		t.Fatalf("misplaced signing material produced pipeline %d status %q", failed.ID, failed.Status)
 	}
+
 	trace := gitlabTrialTrace(t, ctx, client, project, failed.ID)
 	if strings.Contains(trace, canary) {
 		t.Fatal("the refusal exposed the misplaced credential's value")
 	}
+
 	if !strings.Contains(trace, variable+" must not be available") {
 		// The job failed for another reason; its trace is the only place that says which.
 		t.Log(trace)
 		t.Log(gitlabTraceEnd(trace))
 		t.Fatal("the check job failed without naming the misplaced credential")
 	}
+
 	blocked, _, err := client.MergeRequests.GetMergeRequest(project, mr.IID, nil, gitlabapi.WithContext(ctx))
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if blocked.DetailedMergeStatus != "ci_must_pass" {
 		t.Fatalf("failed checks did not block the MR: status %q", blocked.DetailedMergeStatus)
 	}
@@ -136,9 +147,11 @@ func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	passed := waitGitLabMRPipeline(t, ctx, client, project, mr.IID, head, rerun.ID)
 	t.Logf("GitLab MR !%d at %s: refusal pipeline %d blocked merge; scoped-variable pipeline %d ended %s",
 		mr.IID, head, failed.ID, passed.ID, passed.Status)
+
 	if passed.Status != "success" {
 		logGitLabTrace(t, gitlabTrialTrace(t, ctx, client, project, passed.ID))
 		t.Fatalf("the consumer's own MR gate ended %s", passed.Status)
@@ -148,6 +161,7 @@ func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if !settings.OnlyAllowMergeIfPipelineSucceeds || settings.AllowMergeOnSkippedPipeline {
 		t.Fatal("the project must require successful, non-skipped pipelines")
 	}
@@ -155,7 +169,9 @@ func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 
 func waitGitLabMRPipeline(t *testing.T, ctx context.Context, client *gitlabapi.Client, project string, mr int64, sha string, id int64) *gitlabapi.Pipeline {
 	t.Helper()
+
 	discoveryDeadline := time.Now().Add(2 * time.Minute)
+
 	for {
 		if id == 0 {
 			id = findGitLabMRPipeline(t, ctx, client, project, mr)
@@ -163,19 +179,23 @@ func waitGitLabMRPipeline(t *testing.T, ctx context.Context, client *gitlabapi.C
 				t.Fatal("GitLab created no merge-request pipeline within two minutes; inspect the consumer workflow rules")
 			}
 		}
+
 		if id != 0 {
 			pipeline, _, err := client.Pipelines.GetPipeline(project, id, gitlabapi.WithContext(ctx))
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			if pipeline.SHA != sha || pipeline.Source != "merge_request_event" {
 				t.Fatalf("pipeline %d: source=%q sha=%s; want merge_request_event at %s", id, pipeline.Source, pipeline.SHA, sha)
 			}
+
 			switch pipeline.Status {
 			case "success", "failed", "canceled", "skipped", "manual":
 				return pipeline
 			}
 		}
+
 		select {
 		case <-ctx.Done():
 			t.Fatal("the GitLab consumer pipeline exceeded its bounded wait")
@@ -216,6 +236,7 @@ func findGitLabMRPipeline(t *testing.T, ctx context.Context, client *gitlabapi.C
 
 func gitlabTrialTrace(t *testing.T, ctx context.Context, client *gitlabapi.Client, project string, pipeline int64, producers ...string) string {
 	t.Helper()
+
 	jobs, _, err := client.Jobs.ListPipelineJobs(project, pipeline, &gitlabapi.ListJobsOptions{
 		ListOptions: gitlabapi.ListOptions{PerPage: 100},
 	}, gitlabapi.WithContext(ctx))
@@ -226,18 +247,24 @@ func gitlabTrialTrace(t *testing.T, ctx context.Context, client *gitlabapi.Clien
 	// name: the end of the text, which gitlabTraceEnd shows, is then a failed
 	// job's, whatever order GitLab lists the jobs in.
 	var produced, failed strings.Builder
+
 	for _, job := range jobs {
 		t.Logf("job %s: %s", job.Name, job.Status)
+
 		if job.ArtifactsFile.Size > 0 {
 			t.Logf("job %s: native artifact archive %d bytes", job.Name, job.ArtifactsFile.Size)
 		}
+
 		into := &failed
+
 		if job.Status != "failed" {
 			if job.Status != "success" || !slices.Contains(producers, job.Name) {
 				continue
 			}
+
 			into = &produced
 		}
+
 		fmt.Fprintf(into, "\n=== job %s (%s) ===\n", job.Name, job.Status)
 		into.WriteString(gitlabFinishedTrace(t, ctx, client, project, job.ID))
 	}

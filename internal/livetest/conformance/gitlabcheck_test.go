@@ -86,7 +86,9 @@ func runGitLabCheck(t *testing.T, private bool) {
 		project, _, visibilityErr := client.Projects.EditProject(livetest.RepoSlug(target, consumer), &gitlabapi.EditProjectOptions{
 			CIPushRepositoryForJobTokenAllowed: gitlabapi.Ptr(false),
 		}, gitlabapi.WithContext(visibilityContext))
+
 		visibilityCancel()
+
 		if visibilityErr != nil || project == nil || project.Visibility != gitlabapi.PrivateVisibility {
 			t.Fatalf("private consumer visibility was not configured: %v", visibilityErr)
 		}
@@ -112,6 +114,7 @@ func runGitLabCheck(t *testing.T, private bool) {
         - 'test "${CI_JOB_TOKEN:+present}" = present'
 `
 	}
+
 	if conclusion := livetest.RunWorkflow(t, target, consumer, "check-component", workflow); conclusion != "success" {
 		t.Fatalf("the native check component concluded %q", conclusion)
 	}

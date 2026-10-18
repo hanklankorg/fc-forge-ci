@@ -20,6 +20,7 @@ func TestGitLabWorkflow_InterruptedJob(t *testing.T) {
 	if os.Getenv("FORGE_CI_LIVE_INTERRUPT_PROBE") != "gitlab-workflow" {
 		livetest.NotCoveredf(t, "active-job interruption requires FORGE_CI_LIVE_INTERRUPT_PROBE=gitlab-workflow and an observed launcher signal")
 	}
+
 	if !livetest.Requires(t, provider.ForgeGitLab, livetest.NeedsInRunner) {
 		livetest.NotCoveredf(t, "active-job interruption requires a GitLab runner")
 	}
@@ -27,6 +28,7 @@ func TestGitLabWorkflow_InterruptedJob(t *testing.T) {
 	target := livetest.Accept(t, provider.ForgeGitLab)
 	repo := livetest.NewScratchRepo(t, target, "interrupt-workflow")
 	t.Logf("interruption fixture: %s", livetest.RepoSlug(target, repo))
+
 	workflow := `interrupt-probe:
   image: ` + livetest.ProbeImage + `
   variables:

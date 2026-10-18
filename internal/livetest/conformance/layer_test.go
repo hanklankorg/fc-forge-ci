@@ -87,6 +87,7 @@ func newLayerScenario(t *testing.T, name string, private bool, objectFormat stri
 // render fills a fixture for this scenario's repository.
 func (s layerScenario) render(t *testing.T, fixture string, facts ...string) string {
 	t.Helper()
+
 	facts = append(facts, "RENDER_ACCEPTANCE_REPOSITORY", livetest.RepoSlug(s.target, s.repo))
 
 	rendered, err := s.layer.Render(fixture, facts...)
@@ -114,13 +115,16 @@ func pairedObjectFormat(visibility livetest.ConsumerVisibility) string {
 // cross-repository mixed-format delivery, rather than Git format conversion.
 func requireObjectFormats(t *testing.T, objectFormat, consumerCommit, engineCommit string) {
 	t.Helper()
+
 	want := 40
 	if objectFormat == "sha256" {
 		want = 64
 	}
+
 	if len(consumerCommit) != want || len(engineCommit) != 40 {
 		t.Fatalf("object format mismatch: consumer=%s commit=%s engine=%s", objectFormat, consumerCommit, engineCommit)
 	}
+
 	t.Logf("object formats verified: consumer=%s, engine=sha1, mixed=%t", objectFormat, objectFormat != "sha1")
 }
 

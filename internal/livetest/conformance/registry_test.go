@@ -96,7 +96,6 @@ func TestInRunner_ForgeInjectedRegistryCredentialAuthenticates(t *testing.T) {
 	const tag = "v0.0.7-regauth"
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "an OCI registry"), livetest.NeedsInRunner) {
-
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
 

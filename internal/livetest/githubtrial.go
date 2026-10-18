@@ -120,9 +120,11 @@ func (trial *GitHubTrial) EnsureEngine(root, platforms string) GitHubEngine {
 	// builds them; the default comes back when the trial ends, so a selection
 	// never outlives its run.
 	trial.SetVariable(name, "RELEASE_PLATFORMS", platforms)
+
 	if platforms != githubDefaultPlatforms {
 		trial.tb.Cleanup(func() { trial.SetVariable(name, "RELEASE_PLATFORMS", githubDefaultPlatforms) })
 	}
+
 	trial.push(root, "--force", trial.remote(name), "HEAD:refs/heads/main")
 	trial.SetVariable(name, "FORGE_CI_REPOSITORY", trial.org+"/"+name)
 	trial.ensurePrerelease(name)

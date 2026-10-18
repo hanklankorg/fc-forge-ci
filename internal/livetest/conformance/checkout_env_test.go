@@ -15,12 +15,15 @@ func TestCheckoutAssertionEnv_IsClosed(t *testing.T) {
 	for _, name := range []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_CONFIG_COUNT", "GITHUB_TOKEN"} {
 		t.Setenv(name, "synthetic-canary")
 	}
+
 	root := t.TempDir()
 	home := t.TempDir()
+
 	cmd := checkoutGitCommand(t.Context(), root, home, "rev-parse", "HEAD")
 	for _, entry := range cmd.Env {
 		require.NotContains(t, entry, "synthetic-canary")
 	}
+
 	require.Contains(t, cmd.Env, "HOME="+home)
 	require.Contains(t, cmd.Env, "GIT_CONFIG_GLOBAL=/dev/null")
 	require.Contains(t, strings.Join(cmd.Args, " "), "-C "+root)

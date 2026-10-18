@@ -65,7 +65,6 @@ func TestInRunner_ForgePackages_NPMPublishReachesTheRegistry(t *testing.T) {
 	version := forgePackageVersion(time.Now())
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "a package registry"), livetest.NeedsInRunner) {
-
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
 
@@ -203,7 +202,6 @@ func TestInRunner_ForgePackages_MavenDeployReachesTheRegistry(t *testing.T) {
 	version := forgePackageVersion(time.Now())
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "a package registry"), livetest.NeedsInRunner) {
-
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
 

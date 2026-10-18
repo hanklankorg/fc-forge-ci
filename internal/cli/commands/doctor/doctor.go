@@ -98,6 +98,7 @@ Exit codes:
 				appdoctor.FormatEnvironment(os.Stdout, env)
 				_, _ = fmt.Fprintln(os.Stdout)
 				appdoctor.FormatText(os.Stdout, checks)
+
 				_, _ = fmt.Fprintln(os.Stdout, "\nScope: local configuration checks only; remote secrets, runner availability and publishing permissions were not checked.")
 				if env.ForgeAPI == string(provider.ForgeGitLab) {
 					_, _ = fmt.Fprintln(os.Stdout, "GitLab include pins are not checked by the workflow-pin scan.")

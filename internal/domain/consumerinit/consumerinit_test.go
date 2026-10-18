@@ -53,6 +53,7 @@ func TestParseDefaultsRefusesUnknownKeys(t *testing.T) {
 
 func TestRemainingReportsProjectSpecificExampleValues(t *testing.T) {
 	t.Parallel()
+
 	for _, content := range []string{
 		"main-package: ./cmd/my-cli", "name: my-service", "from: [my-app]",
 		"package-name: com.example.myapp.demo",

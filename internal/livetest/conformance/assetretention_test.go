@@ -37,6 +37,7 @@ func TestRelease_AssetRetentionPreservesEvidence(t *testing.T) {
 
 			names := []string{archive, "checksums.txt", "checksums.txt.bundle", "app.tar.gz.sbom.json", "app.tar.gz.cdx.sbom.json", "slsa-provenance.intoto.json", "slsa-provenance.intoto.json.bundle"}
 			slices.Sort(names)
+
 			before := make(map[string]rawref.Release)
 
 			for _, tag := range []string{"v0.0.1", "v0.0.2"} {
@@ -66,12 +67,14 @@ func TestRelease_AssetRetentionPreservesEvidence(t *testing.T) {
 
 			args := make([]string, 0, 7)
 			args = append(args, "release", "asset-retention", "--repository", slug, "--keep", "1")
+
 			dry := livetest.CLI(t, target, repo, args...)
 			if dry.ExitCode != 0 || !strings.Contains(dry.Stdout, "would delete") {
 				t.Fatalf("dry run: exit=%d %s", dry.ExitCode, dry.Combined())
 			}
 
 			t.Log(dry.Stdout)
+
 			for tag, original := range before {
 				assertRetainedRelease(t, mustReadRelease(ctx, t, target, repo, tag), original, names)
 			}
@@ -82,6 +85,7 @@ func TestRelease_AssetRetentionPreservesEvidence(t *testing.T) {
 			}
 
 			t.Log(run.Stdout)
+
 			kept := slices.DeleteFunc(slices.Clone(names), func(name string) bool { return name == archive })
 			assertRetainedRelease(t, mustReadRelease(ctx, t, target, repo, "v0.0.1"), before["v0.0.1"], kept)
 			assertRetainedRelease(t, mustReadRelease(ctx, t, target, repo, "v0.0.2"), before["v0.0.2"], names)
@@ -102,6 +106,7 @@ func assertRetainedRelease(t *testing.T, got, before rawref.Release, names []str
 
 	for _, name := range names {
 		asset, _ := got.Asset(name)
+
 		original, _ := before.Asset(name)
 		if asset != original {
 			t.Errorf("retention changed the served bytes of %s/%s", got.Tag, name)

@@ -31,38 +31,46 @@ func TestGitLabRelease_BaseImagesColdAndWarm(t *testing.T) {
 
 func requireGitLabBaseReuse(t *testing.T, client *gitlabapi.Client, target livetest.Target, repo, publication string, keys releaseKeys, requestKeyDir string) {
 	t.Helper()
+
 	ctx, cancel := context.WithTimeout(livetest.Context(t), 45*time.Minute)
 	defer cancel()
 
 	baseTag := strings.Repeat("b", 64) + "-go"
+
 	digest, found := livetest.ImageDigest(t, target, publication+"/bases", baseTag)
 	if !found {
 		t.Fatal("cold base publication did not create its immutable final tag")
 	}
+
 	registry, err := livetest.RegistryHost(target)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	ref := registry + "/" + livetest.RepoSlug(target, publication) + "/bases@" + digest
 	auth := livetest.RegistryAuthConfigDir(t, target, t.TempDir())
 	verifyCosignSignature(t, target, ref, keys.cosignPublicPath, auth)
 	verifyCosignAttestations(t, target, ref, keys.cosignPublicPath, auth, digest)
 
 	const requestTag, finalTag = "release-request/v0.0.2", "v0.0.2"
+
 	request := mergeGitLabWarmCandidate(t, client, target, repo)
 	livetest.SignGitLabRequest(t, target, repo, request, requestTag, filepath.Join(requestKeyDir, "lab-ssh"))
 	run := waitGitLabTagPipeline(t, ctx, client, livetest.RepoSlug(target, repo), requestTag, request)
 	child := requireGitLabReleaseChild(t, ctx, client, livetest.RepoSlug(target, repo), run)
 	requireReleaseGit(t, target, repo, keys, request, requestTag, finalTag)
+
 	verified := requireGitLabReleaseBundles(t, target, repo, keys, finalTag)
 	if actual, exists := livetest.ImageDigest(t, target, publication+"/bases", baseTag); !exists || actual != digest {
 		t.Fatal("warm release changed the immutable base digest")
 	}
+
 	for _, tc := range []struct {
 		tag   string
 		found bool
 	}{{releaseFinalTag, false}, {finalTag, true}} {
 		body := livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, tc.tag, "base-verification.json"), maxReleaseFile)
+
 		var evidence struct {
 			AllFound bool `json:"all_found"`
 		}
@@ -70,6 +78,7 @@ func requireGitLabBaseReuse(t *testing.T, client *gitlabapi.Client, target livet
 			t.Fatalf("base reuse evidence for %s: %v", tc.tag, err)
 		}
 	}
+
 	t.Logf("base cold publication and verified warm reuse: %s; warm parent %d child %d, %d bundles", ref, run.ID, child, verified)
 }
 
@@ -78,10 +87,14 @@ func requireGitLabBaseReuse(t *testing.T, client *gitlabapi.Client, target livet
 // main or changing the release bot's generated message.
 func mergeGitLabWarmCandidate(t *testing.T, client *gitlabapi.Client, target livetest.Target, repo string) string {
 	t.Helper()
+
 	ctx, cancel := context.WithTimeout(livetest.Context(t), 5*time.Minute)
 	defer cancel()
+
 	project := livetest.RepoSlug(target, repo)
+
 	const branch = "next-base-release"
+
 	commit, _, err := client.Commits.CreateCommit(project, &gitlabapi.CreateCommitOptions{
 		Branch: gitlabapi.Ptr(branch), StartBranch: gitlabapi.Ptr("main"), CommitMessage: gitlabapi.Ptr("test: request warm base reuse"),
 		Actions: []*gitlabapi.CommitActionOptions{{Action: gitlabapi.Ptr(gitlabapi.FileCreate), FilePath: gitlabapi.Ptr("warm-request.txt"), Content: gitlabapi.Ptr("base inputs remain unchanged\n")}},
@@ -89,17 +102,20 @@ func mergeGitLabWarmCandidate(t *testing.T, client *gitlabapi.Client, target liv
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	mr, _, err := client.MergeRequests.CreateMergeRequest(project, &gitlabapi.CreateMergeRequestOptions{
 		SourceBranch: gitlabapi.Ptr(branch), TargetBranch: gitlabapi.Ptr("main"), Title: gitlabapi.Ptr("Request verified warm base reuse"),
 	}, gitlabapi.WithContext(ctx))
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if err = retry.Run(ctx, nil, 90, 2*time.Second, func() error {
 		current, _, readErr := client.MergeRequests.GetMergeRequest(project, mr.IID, nil, gitlabapi.WithContext(ctx))
 		if readErr != nil {
 			return retry.Permanent(readErr)
 		}
+
 		if current.DetailedMergeStatus != "mergeable" {
 			return fmt.Errorf("merge request is %s: %w", current.DetailedMergeStatus, errs.ErrDependencyUnavailable)
 		}
@@ -108,6 +124,7 @@ func mergeGitLabWarmCandidate(t *testing.T, client *gitlabapi.Client, target liv
 	}, retry.WithBackoff(retry.Constant)); err != nil {
 		t.Fatal(err)
 	}
+
 	merged, _, err := client.MergeRequests.AcceptMergeRequest(project, mr.IID, &gitlabapi.AcceptMergeRequestOptions{
 		SHA: gitlabapi.Ptr(commit.ID), MergeCommitMessage: gitlabapi.Ptr("test: merge warm base candidate"), ShouldRemoveSourceBranch: gitlabapi.Ptr(true),
 	}, gitlabapi.WithContext(ctx))
