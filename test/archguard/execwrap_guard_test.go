@@ -391,6 +391,20 @@ func (c *execCheck) branches(fn *execFunction, stmt *ast.IfStmt, p execPath, dep
 	return branches
 }
 
+// nonCallValue resolves an expression that is not a call: a process method
+// on a command, or an operand that may hold a helper.
+func (c *execCheck) nonCallValue(fn *execFunction, expr ast.Expr, p *execPath, depth int) execValue {
+	if sel, ok := expr.(*ast.SelectorExpr); ok &&
+		slices.Contains([]string{"Run", "Output", "CombinedOutput", "Start", "Wait"}, sel.Sel.Name) &&
+		c.value(fn, sel.X, p, depth).kind == "command" {
+		return execValue{kind: "process." + sel.Sel.Name}
+	}
+
+	c.operands(fn, expr, p, depth)
+
+	return c.helper(fn, expr)
+}
+
 func (c *execCheck) value(fn *execFunction, expr ast.Expr, p *execPath, depth int) execValue {
 	expr = ast.Unparen(expr)
 	if id, ok := expr.(*ast.Ident); ok && id.Obj != nil {
@@ -405,15 +419,7 @@ func (c *execCheck) value(fn *execFunction, expr ast.Expr, p *execPath, depth in
 
 	call, ok := expr.(*ast.CallExpr)
 	if !ok {
-		if sel, ok := expr.(*ast.SelectorExpr); ok &&
-			slices.Contains([]string{"Run", "Output", "CombinedOutput", "Start", "Wait"}, sel.Sel.Name) &&
-			c.value(fn, sel.X, p, depth).kind == "command" {
-			return execValue{kind: "process." + sel.Sel.Name}
-		}
-
-		c.operands(fn, expr, p, depth)
-
-		return c.helper(fn, expr)
+		return c.nonCallValue(fn, expr, p, depth)
 	}
 
 	callee := c.value(fn, call.Fun, p, depth)

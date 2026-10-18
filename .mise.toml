@@ -60,8 +60,7 @@ go = "1.27.2"
 "aqua:crate-ci/typos" = "1.50.1"
 "aqua:ossf/scorecard" = "5.5.0"                # security-scorecard
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.8.0"  # go-vulncheck
-"aqua:golangci/golangci-lint" = "2.14.0"         # go-golangci
-"go:github.com/bombsimon/wsl/v5/cmd/wsl" = "5.9.0" # go-wsl
+"aqua:golangci/golangci-lint" = "2.15.0"         # go-golangci
 jq = "1.8.2"                                      # workflow/live-tier JSON utilities
 
 # Runtime dependency: SBOM generation and container-ledger signing invoke syft.
