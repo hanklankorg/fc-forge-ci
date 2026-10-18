@@ -85,6 +85,14 @@ spec:
     - cd -- "$RC_PROJECT_DIRECTORY"
     - forge-ci build maven run
   artifacts:
+    # Always, so failed tests still reach the merge request test report.
+    when: always
+    reports:
+      junit:
+        - $[[ inputs.working-directory ]]/**/target/surefire-reports/TEST-*.xml
+        - $[[ inputs.working-directory ]]/**/target/failsafe-reports/TEST-*.xml
     paths:
+      # Shown in the job log too; GitLab renders no summary file.
+      - maven-build-summary.md
       - $[[ inputs.working-directory ]]/target/
       - $[[ inputs.working-directory ]]/**/target/

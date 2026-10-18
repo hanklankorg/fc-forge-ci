@@ -13,7 +13,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/diggsweden/forge-ci/internal/cliio"
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
@@ -27,7 +29,12 @@ import (
 type Sink struct {
 	path string
 	log  io.Writer // fallback when path == "" (nil → silent no-op)
-	mu   sync.Mutex
+	// section also writes every summary to log inside a GitLab log section,
+	// even when path is set: GitLab renders no summary file, so the job log
+	// is where a reader sees it, and the file stays a job artifact.
+	section  bool
+	sections int
+	mu       sync.Mutex
 }
 
 // New returns a Sink writing to the given path. Empty path → no-op.
@@ -38,10 +45,24 @@ func New(path string) *Sink { return &Sink{path: path} }
 // for the Forgejo runner, whose summary file may be absent.
 func NewWithLog(path string, log io.Writer) *Sink { return &Sink{path: path, log: log} }
 
+// NewGitLab returns a Sink writing to path when set and always echoing each
+// summary to log as its own GitLab log section.
+func NewGitLab(path string, log io.Writer) *Sink { return &Sink{path: path, log: log, section: true} }
+
 // Append implements ci.SummarySink.
 func (s *Sink) Append(_ context.Context, markdown string) error {
 	if s == nil {
 		return nil
+	}
+
+	if s.section {
+		if err := s.appendSection(markdown); err != nil {
+			return err
+		}
+
+		if s.path == "" {
+			return nil
+		}
 	}
 
 	if s.path == "" {
@@ -77,6 +98,28 @@ func (s *Sink) appendToLog(markdown string) error {
 
 	if _, err := io.WriteString(s.log, markdown); err != nil {
 		return fmt.Errorf("write step summary to log: %w", err)
+	}
+
+	return nil
+}
+
+// appendSection writes markdown to log between GitLab's section markers, so
+// the job log shows it under a "Summary" heading that a reader can fold.
+func (s *Sink) appendSection(markdown string) error {
+	if s.log == nil {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.sections++
+	name := fmt.Sprintf("forge_ci_summary_%d", s.sections)
+	now := time.Now().Unix()
+
+	if _, err := fmt.Fprintf(s.log, "\x1b[0Ksection_start:%d:%s\r\x1b[0KSummary\n%s\n\x1b[0Ksection_end:%d:%s\r\x1b[0K\n",
+		now, name, strings.TrimRight(markdown, "\n"), now, name); err != nil {
+		return fmt.Errorf("write step summary section: %w", err)
 	}
 
 	return nil

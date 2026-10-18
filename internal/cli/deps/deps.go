@@ -12,6 +12,7 @@
 package deps
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -575,11 +576,11 @@ func CapabilitiesForDetected() provider.Capabilities {
 // GitHub and Forgejo are separate cases, not one shared dialect. Both use
 // a file-based step-output sink (Forgejo's act engine supports $*_OUTPUT),
 // and Forgejo's native var is $FORGEJO_OUTPUT (with $GITHUB_OUTPUT as a
-// compat alias since Forgejo Runner 7.0.0). But Forgejo documents NO
-// job-summary variable at all — only OUTPUT/ENV/PATH step files — and its
-// runner renders no summary (go-gitea/gitea#27898; nektos/act#1187, #1533),
-// so the Forgejo summary is routed to the job log. $GITHUB_STEP_SUMMARY is
-// still probed in case a workflow exports one manually.
+// compat alias since Forgejo Runner 7.0.0). Forgejo 17 with Runner 13.2
+// renders job summaries from $FORGEJO_STEP_SUMMARY ($GITHUB_STEP_SUMMARY as
+// its alias); an older Forgejo sets neither, so the summary goes to the job
+// log there. GitLab renders no summary file at all: its sink keeps the file
+// as a job artifact and also prints each summary as a job-log section.
 func wireSinks(d *Deps, runner provider.RunnerKind) error { //nolint:varnamelen // idiomatic short name (matches buildInternal's receiver-style d).
 	switch runner {
 	case provider.RunnerGitHub:
@@ -587,10 +588,10 @@ func wireSinks(d *Deps, runner provider.RunnerKind) error { //nolint:varnamelen 
 		d.SummarySink = stepsummary.New(os.Getenv("GITHUB_STEP_SUMMARY"))
 	case provider.RunnerForgejo:
 		d.OutputSink = ghaoutput.NewFromEnvVars("FORGEJO_OUTPUT", "GITHUB_OUTPUT")
-		d.SummarySink = stepsummary.NewWithLog(os.Getenv("GITHUB_STEP_SUMMARY"), os.Stdout)
+		d.SummarySink = stepsummary.NewWithLog(cmp.Or(os.Getenv("FORGEJO_STEP_SUMMARY"), os.Getenv("GITHUB_STEP_SUMMARY")), os.Stdout)
 	case provider.RunnerGitLab:
 		d.OutputSink = gitlaboutput.NewFromEnv()
-		d.SummarySink = stepsummary.New(os.Getenv("CI_SUMMARY_FILE"))
+		d.SummarySink = stepsummary.NewGitLab(os.Getenv("CI_SUMMARY_FILE"), os.Stdout)
 	case provider.RunnerLocal:
 		d.OutputSink = ghaoutput.New(os.DevNull)
 		d.SummarySink = stepsummary.New("")

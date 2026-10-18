@@ -64,5 +64,7 @@ spec:
     - forge-ci build cargo run
   artifacts:
     paths:
+      # Shown in the job log too; GitLab renders no summary file.
+      - cargo-build-summary.md
       - $[[ inputs.working-directory ]]/dist/
       - $[[ inputs.working-directory ]]/bom.json

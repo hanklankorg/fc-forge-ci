@@ -24,15 +24,16 @@ Actions sets `GITHUB_ACTIONS=true`, but Forgejo itself states it is
 ["not designed to be compatible"](https://forgejo.org/docs/latest/user/actions/github-actions/)
 with GitHub Actions, only familiar. The differences land squarely on this
 binary's output surface: Forgejo does **not** render `::error::`
-annotations, `::group::` log folds, or job summaries
+annotations or `::group::` log folds
 ([go-gitea/gitea#27898](https://github.com/go-gitea/gitea/issues/27898);
 [nektos/act#1187](https://github.com/nektos/act/issues/1187)), its native
 step-output var is `$FORGEJO_OUTPUT` (with `$GITHUB_OUTPUT` as a
-compatibility alias since Forgejo Runner 7.0.0), and it
-[documents no job-summary variable at all](https://forgejo.org/docs/latest/user/actions/reference/),
-with only `OUTPUT`/`ENV`/`PATH` step files. So `forgejo` is a distinct runner
-dialect: it emits plain `Error: …` log lines instead of unrenderable
-workflow commands, and routes step summaries to the job log. Keeping the
+compatibility alias since Forgejo Runner 7.0.0), and it renders job
+summaries only from Forgejo 17 with Runner 13.2, through
+`$FORGEJO_STEP_SUMMARY`. So `forgejo` is a distinct runner dialect: it emits
+plain `Error: …` log lines instead of unrenderable workflow commands, and
+writes step summaries to the summary file where Forgejo sets one and to the
+job log where it does not. Keeping the
 axes separate is what lets one binary serve every forge without misrouting
 API calls *or* emitting output a runner silently drops.
 
@@ -86,13 +87,15 @@ Summary routing follows the runner axis, independently of the forge API:
 | Runner | Markdown summary destination |
 |---|---|
 | GitHub | `GITHUB_STEP_SUMMARY`; no summary write when unset |
-| Forgejo | `GITHUB_STEP_SUMMARY` if explicitly set, otherwise the job log |
-| GitLab | `CI_SUMMARY_FILE`; no summary write when unset |
+| Forgejo | `FORGEJO_STEP_SUMMARY`, then `GITHUB_STEP_SUMMARY`; otherwise the job log |
+| GitLab | A job-log section for every summary, plus `CI_SUMMARY_FILE` when set |
 | Local | No summary destination; summary appends are no-ops |
 
-On GitLab, set `CI_SUMMARY_FILE` to a file such as `summary.md`, ensure its
-parent directory exists, and declare it under the job's `artifacts.paths` to
-retain it. Use `artifacts.when: always` when failure summaries must also be
+GitLab renders no summary file, so every summary also appears in the job log
+as its own foldable "Summary" section. To keep it as a file too, set
+`CI_SUMMARY_FILE` to a file such as `summary.md`, ensure its parent directory
+exists, and declare it under the job's `artifacts.paths`, as the build
+templates do. Use `artifacts.when: always` when failure summaries must also be
 uploaded. The CLI appends Markdown; the workflow owns publication and retention.
 `CI_OUTPUT` is the separate dotenv destination for scalar outputs. Structured
 job/stage records use the [file-based report handoff](workflows.md#file-based-report-handoff).
@@ -400,7 +403,8 @@ overrides](#detection-and-overrides) lists; `--provider forgejo` and
 runner the adapter:
 
 - writes outputs to `FORGEJO_OUTPUT`, falling back to `GITHUB_OUTPUT`;
-- routes step summaries to the job log, since Forgejo renders none;
+- writes step summaries to `FORGEJO_STEP_SUMMARY` (Forgejo 17 and later
+  render them), or to the job log on older Forgejo;
 - prints plain `Error:` lines instead of `::error::` annotations;
 - speaks Forgejo's actions-artifact protocol for `artifact upload`,
   `download` and `digest`, v1 upload quirks included, and accepts only the

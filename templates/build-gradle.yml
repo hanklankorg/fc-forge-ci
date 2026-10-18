@@ -92,7 +92,14 @@ spec:
     - forge-ci build gradle run
     - if [ "$EXPORT_PUBLICATIONS" = "true" ]; then forge-ci build gradle export-publications --output .forge-ci/maven-publication --central="$CENTRAL_PUBLICATION" --snapshot="$SNAPSHOT_PUBLICATION"; fi
   artifacts:
+    # Always, so failed tests still reach the merge request test report.
+    when: always
+    reports:
+      junit:
+        - $[[ inputs.working-directory ]]/**/build/test-results/**/TEST-*.xml
     paths:
+      # Shown in the job log too; GitLab renders no summary file.
+      - gradle-build-summary.md
       - $[[ inputs.working-directory ]]/build/libs/
       - $[[ inputs.working-directory ]]/**/build/libs/
       - $[[ inputs.working-directory ]]/build/reports/

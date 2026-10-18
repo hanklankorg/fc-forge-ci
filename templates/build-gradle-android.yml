@@ -117,9 +117,15 @@ spec:
     - forge-ci build gradle-android run
     - if [ "$EXPORT_PUBLICATIONS" = "true" ]; then forge-ci build gradle export-publications --project "$BUILD_MODULE" --output .forge-ci/maven-publication --central="$CENTRAL_PUBLICATION" --snapshot="$SNAPSHOT_PUBLICATION"; fi
   artifacts:
+    # Always, so failed tests still reach the merge request test report.
+    when: always
     reports:
+      junit:
+        - $[[ inputs.working-directory ]]/**/build/test-results/**/TEST-*.xml
       dotenv: "$CI_PROJECT_DIR/android-build.env"
     paths:
+      # Shown in the job log too; GitLab renders no summary file.
+      - android-build-summary.md
       - $[[ inputs.working-directory ]]/.forge-ci/maven-publication/
       - $[[ inputs.working-directory ]]/$[[ inputs.build-module ]]/build/outputs/
       - $[[ inputs.working-directory ]]/build/reports/

@@ -82,3 +82,40 @@ func TestSink_WithLog_PrefersFileOverLog(t *testing.T) {
 		t.Errorf("log should be empty when a file is configured, got %q", log.String())
 	}
 }
+
+func TestSink_GitLab_WritesFileAndLogSection(t *testing.T) {
+	t.Parallel()
+	fsys := testfs.NewReal(t)
+
+	var log bytes.Buffer
+
+	s := stepsummary.NewGitLab(fsys.Path("summary.md"), &log)
+	if err := s.Append(context.Background(), "## Build\n| a | b |\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := string(fsys.ReadFile("summary.md")), "## Build\n| a | b |\n"; got != want {
+		t.Errorf("file content = %q, want %q", got, want)
+	}
+
+	out := log.String()
+	for _, want := range []string{"section_start:", ":forge_ci_summary_1\r\x1b[0KSummary\n## Build\n| a | b |\n", "section_end:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log = %q, want it to contain %q", out, want)
+		}
+	}
+}
+
+func TestSink_GitLab_LogsWithoutFile(t *testing.T) {
+	t.Parallel()
+
+	var log bytes.Buffer
+
+	if err := stepsummary.NewGitLab("", &log).Append(context.Background(), "x\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := strings.Count(log.String(), "section_start:"); got != 1 {
+		t.Errorf("sections = %d, want 1 in %q", got, log.String())
+	}
+}

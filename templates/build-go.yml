@@ -71,5 +71,7 @@ spec:
     - forge-ci build go run
   artifacts:
     paths:
+      # Shown in the job log too; GitLab renders no summary file.
+      - go-build-summary.md
       - $[[ inputs.working-directory ]]/dist/
       - $[[ inputs.working-directory ]]/.forge-ci/go-build-sbom/
