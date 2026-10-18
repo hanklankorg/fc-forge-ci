@@ -49,7 +49,7 @@ func scanContainerCmd() *cli.Command {
 			&cli.StringFlag{Name: flagImageRef, Required: true, Sources: cli.EnvVars("IMAGE_REF"), Usage: "fully-qualified image (registry/owner/name@sha256:…) to scan"},
 			&cli.StringFlag{Name: "json-file", Value: security.DefaultTrivyContainerJSONFile, Sources: cli.EnvVars("CONTAINER_JSON_FILE"), Usage: "destination path for the raw trivy JSON findings"},
 			&cli.StringFlag{Name: flagSARIFFile, Value: security.DefaultTrivyContainerSARIFFile, Sources: cli.EnvVars("CONTAINER_SARIF_FILE"), Usage: "destination path for the trivy SARIF findings"},
-			&cli.StringFlag{Name: "gitlab-report-file", Value: security.DefaultTrivyGitLabContainerFile, Sources: cli.EnvVars("CONTAINER_GITLAB_FILE"), Usage: "destination path for the GitLab container-scanning report"},
+			&cli.StringFlag{Name: "gitlab-report-file", Value: security.DefaultTrivyGitLabContainerFile, Sources: cli.EnvVars("CONTAINER_GITLAB_REPORT_FILE"), Usage: "destination path for the GitLab container-scanning report"},
 			&cli.StringFlag{Name: "fail-on-severity", Value: "CRITICAL,HIGH", Sources: cli.EnvVars("CONTAINER_FAIL_ON_SEVERITY"), Usage: "trivy --severity filter and gate threshold: a finding at this level or above fails the scan when a fixed package exists, an unfixed CRITICAL fails it unless approved, other unfixed findings are reported (comma-list, e.g. 'CRITICAL,HIGH'; narrow to 'CRITICAL' to relax)"},
 			&cli.StringFlag{Name: "ignore-file", Sources: cli.EnvVars("CONTAINER_IGNORE_FILE"), Usage: "Trivy ignore file approving findings, with reasons and expiry (default: .trivyignore.yaml when present)"},
 			&cli.StringFlag{Name: "trivy-version", Sources: cli.EnvVars("TRIVY_VERSION"), Usage: "trivy version string embedded in the SARIF / GitLab report"},

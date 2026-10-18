@@ -35,9 +35,9 @@ func prerequisitesCmd() *cli.Command {
 			&cli.BoolFlag{Name: "require-allowlisted-signer", Sources: cli.EnvVars("REQUIRE_ALLOWLISTED_SIGNER"), Usage: "require the tag signer to be allowlisted in .forge-ci/allowed_signers (SSH) or .forge-ci/allowed_gpg_keys.asc (GPG)"},
 			&cli.BoolFlag{Name: "sign-artifacts", Sources: cli.EnvVars("SIGN_ARTIFACTS"), Usage: "release-artifact signing is enabled"},
 			&cli.BoolFlag{Name: "requires-gpg-signing", Sources: cli.EnvVars("REQUIRES_GPG_SIGNING"), Usage: "artifact signing and/or git-object signing uses GPG (enables public-key check)"},
-			&cli.BoolFlag{Name: "has-maven-central", Sources: cli.EnvVars("HAS_MAVEN_CENTRAL_TARGET"), Usage: "the plan targets Maven Central (enables credential check)"},
-			&cli.BoolFlag{Name: "has-cargo", Sources: cli.EnvVars("HAS_CARGO_TARGET"), Usage: "the plan targets crates.io (enables Cargo prerequisites check)"},
-			&cli.BoolFlag{Name: "has-jvm", Sources: cli.EnvVars("HAS_JVM_TARGET"), Usage: "the plan includes a Maven/Gradle/Gradle-Android artifact (enables JVM reproducibility check)"},
+			&cli.BoolFlag{Name: "has-maven-central-target", Sources: cli.EnvVars("HAS_MAVEN_CENTRAL_TARGET"), Usage: "the plan targets Maven Central (enables credential check)"},
+			&cli.BoolFlag{Name: "has-cargo-target", Sources: cli.EnvVars("HAS_CARGO_TARGET"), Usage: "the plan targets crates.io (enables Cargo prerequisites check)"},
+			&cli.BoolFlag{Name: "has-jvm-target", Sources: cli.EnvVars("HAS_JVM_TARGET"), Usage: "the plan includes a Maven/Gradle/Gradle-Android artifact (enables JVM reproducibility check)"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error { //nolint:varnamelen // idiomatic short name (testing/http/io conventions).
@@ -61,9 +61,9 @@ func prerequisitesCmd() *cli.Command {
 					RequireAllowlistedSigner: cmd.Bool("require-allowlisted-signer"),
 					SignArtifacts:            cmd.Bool("sign-artifacts"),
 					RequiresGPGSigning:       cmd.Bool("requires-gpg-signing"),
-					HasMavenCentralTarget:    cmd.Bool("has-maven-central"),
-					HasCargoTarget:           cmd.Bool("has-cargo"),
-					HasJVMTarget:             cmd.Bool("has-jvm"),
+					HasMavenCentralTarget:    cmd.Bool("has-maven-central-target"),
+					HasCargoTarget:           cmd.Bool("has-cargo-target"),
+					HasJVMTarget:             cmd.Bool("has-jvm-target"),
 					// Secrets stay in env — never passed via argv.
 					ReleaseGPGPublicKey: os.Getenv("RELEASE_GPG_PUBLIC_KEY"),
 					// Named destination: this token is about to be sent to the forge

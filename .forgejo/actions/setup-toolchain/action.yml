@@ -93,8 +93,8 @@ runs:
       shell: bash
       env:
         TOOLSET_TOOLS: ${{ inputs.tools }}
-        TOOLSET_DEV: ${{ inputs.install-dev-tools }}
-        TOOLSET_EXTRA_PATHS: ${{ inputs.extra-cache-paths }}
+        TOOLSET_INSTALL_DEV_TOOLS: ${{ inputs.install-dev-tools }}
+        TOOLSET_EXTRA_CACHE_PATHS: ${{ inputs.extra-cache-paths }}
       run: |
         set -euo pipefail
         # The selected tool subset must be part of the cache key; forge-ci
@@ -103,8 +103,8 @@ runs:
         source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
         run_forge_ci toolchain cache-discriminator \
           --tools "${TOOLSET_TOOLS}" \
-          --install-dev-tools "${TOOLSET_DEV}" \
-          --extra-cache-paths "${TOOLSET_EXTRA_PATHS}"
+          --install-dev-tools "${TOOLSET_INSTALL_DEV_TOOLS}" \
+          --extra-cache-paths "${TOOLSET_EXTRA_CACHE_PATHS}"
 
     - name: Cache CI tools
       id: cache-tools

@@ -143,7 +143,7 @@ else
   export CONTAINERS_STORAGE_CONF="${RC_WORK}/buildah/storage.conf" TMPDIR="${RC_WORK}/buildah/tmp"
   forge-ci container setup-buildah --install-packages=false --temp-dir "${RC_WORK}/buildah" \
     --storage-conf "${CONTAINERS_STORAGE_CONF}" --storage-root "${RC_WORK}/buildah/storage" \
-    --tmp-dir "${TMPDIR}" --env-file "${RC_WORK}/buildah.env"
+    --container-tmpdir "${TMPDIR}" --env-file "${RC_WORK}/buildah.env"
   mkdir "${RC_WORK}/base-context"
   printf 'one immutable base fixture\n' > "${RC_WORK}/base-context/base.txt"
   printf 'FROM scratch\nCOPY base.txt /base.txt\n' > "${RC_WORK}/base-context/Containerfile"

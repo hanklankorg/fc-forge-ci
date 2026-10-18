@@ -93,7 +93,7 @@ func TestGradleAndroidRun_BindsSigningEnvironmentAndBlobSources(t *testing.T) { 
 						}
 
 						args = append(args, "--working-dir", "selected/.", "--temp-dir", fsys.Path("scratch"), "--enable-signing", "--build-sbom", "--sbom-tool-version", "3.2.1",
-							"--include-date=false", "--repository-name", "mobile", "--prefix", "agency", "--flavor", "demoFree", "--build-module", "widget", "--skip-tests")
+							"--include-date-stamp=false", "--repository-name", "mobile", "--prefix", "agency", "--flavor", "demoFree", "--build-module", "widget", "--skip-tests")
 						if source == "file" {
 							args = append(args, "--name-override", "", "--tasks-override", "", "--build-types", "debug,release", "--include-aab")
 						} else {
@@ -357,7 +357,7 @@ func TestGradleAndroidRun_DisabledOptionsSources(t *testing.T) {
 				t.Setenv(key, value)
 			}
 
-			args := []string{"run", "--enable-signing=false", "--build-sbom=false", "--skip-tests=false", "--include-aab=false", "--include-date=false", "--build-types", "release", "--name-override", "unsigned"}
+			args := []string{"run", "--enable-signing=false", "--build-sbom=false", "--skip-tests=false", "--include-aab=false", "--include-date-stamp=false", "--build-types", "release", "--name-override", "unsigned"}
 			wantArgs := []string{"assembleRelease"}
 
 			if source != "flags" {

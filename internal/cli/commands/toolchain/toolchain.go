@@ -76,8 +76,8 @@ func cacheDiscriminatorCmd() *cli.Command {
 		Usage: "emit setup-toolchain's stable tool-cache discriminator",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "tools", Sources: cli.EnvVars("TOOLSET_TOOLS"), Usage: "whitespace-separated mise tool selectors requested by the caller"},
-			&cli.StringFlag{Name: "install-dev-tools", Sources: cli.EnvVars("TOOLSET_DEV"), Usage: "whether consumer dev-tool installers are enabled"},
-			&cli.StringFlag{Name: "extra-cache-paths", Sources: cli.EnvVars("TOOLSET_EXTRA_PATHS"), Usage: "additional newline-separated cache paths"},
+			&cli.StringFlag{Name: "install-dev-tools", Sources: cli.EnvVars("TOOLSET_INSTALL_DEV_TOOLS"), Usage: "whether consumer dev-tool installers are enabled"},
+			&cli.StringFlag{Name: "extra-cache-paths", Sources: cli.EnvVars("TOOLSET_EXTRA_CACHE_PATHS"), Usage: "additional newline-separated cache paths"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			hash := apptoolchain.CacheDiscriminator(apptoolchain.CacheDiscriminatorInput{

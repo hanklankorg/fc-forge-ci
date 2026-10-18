@@ -36,7 +36,7 @@ func TestXcodeIOSRun_ResolvesPassphraseFileOnlyWhenSigning(t *testing.T) {
 				"run", "--enable-code-signing=" + strconv.FormatBool(signed),
 				"--artifact-name", "mobile", "--project", "App.xcodeproj",
 				"--scheme", "App\x00", "--configuration", "Release", "--destination", "generic/platform=iOS",
-				"--cert-base64", "Y2VydA==", "--pp-base64", "cHJvZmlsZQ==", "--export-options-base64", "PHBsaXN0Lz4=",
+				"--signing-certificate-base64", "Y2VydA==", "--provisioning-profile-base64", "cHJvZmlsZQ==", "--export-options-base64", "PHBsaXN0Lz4=",
 				"--cert-passphrase-file", fsys.Path("missing-cert-password"),
 			})
 			if signed {
@@ -187,7 +187,7 @@ func TestXcodeIOSRun_SigningInputsReachTheSecurityCLI(t *testing.T) {
 		"run", "--enable-code-signing=true",
 		"--artifact-name", "mobile", "--project", "App.xcodeproj",
 		"--scheme", "App", "--configuration", "Release", "--destination", "generic/platform=iOS",
-		"--cert-base64", "Y2VydA==", "--pp-base64", "cHJvZmlsZQ==",
+		"--signing-certificate-base64", "Y2VydA==", "--provisioning-profile-base64", "cHJvZmlsZQ==",
 		"--export-options-base64", "PHBsaXN0Lz4=",
 		"--cert-passphrase-file", fsys.WriteFile("cert-password", []byte("synthetic cert password")),
 	})

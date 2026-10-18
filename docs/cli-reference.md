@@ -310,7 +310,7 @@ EXAMPLE:
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
 | `--working-dir` | project directory for metadata, the Gradle build and Build SBOM | string | `"."` | `$WORKING_DIRECTORY` |
-| `--include-date` | append a YYYYMMDD-HHMMSS stamp to the artifact name | bool | `true` | `$INCLUDE_DATE_STAMP` |
+| `--include-date-stamp` | append a YYYYMMDD-HHMMSS stamp to the artifact name | bool | `true` | `$INCLUDE_DATE_STAMP` |
 | `--prefix` | optional prefix prepended to every artifact name | string | `""` | `$ARTIFACT_NAME_PREFIX` |
 | `--repository-name` | repository basename used in the default name | string | `""` | `$REPOSITORY_NAME` |
 | `--flavor` | Android product flavor | string | `""` | `$PRODUCT_FLAVOR` |
@@ -467,9 +467,9 @@ EXAMPLE:
 | `--destination` | xcodebuild destination | string | `""` | `$DESTINATION` |
 | `--build-number` | CURRENT_PROJECT_VERSION to set | string | `""` | `$BUILD_NUMBER` |
 | `--enable-code-signing` | set up signing and export a signed IPA | bool | `true` | `$ENABLE_CODE_SIGNING` |
-| `--cert-base64` | base64-encoded P12 signing certificate | string | `""` | `$IOS_SIGNING_CERTIFICATE_BASE64` |
+| `--signing-certificate-base64` | base64-encoded P12 signing certificate | string | `""` | `$IOS_SIGNING_CERTIFICATE_BASE64` |
 | `--cert-passphrase-file` | file with the certificate passphrase ("-" stdin; defaults to $IOS_SIGNING_CERTIFICATE_PASSPHRASE) | string | `""` | n/a |
-| `--pp-base64` | base64-encoded provisioning profile | string | `""` | `$PROVISIONING_PROFILE_BASE64` |
+| `--provisioning-profile-base64` | base64-encoded provisioning profile | string | `""` | `$PROVISIONING_PROFILE_BASE64` |
 | `--xcconfig-base64` | base64-encoded .xcconfig body (optional) | string | `""` | `$XCCONFIG_BASE64` |
 | `--export-options-base64` | base64-encoded export-options.plist (required for signed export) | string | `""` | `$EXPORT_OPTIONS_BASE64` |
 | `--export-options-var` | env var name shown in error messages when the export options are empty | string | `"EXPORT_OPTIONS_BASE64"` | `$EXPORT_OPTIONS_VAR` |
@@ -1865,7 +1865,7 @@ EXAMPLE:
 | `--summary` | append selected storage details to the step summary | bool | `false` | `$CONTAINER_STORAGE_SUMMARY` |
 | `--storage-conf` | containers storage config path (default: $RUNNER_TEMP/containers-storage.conf) | string | `""` | `$CONTAINERS_STORAGE_CONF` |
 | `--storage-root` | containers storage root path (default: $RUNNER_TEMP/containers-storage) | string | `""` | `$CONTAINER_STORAGE_ROOT` |
-| `--tmp-dir` | job-local temp directory (default: $RUNNER_TEMP/container-tmp) | string | `""` | `$CONTAINER_TMPDIR` |
+| `--container-tmpdir` | job-local temp directory (default: $RUNNER_TEMP/container-tmp) | string | `""` | `$CONTAINER_TMPDIR` |
 | `--temp-dir` | existing scratch parent for a private storage directory; job-specific when storage overrides are set (required) | string | `""` | `$CI_TEMP_DIR`, `$RUNNER_TEMP` |
 | `--env-file` | runner env file receiving CONTAINERS_STORAGE_CONF and TMPDIR | string | `""` | `$FORGEJO_ENV`, `$GITHUB_ENV` |
 
@@ -2350,12 +2350,12 @@ decode the App Store Connect API private key to private_keys/AuthKey_&lt;KEY_ID&
 ```
 EXAMPLE:
    # Key ID from $APP_STORE_CONNECT_API_KEY_ID; base64 key from env or --private-key-file
-   forge-ci publish appstore prepare-credentials --output-dir private_keys
+   forge-ci publish appstore prepare-credentials --private-keys-dir private_keys
 ```
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
-| `--output-dir` | destination directory for the decoded key | string | `"private_keys"` | `$PRIVATE_KEYS_DIR` |
+| `--private-keys-dir` | destination directory for the decoded key | string | `"private_keys"` | `$PRIVATE_KEYS_DIR` |
 | `--private-key-file` | path to a file containing the base64 App Store Connect API private key (use "-" for stdin; defaults to $APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64) | string | `""` | n/a |
 
 ### `forge-ci publish forge-packages`
@@ -3458,7 +3458,7 @@ EXAMPLE:
 | `--release-actor` | user who triggered the release | string | `""` | `$RELEASE_ACTOR` |
 | `--run-url` | URL of the CI run linked from the summary | string | `""` | `$CI_RUN_URL` |
 | `--create-release-result` | outcome of the create-release step (success/failure/skipped) | string | `""` | `$CREATE_RELEASE_RESULT` |
-| `--promote-snapshot-result` | outcome of the image promote-dev job (success/failure/skipped) | string | `""` | `$PROMOTE_DEV_RESULT` |
+| `--promote-dev-result` | outcome of the image promote-dev job (success/failure/skipped) | string | `""` | `$PROMOTE_DEV_RESULT` |
 | `--promote-staging-result` | outcome of the image promote-staging job (success/failure/skipped) | string | `""` | `$PROMOTE_STAGING_RESULT` |
 | `--promote-release-result` | outcome of the image promote-release job (success/failure/skipped) | string | `""` | `$PROMOTE_RELEASE_RESULT` |
 | `--prepare-stage-result-json` | inline JSON of the prepare-stage result table | string | `""` | `$PREPARE_STAGE_RESULT_JSON` |
@@ -3791,7 +3791,7 @@ EXAMPLES:
 | `--image-ref` | fully-qualified image (registry/owner/name@sha256:…) to scan (required) | string | `""` | `$IMAGE_REF` |
 | `--json-file` | destination path for the raw trivy JSON findings | string | `"trivy-results.json"` | `$CONTAINER_JSON_FILE` |
 | `--sarif-file` | destination path for the trivy SARIF findings | string | `"trivy-results.sarif"` | `$CONTAINER_SARIF_FILE` |
-| `--gitlab-report-file` | destination path for the GitLab container-scanning report | string | `"gl-container-scanning-report.json"` | `$CONTAINER_GITLAB_FILE` |
+| `--gitlab-report-file` | destination path for the GitLab container-scanning report | string | `"gl-container-scanning-report.json"` | `$CONTAINER_GITLAB_REPORT_FILE` |
 | `--fail-on-severity` | trivy --severity filter and gate threshold: a finding at this level or above fails the scan when a fixed package exists, an unfixed CRITICAL fails it unless approved, other unfixed findings are reported (comma-list, e.g. 'CRITICAL,HIGH'; narrow to 'CRITICAL' to relax) | string | `"CRITICAL,HIGH"` | `$CONTAINER_FAIL_ON_SEVERITY` |
 | `--ignore-file` | Trivy ignore file approving findings, with reasons and expiry (default: .trivyignore.yaml when present) | string | `""` | `$CONTAINER_IGNORE_FILE` |
 | `--trivy-version` | trivy version string embedded in the SARIF / GitLab report | string | `""` | `$TRIVY_VERSION` |
@@ -3828,8 +3828,8 @@ emit setup-toolchain's stable tool-cache discriminator
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
 | `--tools` | whitespace-separated mise tool selectors requested by the caller | string | `""` | `$TOOLSET_TOOLS` |
-| `--install-dev-tools` | whether consumer dev-tool installers are enabled | string | `""` | `$TOOLSET_DEV` |
-| `--extra-cache-paths` | additional newline-separated cache paths | string | `""` | `$TOOLSET_EXTRA_PATHS` |
+| `--install-dev-tools` | whether consumer dev-tool installers are enabled | string | `""` | `$TOOLSET_INSTALL_DEV_TOOLS` |
+| `--extra-cache-paths` | additional newline-separated cache paths | string | `""` | `$TOOLSET_EXTRA_CACHE_PATHS` |
 
 ### `forge-ci toolchain expose-mise-tools`
 
@@ -4279,9 +4279,9 @@ EXAMPLE:
 | `--require-allowlisted-signer` | require the tag signer to be allowlisted in .forge-ci/allowed_signers (SSH) or .forge-ci/allowed_gpg_keys.asc (GPG) | bool | `false` | `$REQUIRE_ALLOWLISTED_SIGNER` |
 | `--sign-artifacts` | release-artifact signing is enabled | bool | `false` | `$SIGN_ARTIFACTS` |
 | `--requires-gpg-signing` | artifact signing and/or git-object signing uses GPG (enables public-key check) | bool | `false` | `$REQUIRES_GPG_SIGNING` |
-| `--has-maven-central` | the plan targets Maven Central (enables credential check) | bool | `false` | `$HAS_MAVEN_CENTRAL_TARGET` |
-| `--has-cargo` | the plan targets crates.io (enables Cargo prerequisites check) | bool | `false` | `$HAS_CARGO_TARGET` |
-| `--has-jvm` | the plan includes a Maven/Gradle/Gradle-Android artifact (enables JVM reproducibility check) | bool | `false` | `$HAS_JVM_TARGET` |
+| `--has-maven-central-target` | the plan targets Maven Central (enables credential check) | bool | `false` | `$HAS_MAVEN_CENTRAL_TARGET` |
+| `--has-cargo-target` | the plan targets crates.io (enables Cargo prerequisites check) | bool | `false` | `$HAS_CARGO_TARGET` |
+| `--has-jvm-target` | the plan includes a Maven/Gradle/Gradle-Android artifact (enables JVM reproducibility check) | bool | `false` | `$HAS_JVM_TARGET` |
 
 ### `forge-ci validate release-provider`
 

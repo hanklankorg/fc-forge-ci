@@ -151,7 +151,7 @@ trap 'rm -rf -- "${work}"' EXIT
 export CONTAINERS_STORAGE_CONF="${work}/storage.conf" TMPDIR="${work}/tmp" CI_OUTPUT="${work}/outputs"
 ./forge-ci container setup-buildah --install-packages=false \
   --temp-dir "${work}" --storage-conf "${CONTAINERS_STORAGE_CONF}" \
-  --storage-root "${work}/storage" --tmp-dir "${TMPDIR}" --env-file "${work}/runtime.env"
+  --storage-root "${work}/storage" --container-tmpdir "${TMPDIR}" --env-file "${work}/runtime.env"
 mkdir "${work}/context"
 cp forge-ci "${work}/context/probe"
 printf 'FROM scratch\nCOPY probe /probe\nRUN ["/probe", "--version"]\n' > "${work}/context/Containerfile"

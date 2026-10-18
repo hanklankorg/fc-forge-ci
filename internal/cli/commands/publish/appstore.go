@@ -38,9 +38,9 @@ func appStorePrepareCredentialsCmd() *cli.Command {
 		Usage: "decode the App Store Connect API private key to private_keys/AuthKey_<KEY_ID>.p8 (mode 0600)",
 		Description: `EXAMPLE:
    # Key ID from $APP_STORE_CONNECT_API_KEY_ID; base64 key from env or --private-key-file
-   forge-ci publish appstore prepare-credentials --output-dir private_keys`,
+   forge-ci publish appstore prepare-credentials --private-keys-dir private_keys`,
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "output-dir", Value: "private_keys", Sources: cli.EnvVars("PRIVATE_KEYS_DIR"), Usage: "destination directory for the decoded key"},
+			&cli.StringFlag{Name: "private-keys-dir", Value: "private_keys", Sources: cli.EnvVars("PRIVATE_KEYS_DIR"), Usage: "destination directory for the decoded key"},
 			&cli.StringFlag{Name: "private-key-file", Usage: "path to a file containing the base64 App Store Connect API private key (use \"-\" for stdin; defaults to $APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64)"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -63,7 +63,7 @@ func appStorePrepareCredentialsCmd() *cli.Command {
 			}
 
 			return apppublish.PrepareAppStoreCredentials(ctx, os.Stderr, apppublish.AppStorePrepareCredentialsInput{
-				Dir:           cmd.String("output-dir"),
+				Dir:           cmd.String("private-keys-dir"),
 				KeyID:         keyID,
 				PrivateKeyB64: b64,
 			})

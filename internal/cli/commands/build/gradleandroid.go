@@ -54,7 +54,7 @@ EXAMPLE:
    cd app && forge-ci build gradle-android run --build-types release --include-aab --enable-signing`,
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Sources: cli.EnvVars("WORKING_DIRECTORY"), Usage: "project directory for metadata, the Gradle build and Build SBOM"},
-			&cli.BoolFlag{Name: "include-date", Value: true, Sources: cli.EnvVars("INCLUDE_DATE_STAMP"), Usage: "append a YYYYMMDD-HHMMSS stamp to the artifact name"},
+			&cli.BoolFlag{Name: "include-date-stamp", Value: true, Sources: cli.EnvVars("INCLUDE_DATE_STAMP"), Usage: "append a YYYYMMDD-HHMMSS stamp to the artifact name"},
 			&cli.StringFlag{Name: "prefix", Sources: cli.EnvVars("ARTIFACT_NAME_PREFIX"), Usage: "optional prefix prepended to every artifact name"},
 			&cli.StringFlag{Name: flagRepositoryName, Sources: cli.EnvVars("REPOSITORY_NAME"), Usage: "repository basename used in the default name"},
 			&cli.StringFlag{Name: flagFlavor, Sources: cli.EnvVars("PRODUCT_FLAVOR"), Usage: "Android product flavor"},
@@ -91,7 +91,7 @@ EXAMPLE:
 						EnableBuildSBOM: cmd.Bool(flagBuildSBOM),
 					},
 					TempDir:                 cmd.String(flagTempDir),
-					IncludeDateStamp:        cmd.Bool("include-date"),
+					IncludeDateStamp:        cmd.Bool("include-date-stamp"),
 					ArtifactNamePrefix:      cmd.String("prefix"),
 					RepoName:                cmd.String(flagRepositoryName),
 					ProductFlavor:           cmd.String(flagFlavor),

@@ -43,7 +43,7 @@ EXAMPLE:
 			&cli.BoolFlag{Name: "summary", Sources: cli.EnvVars("CONTAINER_STORAGE_SUMMARY"), Usage: "append selected storage details to the step summary"},
 			&cli.StringFlag{Name: "storage-conf", Sources: cli.EnvVars("CONTAINERS_STORAGE_CONF"), Usage: "containers storage config path (default: $RUNNER_TEMP/containers-storage.conf)"},
 			&cli.StringFlag{Name: "storage-root", Sources: cli.EnvVars("CONTAINER_STORAGE_ROOT"), Usage: "containers storage root path (default: $RUNNER_TEMP/containers-storage)"},
-			&cli.StringFlag{Name: "tmp-dir", Sources: cli.EnvVars("CONTAINER_TMPDIR"), Usage: "job-local temp directory (default: $RUNNER_TEMP/container-tmp)"},
+			&cli.StringFlag{Name: "container-tmpdir", Sources: cli.EnvVars("CONTAINER_TMPDIR"), Usage: "job-local temp directory (default: $RUNNER_TEMP/container-tmp)"},
 			&cli.StringFlag{Name: flagTempDir, Sources: cienv.TempDir(), Usage: "existing scratch parent for a private storage directory; job-specific when storage overrides are set (required)"},
 			&cli.StringFlag{Name: "env-file", Sources: cli.EnvVars("FORGEJO_ENV", "GITHUB_ENV"), Usage: "runner env file receiving CONTAINERS_STORAGE_CONF and TMPDIR"},
 		},
@@ -57,7 +57,7 @@ EXAMPLE:
 					WriteSummary:    cmd.Bool("summary"),
 					StorageConf:     cmd.String("storage-conf"),
 					StorageRoot:     cmd.String("storage-root"),
-					TmpDir:          cmd.String("tmp-dir"),
+					TmpDir:          cmd.String("container-tmpdir"),
 					RunnerTemp:      cmd.String(flagTempDir),
 					EnvFile:         cmd.String("env-file"),
 				})
