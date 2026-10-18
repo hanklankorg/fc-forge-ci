@@ -12,16 +12,19 @@ and then reviewed in a pull or merge request, and kept for people to look at.
 
 ```text
 <name>/
-  consumer/          the project, committed as it is into the demo repository
-  job.Containerfile  optional: its GitLab job image, built by `just demo-image`
+  consumer/            the project, committed as it is into the demo repository
+  job.Containerfile    optional: its GitLab job image, built by `just demo-image`
+  build.Containerfile  optional: its GitLab release build image, when the job
+                       image cannot build the release (Buildah for an image)
 ```
 
 The consumer names Forge CI as a published project does; the live tier puts
 the layer under test in its place, as it does for any consumer. Its Forgejo
 workflows sit in `.forgejo/workflows`, its GitLab merge-request gate in
 `.gitlab/merge-request.yml` with the scripts the release runs, and its GitHub
-workflows in `test/live/github/workflows`. A demo for another ecosystem or
-feature is one more directory in the same shape;
+workflows in `test/live/github/workflows`. `hello-maven` is a Maven jar;
+`hello-maven-service` adds the runtime image built from that jar. A demo for
+another ecosystem or feature is one more directory in the same shape;
 `internal/livetest/demos_internal_test.go` renders every consumer here for
 all three forges, so one that the live tier could not run fails `just
 test-unit`.

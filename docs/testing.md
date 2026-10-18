@@ -901,8 +901,11 @@ NANOLINTER_CONTAINER_FLAVOR=java just build-image-local          # in Nanolinter
 just publish-image --account demo nanolinter-java localhost/nanolinter:latest  # in Forge Lab
 podman save --format docker-archive -o /absolute/images/lint.tar localhost/nanolinter:latest
 
-# The GitLab job image, from the demo's job.Containerfile.
+# The GitLab job image, from the demo's job.Containerfile. A demo that builds
+# an image in its GitLab release, such as hello-maven-service, also has a
+# build.Containerfile with Buildah and Trivy: pass its archive as build-archive=.
 just demo-image hello-maven /absolute/images                     # writes hello-maven-job.tar
+just demo-image hello-maven-service /absolute/images             # and hello-maven-service-build.tar
 
 # The signer image of this commit (Forgejo takes the reference it prints,
 # GitLab an archive of it).

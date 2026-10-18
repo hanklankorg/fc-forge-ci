@@ -1,0 +1,109 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# Forge CI pull-request gate for a Maven application. No job receives a
+# secret or installs anything:
+#
+#   lint            nanolinter.toml's plan with the secrets,sast floor
+#   trust-boundary  statically verifies release.yml's secret boundaries
+#   build           mvn tests and package, with the action the release uses
+#
+# lint and build run in CI_JOB_IMAGE: a nanolinter image of the java flavour
+# (nanolinter, its check tools, a JDK and Maven), pinned by digest.
+name: Pull Request
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  GIT_CONFIG_COUNT: '1'
+  GIT_CONFIG_KEY_0: safe.directory
+  GIT_CONFIG_VALUE_0: '*'
+
+jobs:
+  lint:
+    name: "Check: lint"
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 15
+    steps:
+      # fetch-base brings the pull request's base branch for the commit-range and diff checks.
+      - name: Checkout repository
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/checkout-consumer@2f4e845cee96973d1082bf00a5a18689c1482148
+        with:
+          fetch-base: ${{ forgejo.base_ref }}
+
+      # nanolinter.toml's plan with the secrets,sast floor. Forgejo ingests no
+      # SARIF, so the findings are in this step's log.
+      - name: Lint
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/lint-nanolinter@2f4e845cee96973d1082bf00a5a18689c1482148
+
+  trust-boundary:
+    name: "Check: release isolation"
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 10
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@2f4e845cee96973d1082bf00a5a18689c1482148
+
+      - name: Checkout repository
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout --depth 1
+
+      - name: Verify release isolation boundaries
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/check-l3-isolation@2f4e845cee96973d1082bf00a5a18689c1482148
+        with:
+          build-job: build
+          dist-digest-output: dist-digest
+
+  build:
+    name: "Check: build and test"
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/checkout-consumer@2f4e845cee96973d1082bf00a5a18689c1482148
+
+      # Tests, checkstyle/PMD/formatter checks and the jar, by the action the
+      # release build uses. No Build SBOM: nothing is published from here.
+      - name: Build and test
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/build-maven@2f4e845cee96973d1082bf00a5a18689c1482148
+        with:
+          commit: ${{ forgejo.sha }}
+          build-type: app
+          enable-build-sbom: 'false'
+
+  # ===========================================================================
+  # JOB: summary — the pull request overview; Forgejo 17 shows it above the
+  # logs, older Forgejo prints it in this job's log.
+  # ===========================================================================
+  summary:
+    name: Summary
+    if: ${{ always() }}
+    needs: [lint, trust-boundary, build]
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 5
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@2f4e845cee96973d1082bf00a5a18689c1482148
+
+      - name: Write the pull request summary
+        env:
+          PROJECT_TYPE: maven
+          CI_BRANCH: ${{ forgejo.head_ref }}
+          LINT_RESULT: ${{ needs.lint.result }}
+          ISOLATION_RESULT: ${{ needs.trust-boundary.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          forge-ci report pr \
+            --job "Check: lint=${LINT_RESULT}" \
+            --job "Check: release isolation=${ISOLATION_RESULT}" \
+            --job "Check: build and test=${BUILD_RESULT}"

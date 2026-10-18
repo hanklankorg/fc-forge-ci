@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# Merge-request gate through Forge CI's GitLab components: the nanolinter lint
+# gate and the project's own checks. The release policy includes this file for
+# merge-request pipelines only. Lint runs in a digest-pinned nanolinter image
+# of the java flavour, the checks in the release's non-root job image; neither
+# job holds a release credential.
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+variables:
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: safe.directory
+  GIT_CONFIG_VALUE_0: "*"
+include:
+  - component: $CI_SERVER_FQDN/itiquette/forge-ci/nanolinter@2f4e845cee96973d1082bf00a5a18689c1482148
+    inputs:
+      forge-ci-repository: itiquette/forge-ci
+      job-name: "Check: lint"
+      nanolinter-image: $CI_LINT_IMAGE
+  - component: $CI_SERVER_FQDN/itiquette/forge-ci/check@2f4e845cee96973d1082bf00a5a18689c1482148
+    inputs:
+      forge-ci-repository: itiquette/forge-ci
+      job-name: "Check: build and test"
+      job-image: $CI_JOB_IMAGE
+      commands:
+        - bash .gitlab/check-release.sh
