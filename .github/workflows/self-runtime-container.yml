@@ -275,8 +275,8 @@ jobs:
       sign: ${{ github.event_name != 'pull_request' }}
 
   # The runtime images' platforms, declared once in RUNTIME_PLATFORMS and
-  # narrowed by the optional RELEASE_PLATFORMS repository variable, such as
-  # linux/amd64 for a fork that tests on amd64 only. The engine refuses an
+  # selected by the RELEASE_PLATFORMS repository variable: unset builds
+  # linux/amd64, and linux/amd64,linux/arm64 publishes both. The engine refuses an
   # undeclared, duplicated or malformed entry before anything is built, and
   # names each leg's suffix, so the jobs below name no architecture.
   platforms:
@@ -305,7 +305,9 @@ jobs:
         env:
           VERSION: ${{ needs.build-cli.outputs.version }}
           RUNTIME_PLATFORMS: linux/amd64,linux/arm64
-          RELEASE_PLATFORMS: ${{ vars.RELEASE_PLATFORMS }}
+          # Unset builds linux/amd64 only; a repository that publishes both
+          # architectures states linux/amd64,linux/arm64.
+          RELEASE_PLATFORMS: ${{ vars.RELEASE_PLATFORMS || 'linux/amd64' }}
         run: |
           set -euo pipefail
           tarball="$(find cli-dist -name "forge-ci_${VERSION}_linux_amd64.tar.gz" | head -1)"
