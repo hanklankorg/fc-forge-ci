@@ -645,7 +645,7 @@ not reach, so no action assumes one. Each runs in whatever the job provides:
   with a message when the job has no `nanolinter`; it does not download one.
 - The release build job installs its toolchain with `setup-toolchain`: Go, and
   the tools of the consumer's mise config, among them `cyclonedx-gomod` or
-  `cargo-cyclonedx` for the Build SBOM. `build-sbom: 'false'` drops that
+  `cargo-cyclonedx` for the Build SBOM. `enable-build-sbom: 'false'` drops that
   requirement. A Maven build needs the JDK and Maven from the mise config
   (or a job image); `build-maven` pins the `cyclonedx-maven-plugin` itself,
   in its `versions.env`, at the version GitHub and GitLab use.
@@ -1250,8 +1250,8 @@ your copy at the commit, with a disposable lab that meets
 [the live tier's contract](testing.md#running-it):
 
 ```text
-just test-live-consumer /path/to/consumer pull-request CI_JOB_IMAGE=<image on the lab>
-just test-live-consumer /path/to/consumer release
+just test-live-forgejo-consumer /path/to/consumer pull-request CI_JOB_IMAGE=<image on the lab>
+just test-live-forgejo-consumer /path/to/consumer release
 ```
 
 The command pushes HEAD of the consumer checkout to a scratch repository on

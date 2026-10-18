@@ -96,7 +96,7 @@ jobs:
           version: ${{ needs.prepare.outputs.release-tag }}
           commit: ${{ needs.prepare.outputs.release-sha }}
           main-package: ./cmd/layer-release-canary
-          build-sbom: 'false'
+          enable-build-sbom: 'false'
 
       - name: Pack canary archive and declare the release files
         env:

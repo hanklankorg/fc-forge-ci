@@ -4,7 +4,7 @@
 
 name: 'Build Cargo'
 description: >-
-  The build step of a consumer's own job for a Cargo project: one `forge-ci build cargo run`, which fetches the locked crates, runs `cargo test --locked --all-targets`, writes the CycloneDX Build SBOM and compiles one release binary per platform. Binaries land in <working-directory>/dist/<os>-<arch>/, and the SBOM as bom.json beside each Cargo.toml. The job brings the toolchain: cargo with the Rust target and linker of every platform, and cargo-cyclonedx unless build-sbom is 'false' (see setup-toolchain). The step holds no secret.
+  The build step of a consumer's own job for a Cargo project: one `forge-ci build cargo run`, which fetches the locked crates, runs `cargo test --locked --all-targets`, writes the CycloneDX Build SBOM and compiles one release binary per platform. Binaries land in <working-directory>/dist/<os>-<arch>/, and the SBOM as bom.json beside each Cargo.toml. The job brings the toolchain: cargo with the Rust target and linker of every platform, and cargo-cyclonedx unless enable-build-sbom is 'false' (see setup-toolchain). The step holds no secret.
 inputs:
   version:
     description: >-
@@ -34,7 +34,7 @@ inputs:
     description: "'true' skips `cargo test`."
     required: false
     default: 'false'
-  build-sbom:
+  enable-build-sbom:
     description: "'false' skips the Build SBOM, and with it the need for cargo-cyclonedx."
     required: false
     default: 'true'
@@ -52,7 +52,7 @@ runs:
         BUILD_CARGO_ARTIFACT_NAME: ${{ inputs.artifact-name }}
         BUILD_CARGO_BINARY_NAME: ${{ inputs.binary-name }}
         BUILD_CARGO_SKIP_TESTS: ${{ inputs.skip-tests }}
-        BUILD_CARGO_BUILD_SBOM: ${{ inputs.build-sbom }}
+        BUILD_CARGO_BUILD_SBOM: ${{ inputs.enable-build-sbom }}
       run: |
         set -euo pipefail
         # shellcheck source=.forgejo/bin/lib-forge-ci.sh
@@ -65,4 +65,4 @@ runs:
           --artifact-name "${BUILD_CARGO_ARTIFACT_NAME}" \
           --binary-name "${BUILD_CARGO_BINARY_NAME}" \
           --skip-tests="${BUILD_CARGO_SKIP_TESTS:?skip-tests is required}" \
-          --build-sbom="${BUILD_CARGO_BUILD_SBOM:?build-sbom is required}"
+          --build-sbom="${BUILD_CARGO_BUILD_SBOM:?enable-build-sbom is required}"

@@ -7,7 +7,7 @@ still handle bootstrap, environment setup and some artifact handoffs. The
 | Path | Purpose |
 |------|---------|
 | `scripts/bootstrap/install-*.sh` | Toolchain installers invoked at runtime-image build time, plus `install-forge-ci.sh` for plain/macOS runners that cannot use the runtime container. Renovate-managed pinning lives here where applicable. |
-| `scripts/ci/run-live-tests.sh` | The live conformance tier's entry, behind `just test-live` and `just test-live-consumer`. |
+| `scripts/ci/run-live-tests.sh` | The live conformance tier's entry, behind `just test-live` and `just test-live-forgejo-consumer`. |
 | `scripts/ci/publish-live-signer-image.sh` | Builds and publishes a signer image to the configured Forge Lab registry for authorized live-tier runs; see [live testing](testing.md). |
 | `scripts/ci/forgejo-binary.sh` | The shared delivery-binary build, checksum and publisher: behind `just refresh-forgejo-binary`, the recorded-build guard, and Forgejo/GitLab generic package publication. See [GitLab bootstrap](gitlab.md#checksum-bound-engine-bootstrap) for GitLab coordinates and token types. |
 

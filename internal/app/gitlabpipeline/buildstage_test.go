@@ -174,8 +174,7 @@ func TestBuildStagePipeline_MavenBuildTypeDefaultFromYAML(t *testing.T) {
 // One row per setting, because each is a separate guard and the refusal is the
 // only thing standing between a caller and a pipeline that silently drops the
 // setting: a plan carrying ldflags would otherwise generate a build with no
-// ldflags, and nothing would say so. Only MainPackage was exercised before, so
-// deleting any of the other three refusals broke no test.
+// ldflags, and nothing would say so.
 func TestBuildStagePipeline_RefusesUnrepresentableBuildSettings(t *testing.T) {
 	t.Parallel()
 
@@ -183,12 +182,6 @@ func TestBuildStagePipeline_RefusesUnrepresentableBuildSettings(t *testing.T) {
 		name    string
 		targets pipeline.ReleaseBuildTargets
 	}{
-		{
-			name: "go main-package",
-			targets: pipeline.ReleaseBuildTargets{
-				Go: runningTarget(pipeline.PlannedArtifact{Name: "cli", ProjectType: projecttype.Go, Go: &config.GoConfig{MainPackage: "./cmd/cli"}}),
-			},
-		},
 		{
 			name: "go binary-name distinct from the artifact name",
 			targets: pipeline.ReleaseBuildTargets{

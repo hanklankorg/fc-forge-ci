@@ -30,7 +30,7 @@ inputs:
     description: "'true' skips the Maven test phase."
     required: false
     default: 'false'
-  build-sbom:
+  enable-build-sbom:
     description: "'false' skips the Build SBOM, and with it the cyclonedx-maven-plugin."
     required: false
     default: 'true'
@@ -47,7 +47,7 @@ runs:
         BUILD_MAVEN_WORKING_DIRECTORY: ${{ inputs.working-directory }}
         BUILD_MAVEN_PROFILE: ${{ inputs.profile }}
         BUILD_MAVEN_SKIP_TESTS: ${{ inputs.skip-tests }}
-        BUILD_MAVEN_BUILD_SBOM: ${{ inputs.build-sbom }}
+        BUILD_MAVEN_BUILD_SBOM: ${{ inputs.enable-build-sbom }}
       run: |
         set -euo pipefail
         # shellcheck source=.forgejo/bin/lib-forge-ci.sh
@@ -59,7 +59,7 @@ runs:
         export FORGE_CI_COMMIT=${BUILD_MAVEN_COMMIT:?commit is required}
         build_type=${BUILD_MAVEN_BUILD_TYPE:?build-type is required}
         skip_tests=${BUILD_MAVEN_SKIP_TESTS:?skip-tests is required}
-        build_sbom=${BUILD_MAVEN_BUILD_SBOM:?build-sbom is required}
+        build_sbom=${BUILD_MAVEN_BUILD_SBOM:?enable-build-sbom is required}
         # Everything the job keeps is rooted at this value, so a path out of
         # the workspace is refused before mvn runs, as GitHub's workflow does.
         directory=${BUILD_MAVEN_WORKING_DIRECTORY:?working-directory is required}

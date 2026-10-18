@@ -51,7 +51,7 @@ func multiItemBuildPlan() pipeline.ReleaseBuildStagePlan {
 			pipeline.PlannedArtifact{Name: "wear", ProjectType: projecttype.GradleAndroid, WorkingDirectory: "wear", GradleAndroid: &config.GradleAndroidConfig{}},
 		),
 		Go: runningTarget(
-			pipeline.PlannedArtifact{Name: "cli", ProjectType: projecttype.Go, Go: &config.GoConfig{Platforms: "linux/riscv64", SkipTests: false}},
+			pipeline.PlannedArtifact{Name: "cli", ProjectType: projecttype.Go, Go: &config.GoConfig{MainPackage: "./cmd/cli", Platforms: "linux/riscv64", SkipTests: false}},
 			pipeline.PlannedArtifact{Name: "agent", ProjectType: projecttype.Go, WorkingDirectory: "agent", Go: &config.GoConfig{SkipTests: true}, EffectiveSBOMs: build},
 		),
 		Cargo: runningTarget(
@@ -92,7 +92,7 @@ func TestBuildStagePipeline_EveryItemCarriesItsOwnInputs(t *testing.T) {
 			"build-module": "mobile", "product-flavor": "prod", "build-types": "release", "include-aab": false, "enable-signing": true,
 		}),
 		include("build-gradle-android", map[string]any{"job-name": "build-gradle-android-wear", "stage": "compile", "working-directory": "wear", "enable-build-sbom": false, "include-aab": true, "enable-signing": false}),
-		include("build-go", map[string]any{"job-name": "build-go-cli", "stage": "compile", "working-directory": ".", "enable-build-sbom": false, "artifact-name": "cli", "version": "3.4.5", "platforms": "linux/riscv64", "skip-tests": false}),
+		include("build-go", map[string]any{"job-name": "build-go-cli", "stage": "compile", "working-directory": ".", "main-package": "./cmd/cli", "enable-build-sbom": false, "artifact-name": "cli", "version": "3.4.5", "platforms": "linux/riscv64", "skip-tests": false}),
 		include("build-go", map[string]any{"job-name": "build-go-agent", "stage": "compile", "working-directory": "agent", "enable-build-sbom": true, "artifact-name": "agent", "version": "3.4.5", "platforms": "linux/amd64,linux/arm64,darwin/amd64,darwin/arm64", "skip-tests": true}),
 		include("build-cargo", map[string]any{"job-name": "build-cargo-rs", "stage": "compile", "working-directory": "rs", "enable-build-sbom": false, "artifact-name": "rs", "version": "3.4.5", "platforms": "linux/arm64", "skip-tests": true}),
 		include("build-cargo", map[string]any{"job-name": "build-cargo-rs2", "stage": "compile", "working-directory": "rs2", "enable-build-sbom": false, "artifact-name": "rs2", "version": "3.4.5", "platforms": "linux/amd64"}),

@@ -54,10 +54,11 @@ include:
         - go vet ./...
         - go test ./...
 
-  # `forge-ci build go run`: go test, the Build SBOM and one binary per
-  # platform under dist/, kept as job artifacts. The main package is the one
-  # in working-directory: the component has no main-package input.
+  # `forge-ci build go run`: the Build SBOM and one binary per platform under
+  # dist/, kept as job artifacts. Tests already ran in the preceding test stage.
   - component: gitlab.example.com/team/ci/forge-ci/build-go@0.90.0
     inputs:
       artifact-name: my-cli
+      main-package: "." # Use ./cmd/my-cli for a command below the module root.
+      skip-tests: true
       platforms: "linux/amd64,linux/arm64,darwin/amd64,darwin/arm64"

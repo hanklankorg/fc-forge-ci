@@ -824,7 +824,7 @@ test-live-signer-image forge_lab:
 # Runs the consumer's own workflow against the Forgejo layer of this checkout,
 # before the engine commit is published anywhere:
 #
-#   just test-live-consumer <consumer-checkout> <pull-request|release> [setting ...]
+#   just test-live-forgejo-consumer <consumer-checkout> <pull-request|release> [setting ...]
 #
 # The consumer is HEAD of a clean checkout, named by absolute path, and is
 # only read. Wherever its files name the layer it pins, the copy on the lab
@@ -852,8 +852,8 @@ test-live-signer-image forge_lab:
 # visibility before pushing source and verifies anonymous reads are refused.
 # This same selection applies to both GitLab consumer recipes below.
 #
-#   just test-live-consumer ~/src/gommitlint pull-request CI_JOB_IMAGE=<digest reference>
-#   just test-live-consumer ~/src/gommitlint release RELEASE_PLATFORMS=linux/amd64
+#   just test-live-forgejo-consumer ~/src/gommitlint pull-request CI_JOB_IMAGE=<digest reference>
+#   just test-live-forgejo-consumer ~/src/gommitlint release RELEASE_PLATFORMS=linux/amd64
 #
 # It needs what `just test-live` needs, and a release also FORGE_CI_LIVE_SIGNER_IMAGE
 # from `just test-live-signer-image`, ssh-keygen and gpg. The lock, the
@@ -861,9 +861,9 @@ test-live-signer-image forge_lab:
 [arg('event', help='Consumer workflow kind: pull-request or release')]
 [arg('checkout', help='Absolute path to a clean consumer checkout, for example /absolute/gommitlint')]
 [arg('settings', help='Optional key=value settings, for example workflow=pullrequest.yml; see docs/testing.md for permitted settings')]
-[doc('Live; run a consumer checkout against this engine')]
+[doc('Live Forgejo; run a consumer checkout against this engine')]
 [group('live')]
-test-live-consumer checkout event *settings:
+test-live-forgejo-consumer checkout event *settings:
     @FORGE_CI_LIVE_CONSUMER="$1" FORGE_CI_LIVE_CONSUMER_EVENT="$2" FORGE_CI_LIVE_CONSUMER_SETTINGS="$(shift 2; printf '%s\n' "$@")" \
         exec bash scripts/ci/run-live-tests.sh focused '^TestForgejoLayer_ConsumerTrial$'
 

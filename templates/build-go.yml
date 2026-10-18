@@ -31,6 +31,9 @@ spec:
     artifact-name:
       default: ""
       description: Artifact-name override (also names the SBOM); defaults to the module basename.
+    main-package:
+      default: "."
+      description: Main package to build, relative to working-directory (for example ./cmd/my-cli).
     platforms:
       default: "linux/amd64,linux/arm64"
       description: Comma-separated GOOS/GOARCH targets to cross-compile.
@@ -55,6 +58,7 @@ spec:
   variables:
     WORKING_DIRECTORY: "$[[ inputs.working-directory ]]"
     ARTIFACT_NAME: "$[[ inputs.artifact-name ]]"
+    MAIN_PACKAGE: "$[[ inputs.main-package ]]"
     PLATFORMS: "$[[ inputs.platforms ]]"
     VERSION: "$[[ inputs.version ]]"
     SKIP_TESTS: "$[[ inputs.skip-tests ]]"

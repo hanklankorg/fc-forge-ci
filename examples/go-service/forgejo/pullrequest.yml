@@ -117,4 +117,4 @@ jobs:
         with:
           version: 0.0.0-pr
           commit: ${{ forgejo.sha }}
-          build-sbom: 'false'
+          enable-build-sbom: 'false'

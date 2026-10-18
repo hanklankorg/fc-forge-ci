@@ -207,7 +207,7 @@ What this tier cannot show is the runner: how Forgejo expands a called
 workflow, resolves `vars`, or schedules the jobs. That is acceptance on a real
 instance, and the [live tier](#the-live-tier) runs it: its `LAYER` scenarios
 serve this checkout's `.forgejo/` from a scratch repository on the lab and run
-consumer-shaped workflows against it, and `just test-live-consumer` runs a
+consumer-shaped workflows against it, and `just test-live-forgejo-consumer` runs a
 real consumer checkout's own workflow against it; see
 [Trying a consumer](#trying-a-consumer).
 
@@ -245,6 +245,24 @@ what found GitLab's missing delete-then-create on re-release, the registry
 adapter reporting permanent failures as retryable, and that Forgejo drops
 untagged manifests while GitLab keeps them.
 
+#### Choose a consumer trial
+
+All commands below run from Forge CI. Checkout and archive arguments are
+absolute paths. Trials mutate disposable resources; the linked sections explain
+setup, evidence and cleanup.
+
+| Forge / event | Command | Preparation |
+|---|---|---|
+| Forgejo PR or release | `just test-live-forgejo-consumer <checkout> <pull-request\|release> [setting ...]` | Local `forgeci` contract and runner; consumer job image; signer image for releases |
+| GitLab MR | `just test-live-gitlab-consumer <checkout> <image-archive>` | Local `forgeci` contract and runner; prepared MR job image archive |
+| GitLab release | `just test-live-gitlab-consumer-release <checkout> <job-archive> <build-archive> <signer-archive> [setting ...]` | Local contract, prepared image archives and guarded full-release runner profile |
+| GitHub PR or release | `just test-live-github-consumer <org-id> <checkout> <pull-request\|release> [setting ...]` | Forge Lab's hosted `github run` session, consumer workflow fixtures and public engine images |
+
+See [Forgejo trials](#trying-a-consumer), [GitLab acceptance](#gitlab-live-acceptance)
+and [GitHub trials](#trying-a-consumer-on-github). `just test-live` is the local
+GitLab/Forgejo conformance suite; it does not run the hosted GitHub trial.
+For a retained demonstration, use [`just demo <forge> <name>`](#showing-a-consumer).
+
 #### Operator card
 
 The four commands an operator types, in order; the sections below say what
@@ -256,7 +274,7 @@ just lab --account forgeci --fixtures --runners gitlab forgejo
 # Here: the contract and CA check alone, in seconds, before anything heavier.
 just test-live-preflight full
 # A consumer's own workflow against this checkout, both visibilities.
-just test-live-consumer /absolute/consumer pull-request CI_JOB_IMAGE=<digest reference>
+just test-live-forgejo-consumer /absolute/consumer pull-request CI_JOB_IMAGE=<digest reference>
 # A kept demo: make one, see what exists, delete one when done with.
 just demo forgejo hello-maven version=0.2.0 CI_JOB_IMAGE=<reference>
 just demo-list forgejo
@@ -555,15 +573,15 @@ session permits and that it restores the ordinary runner itself.
 
 #### Trying a consumer
 
-`just test-live-consumer` answers one question before an engine commit is
+`just test-live-forgejo-consumer` answers one question before an engine commit is
 published anywhere: does this repository still pass its own workflow with the
 layer of this checkout?
 
 ```text
-just test-live-consumer <consumer-checkout> <pull-request|release> [setting ...]
+just test-live-forgejo-consumer <consumer-checkout> <pull-request|release> [setting ...]
 
-just test-live-consumer ~/src/gommitlint pull-request CI_JOB_IMAGE=<digest reference>
-just test-live-consumer ~/src/gommitlint release
+just test-live-forgejo-consumer ~/src/gommitlint pull-request CI_JOB_IMAGE=<digest reference>
+just test-live-forgejo-consumer ~/src/gommitlint release
 ```
 
 It is `TestForgejoLayer_ConsumerTrial` behind `just test-live`'s script, so
@@ -621,8 +639,8 @@ separate repositories, and a cross-format push into one repository is not a
 supported migration route. GitHub.com remains a separate, unproven live tier.
 
 ```text
-FORGE_CI_LIVE_CONSUMER_VISIBILITY=private just test-live-consumer /absolute/gommitlint pull-request CI_JOB_IMAGE=<digest reference>
-FORGE_CI_LIVE_CONSUMER_VISIBILITY=private just test-live-consumer /absolute/gommitlint release
+FORGE_CI_LIVE_CONSUMER_VISIBILITY=private just test-live-forgejo-consumer /absolute/gommitlint pull-request CI_JOB_IMAGE=<digest reference>
+FORGE_CI_LIVE_CONSUMER_VISIBILITY=private just test-live-forgejo-consumer /absolute/gommitlint release
 ```
 
 **What is rewritten** is read from the consumer's workflows under
@@ -689,7 +707,7 @@ report on this one.
   ```text
   FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE=$HOME/.config/forge-lab/hanklankorg-packages.pat \
   FORGE_CI_LIVE_EXTERNAL_REGISTRY_USER=<github user> \
-    just test-live-consumer /absolute/nanolinter-clone release RELEASE_PLATFORMS=linux/amd64 \
+    just test-live-forgejo-consumer /absolute/nanolinter-clone release RELEASE_PLATFORMS=linux/amd64 \
       IMAGE_REPOSITORY=ghcr.io/hanklankorg/<unique name> \
       image=ghcr.io/hanklankorg/<unique name>:v0.0.1-go
   ```
@@ -777,8 +795,8 @@ export FORGE_CI_LIVE_SIGNER_IMAGE="$(just test-live-signer-image /absolute/forge
 just publish-image --account forgeci <package> <local image>
 
 # 3. The trial. Gommitlint, then Nanolinter from a clone with its lab selection.
-just test-live-consumer /absolute/gommitlint release
-just test-live-consumer /absolute/nanolinter-clone release RELEASE_PLATFORMS=linux/amd64
+just test-live-forgejo-consumer /absolute/gommitlint release
+just test-live-forgejo-consumer /absolute/nanolinter-clone release RELEASE_PLATFORMS=linux/amd64
 ```
 
 The layer is served from `HEAD`. After a change to Go source, `go.mod` or
@@ -906,7 +924,7 @@ forge; trials never use the name.
 
 |  | Trial | Kept for diagnosis | Demo |
 |---|---|---|---|
-| Recipe | `test-live-consumer` | the same, with `FORGE_CI_LIVE_KEEP_SCRATCH=1` | `demo <forge>`; `demo-list`, `demo-delete` |
+| Recipe | `test-live-forgejo-consumer` | the same, with `FORGE_CI_LIVE_KEEP_SCRATCH=1` | `demo <forge>`; `demo-list`, `demo-delete` |
 | Lab account | `forgeci` | `forgeci` | `demo` |
 | Repository | `fci-consumer-trial` | `fci-consumer-trial`, archived | Forgejo: `demo/demo-<name>` and its layer `demo/demo-<name>-forge-ci`; GitLab: `demo/demo-<name>` and its helpers `demo/demo-<name>-release-*`; GitHub: `<prefix>demo-<name>` in the test organization |
 | Afterwards | deleted | kept until the next trial resets it | kept until `demo-delete` |
@@ -937,6 +955,14 @@ created, by ID, so it never removes a demo. A GitHub demo has no lab account;
 its token is the session's personal access token, which the owner revokes.
 
 #### Trying a consumer on GitHub
+
+This hosted trial supports both pull requests and releases. It checks the
+selected consumer workflow and the release postconditions below, including
+keyless or key-based artifact verification. It is separate from the local
+`PAR-*` conformance suite and does not run every Forgejo/GitLab failure or
+recovery scenario. Private-consumer container signature verification is not
+performed, and GHCR packages remain for separate cleanup. Availability of this
+route is not evidence that a particular consumer or signing backend passed it.
 
 The GitHub layer has no local lab, so its consumer trial runs in a disposable
 hosted organization that Forge Lab's hosted session authorizes. Inside that

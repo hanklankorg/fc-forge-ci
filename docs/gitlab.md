@@ -178,7 +178,7 @@ images and pins, a validating regex. The inputs that are not obvious:
 | | `base-images` | Default `false`; see [Content-addressed base images](#content-addressed-base-images). |
 | `nanolinter` | `forge-ci-repository`, `nanolinter-image`, `required-lints`, `enable-gitlab-sast` | The project serving the component and its engine package (required), the flavour image (default the `core` tag; pin your flavour by digest as the examples show), the mandated floor (default `secrets,sast`), and the SAST report. |
 | `megalinter` | `forge-ci-repository`, `megalinter-image`, `enable-gitlab-sast` | Required digest-pinned image; the rest as for `nanolinter`. |
-| `build-*` | `working-directory`, `version`, `skip-tests`, `enable-build-sbom`, `runtime-image` | Common to every build component; `build-go` and `build-cargo` add `platforms` and `artifact-name`, `build-maven` `build-type` and `profile`, `build-gradle-android` the module, flavour and signing inputs. |
+| `build-*` | `working-directory`, `version`, `skip-tests`, `enable-build-sbom`, `runtime-image` | Common to every build component; `build-go` and `build-cargo` add `platforms` and `artifact-name`, `build-go` also `main-package` (relative to `working-directory`), `build-maven` `build-type` and `profile`, `build-gradle-android` the module, flavour and signing inputs. |
 | `publish-*` | `project-type`, `working-directory`, `runtime-image` | `publish-maven-central` adds `profile` and `settings-path`; `publish-apple-appstore` adds `platform`, `runner-tags` and `macos-image`. |
 
 **Variables.** Project-level variables the components read:

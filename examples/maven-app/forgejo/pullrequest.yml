@@ -116,4 +116,4 @@ jobs:
         with:
           commit: ${{ forgejo.sha }}
           build-type: app
-          build-sbom: 'false'
+          enable-build-sbom: 'false'

@@ -55,7 +55,12 @@ func TestBuildActionsForwardEveryInput(t *testing.T) {
 			env := make([]string, 0, len(inputs))
 
 			for _, input := range inputs {
-				bound[build.variable(input)] = "${{ inputs." + input + " }}"
+				actionInput := input
+				if input == "build-sbom" {
+					actionInput = "enable-build-sbom"
+				}
+
+				bound[build.variable(input)] = "${{ inputs." + actionInput + " }}"
 				env = append(env, build.variable(input)+"="+input+"-v")
 			}
 

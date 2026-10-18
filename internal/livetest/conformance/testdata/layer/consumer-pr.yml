@@ -54,7 +54,7 @@ jobs:
         with:
           version: 0.0.0-pr
           commit: ${{ forgejo.event.pull_request.head.sha }}
-          build-sbom: 'false'
+          enable-build-sbom: 'false'
 
       - name: Verify the built binary reports the version it was given
         run: |

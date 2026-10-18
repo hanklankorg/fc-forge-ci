@@ -183,6 +183,10 @@ func BuildStagePipeline(plan pipeline.ReleaseBuildStagePlan, opts BuildPipelineO
 			}
 
 			inputs["skip-tests"] = artifact.Go.SkipTests
+
+			if artifact.Go.MainPackage != "" {
+				inputs["main-package"] = artifact.Go.MainPackage
+			}
 		}
 
 		inputs["platforms"] = platforms
@@ -353,9 +357,8 @@ func validateArtifactTarget(component string, target pipeline.TargetPlan[pipelin
 
 // validateGoTargetRepresentable refuses a planned Go artifact whose settings
 // the Catalog's build-go component cannot express. The component builds the
-// module root artifact-first with the artifact's own name, so anything that
-// redirects the build -- a main package, a distinct binary name, build tags or
-// ldflags -- would be silently dropped from the generated pipeline.
+// selected main package artifact-first with the artifact's own name. A distinct
+// binary name, build tags or ldflags would be silently dropped from the pipeline.
 //
 //nolint:cyclop // one flat predicate per setting the component cannot express; cyclop counts each || as a decision, but there is only one.
 func validateGoTargetRepresentable(target pipeline.TargetPlan[pipeline.PlannedArtifact]) error {
@@ -368,10 +371,9 @@ func validateGoTargetRepresentable(target pipeline.TargetPlan[pipeline.PlannedAr
 			continue
 		}
 
-		if (artifact.Go.MainPackage != "" && artifact.Go.MainPackage != ".") ||
-			(artifact.Go.BinaryName != "" && artifact.Go.BinaryName != artifact.Name) ||
+		if (artifact.Go.BinaryName != "" && artifact.Go.BinaryName != artifact.Name) ||
 			artifact.Go.BuildTags != "" || artifact.Go.LDFlags != "" {
-			return fmt.Errorf("GitLab build target go cannot represent main-package, a distinct binary-name, build-tags, or ldflags: %w", errs.ErrUnsupported)
+			return fmt.Errorf("GitLab build target go cannot represent a distinct binary-name, build-tags, or ldflags: %w", errs.ErrUnsupported)
 		}
 
 		if artifact.Go.BuildMode != "" && artifact.Go.BuildMode != config.GoBuildModeArtifactFirst {
