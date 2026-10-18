@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# One Cargo service built container-first: the Containerfile compiles it, the
+# runtime image is the release, and extract.binary ships the same binary as a
+# file. Signed keyless.
+sign:
+  method: sigstore
+artifacts:
+  - name: hello-cargo-container
+    project-type: cargo
+    working-directory: .
+    config:
+      build-mode: container-first
+containers:
+  - name: hello-cargo-container
+    from: [hello-cargo-container]
+    container-file: Containerfile
+    context: .
+    target: runtime
+    # The builder RUNs cargo, so every platform needs a native runner;
+    # linux/amd64 only.
+    platforms: linux/amd64
+    extract:
+      binary:
+        target: export-binary
+        names: [hello-cargo-container]

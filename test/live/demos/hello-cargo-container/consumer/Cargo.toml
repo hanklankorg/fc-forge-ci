@@ -1,0 +1,12 @@
+[package]
+name = "hello-cargo-container"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A tiny HTTP service for showing Forge CI's container-first Cargo release"
+license = "CC0-1.0"
+publish = false
+
+# No dependencies: the Containerfile's `cargo build --locked` needs no
+# network inside the image build.
+[dependencies]

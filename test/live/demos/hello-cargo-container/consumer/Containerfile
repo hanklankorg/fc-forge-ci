@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# The build itself (container-first): the builder stage compiles the
+# service with cargo, export-binary holds only the binary for the release to
+# extract as a file, and runtime is the image. runtime is the last stage, so
+# a build without --target builds it.
+#
+# The builder RUNs cargo for the platform it builds, so each architecture
+# builds on a native runner of its own; the releases build linux/amd64.
+FROM docker.io/library/rust:1.99.0-slim-trixie@sha256:2752b332db73fdbb7dc576f06c82ed1f312005784ef913d7e04a28f5f55dc581 AS builder
+
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+# No crate to fetch: --locked builds offline from the committed Cargo.lock.
+RUN cargo build --release --locked
+
+FROM scratch AS export-binary
+COPY --from=builder /src/target/release/hello-cargo-container /hello-cargo-container
+
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d241a468a4fd7519ddbbebe66b49b5f365771716ea688ad40b6c6f1c2 AS runtime
+
+COPY --from=builder /src/target/release/hello-cargo-container /usr/local/bin/hello-cargo-container
+
+USER 65532:65532
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/hello-cargo-container"]

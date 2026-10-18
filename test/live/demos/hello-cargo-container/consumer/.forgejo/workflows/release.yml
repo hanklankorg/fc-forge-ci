@@ -1,0 +1,218 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# Isolated Forge CI release for a container-first Cargo service:
+#
+#   prepare (forge-ci)  ->  build (ours)  ->  sign-and-publish (forge-ci)
+#
+# Push an annotated release-request/vX.Y.Z tag on main. forge-ci's prepare
+# workflow renders the changelog, signs the release commit and creates the
+# final vX.Y.Z tag. The build job runs the tests, builds the image from the
+# Containerfile, which compiles the service, extracts the same binary and
+# hands dist/ over; signing keys never enter it. sign-and-publish signs and
+# publishes the Forgejo release and the image.
+name: Release
+
+on:
+  push:
+    tags:
+      - release-request/v[0-9]*.[0-9]*.[0-9]*
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare
+    if: success() && startsWith(forgejo.ref, 'refs/tags/')
+    uses: itiquette/forge-ci/.forgejo/workflows/prepare-release.yml@2f4e845cee96973d1082bf00a5a18689c1482148
+    with:
+      runner-label: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-repository: diggsweden/forge-ci
+      forge-ci-sha: 2f4e845cee96973d1082bf00a5a18689c1482148
+      signer-image: forgejo.example/diggsweden/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      bot-name: Hello Cargo Release Bot
+      bot-email: hello-release-bot@lab.invalid
+      # The demo renders with git-chglog from .chglog/; the layer default is
+      # git-cliff from .forge-ci/gitcliff/.
+      changelog-creator: git-chglog
+      changelog-config: .chglog/config-keepachangelog.yml
+      commit-body-config: .chglog/config-minimal.yml
+      release-git-url: ${{ vars.RELEASE_GIT_URL }}
+      release-git-host-key-fingerprint: ${{ vars.RELEASE_GIT_HOST_KEY_FINGERPRINT }}
+      verify-release-request-signature: 'false'
+      release-request-allowed-signers: .forgejo/release-allowed-signers
+      sign-distro-packages: 'false'
+      publish-container-images: 'true'
+    secrets:
+      RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+
+  # Ours: tests, the image and the binary extracted from it into dist/. No
+  # signing key reaches it.
+  build:
+    name: "Build: release files"
+    needs: prepare
+    # On the runner host, not in a job container: Buildah builds the image in
+    # this job, and the Containerfile's builder stage compiles the service.
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      ARTIFACT_NAME: hello-cargo-container
+    outputs:
+      dist-digest: ${{ steps.dist.outputs.digest }}
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@2f4e845cee96973d1082bf00a5a18689c1482148
+
+      - name: Checkout prepared release
+        env:
+          CHECKOUT_REF: ${{ needs.prepare.outputs.release-sha }}
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout
+
+      # Rust for the tests and Trivy for the image scan, from .mise.toml.
+      - name: Set up toolchain
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-toolchain@2f4e845cee96973d1082bf00a5a18689c1482148
+        with:
+          cache-key-suffix: release-build
+          install-dev-tools: false
+          cache: 'false'
+
+      # The tests gate the release; the image build below compiles the
+      # binary that ships.
+      - name: Test
+        run: |
+          set -euo pipefail
+          cargo test --locked
+
+      - name: Set up Buildah
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-buildah@2f4e845cee96973d1082bf00a5a18689c1482148
+
+      - name: Log in to the container registry
+        id: registry-login
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/registry-login@2f4e845cee96973d1082bf00a5a18689c1482148
+        with:
+          username: ${{ forgejo.repository_owner }}
+          token: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+
+      # The Containerfile's last stage, runtime. linux/amd64 only: the
+      # builder stage RUNs cargo for the platform it builds, so this one
+      # amd64 runner builds natively; another architecture needs a native
+      # runner of its own (container multiarch-image).
+      - name: Build, scan and record the container image
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/build-release-image@2f4e845cee96973d1082bf00a5a18689c1482148
+        with:
+          role: runtime
+          tag: ${{ needs.prepare.outputs.release-tag }}
+          release-tag: ${{ needs.prepare.outputs.release-tag }}
+          containerfile: Containerfile
+          auth-file: ${{ steps.registry-login.outputs.auth-file }}
+          builds: '[{"platform":"linux/amd64"}]'
+          scan-output: dist/trivy-results-runtime-{arch}.json
+          title: hello-cargo-container
+
+      # extract.binary: the export-binary stage, built from the same
+      # Containerfile and exported as files, its binary renamed
+      # <name>-linux-amd64 as GitHub's extraction names it.
+      - name: Extract the binary
+        env:
+          AUTH_FILE: ${{ steps.registry-login.outputs.auth-file }}
+        run: |
+          set -euo pipefail
+          forge-ci container build --mode local --target export-binary \
+            --file Containerfile --context . --platform linux/amd64 \
+            --auth-file "${AUTH_FILE}" --output-dir dist/linux-amd64
+          forge-ci container suffix-extracted-binaries \
+            --binaries-dir dist/linux-amd64 --arch amd64 --expected-names "${ARTIFACT_NAME}"
+
+      - name: Declare the release files
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release-tag }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.release-sha }}
+        run: |
+          set -euo pipefail
+          # The release body: this version's section of the CHANGELOG.md
+          # that prepare rendered, else a stub naming the tag.
+          if ! forge-ci release notes --changelog-file CHANGELOG.md \
+            --release-version "${RELEASE_TAG}" --target-file dist/release-notes.md; then
+            echo "WARNING: no ${RELEASE_TAG} section in CHANGELOG.md; the release body is a stub" >&2
+            forge-ci release notes --source-file /nonexistent --target-file dist/release-notes.md \
+              --release-version "${RELEASE_TAG}" --release-commit "${RELEASE_SHA}"
+          fi
+          forge-ci release files declare --asset "dist/linux-amd64/${ARTIFACT_NAME}-linux-amd64"
+
+      - name: Upload dist/ with hand-off digest
+        id: dist
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/upload-dist@2f4e845cee96973d1082bf00a5a18689c1482148
+        with:
+          artifact-name: build-dist
+          path: dist/
+
+  sign-and-publish:
+    name: Sign and publish
+    needs: [prepare, build]
+    # job-graph-guard: allow reason="reads needs.prepare.outputs but is gated on needs.build.result=='success'; build needs prepare, so build can only succeed if prepare succeeded, making prepare.outputs always present"
+    if: ${{ always() && needs.build.result == 'success' }}
+    uses: itiquette/forge-ci/.forgejo/workflows/sign-and-publish-release.yml@2f4e845cee96973d1082bf00a5a18689c1482148
+    with:
+      runner-label: ${{ vars.CI_RUNNER_LABEL }}
+      release-tag: ${{ needs.prepare.outputs.release-tag }}
+      release-sha: ${{ needs.prepare.outputs.release-sha }}
+      release-request-sha: ${{ forgejo.sha }}
+      dist-digest: ${{ needs.build.outputs.dist-digest }}
+      artifact-name: build-dist
+      artifact-path: dist/
+      release-images-path: dist/release-images.json
+      caller-workflow: release.yml
+      forge-ci-repository: diggsweden/forge-ci
+      forge-ci-sha: 2f4e845cee96973d1082bf00a5a18689c1482148
+      sign-distro-packages: 'false'
+      signer-image: forgejo.example/diggsweden/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: 1111111111111111111111111111111111111111111111111111111111111111
+    secrets:
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+
+  # ===========================================================================
+  # JOB: summary — the release overview; Forgejo 17 shows it above the logs,
+  # older Forgejo prints it in this job's log.
+  # ===========================================================================
+  summary:
+    name: Summary
+    if: ${{ always() && startsWith(forgejo.ref, 'refs/tags/') }}
+    needs: [prepare, build, sign-and-publish]
+    runs-on: ${{ vars.CI_RUNNER_LABEL }}
+    timeout-minutes: 5
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@2f4e845cee96973d1082bf00a5a18689c1482148
+
+      - name: Write the release summary
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release-tag }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.release-sha }}
+          RELEASE_ACTOR: ${{ forgejo.actor }}
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          PUBLISH_RESULT: ${{ needs.sign-and-publish.result }}
+        run: |
+          forge-ci report release \
+            --job "Prepare=${PREPARE_RESULT}" \
+            --job "Build: release files=${BUILD_RESULT}" \
+            --job "Sign and publish=${PUBLISH_RESULT}"
