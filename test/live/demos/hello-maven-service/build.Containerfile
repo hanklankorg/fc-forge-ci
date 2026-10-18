@@ -12,8 +12,10 @@ FROM docker.io/library/maven:3.9-eclipse-temurin-25@sha256:96f175708f766ea049ab6
 USER 0:0
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git jq curl ca-certificates openssh-client bash coreutils findutils buildah \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends git jq curl ca-certificates openssh-client bash coreutils findutils buildah netavark \
+    && rm -rf /var/lib/apt/lists/* \
+    && printf '[storage]\ndriver = "vfs"\nrunroot = "/run/containers/storage"\ngraphroot = "/var/lib/containers/storage"\n' \
+        >/etc/containers/storage.conf
 
 COPY --from=trivy /usr/local/bin/trivy /usr/local/bin/trivy
 

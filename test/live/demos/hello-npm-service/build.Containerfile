@@ -13,8 +13,10 @@ USER 0:0
 
 # hadolint ignore=DL3008
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git jq curl ca-certificates openssh-client bash coreutils findutils buildah \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends git jq curl ca-certificates openssh-client bash coreutils findutils buildah netavark \
+    && rm -rf /var/lib/apt/lists/* \
+    && printf '[storage]\ndriver = "vfs"\nrunroot = "/run/containers/storage"\ngraphroot = "/var/lib/containers/storage"\n' \
+        >/etc/containers/storage.conf
 
 COPY --from=trivy /usr/local/bin/trivy /usr/local/bin/trivy
 
