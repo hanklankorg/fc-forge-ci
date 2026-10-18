@@ -190,13 +190,31 @@ func TestParseGitHubTrialSettings(t *testing.T) {
 	}
 
 	pr, err := ParseGitHubTrialSettings(TrialPullRequest, nil)
-	if err != nil || pr.Workflow != "pullrequest.yml" || pr.Version != "" {
+	if err != nil || pr.Workflow != "pullrequest.yml" || pr.Version != "" || pr.Platforms != "linux/amd64" {
 		t.Errorf("pull-request defaults = %+v, %v", pr, err)
+	}
+
+	for stated, engine := range map[string]string{
+		"linux/amd64": "linux/amd64", "linux/arm64": "linux/amd64,linux/arm64", "linux/amd64,linux/arm64": "linux/amd64,linux/arm64",
+	} {
+		if got := GitHubEnginePlatforms(stated); got != engine {
+			t.Errorf("GitHubEnginePlatforms(%q) = %q, want %q", stated, got, engine)
+		}
+	}
+
+	// amd64 unless the run states more; each runs on its own native runner.
+	both, err := ParseGitHubTrialSettings(TrialPullRequest, []string{"RELEASE_PLATFORMS=linux/amd64,linux/arm64"})
+	if err != nil || both.Platforms != "linux/amd64,linux/arm64" {
+		t.Errorf("RELEASE_PLATFORMS=both: %+v, %v", both, err)
 	}
 
 	for _, bad := range [][2]string{
 		{TrialPullRequest, "version=v1.0.0"},
 		{TrialPullRequest, "image=x"},
+		{TrialPullRequest, "RELEASE_PLATFORMS=linux/riscv64"},
+		{TrialPullRequest, "RELEASE_PLATFORMS=linux/amd64,linux/amd64"},
+		{TrialPullRequest, "RELEASE_PLATFORMS=linux/amd64, linux/arm64"},
+		{TrialPullRequest, "platforms=linux/amd64"},
 		{TrialRelease, "version=1.0"},
 		{TrialRelease, "fixtures=../elsewhere"},
 		{TrialRelease, "runtime-image=x"},

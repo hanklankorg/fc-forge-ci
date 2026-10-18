@@ -485,6 +485,9 @@ jobs:
         id: platforms
         env:
           PLATFORMS: ${{ inputs.platforms }}
+          # The caller's repository variable narrows the declared platforms,
+          # as on the other forges; empty builds them all.
+          RELEASE_PLATFORMS: ${{ vars.RELEASE_PLATFORMS }}
         run: forge-ci container platform-plan
   build-arch:
     name: Build${{ inputs.name && format(' ({0})({1})', inputs.name, matrix.platform) || format(' ({0})', matrix.platform) }}

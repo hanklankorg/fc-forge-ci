@@ -946,7 +946,17 @@ none), which writes the private context `FORGE_LAB_GITHUB_CONTEXT` names:
 ```text
 just test-live-github-consumer <org-id> /absolute/gommitlint pull-request
 just test-live-github-consumer <org-id> /absolute/gommitlint release version=0.1.0 image=gommitlint
+just test-live-github-consumer <org-id> /absolute/gommitlint release RELEASE_PLATFORMS=linux/amd64,linux/arm64
 ```
+
+A trial builds `linux/amd64` only unless `RELEASE_PLATFORMS=` states otherwise,
+as in the lab trials: `linux/arm64` or both. The consumer repository gets exactly
+that list as
+`RELEASE_PLATFORMS`. The engine repository gets it before its push with
+`linux/amd64` always included, because the orchestrators' jobs run on amd64
+runners in its runtime images. Every platform builds natively on GitHub's runner
+of that architecture (`ubuntu-26.04` or `ubuntu-26.04-arm`). When the trial
+ends, the engine repository is set back to `linux/amd64`.
 
 What it does, in order:
 

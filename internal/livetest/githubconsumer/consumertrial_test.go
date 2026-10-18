@@ -76,7 +76,7 @@ func TestGitHubLayer_ConsumerTrial(t *testing.T) {
 	}
 
 	trial := livetest.OpenGitHubTrial(t, organizationID)
-	engine := trial.EnsureEngine(reporoot.Path(t))
+	engine := trial.EnsureEngine(reporoot.Path(t), livetest.GitHubEnginePlatforms(settings.Platforms))
 
 	for _, visibility := range visibilities {
 		t.Run(visibility.Name, func(t *testing.T) {
@@ -117,6 +117,7 @@ func runTrial(t *testing.T, trial *livetest.GitHubTrial, engine livetest.GitHubE
 
 	tree := trial.PushConsumer(repo, root, fixtures, engine, overrides)
 	trial.SetVariable(repo, "FORGE_CI_REPOSITORY", engine.Owner+"/"+engine.Repository)
+	trial.SetVariable(repo, "RELEASE_PLATFORMS", settings.Platforms)
 
 	t.Logf("consumer %s rendered from %s (%s) at %s, engine %s/%s at %s", repo, root, fixtures, tree.Main, engine.Owner, engine.Repository, engine.Commit)
 

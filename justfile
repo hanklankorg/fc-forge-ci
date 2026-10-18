@@ -1030,7 +1030,8 @@ demo-delete forge name *settings:
 # consumer's GitHub fixture workflows, pinned to that engine, then run in a
 # disposable <prefix><name>-<visibility>-<session> repository, deleted afterwards. A
 # setting is key=value: workflow=<file>, fixtures=<dir>, version=X.Y.Z and
-# image=<name> (release), nanolinter-image= and megalinter-image=<reference>.
+# image=<name> (release), RELEASE_PLATFORMS=<linux/amd64 and/or linux/arm64>
+# (default linux/amd64), nanolinter-image= and megalinter-image=<reference>.
 # docs/testing.md, Trying a consumer on GitHub, has the prerequisites.
 [arg('event', help='Consumer workflow kind: pull-request or release')]
 [arg('checkout', help='Absolute path to a clean consumer checkout with GitHub fixtures')]

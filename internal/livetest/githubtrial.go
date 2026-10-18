@@ -92,7 +92,7 @@ func OpenGitHubTrial(tb TB, organizationID int64) *GitHubTrial {
 // HEAD is pushed, not the working tree: commit the change under test, or
 // check out a throwaway branch with it. main of the engine repository is
 // overwritten; the repository is the trial's own, under the context prefix.
-func (trial *GitHubTrial) EnsureEngine(root string) GitHubEngine {
+func (trial *GitHubTrial) EnsureEngine(root, platforms string) GitHubEngine {
 	trial.tb.Helper()
 
 	ctx := trial.tb.Context()
@@ -116,6 +116,13 @@ func (trial *GitHubTrial) EnsureEngine(root string) GitHubEngine {
 		trial.tb.Fatalf("livetest: the engine checkout must be SHA-1 for GitHub; HEAD is %q", commit)
 	}
 
+	// The runtime images' platforms are this run's, set before the push that
+	// builds them; the default comes back when the trial ends, so a selection
+	// never outlives its run.
+	trial.SetVariable(name, "RELEASE_PLATFORMS", platforms)
+	if platforms != githubDefaultPlatforms {
+		trial.tb.Cleanup(func() { trial.SetVariable(name, "RELEASE_PLATFORMS", githubDefaultPlatforms) })
+	}
 	trial.push(root, "--force", trial.remote(name), "HEAD:refs/heads/main")
 	trial.SetVariable(name, "FORGE_CI_REPOSITORY", trial.org+"/"+name)
 	trial.ensurePrerelease(name)

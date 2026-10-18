@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"golang.org/x/crypto/nacl/box"
@@ -166,7 +167,41 @@ type GitHubTrialSettings struct {
 	Fixtures  string            // the consumer's fixture directory; "" finds it
 	Version   string            // the release version, vX.Y.Z
 	Image     string            // the released image to verify, or ""
+	Platforms string            // RELEASE_PLATFORMS of the engine and the consumer
 	Overrides map[string]string // input: value lines set in the rendered fixtures
+}
+
+// githubDefaultPlatforms is what a trial builds unless RELEASE_PLATFORMS
+// states otherwise, as in the lab trials: each
+// stated platform runs natively on GitHub's runner of that architecture.
+const githubDefaultPlatforms = "linux/amd64"
+
+// githubPlatforms reports whether value is a duplicate-free list of the
+// platforms GitHub's hosted runners build natively.
+func githubPlatforms(value string) bool {
+	seen := map[string]bool{}
+
+	for platform := range strings.SplitSeq(value, ",") {
+		if (platform != "linux/amd64" && platform != "linux/arm64") || seen[platform] {
+			return false
+		}
+
+		seen[platform] = true
+	}
+
+	return true
+}
+
+// GitHubEnginePlatforms are the runtime image platforms the engine builds for
+// a trial: always linux/amd64, which the orchestrators' jobs run on, plus
+// linux/arm64 when the trial states it. The consumer gets exactly what was
+// stated, so an arm64-only consumer still has the images its jobs need.
+func GitHubEnginePlatforms(stated string) string {
+	if slices.Contains(strings.Split(stated, ","), "linux/arm64") {
+		return "linux/amd64,linux/arm64"
+	}
+
+	return githubDefaultPlatforms
 }
 
 // pinnedImage is an image reference pinned by a full digest, the form the
@@ -180,7 +215,7 @@ var githubOverridable = map[string]bool{"nanolinter-image": true, "megalinter-im
 
 // ParseGitHubTrialSettings reads the caller's key=value words for an event.
 func ParseGitHubTrialSettings(event string, words []string) (GitHubTrialSettings, error) {
-	settings := GitHubTrialSettings{Event: event, Overrides: map[string]string{}}
+	settings := GitHubTrialSettings{Event: event, Platforms: githubDefaultPlatforms, Overrides: map[string]string{}}
 
 	switch event {
 	case TrialPullRequest:
@@ -195,7 +230,7 @@ func ParseGitHubTrialSettings(event string, words []string) (GitHubTrialSettings
 		key, value, found := strings.Cut(word, "=")
 		if !found || value == "" || !settings.set(key, value) {
 			return GitHubTrialSettings{}, fmt.Errorf("setting %q: want workflow=<file>, fixtures=<dir>, version=X.Y.Z or image=<name> (release), "+
-				"or nanolinter-image=/megalinter-image=<reference>: %w", word, errs.ErrValidation)
+				"RELEASE_PLATFORMS=linux/amd64[,linux/arm64], or nanolinter-image=/megalinter-image=<reference>: %w", word, errs.ErrValidation)
 		}
 	}
 
@@ -223,6 +258,10 @@ func (settings *GitHubTrialSettings) set(key, value string) bool {
 		settings.Image = value
 
 		return release && regexp.MustCompile(`^[a-z0-9][a-z0-9._/-]*$`).MatchString(value)
+	case key == "RELEASE_PLATFORMS":
+		settings.Platforms = value
+
+		return githubPlatforms(value)
 	case githubOverridable[key]:
 		settings.Overrides[key] = value
 
