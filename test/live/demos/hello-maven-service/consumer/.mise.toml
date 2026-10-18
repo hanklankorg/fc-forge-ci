@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: CC0-1.0
 
 # The release build runs on the runner host, where the image is built too:
-# setup-toolchain installs these.
+# setup-toolchain installs these from mise.lock (`mise lock --platform
+# linux-x64,linux-arm64` after a change).
 [tools]
 java = "temurin-25.0.4+7.0.LTS"
 maven = "3.9.16"

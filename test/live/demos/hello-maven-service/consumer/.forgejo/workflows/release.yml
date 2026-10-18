@@ -88,6 +88,9 @@ jobs:
           cache-key-suffix: release-build
           install-dev-tools: false
           cache: 'false'
+          # The committed mise.lock pins each tool's download and checksum, so
+          # the install needs no GitHub token.
+          mise-locked: true
 
       - name: Build and test
         uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/build-maven@2f4e845cee96973d1082bf00a5a18689c1482148
