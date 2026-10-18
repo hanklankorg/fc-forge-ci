@@ -316,7 +316,7 @@ jobs:
           fi
           mkdir -p cli-prebuilt
           tar -xzf "$tarball" -C cli-prebuilt forge-ci
-          cli-prebuilt/forge-ci container platform-plan --platforms "${RUNTIME_PLATFORMS}" --select "${RELEASE_PLATFORMS}"
+          cli-prebuilt/forge-ci container platform-plan --platforms "${RUNTIME_PLATFORMS}" --release-platforms "${RELEASE_PLATFORMS}"
   # Publish phase 1: build each (target, platform) leg natively on a runner of
   # its architecture; no QEMU emulation. Each leg pushes by digest only; tags
   # are applied later by publish-merge.

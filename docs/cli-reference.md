@@ -1567,19 +1567,19 @@ emit platform matrix JSON and per-platform suffix outputs
 
 ```
 Writes platforms-json (the platforms) and matrix-json (each platform with
-its suffix) to the output sink. --select, or RELEASE_PLATFORMS, narrows the
+its suffix) to the output sink. --release-platforms, or RELEASE_PLATFORMS, narrows the
 declared --platforms to a subset; an undeclared, duplicated or malformed entry
 is refused.
 
 EXAMPLE:
-   forge-ci container platform-plan --platforms "linux/amd64,linux/arm64" --select "$RELEASE_PLATFORMS"
+   forge-ci container platform-plan --platforms "linux/amd64,linux/arm64" --release-platforms "$RELEASE_PLATFORMS"
 ```
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
 | `--platforms` | comma/space/newline-separated build platforms (linux/amd64,linux/arm64) | string | `""` | `$PLATFORMS` |
 | `--platform` | single build platform; falls back to the first entry of --platforms | string | `""` | `$PLATFORM` |
-| `--select` | comma-separated subset of --platforms to build (RELEASE_PLATFORMS); empty builds them all | string | `""` | `$RELEASE_PLATFORMS` |
+| `--release-platforms` | comma-separated subset of --platforms to build; empty builds them all | string | `""` | `$RELEASE_PLATFORMS` |
 
 ### `forge-ci container ref`
 

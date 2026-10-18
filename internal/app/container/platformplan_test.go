@@ -131,8 +131,8 @@ func TestPlatformPlan_SelectsFromTheDeclaredPlatforms(t *testing.T) {
 		sink := fakeoutputsink.New(t)
 
 		if _, err := appcontainer.PlatformPlan(t.Context(), sink, nil, appcontainer.PlatformPlanInput{
-			Platforms: "linux/amd64,linux/arm64",
-			Select:    selection,
+			Platforms:        "linux/amd64,linux/arm64",
+			ReleasePlatforms: selection,
 		}); err != nil {
 			t.Fatalf("select %q: %v", selection, err)
 		}
@@ -144,8 +144,8 @@ func TestPlatformPlan_SelectsFromTheDeclaredPlatforms(t *testing.T) {
 
 	sink := fakeoutputsink.New(t)
 	if _, err := appcontainer.PlatformPlan(t.Context(), sink, nil, appcontainer.PlatformPlanInput{
-		Platforms: "linux/amd64,linux/arm64",
-		Select:    "linux/riscv64",
+		Platforms:        "linux/amd64,linux/arm64",
+		ReleasePlatforms: "linux/riscv64",
 	}); !errors.Is(err, errs.ErrUsage) {
 		t.Errorf("an undeclared selection: err = %v, want a usage error", err)
 	}

@@ -21,9 +21,9 @@ import (
 type PlatformPlanInput struct {
 	Platforms string
 	Platform  string
-	// Select is RELEASE_PLATFORMS: the subset of Platforms this run builds.
+	// ReleasePlatforms is RELEASE_PLATFORMS: the subset of Platforms this run builds.
 	// Empty builds every one of them.
-	Select string
+	ReleasePlatforms string
 }
 
 // PlatformLeg is one entry of the matrix: the platform and the suffix its
@@ -48,7 +48,7 @@ func PlatformPlan(ctx context.Context, sink ci.OutputSink, w io.Writer, in Platf
 		return nil, err
 	}
 
-	platforms, err = domaincontainer.SelectPlatforms(platforms, in.Select)
+	platforms, err = domaincontainer.SelectPlatforms(platforms, in.ReleasePlatforms)
 	if err != nil {
 		return nil, err
 	}
