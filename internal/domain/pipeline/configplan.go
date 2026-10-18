@@ -62,6 +62,8 @@ type PlannedSign struct {
 	// concrete for the cosign methods (public when artifacts.yml omits
 	// it); empty for gpg, which never invokes cosign.
 	Transparency domainrelease.Transparency `json:"transparency,omitempty"`
+	// TransparencyExplicit preserves consent before the default is resolved.
+	TransparencyExplicit bool `json:"transparency_explicit,omitempty"`
 	// RequiresSigstoreEgress precomputes "does this run talk to public
 	// Sigstore infrastructure?" so a caller's egress allowlist is
 	// derived from the plan rather than hand-maintained prose. It is
@@ -115,18 +117,19 @@ type ArtifactSets struct {
 // `matrix.artifact.gradle_android.include_aab`, etc. — the JSON tags
 // (snake_case) align with GitHub Actions expression syntax.
 type PlannedArtifact struct {
-	Name                  string                 `json:"name"`
-	ProjectType           projecttype.Type       `json:"project_type"`
-	WorkingDirectory      string                 `json:"working_directory"`
-	BuildType             config.BuildType       `json:"build_type,omitempty"`
-	PublishTo             []config.PublishTarget `json:"publish_to,omitempty"`
-	SBOMs                 string                 `json:"sboms,omitempty"`
-	EffectiveSBOMs        []config.SBOMLayer     `json:"effective_sboms,omitempty"`
-	RequireAuthorization  bool                   `json:"require_authorization,omitempty"`
-	GoBuildMode           config.GoBuildMode     `json:"go_build_mode,omitempty"`
-	CargoBuildMode        config.CargoBuildMode  `json:"cargo_build_mode,omitempty"`
-	BuildArtifactName     string                 `json:"build_artifact_name,omitempty"`
-	BuildSBOMArtifactName string                 `json:"build_sbom_artifact_name,omitempty"`
+	Name                    string                 `json:"name"`
+	ProjectType             projecttype.Type       `json:"project_type"`
+	WorkingDirectory        string                 `json:"working_directory"`
+	BuildType               config.BuildType       `json:"build_type,omitempty"`
+	PublishTo               []config.PublishTarget `json:"publish_to,omitempty"`
+	SBOMs                   string                 `json:"sboms,omitempty"`
+	EffectiveSBOMs          []config.SBOMLayer     `json:"effective_sboms,omitempty"`
+	RequireAuthorization    bool                   `json:"require_authorization,omitempty"`
+	GoBuildMode             config.GoBuildMode     `json:"go_build_mode,omitempty"`
+	CargoBuildMode          config.CargoBuildMode  `json:"cargo_build_mode,omitempty"`
+	BuildArtifactName       string                 `json:"build_artifact_name,omitempty"`
+	BuildSBOMArtifactName   string                 `json:"build_sbom_artifact_name,omitempty"`
+	PublicationArtifactName string                 `json:"publication_artifact_name,omitempty"`
 
 	Maven         *config.MavenConfig         `json:"maven,omitempty"`
 	NPM           *config.NPMConfig           `json:"npm,omitempty"`
@@ -261,14 +264,15 @@ func planSign(sign config.SignConfig) PlannedSign {
 	}
 
 	return PlannedSign{
-		Method:          method,
-		Key:             sign.Key,
-		OIDCIssuer:      sign.OIDCIssuer,
-		RequiresIDToken: method == domainrelease.SignMethodSigstore,
-		ImportsGPGKey:   method == domainrelease.SignMethodGPG,
-		SignsContainers: signsWithCosign,
-		UsesKeySecret:   method == domainrelease.SignMethodKMS && sign.Key == config.CosignKeyEnvRef,
-		Transparency:    transparency,
+		Method:               method,
+		Key:                  sign.Key,
+		OIDCIssuer:           sign.OIDCIssuer,
+		RequiresIDToken:      method == domainrelease.SignMethodSigstore,
+		ImportsGPGKey:        method == domainrelease.SignMethodGPG,
+		SignsContainers:      signsWithCosign,
+		UsesKeySecret:        method == domainrelease.SignMethodKMS && sign.Key == config.CosignKeyEnvRef,
+		Transparency:         transparency,
+		TransparencyExplicit: sign.Transparency != "",
 		// Keyless always reaches Sigstore (Fulcio + Rekor + TUF). kms
 		// reaches it only to publish. gpg never does.
 		RequiresSigstoreEgress: method == domainrelease.SignMethodSigstore ||
@@ -276,22 +280,31 @@ func planSign(sign config.SignConfig) PlannedSign {
 	}
 }
 
+func publicationArtifactName(a config.Artifact) string {
+	if (a.ProjectType == projecttype.Gradle || a.ProjectType == projecttype.GradleAndroid) && (slices.Contains(a.PublishTo, config.PublishForgePackages) || slices.Contains(a.PublishTo, config.PublishMavenCentral)) {
+		return a.Name + "-maven-publications"
+	}
+
+	return ""
+}
+
 func planArtifacts(in []config.Artifact) []PlannedArtifact {
 	out := make([]PlannedArtifact, 0, len(in))
 	for _, a := range in { //nolint:varnamelen // idiomatic short name (testing/http/io conventions).
 		out = append(out, PlannedArtifact{
-			Name:                  a.Name,
-			ProjectType:           a.ProjectType,
-			WorkingDirectory:      cmp.Or(a.WorkingDirectory, "."),
-			BuildType:             a.BuildType,
-			PublishTo:             slices.Clone(a.PublishTo),
-			SBOMs:                 a.SBOMs,
-			EffectiveSBOMs:        slices.Clone(a.EffectiveSBOMs),
-			RequireAuthorization:  a.RequireAuthorization,
-			GoBuildMode:           config.GoArtifactBuildMode(a),
-			CargoBuildMode:        config.CargoArtifactBuildMode(a),
-			BuildArtifactName:     buildArtifactName(a),
-			BuildSBOMArtifactName: buildSBOMArtifactName(a),
+			Name:                    a.Name,
+			ProjectType:             a.ProjectType,
+			WorkingDirectory:        cmp.Or(a.WorkingDirectory, "."),
+			BuildType:               a.BuildType,
+			PublishTo:               slices.Clone(a.PublishTo),
+			SBOMs:                   a.SBOMs,
+			EffectiveSBOMs:          slices.Clone(a.EffectiveSBOMs),
+			RequireAuthorization:    a.RequireAuthorization,
+			GoBuildMode:             config.GoArtifactBuildMode(a),
+			CargoBuildMode:          config.CargoArtifactBuildMode(a),
+			BuildArtifactName:       buildArtifactName(a),
+			BuildSBOMArtifactName:   buildSBOMArtifactName(a),
+			PublicationArtifactName: publicationArtifactName(a),
 
 			Maven:         a.Maven,
 			NPM:           a.NPM,
@@ -381,6 +394,10 @@ func buildArtifactName(art config.Artifact) string {
 	case projecttype.Cargo:
 		return artifactFirstCargoName(art)
 	case projecttype.GradleAndroid:
+		if art.BuildType == config.BuildTypeLibrary {
+			return art.Name
+		}
+
 		return androidReleaseAABName(art)
 	case projecttype.XcodeIOS:
 		if !art.EnableCodeSigning() {

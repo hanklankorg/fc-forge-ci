@@ -72,7 +72,7 @@ func TestPlans_ReturnValueAndEveryProjectionAgree(t *testing.T) {
 
 	artifacts := func() *config.Config {
 		return &config.Config{
-			Sign: config.SignConfig{Method: domainrelease.SignMethodSigstore},
+			Sign: config.SignConfig{Method: domainrelease.SignMethodSigstore, Transparency: domainrelease.TransparencyPublic},
 			Artifacts: []config.Artifact{
 				{Name: "lib", ProjectType: projecttype.Maven, BuildType: config.BuildTypeLibrary, PublishTo: []config.PublishTarget{config.PublishMavenCentral}},
 				{Name: "web", ProjectType: projecttype.NPM},

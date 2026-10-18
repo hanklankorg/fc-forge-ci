@@ -35,6 +35,13 @@ spec:
     profile:
       default: ""
       description: Maven profile to activate (library builds).
+    private-dependencies:
+      type: boolean
+      default: false
+      description: "Use the caller's read-scoped DEPENDENCY_TOKEN and optional DEPENDENCY_USERNAME."
+    settings-path:
+      default: ""
+      description: Consumer-owned settings.xml; required for private dependencies and never overwritten.
     cli-opts:
       default: "--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always"
       description: Extra args forwarded to mvn.
@@ -48,7 +55,7 @@ spec:
       description: Generate the cyclonedx-maven-plugin Build SBOM.
     sbom-tool-version:
       # renovate: datasource=maven depName=org.cyclonedx:cyclonedx-maven-plugin
-      default: "2.9.1"
+      default: "2.9.3"
       description: Pinned org.cyclonedx:cyclonedx-maven-plugin version.
     java-version:
       default: "25"
@@ -64,6 +71,8 @@ spec:
     RC_PROJECT_DIRECTORY: "$[[ inputs.working-directory ]]"
     BUILD_TYPE: "$[[ inputs.build-type ]]"
     MAVEN_PROFILE: "$[[ inputs.profile ]]"
+    PRIVATE_DEPENDENCIES: "$[[ inputs.private-dependencies ]]"
+    MAVEN_SETTINGS_PATH: "$[[ inputs.settings-path ]]"
     MAVEN_CLI_OPTS: "$[[ inputs.cli-opts ]]"
     SKIP_TESTS: "$[[ inputs.skip-tests ]]"
     ENABLE_BUILD_SBOM: "$[[ inputs.enable-build-sbom ]]"

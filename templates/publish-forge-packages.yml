@@ -41,11 +41,18 @@ spec:
       description: Release version (reported in the summary).
     project-type:
       default: maven
-      options: ["maven", "npm"]
-      description: Package ecosystem — "maven" (mvn deploy) or "npm" (npm publish the *.tgz). Set runtime-image to match.
+      options: ["maven", "npm", "gradle", "gradle-android"]
+      description: Maven project, packed npm package, or exported Gradle Maven publication. Set runtime-image to match.
     working-directory:
       default: "."
       description: Directory containing the pom.xml (maven) or the packed *.tgz (npm).
+    npm-tag:
+      default: ""
+      description: "Required for npm: release-{version} or release-<packed-version>; movable tags are forbidden."
+    snapshot:
+      type: boolean
+      default: false
+      description: Publish only Maven-format snapshots; not applicable to npm.
     cli-opts:
       default: "--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always"
       description: Extra args forwarded to mvn (maven only).
@@ -60,6 +67,9 @@ spec:
     RC_PROJECT_DIRECTORY: "$[[ inputs.working-directory ]]"
     MAVEN_CLI_OPTS: "$[[ inputs.cli-opts ]]"
     PACKAGE_TYPE: "$[[ inputs.project-type ]]"
+    VERSION: "$[[ inputs.version ]]"
+    NPM_TAG: "$[[ inputs.npm-tag ]]"
+    MAVEN_SNAPSHOT: "$[[ inputs.snapshot ]]"
     CI_SUMMARY_FILE: "$CI_PROJECT_DIR/forge-packages-publish-summary.md"
   script:
     - |
@@ -69,6 +79,7 @@ spec:
       trap 'rm -f -- "$CI_OUTPUT"' EXIT
     # Defense-in-depth: refuse MR-context triggers — CI_JOB_TOKEN is in scope.
     - forge-ci validate event-context
+    - if [ "$PACKAGE_TYPE" = "npm" ]; then forge-ci publish npm validate-tag; fi
     - cd -- "$RC_PROJECT_DIRECTORY"
     # Maven metadata feeds the summary version; npm has no pom, so skip it there.
     - if [ "$PACKAGE_TYPE" = "maven" ]; then forge-ci build maven metadata; fi

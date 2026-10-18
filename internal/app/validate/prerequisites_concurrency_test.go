@@ -85,7 +85,8 @@ func TestPrerequisites_ConcurrentAnnotationsAreSerialisedAndComplete(t *testing.
 		RefType: "tag", Tag: rerunRequestTag, Ref: "refs/tags/" + rerunRequestTag, Branch: "main",
 		ReleaseToken: "github_pat_AAAA", Repository: "owner/repo", ReleaseGPGPublicKey: "test-key",
 		RequiresGPGSigning: true, HasMavenCentralTarget: true, HasCargoTarget: true, HasJVMTarget: true,
-		ConfigPlanJSON: plan,
+		HasMavenCentralSigningKey: true,
+		ConfigPlanJSON:            plan,
 	})
 
 	if n := annotations.overlaps.Load(); n != 0 {

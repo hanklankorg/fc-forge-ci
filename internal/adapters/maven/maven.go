@@ -17,7 +17,9 @@ import (
 
 // Adapter wraps the mvn binary. MvnBin is overridable for tests.
 type Adapter struct {
-	MvnBin string // empty → "mvn"
+	MvnBin  string   // empty → "mvn"
+	Env     []string // nil inherits; supplied explicitly for private dependency access
+	Options []string // settings shared by lifecycle and metadata invocations
 }
 
 // New returns an Adapter using the system mvn.
@@ -32,7 +34,8 @@ func New() *Adapter { return &Adapter{} }
 // see Maven's own diagnostic text in CI logs.
 func (a *Adapter) EvalExpression(ctx context.Context, expr string) (string, error) {
 	args := []string{"help:evaluate", "-Dexpression=" + expr, "-q", "-DforceStdout"}
-	cmd := safeexec.Command(ctx, a.bin(), args...)
+	cmd := safeexec.Command(ctx, a.bin(), append(append([]string{}, a.Options...), args...)...)
+	cmd.Env = a.Env
 
 	// The value is stdout alone. A JVM that prints a notice on stderr
 	// ("Picked up JAVA_TOOL_OPTIONS: ...") must not have it read back as the
@@ -68,7 +71,8 @@ func (a *Adapter) RunInherit(ctx context.Context, stdout, stderr io.Writer, args
 // RunInheritIn is like RunInherit but runs mvn inside dir. dir="" runs
 // in the current working directory.
 func (a *Adapter) RunInheritIn(ctx context.Context, dir string, stdout, stderr io.Writer, args ...string) error {
-	cmd := safeexec.Command(ctx, a.bin(), args...)
+	cmd := safeexec.Command(ctx, a.bin(), append(append([]string{}, a.Options...), args...)...)
+	cmd.Env = a.Env
 	cmd.Dir = dir
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr

@@ -7,6 +7,7 @@ package livetest
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -235,4 +236,49 @@ func MavenPackageName(target Target, groupID, artifactID string) string {
 	}
 
 	return groupID + ":" + artifactID
+}
+
+// MavenRegistryFile reads bytes independently of the publishing command. The
+// forge-native registry URL and lab transport remain owned by the test kit.
+func MavenRegistryFile(tb TB, target Target, repo, relative string) []byte {
+	tb.Helper()
+	requireAccepted(tb, target)
+
+	if !fs.ValidPath(relative) || strings.ContainsAny(relative, "\\%?#") {
+		tb.Fatalf("livetest: invalid Maven fixture file coordinate")
+
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(Context(tb), timeoutAPI)
+	defer cancel()
+
+	var base string
+
+	switch target.Forge {
+	case provider.ForgeForgejo:
+		base = target.BaseURL() + "/api/packages/" + url.PathEscape(target.Owner) + "/maven/"
+	case provider.ForgeGitLab:
+		id, exists, err := repositoryID(ctx, target, repo)
+		if err != nil || !exists {
+			tb.Fatalf("livetest: resolve Maven registry project: %v", err)
+
+			return nil
+		}
+
+		base = target.BaseURL() + "/api/v4/projects/" + strconv.FormatInt(id, 10) + "/packages/maven/"
+	default:
+		tb.Fatalf("livetest: Maven registry readback is unsupported for %s", target.Forge)
+
+		return nil
+	}
+
+	body, err := fetch(ctx, target, base+relative, 16<<20)
+	if err != nil {
+		tb.Fatalf("livetest: read Maven registry artifact: %v", err)
+
+		return nil
+	}
+
+	return body
 }

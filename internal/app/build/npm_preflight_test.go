@@ -291,7 +291,7 @@ func TestNPMReleaseBuild_LocalPreflightPreservesNativeSelection(t *testing.T) {
 			require.Equal(t, wantCalls, calls)
 			require.Equal(t, append(wantEvents, "summary", "npm pack", "summary"), events)
 			require.Len(t, npxRunner.calls, 1)
-			require.Equal(t, []string{"--yes", "@cyclonedx/cyclonedx-npm@4.2.1", "--output-format", "json", "--output", npxRunner.calls[0][5]}, npxRunner.calls[0])
+			require.Equal(t, []string{"--yes", "@cyclonedx/cyclonedx-npm@4.2.1", "--output-format", "json", "--output-file", npxRunner.calls[0][5]}, npxRunner.calls[0])
 			require.Equal(t, []string{dir}, npxRunner.dirs)
 			require.Equal(t, archive.Bytes(), fsys.ReadFile("selected package/"+filename))
 			require.JSONEq(t, `{"bomFormat":"CycloneDX","specVersion":"1.6","version":1}`, string(fsys.ReadFile("selected package/bom.json")))

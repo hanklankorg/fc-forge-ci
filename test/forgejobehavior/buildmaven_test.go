@@ -50,6 +50,7 @@ func mavenInputs(overrides ...string) []string {
 		"BUILD_MAVEN_VERSION=v1.2.3", "BUILD_MAVEN_COMMIT=abc123", "BUILD_MAVEN_BUILD_TYPE=build-type-v",
 		"BUILD_MAVEN_WORKING_DIRECTORY=.", "BUILD_MAVEN_PROFILE=profile-v",
 		"BUILD_MAVEN_SKIP_TESTS=skip-tests-v", "BUILD_MAVEN_BUILD_SBOM=build-sbom-v",
+		"BUILD_MAVEN_PRIVATE_DEPENDENCIES=false", "BUILD_MAVEN_SETTINGS_PATH=",
 	}
 
 	for _, override := range overrides {
@@ -73,7 +74,7 @@ func TestBuildMavenForwardsEveryInput(t *testing.T) {
 	action := loadAction(t, buildMaven)
 	action.requireSteps(t, 1)
 
-	inputs := []string{"version", "commit", "build-type", "working-directory", "profile", "skip-tests", "build-sbom"}
+	inputs := []string{"version", "commit", "build-type", "working-directory", "profile", "skip-tests", "build-sbom", "private-dependencies", "settings-path"}
 	bound := map[string]string{}
 
 	for _, input := range inputs {
@@ -103,7 +104,7 @@ func TestBuildMavenForwardsEveryInput(t *testing.T) {
 	}
 
 	call := "build maven run --working-dir . --build-type build-type-v --profile profile-v --cli-opts " + options +
-		" --skip-tests=skip-tests-v --build-sbom=build-sbom-v --sbom-tool-version 2.9.1 --expect-version "
+		" --skip-tests=skip-tests-v --build-sbom=build-sbom-v --sbom-tool-version 2.9.3 --private-dependencies=false --settings-path  --expect-version "
 	if got := readSandboxFile(t, box, "argv"); got != call+"1.2.3\n" {
 		t.Fatalf("engine calls\n%s\nwant\n%s", got, call+"1.2.3")
 	}
@@ -195,7 +196,7 @@ func TestBuildMavenThroughTheEngine(t *testing.T) {
 				t.Fatalf("status %d\nstdout %s\nstderr %s", got.status, got.stdout, got.stderr)
 			}
 
-			if !strings.Contains(log, "cyclonedx-maven-plugin:2.9.1") || !strings.Contains(log, "[FORGE_CI_VERSION=1.2.3 FORGE_CI_COMMIT=abc123]") {
+			if !strings.Contains(log, "cyclonedx-maven-plugin:2.9.3") || !strings.Contains(log, "[FORGE_CI_VERSION=1.2.3 FORGE_CI_COMMIT=abc123]") {
 				t.Fatalf("Maven was not asked for the pinned Build SBOM with the release's version and commit:\n%s", log)
 			}
 

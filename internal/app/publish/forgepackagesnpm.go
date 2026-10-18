@@ -4,15 +4,21 @@
 package publish
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"path/filepath"
+	"regexp"
+	"strings"
 
+	"github.com/diggsweden/forge-ci/internal/archive"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
+	domainpublish "github.com/diggsweden/forge-ci/internal/domain/publish"
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
 )
 
@@ -26,6 +32,8 @@ type NPMPublishOps interface {
 type ForgePackagesNPMPublishInput struct {
 	// WorkingDir is the directory holding the packed *.tgz tarball.
 	WorkingDir string
+	// Tag is required: an explicit release-<version> or release-{version}.
+	Tag string
 }
 
 // ForgePackagesNPMPublish is the npm sibling of ForgePackagesDeploy: it
@@ -35,8 +43,7 @@ type ForgePackagesNPMPublishInput struct {
 // credentialed .npmrc to a 0600 temp file (token never on argv) and runs
 // `npm publish <tarball> --userconfig <npmrc>`.
 func ForgePackagesNPMPublish(ctx context.Context, ops NPMPublishOps, resolver provider.ForgeNPMRegistryResolver, stdout, stderr io.Writer, in ForgePackagesNPMPublishInput) error {
-	reg, err := resolver.ResolveForgeNPMRegistry()
-	if err != nil {
+	if err := domainpublish.ValidateNPMTag(in.Tag); err != nil {
 		return err
 	}
 
@@ -50,6 +57,20 @@ func ForgePackagesNPMPublish(ctx context.Context, ops NPMPublishOps, resolver pr
 		return err
 	}
 
+	meta, tag, err := prepareNPMPublication(tarball, in.Tag, stderr)
+	if err != nil {
+		return err
+	}
+
+	reg, err := resolver.ResolveForgeNPMRegistry()
+	if err != nil {
+		return err
+	}
+
+	if meta.PublishConfig.Registry != "" && strings.TrimRight(meta.PublishConfig.Registry, "/") != strings.TrimRight(reg.Registry, "/") {
+		return fmt.Errorf("packed publishConfig.registry conflicts with the selected registry: %w", errs.ErrInvalidConfig)
+	}
+
 	npmrcPath, cleanup, err := writeTempSecretFile("forge-ci-npmrc-*", reg.RenderNPMRC())
 	if err != nil {
 		return err
@@ -57,7 +78,11 @@ func ForgePackagesNPMPublish(ctx context.Context, ops NPMPublishOps, resolver pr
 
 	defer cleanup()
 
-	_, _ = fmt.Fprintf(stdout, "Publishing %s to the forge npm registry: %s\n", filepath.Base(tarball), reg.Registry)
+	if err := checkNPMTagBinding(ctx, ops, dir, userConfig{npmrcPath, reg.Registry}, meta, tag); err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintf(stdout, "Publishing %s@%s with tag %s to %s\n", meta.Name, meta.Version, tag, reg.Registry)
 
 	// "./<name>", not the dir-joined path findSingleTarball returned, and not a
 	// bare name either. npm runs with dir as its working directory, so the joined
@@ -71,8 +96,106 @@ func ForgePackagesNPMPublish(ctx context.Context, ops NPMPublishOps, resolver pr
 	// which fails for everyone, and reaches out to github.com from a job that
 	// asked to publish to its own forge. The leading "./" is what makes npm treat
 	// it as a path unconditionally, so no filename can ever be read as a spec.
-	return ops.RunInherit(ctx, dir, stdout, stderr, "publish", "./"+filepath.Base(tarball), "--userconfig", npmrcPath)
+	return ops.RunInherit(ctx, dir, stdout, stderr, "publish", "./"+filepath.Base(tarball), "--userconfig", npmrcPath, "--registry", reg.Registry, "--tag", tag, "--ignore-scripts")
 }
+
+func prepareNPMPublication(tarball, setting string, stderr io.Writer) (npmPackedMetadata, string, error) {
+	meta, err := packedNPMMetadata(tarball)
+	if err != nil {
+		return meta, "", err
+	}
+
+	tag, err := domainpublish.NPMVersionTag(meta.Version, setting)
+	if err != nil {
+		return meta, "", err
+	}
+
+	canonical, err := domainpublish.NPMRegistryVersion(meta.Version)
+	if err != nil {
+		return meta, "", err
+	}
+
+	if canonical != meta.Version {
+		_, _ = fmt.Fprintf(stderr, "Warning: npm removes build metadata from packed version %s; publication identity is %s and tag %s\n", meta.Version, canonical, tag)
+		meta.Version = canonical
+	}
+
+	if meta.PublishConfig.Tag != "" && meta.PublishConfig.Tag != tag {
+		return meta, "", fmt.Errorf("packed publishConfig.tag conflicts with required version-specific tag %q: %w", tag, errs.ErrInvalidConfig)
+	}
+
+	return meta, tag, nil
+}
+
+type npmPackedMetadata struct {
+	Name          string `json:"name"`
+	Version       string `json:"version"`
+	PublishConfig struct {
+		Tag      string `json:"tag"`
+		Registry string `json:"registry"`
+	} `json:"publishConfig"`
+}
+
+//nolint:gochecknoglobals // immutable package-spec grammar, not a registry query expression.
+var npmPackageNamePattern = regexp.MustCompile(`^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$`)
+
+func packedNPMMetadata(tarball string) (npmPackedMetadata, error) {
+	var meta npmPackedMetadata
+
+	body, err := archive.ReadTarGzipMember(tarball, "package/package.json", 1<<20)
+	if err != nil {
+		return meta, err
+	}
+
+	if err := json.Unmarshal(body, &meta); err != nil {
+		return meta, fmt.Errorf("packed package.json is invalid: %w", errs.ErrMalformedInput)
+	}
+
+	if len(meta.Name) > 214 || !npmPackageNamePattern.MatchString(meta.Name) {
+		return meta, fmt.Errorf("packed npm package name is invalid: %w", errs.ErrInvalidConfig)
+	}
+
+	return meta, nil
+}
+
+type userConfig struct{ path, registry string }
+
+func checkNPMTagBinding(ctx context.Context, ops NPMPublishOps, dir string, config userConfig, meta npmPackedMetadata, tag string) error {
+	var stdout, stderr npmRegistryOutput
+
+	err := ops.RunInherit(ctx, dir, &stdout, &stderr, "view", meta.Name, "dist-tags", "--json", "--userconfig", config.path, "--registry", config.registry)
+	if err != nil {
+		if isNPMNotFound(stderr.String()) {
+			return nil
+		}
+
+		return fmt.Errorf("read npm distribution tags before publishing: %w", err)
+	}
+
+	var tags map[string]string
+	if json.Unmarshal(stdout.Bytes(), &tags) != nil {
+		return fmt.Errorf("npm registry returned invalid distribution tags: %w", errs.ErrMalformedInput)
+	}
+
+	if version, exists := tags[tag]; exists && version != meta.Version {
+		return fmt.Errorf("npm tag %q already names version %q; refusing to move it to %q: %w", tag, version, meta.Version, errs.ErrValidation)
+	}
+
+	return nil
+}
+
+type npmRegistryOutput struct{ buffer bytes.Buffer }
+
+func (b *npmRegistryOutput) Write(p []byte) (int, error) {
+	if len(p) > (1<<20)-b.buffer.Len() {
+		return 0, fmt.Errorf("npm registry response exceeds 1 MiB: %w", errs.ErrMalformedInput)
+	}
+
+	return b.buffer.Write(p)
+}
+
+func (b *npmRegistryOutput) Bytes() []byte  { return b.buffer.Bytes() }
+func (b *npmRegistryOutput) String() string { return b.buffer.String() }
 
 // findSingleTarball returns the single *.tgz in dir (the npm-pack output),
 // erroring when none or more than one is present so the publish target is

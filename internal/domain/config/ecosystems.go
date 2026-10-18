@@ -20,25 +20,30 @@ package config
 
 // MavenConfig holds the typed `config:` block for Maven artifacts.
 type MavenConfig struct {
-	MavenProfile  string `json:"maven_profile,omitempty"  yaml:"maven-profile,omitempty"`
-	JavaVersion   string `json:"java_version,omitempty"   yaml:"java-version,omitempty"`
-	SettingsPath  string `json:"settings_path,omitempty"  yaml:"settings-path,omitempty"`
-	Profile       string `json:"profile,omitempty"        yaml:"profile,omitempty"`
-	AttachPattern string `json:"attach_pattern,omitempty" yaml:"attach-pattern,omitempty"`
+	PrivateDependencies bool   `json:"private_dependencies,omitempty" yaml:"private-dependencies,omitempty"`
+	MavenProfile        string `json:"maven_profile,omitempty"        yaml:"maven-profile,omitempty"`
+	JavaVersion         string `json:"java_version,omitempty"         yaml:"java-version,omitempty"`
+	SettingsPath        string `json:"settings_path,omitempty"        yaml:"settings-path,omitempty"`
+	Profile             string `json:"profile,omitempty"              yaml:"profile,omitempty"`
+	AttachPattern       string `json:"attach_pattern,omitempty"       yaml:"attach-pattern,omitempty"`
 }
 
 // NPMConfig holds the typed `config:` block for NPM artifacts.
 type NPMConfig struct {
-	NodeVersion   string `json:"node_version,omitempty"   yaml:"node-version,omitempty"`
-	AttachPattern string `json:"attach_pattern,omitempty" yaml:"attach-pattern,omitempty"`
+	PrivateDependencies bool   `json:"private_dependencies,omitempty" yaml:"private-dependencies,omitempty"`
+	DependencyRegistry  string `json:"dependency_registry,omitempty"  yaml:"dependency-registry,omitempty"`
+	NodeVersion         string `json:"node_version,omitempty"         yaml:"node-version,omitempty"`
+	AttachPattern       string `json:"attach_pattern,omitempty"       yaml:"attach-pattern,omitempty"`
+	Tag                 string `json:"tag,omitempty"                  yaml:"npm-tag,omitempty"`
 }
 
 // GradleConfig holds the typed `config:` block for plain Gradle JVM
 // artifacts (not Android).
 type GradleConfig struct {
-	JavaVersion       string `json:"java_version,omitempty"        yaml:"java-version,omitempty"`
-	GradleTasks       string `json:"gradle_tasks,omitempty"        yaml:"gradle-tasks,omitempty"`
-	GradleVersionFile string `json:"gradle_version_file,omitempty" yaml:"gradle-version-file,omitempty"`
+	PrivateDependencies bool   `json:"private_dependencies,omitempty" yaml:"private-dependencies,omitempty"`
+	JavaVersion         string `json:"java_version,omitempty"         yaml:"java-version,omitempty"`
+	GradleTasks         string `json:"gradle_tasks,omitempty"         yaml:"gradle-tasks,omitempty"`
+	GradleVersionFile   string `json:"gradle_version_file,omitempty"  yaml:"gradle-version-file,omitempty"`
 }
 
 // GradleAndroidConfig holds the typed `config:` block for Gradle Android
@@ -119,6 +124,10 @@ type PythonConfig struct{}
 // IncludeAAB returns true unless the user explicitly set
 // `include-aab: false`. Default: true.
 func (a *Artifact) IncludeAAB() bool {
+	if a != nil && a.BuildType == BuildTypeLibrary {
+		return false
+	}
+
 	if a == nil || a.GradleAndroid == nil || a.GradleAndroid.IncludeAAB == nil {
 		return true
 	}
@@ -129,6 +138,10 @@ func (a *Artifact) IncludeAAB() bool {
 // AndroidBuildTypes returns the comma-separated build types (e.g.
 // "debug,release"). Default: "debug,release".
 func (a *Artifact) AndroidBuildTypes() string {
+	if a != nil && a.BuildType == BuildTypeLibrary {
+		return "release"
+	}
+
 	if a == nil || a.GradleAndroid == nil || a.GradleAndroid.BuildTypes == "" {
 		return "debug,release"
 	}

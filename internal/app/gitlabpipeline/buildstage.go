@@ -54,6 +54,30 @@ type BuildPipelineOptions struct {
 	Stage string
 }
 
+func mavenBuildInputs(artifact pipeline.PlannedArtifact, inputs map[string]any) map[string]any {
+	inputs["build-type"] = mavenBuildType(artifact.BuildType)
+	// Only a library activates a profile, whether or not it has a Maven block.
+	if artifact.BuildType == config.BuildTypeLibrary {
+		inputs["profile"] = "central-release"
+		if artifact.Maven != nil && artifact.Maven.MavenProfile != "" {
+			inputs["profile"] = artifact.Maven.MavenProfile
+		}
+	}
+
+	if artifact.Maven != nil {
+		inputs["java-version"] = artifact.Maven.JavaVersion
+		if artifact.Maven.PrivateDependencies {
+			inputs["private-dependencies"] = true
+		}
+
+		if artifact.Maven.SettingsPath != "" {
+			inputs["settings-path"] = artifact.Maven.SettingsPath
+		}
+	}
+
+	return inputs
+}
+
 // BuildStagePipeline renders a child pipeline that fans the release build stage
 // out over its running targets and items: one `include:` of the matching
 // `build-<eco>` component per item. It refuses targets that have no Catalog
@@ -98,6 +122,12 @@ func BuildStagePipeline(plan pipeline.ReleaseBuildStagePlan, opts BuildPipelineO
 		return ChildPipeline{}, err
 	}
 
+	for _, artifact := range slices.Concat(tgt.Gradle.Items, tgt.GradleAndroid.Items) {
+		if artifact.PublicationArtifactName != "" && opts.Version == "" {
+			return ChildPipeline{}, fmt.Errorf("gradle publication export requires an explicit release version before generating a pipeline: %w", errs.ErrInvalidConfig)
+		}
+	}
+
 	if err := validateCargoTargetRepresentable(tgt.Cargo); err != nil {
 		return ChildPipeline{}, err
 	}
@@ -111,23 +141,7 @@ func BuildStagePipeline(plan pipeline.ReleaseBuildStagePlan, opts BuildPipelineO
 	}
 
 	if err := addTargetIncludes(&out, "build-maven", tgt.Maven, opts, artifactName, false, false, func(artifact pipeline.PlannedArtifact) map[string]any {
-		inputs := workdir(artifact)
-		inputs["build-type"] = mavenBuildType(artifact.BuildType)
-
-		// As release-build-stage.yml: only a library activates a profile, its
-		// own or central-release, whether or not it has a maven block.
-		if artifact.BuildType == config.BuildTypeLibrary {
-			inputs["profile"] = "central-release"
-			if artifact.Maven != nil && artifact.Maven.MavenProfile != "" {
-				inputs["profile"] = artifact.Maven.MavenProfile
-			}
-		}
-
-		if artifact.Maven != nil {
-			inputs["java-version"] = artifact.Maven.JavaVersion
-		}
-
-		return inputs
+		return mavenBuildInputs(artifact, workdir(artifact))
 	}); err != nil {
 		return ChildPipeline{}, err
 	}
@@ -136,6 +150,10 @@ func BuildStagePipeline(plan pipeline.ReleaseBuildStagePlan, opts BuildPipelineO
 		inputs := workdir(artifact)
 		if artifact.NPM != nil {
 			inputs["node-version"] = artifact.NPM.NodeVersion
+			if artifact.NPM.PrivateDependencies {
+				inputs["private-dependencies"] = true
+				inputs["dependency-registry"] = artifact.NPM.DependencyRegistry
+			}
 		}
 
 		return inputs
@@ -147,7 +165,17 @@ func BuildStagePipeline(plan pipeline.ReleaseBuildStagePlan, opts BuildPipelineO
 		inputs := workdir(artifact)
 		if artifact.Gradle != nil {
 			inputs["gradle-tasks"] = artifact.Gradle.GradleTasks
+
 			inputs["java-version"] = artifact.Gradle.JavaVersion
+			if artifact.Gradle.PrivateDependencies {
+				inputs["private-dependencies"] = true
+			}
+		}
+
+		if artifact.PublicationArtifactName != "" {
+			inputs["export-publications"] = true
+			inputs["version"] = opts.Version
+			inputs["central-publication"] = slices.Contains(artifact.PublishTo, config.PublishMavenCentral)
 		}
 
 		return inputs
@@ -157,6 +185,16 @@ func BuildStagePipeline(plan pipeline.ReleaseBuildStagePlan, opts BuildPipelineO
 
 	if err := addTargetIncludes(&out, "build-gradle-android", tgt.GradleAndroid, opts, artifactName, false, false, func(artifact pipeline.PlannedArtifact) map[string]any {
 		inputs := workdir(artifact)
+		if artifact.BuildType == config.BuildTypeLibrary {
+			inputs["library"] = true
+		}
+
+		if artifact.PublicationArtifactName != "" {
+			inputs["export-publications"] = true
+			inputs["version"] = opts.Version
+			inputs["central-publication"] = slices.Contains(artifact.PublishTo, config.PublishMavenCentral)
+		}
+
 		if artifact.GradleAndroid == nil {
 			return inputs
 		}
@@ -165,8 +203,8 @@ func BuildStagePipeline(plan pipeline.ReleaseBuildStagePlan, opts BuildPipelineO
 		inputs["build-module"] = android.BuildModule
 		inputs["product-flavor"] = android.ProductFlavor
 		inputs["build-types"] = android.BuildTypes
-		inputs["include-aab"] = android.IncludeAAB == nil || *android.IncludeAAB
-		inputs["enable-signing"] = android.EnableAndroidSigning != nil && *android.EnableAndroidSigning
+		inputs["include-aab"] = artifact.BuildType != config.BuildTypeLibrary && (android.IncludeAAB == nil || *android.IncludeAAB)
+		inputs["enable-signing"] = artifact.BuildType != config.BuildTypeLibrary && android.EnableAndroidSigning != nil && *android.EnableAndroidSigning
 
 		return inputs
 	}); err != nil {

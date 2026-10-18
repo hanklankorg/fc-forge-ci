@@ -30,7 +30,7 @@ has the capability table.
 | [Go Service](go-service/): a multi-arch container, compiled in the Containerfile (Pattern B) | [workflows](go-service/github/) | [pipeline](go-service/gitlab/.gitlab-ci.yml) | [workflows](go-service/forgejo/) |
 | [Rust Application](cargo-app/): a Cargo workspace shipped as containers, with the private-registry build-secrets pattern | [workflows](cargo-app/github/) | [pipeline](cargo-app/gitlab/.gitlab-ci.yml) | [workflows](cargo-app/forgejo/) |
 | [Maven Application](maven-app/): a Java service shipped as a multi-platform container (Pattern A) | [workflows](maven-app/github/) | [pipeline](maven-app/gitlab/.gitlab-ci.yml) | [workflows](maven-app/forgejo/) |
-| [Gradle JVM](gradle-app/): a JVM-only Gradle build | [workflows](gradle-app/github/) | [pipeline](gradle-app/gitlab/.gitlab-ci.yml) | not available |
+| [Gradle JVM](gradle-app/): JVM builds and [artifact-first package publication](../docs/gradle-publishing.md) | [workflows](gradle-app/github/) | [pipeline](gradle-app/gitlab/.gitlab-ci.yml); publication requires explicit artifact handoff | CLI composition |
 | [NPM Application](npm-app/): a Node service published as a package and shipped as a container (Pattern A) | [workflows](npm-app/github/) | [pipeline](npm-app/gitlab/.gitlab-ci.yml) | not available |
 | [Android Application](android-app/): APK and AAB with product flavors, optional Google Play upload | [workflows](android-app/github/) | [pipeline](android-app/gitlab/.gitlab-ci.yml) | not available |
 | [Monorepo](monorepo/): several artifacts and project types, one container per artifact or one combined | [workflows](monorepo/github/) | [pipeline](monorepo/gitlab/.gitlab-ci.yml) | not available |

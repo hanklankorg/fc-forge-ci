@@ -88,8 +88,18 @@ func TestBinary_HelpCommandAndGroupHelp(t *testing.T) {
 		}
 	}
 
+	// Global option descriptions can legitimately mention other commands (the
+	// --json help names doctor). Check the command list, not those descriptions.
+	_, commands, found := strings.Cut(stdout, "\nCOMMANDS:\n")
+	if !found {
+		t.Fatal("artifact help is missing its command section")
+	}
+	commands, _, found = strings.Cut(commands, "\nOPTIONS:")
+	if !found {
+		t.Fatal("artifact help is missing its option section")
+	}
 	for _, foreign := range []string{"ledger", "resolve-metadata", "doctor"} {
-		if strings.Contains(stdout, foreign) {
+		if strings.Contains(commands, foreign) {
 			t.Errorf("artifact --help names another group's %q:\n%s", foreign, stdout)
 		}
 	}

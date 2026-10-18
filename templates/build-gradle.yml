@@ -31,6 +31,25 @@ spec:
     gradle-tasks:
       default: "assemble"
       description: Whitespace-separated gradle tasks to run.
+    private-dependencies:
+      type: boolean
+      default: false
+      description: "Let project repository declarations read DEPENDENCY_TOKEN/DEPENDENCY_USERNAME; disables reusable daemons."
+    export-publications:
+      type: boolean
+      default: false
+      description: Export immutable JVM Maven publications under .forge-ci/maven-publication.
+    version:
+      default: ""
+      description: Expected release version; required for publication export.
+    central-publication:
+      type: boolean
+      default: false
+      description: Require Central metadata, sources and javadoc during export.
+    snapshot-publication:
+      type: boolean
+      default: false
+      description: Export resolved Maven snapshots instead of an immutable release.
     skip-tests:
       type: boolean
       default: false
@@ -56,6 +75,11 @@ spec:
   variables:
     RC_PROJECT_DIRECTORY: "$[[ inputs.working-directory ]]"
     GRADLE_TASKS: "$[[ inputs.gradle-tasks ]]"
+    PRIVATE_DEPENDENCIES: "$[[ inputs.private-dependencies ]]"
+    EXPORT_PUBLICATIONS: "$[[ inputs.export-publications ]]"
+    CENTRAL_PUBLICATION: "$[[ inputs.central-publication ]]"
+    SNAPSHOT_PUBLICATION: "$[[ inputs.snapshot-publication ]]"
+    VERSION: "$[[ inputs.version ]]"
     SKIP_TESTS: "$[[ inputs.skip-tests ]]"
     ENABLE_BUILD_SBOM: "$[[ inputs.enable-build-sbom ]]"
     CYCLONEDX_GRADLE_VERSION: "$[[ inputs.sbom-tool-version ]]"
@@ -64,9 +88,12 @@ spec:
   script:
     # gradle runs in the current directory, so cd into the project first.
     - cd -- "$RC_PROJECT_DIRECTORY"
+    - if [ "$EXPORT_PUBLICATIONS" = "true" ]; then forge-ci build gradle export-publications --output .forge-ci/maven-publication --snapshot="$SNAPSHOT_PUBLICATION" --validate-only; fi
     - forge-ci build gradle run
+    - if [ "$EXPORT_PUBLICATIONS" = "true" ]; then forge-ci build gradle export-publications --output .forge-ci/maven-publication --central="$CENTRAL_PUBLICATION" --snapshot="$SNAPSHOT_PUBLICATION"; fi
   artifacts:
     paths:
       - $[[ inputs.working-directory ]]/build/libs/
       - $[[ inputs.working-directory ]]/**/build/libs/
       - $[[ inputs.working-directory ]]/build/reports/
+      - $[[ inputs.working-directory ]]/.forge-ci/maven-publication/

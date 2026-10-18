@@ -49,6 +49,30 @@ modules. CI additionally runs standalone workflow-input-default validation,
 CLI smoke/fuzz jobs and companion strict compatibility, with strict integration
 in release CI. See the workflow files for each exact gate.
 
+### Maven-format publication evidence
+
+The companion fixtures cover JVM and Android-library publication with real
+Gradle, Maven and GPG tools. The Android fixture builds in a digest-pinned SDK
+container using the suite's isolated Buildah store; no host SDK installation is
+required. It checks compiled AAR contents, sources/javadoc, the Build SBOM, and
+stable/snapshot export. Native Maven tests check the modern Central plugin's
+snapshot routing against a local HTTP collaborator.
+
+`TestInRunner_ExportedMavenPublications` exercises stable and repeated snapshot
+uploads on the configured Forgejo and GitLab runners. The oracle reads the
+registry API, Maven metadata and archive contents independently of the publisher.
+Its AAR-shaped transport fixture is distinct from the companion's actual Android
+SDK build proof. Run it with:
+
+```sh
+just test-live '^TestInRunner_ExportedMavenPublications$'
+```
+
+The scenario requires both `workflow-runs` and `packages` from the existing lab
+contract. It creates and cleans only its scratch resources. These results do not
+prove GitHub or Sonatype production behavior; Central lifecycle tests use local
+HTTP collaborators rather than publishing public test releases.
+
 ### Skipped evidence is accounted for
 
 A tier that skipped half of itself and one that ran all of it both end in

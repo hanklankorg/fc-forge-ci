@@ -5,7 +5,7 @@ package build
 
 import (
 	"context"
-	"os"
+	"io"
 
 	"github.com/urfave/cli/v3"
 
@@ -20,6 +20,7 @@ func gradleCmd() *cli.Command {
 		Usage: "gradle (JVM) build wrappers",
 		Commands: []*cli.Command{
 			gradleRunCmd(),
+			gradleExportCmd(),
 		},
 	}
 }
@@ -42,25 +43,36 @@ func gradleRunCmd() *cli.Command {
 
 EXAMPLE:
    cd app && forge-ci build gradle run --tasks assemble --sbom-tool-version 3.2.1`,
-		Flags: []cli.Flag{
+		Flags: append(dependencyFlags(), []cli.Flag{
 			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Sources: cli.EnvVars("WORKING_DIRECTORY"), Usage: "directory of gradle.properties to read for metadata; ./gradlew itself runs in the current directory (cd in first)"},
 			&cli.StringFlag{Name: flagTasks, Required: true, Sources: cli.EnvVars("GRADLE_TASKS"), Usage: usageGradleTasks},
 			&cli.BoolFlag{Name: flagSkipTests, Sources: cli.EnvVars("SKIP_TESTS"), Usage: usageSkipTestTask},
 			&cli.BoolFlag{Name: flagBuildSBOM, Value: true, Sources: cli.EnvVars("ENABLE_BUILD_SBOM"), Usage: "generate the cyclonedx-gradle-plugin Build SBOM (default true)"},
 			&cli.StringFlag{Name: flagSBOMToolVersion, Sources: cli.EnvVars("CYCLONEDX_GRADLE_VERSION"), Usage: "pinned cyclonedx-gradle-plugin version (required when --build-sbom)"},
 			&cli.StringFlag{Name: "java-version", Sources: cli.EnvVars("JAVA_VERSION"), Usage: "JDK major version, reported in the build summary"},
-		},
+		}...),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error {
-				return appbuild.GradleReleaseBuild(ctx, d.SummarySink, gradle.New(), os.Stderr, os.Stderr, appbuild.GradleReleaseBuildInput{
-					ReleaseBuildOptions: appbuild.ReleaseBuildOptions{
-						Dir:             cmd.String(flagWorkingDir),
-						SkipTests:       cmd.Bool(flagSkipTests),
-						EnableBuildSBOM: cmd.Bool(flagBuildSBOM),
-					},
-					Tasks:           cmd.String(flagTasks),
-					SBOMToolVersion: cmd.String(flagSBOMToolVersion),
-					JavaVersion:     cmd.String("java-version"),
+			environment, err := resolveDependencyEnvironment(cmd)
+			if err != nil {
+				return err
+			}
+
+			if cmd.Bool("validate-dependencies-only") {
+				return nil
+			}
+
+			return dependencyDiagnostics(environment.token, func(out, stderr io.Writer) error {
+				return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error {
+					return appbuild.GradleReleaseBuild(ctx, d.SummarySink, &gradle.Adapter{Env: environment.authenticated, NoDaemon: cmd.Bool("private-dependencies")}, out, stderr, appbuild.GradleReleaseBuildInput{
+						ReleaseBuildOptions: appbuild.ReleaseBuildOptions{
+							Dir:             cmd.String(flagWorkingDir),
+							SkipTests:       cmd.Bool(flagSkipTests),
+							EnableBuildSBOM: cmd.Bool(flagBuildSBOM),
+						},
+						Tasks:           cmd.String(flagTasks),
+						SBOMToolVersion: cmd.String(flagSBOMToolVersion),
+						JavaVersion:     cmd.String("java-version"),
+					})
 				})
 			})
 		},

@@ -29,6 +29,36 @@ type androidCommandGradle struct {
 	calls int
 }
 
+func TestGradleAndroidRunFiltersAmbientPublicationCredentials(t *testing.T) {
+	ghaenv.Setup(t)
+	fsys := testfs.NewReal(t)
+	fsys.Chdir()
+	fsys.WriteFile("gradle.properties", []byte("version=1.2.3\n"))
+	fsys.WriteFile("gradlew", []byte(`#!/bin/sh
+set -eu
+test -z "${MAVEN_CENTRAL_PASSWORD-}"
+test -z "${CI_JOB_TOKEN-}"
+test -z "${RELEASE_GPG_PRIVATE_KEY-}"
+test -z "${DEPENDENCY_TOKEN-}"
+test -z "${ANDROID_KEYSTORE_PASSWORD-}"
+test "$ANDROID_HOME" = /fixture/sdk
+printf '%s\n' "$*" >> invocations
+`))
+
+	for _, name := range []string{"MAVEN_CENTRAL_PASSWORD", "CI_JOB_TOKEN", "RELEASE_GPG_PRIVATE_KEY", "DEPENDENCY_TOKEN", "ANDROID_KEYSTORE_PASSWORD"} {
+		t.Setenv(name, "synthetic-secret")
+	}
+
+	t.Setenv("ANDROID_HOME", "/fixture/sdk")
+	require.NoError(t, gradleAndroidCmd().Run(t.Context(), []string{"gradle-android", "run", "--library", "--build-module", "lib", "--name-override", "fixture", "--sbom-tool-version", "3.2.1"}))
+
+	body, err := os.ReadFile(fsys.Path("invocations"))
+	require.NoError(t, err)
+	require.Contains(t, string(body), "lib:assembleRelease")
+	require.Contains(t, string(body), "cyclonedx")
+	require.Len(t, strings.Split(strings.TrimSpace(string(body)), "\n"), 2)
+}
+
 func (g *androidCommandGradle) RunInDirEnvInherit(ctx context.Context, dir string, env []string, stdout, stderr io.Writer, args ...string) error {
 	g.calls++
 

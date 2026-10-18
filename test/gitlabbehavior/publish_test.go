@@ -34,7 +34,7 @@ func TestPublishOutputsAreDataAndOnlyKnownNamesAreImported(t *testing.T) {
 
 			const payload = "artifact with spaces $(touch EXPLOITED) `touch EXPLOITED` =value= .ipa"
 
-			contents := "IPA_FILE=" + payload + "\nREQUEST_ID=" + payload + "\nVERSION=" + payload + "\nIS_SNAPSHOT=false\nUNRELATED_OUTPUT=must-not-be-exported\n"
+			contents := "IPA_FILE=" + payload + "\nREQUEST_ID=" + payload + "\nVERSION=" + payload + "\nFINGERPRINT=" + payload + "\nIS_SNAPSHOT=false\nUNRELATED_OUTPUT=must-not-be-exported\n"
 			if err := os.WriteFile(output, []byte(contents), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -54,6 +54,10 @@ func TestPublishOutputsAreDataAndOnlyKnownNamesAreImported(t *testing.T) {
 			}
 
 			readers.WriteString("test -z \"${UNRELATED_OUTPUT:-}\"\n")
+
+			if file == "publish-maven-central.yml" {
+				readers.WriteString("test \"$GPG_FINGERPRINT\" = \"$EXPECTED\"\n")
+			}
 
 			if file == "publish-apple-appstore.yml" {
 				readers.WriteString("test \"$IPA_FILE\" = \"$EXPECTED\" && test \"$REQUEST_ID\" = \"$EXPECTED\"\n")

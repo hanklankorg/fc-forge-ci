@@ -30,6 +30,16 @@ on:
         required: false
         default: "."
         type: string
+      private-dependencies:
+        description: "Allow read-only private package access during npm ci; refused for fork pull requests."
+        required: false
+        default: false
+        type: boolean
+      dependency-registry:
+        description: "HTTPS npm registry to authenticate; project .npmrc still chooses scopes. Required with private-dependencies."
+        required: false
+        default: ""
+        type: string
       skip-tests:
         description: "Skip tests during build"
         required: false
@@ -66,7 +76,11 @@ jobs:
       image: ${{ inputs['runtime-image'] }}
     permissions:
       contents: read
+      packages: read
     steps:
+      - name: Refuse private dependency access from fork pull requests
+        if: ${{ inputs['private-dependencies'] && startsWith(github.event_name, 'pull_request') && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: forge-ci validate event-context
       - name: Guard working-directory stays inside the workspace
         # Every upload below is rooted at this caller-supplied value. An
         # absolute path or a parent step would take the artifact from outside
@@ -98,8 +112,11 @@ jobs:
           SKIP_TESTS: ${{ inputs['skip-tests'] }}
           ENABLE_BUILD_SBOM: ${{ inputs['enable-build-sbom'] }}
           NODE_VERSION: "24"
+          PRIVATE_DEPENDENCIES: ${{ inputs['private-dependencies'] }}
+          DEPENDENCY_REGISTRY: ${{ inputs['dependency-registry'] }}
+          DEPENDENCY_TOKEN: ${{ inputs['private-dependencies'] && github.token || '' }}
           # renovate: datasource=npm depName=@cyclonedx/cyclonedx-npm
-          CYCLONEDX_VERSION: "4.2.1"
+          CYCLONEDX_VERSION: "6.0.0"
         run: forge-ci build npm run
       - name: Upload NPM artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

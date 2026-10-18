@@ -13,6 +13,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/domain/config"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
+	domainpublish "github.com/diggsweden/forge-ci/internal/domain/publish"
 )
 
 // ValidateConfigPlan checks the redundant projections, producer-derived execution
@@ -35,6 +36,10 @@ func ValidateConfigPlan(plan ConfigPlan) error { //nolint:cyclop // bounded, ind
 		}
 
 		artifactNames[artifact.Name] = true
+		if err := validatePlannedNPMTag(artifact); err != nil {
+			return err
+		}
+
 		anyAuthorization = anyAuthorization || artifact.RequireAuthorization
 		maps.Copy(sbomUnion, layerSet(artifact.EffectiveSBOMs))
 
@@ -43,8 +48,10 @@ func ValidateConfigPlan(plan ConfigPlan) error { //nolint:cyclop // bounded, ind
 		}
 
 		source := config.Artifact{
-			Name: artifact.Name, ProjectType: artifact.ProjectType, SBOMs: artifact.SBOMs,
-			Go: artifact.Go, Cargo: artifact.Cargo, GradleAndroid: artifact.GradleAndroid, XcodeIOS: artifact.XcodeIOS,
+			BuildType: artifact.BuildType,
+			Name:      artifact.Name, ProjectType: artifact.ProjectType, SBOMs: artifact.SBOMs,
+			PublishTo: artifact.PublishTo,
+			Go:        artifact.Go, Cargo: artifact.Cargo, GradleAndroid: artifact.GradleAndroid, XcodeIOS: artifact.XcodeIOS,
 		}
 		if artifact.GoBuildMode != config.GoArtifactBuildMode(source) || artifact.CargoBuildMode != config.CargoArtifactBuildMode(source) {
 			return fmt.Errorf("config-plan artifacts.all[%d] has inconsistent build modes: %w", index, errs.ErrInvalidConfig)
@@ -101,7 +108,32 @@ func ValidateConfigPlan(plan ConfigPlan) error { //nolint:cyclop // bounded, ind
 		return err
 	}
 
+	return validateConfigSigning(plan)
+}
+
+func validatePlannedNPMTag(artifact PlannedArtifact) error {
+	if artifact.ProjectType != projecttype.NPM || !slices.Contains(artifact.PublishTo, config.PublishForgePackages) {
+		return nil
+	}
+
+	tag := ""
+	if artifact.NPM != nil {
+		tag = artifact.NPM.Tag
+	}
+
+	if err := domainpublish.ValidateNPMTag(tag); err != nil {
+		return fmt.Errorf("config-plan artifact %q: %w", artifact.Name, err)
+	}
+
+	return nil
+}
+
+func validateConfigSigning(plan ConfigPlan) error {
 	sign := config.SignConfig{Method: plan.Sign.Method, Key: plan.Sign.Key, OIDCIssuer: plan.Sign.OIDCIssuer, Transparency: plan.Sign.Transparency}
+	if !plan.Sign.TransparencyExplicit {
+		sign.Transparency = ""
+	}
+
 	if err := sign.Validate(); err != nil {
 		return err
 	}
@@ -123,6 +155,10 @@ func ValidateConfigPlan(plan ConfigPlan) error { //nolint:cyclop // bounded, ind
 }
 
 func validateArtifactExecution(artifact PlannedArtifact, source config.Artifact) error {
+	if artifact.PublicationArtifactName != publicationArtifactName(source) {
+		return fmt.Errorf("publication_artifact_name disagrees with producer: %w", errs.ErrInvalidConfig)
+	}
+
 	layers, err := config.ExpandSBOMs(artifact.SBOMs)
 	if err != nil {
 		return fmt.Errorf("sboms: %w: %w", err, errs.ErrInvalidConfig)

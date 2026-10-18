@@ -420,6 +420,21 @@ forge-ci validate artifact-signature --artifact app.tgz --key release-pubkey.pem
 
 ### `sign.transparency`: what the signing run publishes about itself
 
+For a private/internal repository, or when repository visibility is unknown,
+release planning refuses an implicit public transparency log. Write
+`sign.transparency: public` to explicitly consent, or use key-based signing with
+`sign.transparency: none`. The GitHub orchestrator supplies the repository's
+visibility from its event context; direct plan callers can pass
+`--repository-visibility`. Missing visibility never means public. OpenPGP and
+disabled signing do not contact a transparency log and need no such consent.
+
+Standalone GitHub container publishing and the KMS attestor apply the same
+preflight through `forge-ci validate signing-privacy` before signing. Their
+`transparency-log` input is empty by default: public repositories resolve it to
+`public`, while private/unknown repositories must explicitly choose. Required
+signing or provenance is never silently disabled. Standalone local signing
+commands retain their explicit operator-controlled signing configuration.
+
 Signing is not only a local act. By default, cosign writes an entry to the
 **public** Sigstore transparency log (Rekor) for `kms` as well as `sigstore`.
 This surprises people, because the KMS key is yours and nothing about the

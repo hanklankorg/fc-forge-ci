@@ -23,6 +23,7 @@ artifacts:
       - forge-packages
     config:
       node-version: 24
+      npm-tag: release-{version}
 # Containers are separate - they reference artifacts by name
 containers:
   - name: backend-api

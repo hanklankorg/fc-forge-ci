@@ -30,6 +30,16 @@ on:
         required: false
         default: "."
         type: string
+      private-dependencies:
+        description: "Allow read-only private package access for Maven; requires settings-path and refuses fork pull requests."
+        required: false
+        default: false
+        type: boolean
+      settings-path:
+        description: "Consumer settings.xml; reference env.DEPENDENCY_TOKEN and env.DEPENDENCY_USERNAME for private repositories."
+        required: false
+        default: ""
+        type: string
       skip-tests:
         description: "Skip tests during build"
         required: false
@@ -73,7 +83,11 @@ jobs:
       image: ${{ inputs['runtime-image'] }}
     permissions:
       contents: read
+      packages: read
     steps:
+      - name: Refuse private dependency access from fork pull requests
+        if: ${{ inputs['private-dependencies'] && startsWith(github.event_name, 'pull_request') && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: forge-ci validate event-context
       - name: Guard working-directory stays inside the workspace
         # Every upload below is rooted at this caller-supplied value. An
         # absolute path or a parent step would take the artifact from outside
@@ -94,6 +108,7 @@ jobs:
           CHECKOUT_REF: ${{ inputs.branch }}
         run: forge-ci platform checkout
       - name: Cache Maven dependencies
+        if: ${{ !inputs['private-dependencies'] }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.m2/repository
@@ -113,8 +128,12 @@ jobs:
           SKIP_TESTS: ${{ inputs['skip-tests'] }}
           ENABLE_BUILD_SBOM: ${{ inputs['enable-build-sbom'] }}
           JAVA_VERSION: "25"
+          PRIVATE_DEPENDENCIES: ${{ inputs['private-dependencies'] }}
+          MAVEN_SETTINGS_PATH: ${{ inputs['settings-path'] }}
+          DEPENDENCY_USERNAME: ${{ github.actor }}
+          DEPENDENCY_TOKEN: ${{ inputs['private-dependencies'] && github.token || '' }}
           # renovate: datasource=maven depName=org.cyclonedx:cyclonedx-maven-plugin
-          CYCLONEDX_MAVEN_VERSION: "2.9.1"
+          CYCLONEDX_MAVEN_VERSION: "2.9.3"
         run: forge-ci build maven run
       - name: Upload Maven artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

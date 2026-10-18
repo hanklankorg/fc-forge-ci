@@ -152,6 +152,7 @@ func bumpCmd() *cli.Command {
 				Usage:    "new version-of-record (without a leading 'v')",
 			},
 			commonflags.WorkingDir("directory containing the project root"),
+			&cli.BoolFlag{Name: "library", Sources: cli.EnvVars("ANDROID_LIBRARY"), Usage: "for gradle-android, bump the library's version property instead of application metadata"},
 			&cli.StringFlag{
 				Name:    "gradle-version-file",
 				Sources: cli.EnvVars("GRADLE_VERSION_FILE"),
@@ -174,6 +175,7 @@ func bumpCmd() *cli.Command {
 				Version:           cmd.String(flagVersion),
 				WorkingDir:        cmd.String("working-dir"),
 				GradleVersionFile: cmd.String("gradle-version-file"),
+				Library:           cmd.Bool("library"),
 				XcconfigFile:      cmd.String("xcode-version-file"),
 			}
 			if opts := cmd.String("maven-cli-opts"); opts != "" {

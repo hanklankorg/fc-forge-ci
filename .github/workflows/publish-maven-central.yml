@@ -31,6 +31,26 @@ on:
         description: "Name of workflow artifact containing built library JARs"
         required: true
         type: string
+      project-type:
+        description: "maven (project profile), gradle or gradle-android (exported, data-only publications)"
+        required: false
+        default: "maven"
+        type: string
+      snapshot:
+        description: "Publish only snapshots using ordinary CI credentials, without a signed release request."
+        required: false
+        default: false
+        type: boolean
+      version:
+        description: "Expected immutable version for exported Gradle publications"
+        required: false
+        default: ""
+        type: string
+      private-dependencies:
+        description: "Allow the Maven profile to resolve private GitHub Packages dependencies through its supplied settings."
+        required: false
+        default: false
+        type: boolean
       working-directory:
         description: "Working directory"
         required: false
@@ -46,7 +66,7 @@ on:
         default: "central-release"
         type: string
       branch:
-        description: "Explicit branch, tag, or SHA whose package is published"
+        description: "Full prepared release commit SHA whose package is published"
         required: true
         type: string
       runtime-image:
@@ -69,6 +89,9 @@ on:
       RELEASE_GPG_PRIVATE_KEY:
         description: "Armored OpenPGP private key used to sign published artefacts"
         required: false
+      RELEASE_GPG_PUBLIC_KEY:
+        description: "Public key verifying the prepared Git release tag"
+        required: false
       RELEASE_GPG_PASSPHRASE:
         description: "Passphrase for RELEASE_GPG_PRIVATE_KEY"
         required: false
@@ -80,51 +103,115 @@ jobs:
   publish-maven-central:
     name: Publish to Maven Central
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     container:
       image: ${{ inputs['runtime-image'] }}
     permissions:
       # Maven Central publishes externally to Sonatype. The job reads source and
-      # workflow artifacts but does not use GitHub Packages or OIDC.
+      # workflow artifacts; package read is for explicitly selected private dependencies.
       actions: read
       contents: read
+      packages: read
+    env:
+      RELEASE_REQUEST_TAG: ${{ github.ref_name }}
+      RELEASE_SHA: ${{ inputs.branch }}
+      FORGE_CI_AUTHORIZATION_DIR: ${{ github.workspace }}
+      RELEASE_GPG_PUBLIC_KEY: ${{ secrets.RELEASE_GPG_PUBLIC_KEY }}
+      VERSION: ${{ inputs.version }}
+      MAVEN_SNAPSHOT: ${{ inputs.snapshot }}
     steps:
       # Defense-in-depth: refuse PR-context triggers. Maven Central
       # credentials + GPG signing key live in env on this job and must
       # never run with PR-HEAD code. forge-ci is pre-baked.
       - name: Refuse PR-context trigger (publish/release secrets in scope)
         run: forge-ci validate event-context
+      - name: Validate publisher selection
+        env:
+          PROJECT_TYPE: ${{ inputs['project-type'] }}
+        run: |
+          case "$PROJECT_TYPE" in
+            maven | gradle | gradle-android) ;;
+            *) printf 'project-type must be maven, gradle or gradle-android\n' >&2; exit 78 ;;
+          esac
+      - name: Validate immutable publication version
+        if: ${{ inputs['project-type'] != 'maven' && !inputs.snapshot }}
+        run: forge-ci validate tag release-guard --tag "v${VERSION#v}"
       - name: Checkout repository
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CHECKOUT_REF: ${{ inputs.branch }}
+          CHECKOUT_FETCH_ALL_REFS: "true"
         run: forge-ci platform checkout
+      - name: Authorize publication before keys, artifacts and project tools
+        if: ${{ !inputs.snapshot }}
+        run: forge-ci publish maven-central authorize
       - name: Cache Maven dependencies
+        if: ${{ inputs['project-type'] == 'maven' && !inputs['private-dependencies'] }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.m2/repository
           key: maven-${{ hashFiles(format('{0}/pom.xml', inputs['working-directory'])) }}
           restore-keys: maven-
+      - name: Download build artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: ${{ inputs['artifact-source'] }}
+          ARTIFACT_DIR: ${{ inputs['project-type'] != 'maven' && '.forge-ci/gradle-publication' || format('{0}/', inputs['working-directory']) }}
+        run: forge-ci artifact download
+      - name: Verify artifacts for Maven Central
+        if: ${{ inputs['project-type'] == 'maven' && !inputs.snapshot }}
+        working-directory: ${{ inputs['working-directory'] }}
+        run: forge-ci publish maven-central validate-artifacts
+      - name: Get version info
+        if: ${{ inputs['project-type'] == 'maven' }}
+        id: version-info
+        working-directory: ${{ inputs['working-directory'] }}
+        env:
+          MAVEN_SETTINGS_PATH: ${{ inputs['settings-path'] }}
+          MAVEN_PROFILE: ${{ inputs.profile }}
+          PRIVATE_DEPENDENCIES: ${{ inputs['private-dependencies'] }}
+          DEPENDENCY_TOKEN: ${{ inputs['private-dependencies'] && github.token || '' }}
+          DEPENDENCY_USERNAME: ${{ github.actor }}
+        run: forge-ci build maven metadata
+      - name: Validate Maven reactor before importing a key
+        if: ${{ inputs['project-type'] == 'maven' }}
+        working-directory: ${{ inputs['working-directory'] }}
+        env:
+          SETTINGS_PATH: ${{ inputs['settings-path'] }}
+          MAVEN_PROFILE: ${{ inputs.profile }}
+          DEPENDENCY_TOKEN: ${{ inputs['private-dependencies'] && github.token || '' }}
+          DEPENDENCY_USERNAME: ${{ github.actor }}
+        run: forge-ci publish maven-central deploy --validate-only
+      - name: Validate exported publication before importing a key
+        if: ${{ inputs['project-type'] != 'maven' && !inputs.snapshot }}
+        run: forge-ci publish maven-central validate-publication --working-dir .forge-ci/gradle-publication
       - name: Import GPG key
+        if: ${{ !inputs.snapshot }}
         id: import-gpg
         env:
           GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
         run: forge-ci release gpg import
-      - name: Download build artifacts
+      - name: Sign exported publication without project execution
+        if: ${{ inputs['project-type'] != 'maven' && !inputs.snapshot }}
         env:
-          GH_TOKEN: ${{ github.token }}
-          ARTIFACT_NAME: ${{ inputs['artifact-source'] }}
-          ARTIFACT_DIR: ${{ inputs['working-directory'] }}/
-        run: forge-ci artifact download
-      - name: Verify artifacts for Maven Central
-        working-directory: ${{ inputs['working-directory'] }}
-        run: forge-ci publish maven-central validate-artifacts
-      - name: Get version info
-        id: version-info
-        working-directory: ${{ inputs['working-directory'] }}
-        run: forge-ci build maven metadata
+          GPG_FINGERPRINT: ${{ steps.import-gpg.outputs.fingerprint }}
+          GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+        run: forge-ci publish maven-central sign-publication --working-dir .forge-ci/gradle-publication
+      - name: Submit exported publication and wait for PUBLISHED
+        if: ${{ inputs['project-type'] != 'maven' && !inputs.snapshot }}
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+        run: forge-ci publish maven-central bundle --working-dir .forge-ci/gradle-publication --automatic
+      - name: Publish exported snapshots without project execution
+        if: ${{ inputs['project-type'] != 'maven' && inputs.snapshot }}
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+        run: forge-ci publish maven-central snapshot --working-dir .forge-ci/gradle-publication
       - name: Deploy to Maven Central
+        if: ${{ inputs['project-type'] == 'maven' }}
         # Deploy with profile (the profile drives GPG signing via maven-gpg-plugin).
         working-directory: ${{ inputs['working-directory'] }}
         env:
@@ -132,8 +219,11 @@ jobs:
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           SETTINGS_PATH: ${{ inputs['settings-path'] }}
           MAVEN_PROFILE: ${{ inputs.profile }}
+          DEPENDENCY_TOKEN: ${{ inputs['private-dependencies'] && github.token || '' }}
+          DEPENDENCY_USERNAME: ${{ github.actor }}
         run: forge-ci publish maven-central deploy
       - name: Generate publish summary
+        if: ${{ inputs['project-type'] == 'maven' }}
         env:
           IS_SNAPSHOT: ${{ steps.version-info.outputs.is-snapshot }}
           VERSION: ${{ steps.version-info.outputs.version }}

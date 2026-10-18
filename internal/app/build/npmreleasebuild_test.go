@@ -121,7 +121,7 @@ func TestNPMReleaseBuild_RunsFullSequence(t *testing.T) {
 	}
 
 	require.Equal(t, [][]string{{"ci"}, {"test"}, {"run", "build"}, {"pack", "--json", "--pack-destination", npmRunner.calls[3][3]}}, npmRunner.calls)
-	require.Equal(t, []string{"--yes", "@cyclonedx/cyclonedx-npm@4.2.1", "--output-format", "json", "--output", npxRunner.calls[0][5]}, npxRunner.calls[0])
+	require.Equal(t, []string{"--yes", "@cyclonedx/cyclonedx-npm@4.2.1", "--output-format", "json", "--output-file", npxRunner.calls[0][5]}, npxRunner.calls[0])
 	require.Equal(t, "bom.json", filepath.Base(npxRunner.calls[0][5]))
 	require.Equal(t, dir, filepath.Dir(filepath.Dir(npxRunner.calls[0][5])))
 

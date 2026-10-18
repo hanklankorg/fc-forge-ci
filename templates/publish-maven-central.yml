@@ -2,15 +2,13 @@
 #
 # SPDX-License-Identifier: CC0-1.0
 #
-# GitLab CI/CD Catalog component: publish a Maven library to Maven Central
+# GitLab CI/CD Catalog component: publish Maven or Gradle JVM libraries to Central
 # (Sonatype). The GitLab counterpart of .github/workflows/publish-maven-central.yml.
 #
-# Maven Central is an EXTERNAL registry, so this flow is forge-neutral: the
-# upload is `mvn deploy` (driven by the binary's `publish maven-central deploy`),
-# identical to what GitHub runs. Sequence: validate event-context → import the
-# release GPG key → verify the sources/javadoc JARs → resolve metadata → deploy
-# (the Maven profile drives GPG signing via maven-gpg-plugin) → write the
-# summary. GPG key is cleaned up in after_script.
+# Maven Central is an EXTERNAL registry. Authorization and artifact validation
+# precede key import. Maven runs its project's deployment profile; Gradle uploads
+# exported Maven-layout files without executing the project in the publisher.
+# The GPG key is cleaned up in after_script.
 #
 # ARTIFACT CONTRACT: the project-built library (including POM/profile-attached
 # sources + javadoc JARs under */target/) must already be in the working
@@ -23,6 +21,7 @@
 #   MAVEN_CENTRAL_USERNAME  Sonatype OSSRH portal username
 #   MAVEN_CENTRAL_PASSWORD  Sonatype OSSRH portal token (NOT the account password)
 #   RELEASE_GPG_PRIVATE_KEY armored OpenPGP private key used to sign artefacts
+#   RELEASE_GPG_PUBLIC_KEY  trusted public key for the release and artifact signatures
 #   RELEASE_GPG_PASSPHRASE  passphrase for RELEASE_GPG_PRIVATE_KEY
 # The same names as the GitHub workflow and the release policy. The key reaches
 # only the import call, as the GPG_* environment the binary reads; it is never
@@ -32,6 +31,7 @@
 #   include:
 #     - component: $CI_SERVER_FQDN/diggsweden/forge-ci/publish-maven-central@0.90.0
 #       inputs:
+#         release-sha: <full-prepared-release-sha>
 #         profile: central-release
 spec:
   inputs:
@@ -46,19 +46,37 @@ spec:
       description: Logical name of the build artifact consumed (reported in the summary; the JARs must be present via GitLab artifact passing).
     version:
       default: ""
-      description: Release version (reported in the summary; metadata is the source of truth).
+      description: Required immutable release version for Gradle; optional summary value for Maven.
     project-type:
       default: maven
-      description: Ecosystem of the artifact (accepted for fan-out symmetry; Maven Central is Maven-only).
+      options: ["maven", "gradle", "gradle-android"]
+      description: Maven project profile or exported Gradle JVM Maven publications.
+    publication-directory:
+      default: ".forge-ci/maven-publication"
+      description: Exported publication directory relative to working-directory (Gradle only).
     working-directory:
       default: "."
-      description: Directory containing the pom.xml.
+      description: Prepared project root; publication-directory is relative to this directory.
+    release-sha:
+      default: ""
+      description: Full prepared release commit SHA; checkout and final tag must name it.
+    snapshot:
+      type: boolean
+      default: false
+      description: Publish only snapshots using ordinary CI credentials; signed release request and GPG key are not required.
+    request-tag:
+      default: "$CI_COMMIT_TAG"
+      description: Signed human release-request/vMAJOR.MINOR.PATCH tag.
     profile:
       default: central-release
       description: Maven profile activated for the deploy (drives GPG signing).
     settings-path:
       default: ""
       description: Path to a Maven settings.xml passed via -s (optional).
+    private-dependencies:
+      type: boolean
+      default: false
+      description: Allow metadata resolution to use the supplied DEPENDENCY_TOKEN and consumer-owned settings.
     cli-opts:
       default: "--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always"
       description: Extra args forwarded to mvn.
@@ -74,6 +92,14 @@ spec:
     MAVEN_CLI_OPTS: "$[[ inputs.cli-opts ]]"
     MAVEN_PROFILE: "$[[ inputs.profile ]]"
     SETTINGS_PATH: "$[[ inputs.settings-path ]]"
+    PRIVATE_DEPENDENCIES: "$[[ inputs.private-dependencies ]]"
+    RELEASE_REQUEST_TAG: "$[[ inputs.request-tag ]]"
+    RELEASE_SHA: "$[[ inputs.release-sha ]]"
+    MAVEN_SNAPSHOT: "$[[ inputs.snapshot ]]"
+    FORGE_CI_AUTHORIZATION_DIR: "$CI_PROJECT_DIR"
+    PUBLICATION_TYPE: "$[[ inputs.project-type ]]"
+    PUBLICATION_DIRECTORY: "$[[ inputs.publication-directory ]]"
+    VERSION: "$[[ inputs.version ]]"
     CI_SUMMARY_FILE: "$CI_PROJECT_DIR/maven-central-publish-summary.md"
   script:
     - |
@@ -84,18 +110,43 @@ spec:
     # Defense-in-depth: refuse PR-context triggers — Maven Central + GPG
     # credentials are in this job's env and must never run with MR-HEAD code.
     - forge-ci validate event-context
+    - if [ "$MAVEN_SNAPSHOT" != "true" ]; then forge-ci publish maven-central authorize; fi
+    - cd -- "$RC_PROJECT_DIRECTORY"
     - |
-      GPG_PRIVATE_KEY="${RELEASE_GPG_PRIVATE_KEY:?RELEASE_GPG_PRIVATE_KEY is required}" \
-        GPG_PASSPHRASE="${RELEASE_GPG_PASSPHRASE:-}" forge-ci release gpg import
+      if [ "$PUBLICATION_TYPE" != "maven" ]; then
+        if [ "$MAVEN_SNAPSHOT" = "true" ]; then
+          forge-ci publish maven-central snapshot --working-dir "$PUBLICATION_DIRECTORY" --validate-only
+        else
+          forge-ci publish maven-central validate-publication --working-dir "$PUBLICATION_DIRECTORY"
+        fi
+      elif [ "$MAVEN_SNAPSHOT" != "true" ]; then
+        forge-ci publish maven-central validate-artifacts
+      fi
+    - if [ "$PUBLICATION_TYPE" = "maven" ]; then forge-ci publish maven-central deploy --validate-only; fi
+    - |
+      if [ "$MAVEN_SNAPSHOT" != "true" ]; then
+        GPG_PRIVATE_KEY="${RELEASE_GPG_PRIVATE_KEY:?RELEASE_GPG_PRIVATE_KEY is required}" \
+          GPG_PASSPHRASE="${RELEASE_GPG_PASSPHRASE:-}" forge-ci release gpg import
+      fi
       # gpg-agent now holds the key; the consumer's build plugins run next
       # and need neither the armoured key nor the passphrase.
-      unset RELEASE_GPG_PRIVATE_KEY RELEASE_GPG_PASSPHRASE
-    # mvn runs in the current directory, so cd into the project.
-    - cd -- "$RC_PROJECT_DIRECTORY"
-    - forge-ci publish maven-central validate-artifacts
-    - forge-ci build maven metadata
+      unset RELEASE_GPG_PRIVATE_KEY
+    - |
+      while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in FINGERPRINT=*) export GPG_FINGERPRINT="${line#FINGERPRINT=}" ;; esac
+      done < "$CI_OUTPUT"
+    - if [ "$PUBLICATION_TYPE" != "maven" ] && [ "$MAVEN_SNAPSHOT" != "true" ]; then GPG_PASSPHRASE="${RELEASE_GPG_PASSPHRASE:-}" forge-ci publish maven-central sign-publication --working-dir "$PUBLICATION_DIRECTORY"; fi
+    - unset RELEASE_GPG_PASSPHRASE
+    - if [ "$PUBLICATION_TYPE" = "maven" ]; then forge-ci build maven metadata; fi
     # The profile activates GPG signing + deploys to the configured repository.
-    - forge-ci publish maven-central deploy
+    - |
+      if [ "$PUBLICATION_TYPE" = "maven" ]; then
+        forge-ci publish maven-central deploy
+      elif [ "$MAVEN_SNAPSHOT" = "true" ]; then
+        forge-ci publish maven-central snapshot --working-dir "$PUBLICATION_DIRECTORY"
+      else
+        forge-ci publish maven-central bundle --working-dir "$PUBLICATION_DIRECTORY" --automatic
+      fi
     # Read only metadata fields needed by the summary; values are never shell.
     - |
       while IFS= read -r line || [ -n "$line" ]; do
@@ -104,7 +155,7 @@ spec:
           IS_SNAPSHOT=*) export IS_SNAPSHOT="${line#IS_SNAPSHOT=}" ;;
         esac
       done < "$CI_OUTPUT"
-    - forge-ci report publish maven-central
+    - if [ "$PUBLICATION_TYPE" = "maven" ]; then forge-ci report publish maven-central; fi
   after_script:
     # Best-effort key teardown; the ephemeral runner is destroyed regardless.
-    - forge-ci release gpg cleanup || true
+    - if [ "$MAVEN_SNAPSHOT" != "true" ]; then forge-ci release gpg cleanup || true; fi

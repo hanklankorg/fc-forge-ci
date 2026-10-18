@@ -91,7 +91,7 @@ func TestSummary_AppendFailureContract(t *testing.T) {
 			run: func(ctx context.Context, sink ci.SummarySink, _ *strings.Builder) error {
 				return appsummary.MavenCentralPublish(ctx, sink, appsummary.MavenCentralPublishInput{Version: "4.5.6", Now: fixedNow()})
 			},
-			wantReport: []string{"## Published to Maven Central ", "- **Version:** 4.5.6\n", "*Published at 2026-05-10 14:30:00 UTC*\n"},
+			wantReport: []string{"## Maven Central deployment command completed", "- **Version:** 4.5.6\n", "*Command completed at 2026-05-10 14:30:00 UTC*\n"},
 		},
 		{
 			name: "ForgePackagesPublish",

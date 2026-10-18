@@ -186,6 +186,7 @@ jobs:
           SIGN_ARTIFACTS: ${{ inputs['sign-artifacts'] }}
           REQUIRES_GPG_SIGNING: ${{ (inputs['sign-artifacts'] && fromJSON(inputs['config-plan-json']).sign.imports_gpg_key) || fromJSON(inputs['config-plan-json']).git_signing.imports_gpg_key }}
           HAS_MAVEN_CENTRAL_TARGET: ${{ inputs['has-maven-central-publish-target'] }}
+          HAS_RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY != '' }}
           HAS_CARGO_TARGET: ${{ inputs['has-cargo-publish-target'] }}
           HAS_JVM_TARGET: ${{ inputs['has-jvm-artefact'] }}
           PUBLISH_STAGE_PLAN_JSON: ${{ inputs['publish-stage-plan-json'] }}

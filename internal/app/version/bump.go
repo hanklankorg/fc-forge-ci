@@ -24,6 +24,7 @@ import (
 
 // BumpInput drives Bump.
 type BumpInput struct {
+	Library     bool // Android libraries use Maven's version property, not application versionName/versionCode.
 	ProjectType projecttype.Type
 	Version     string
 	WorkingDir  string // empty → cwd
@@ -73,6 +74,10 @@ type bumpTarget struct {
 }
 
 func normalizeBumpTarget(in BumpInput) (bumpTarget, error) { //nolint:cyclop // one target-selection switch followed by shared serialization and path checks.
+	if in.Library && in.ProjectType == projecttype.GradleAndroid {
+		in.ProjectType = projecttype.Gradle
+	}
+
 	file := ""
 
 	switch in.ProjectType {

@@ -19,7 +19,7 @@ func TestNewReleasePlan_ComputesPolicyAndStagePlans(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
-		Sign: config.SignConfig{Method: domainrelease.SignMethodSigstore},
+		Sign: config.SignConfig{Method: domainrelease.SignMethodSigstore, Transparency: domainrelease.TransparencyPublic},
 		Artifacts: []config.Artifact{
 			{
 				Name:                 "lib",
@@ -28,7 +28,7 @@ func TestNewReleasePlan_ComputesPolicyAndStagePlans(t *testing.T) {
 				PublishTo:            []config.PublishTarget{config.PublishMavenCentral},
 				RequireAuthorization: true,
 			},
-			{Name: "web", ProjectType: projecttype.NPM, PublishTo: []config.PublishTarget{config.PublishForgePackages}},
+			{Name: "web", ProjectType: projecttype.NPM, PublishTo: []config.PublishTarget{config.PublishForgePackages}, NPM: &config.NPMConfig{Tag: "release-{version}"}},
 			{Name: "rust-service", ProjectType: projecttype.Cargo, Cargo: &config.CargoConfig{BuildMode: config.CargoBuildModeContainerFirst}},
 			{Name: "go-service", ProjectType: projecttype.Go, Go: &config.GoConfig{BuildMode: config.GoBuildModeContainerFirst}},
 		},
@@ -96,7 +96,7 @@ func TestNewReleasePlan_ComputesExplicitContainerTransfers(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
-		Sign:      config.SignConfig{Method: domainrelease.SignMethodSigstore},
+		Sign:      config.SignConfig{Method: domainrelease.SignMethodSigstore, Transparency: domainrelease.TransparencyPublic},
 		Artifacts: []config.Artifact{{Name: "go-service", ProjectType: projecttype.Go, Go: &config.GoConfig{BuildMode: config.GoBuildModeContainerFirst}}},
 		Containers: []config.Container{{
 			Name:                        "api",

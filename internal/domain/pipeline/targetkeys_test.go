@@ -56,6 +56,8 @@ func targetKeyCases() []targetKeyCase {
 		{pipeline.TargetGoContainerFirst, pipeline.ReleasePublishTargets{}, "GoContainerFirst"},
 
 		// Dev publish-stage targets.
+		{pipeline.TargetForgePackages, pipeline.DevPublishTargets{}, "ForgePackages"},
+		{pipeline.TargetMavenCentral, pipeline.DevPublishTargets{}, "MavenCentral"},
 		{pipeline.TargetNPM, pipeline.DevPublishTargets{}, "NPM"},
 		{pipeline.TargetCargoContainerFirst, pipeline.DevPublishTargets{}, "CargoContainerFirst"},
 		{pipeline.TargetGoContainerFirst, pipeline.DevPublishTargets{}, "GoContainerFirst"},

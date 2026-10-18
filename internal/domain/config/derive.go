@@ -32,12 +32,7 @@ func Derive(cfg *Config) error {
 
 		sbomsValue := a.SBOMs
 		if sbomsValue == "" {
-			if SBOMSupportedTypes[a.ProjectType] {
-				sbomsValue = "all" //nolint:goconst // test fixture / generic identifier — extracting would explode setup boilerplate.
-			} else {
-				sbomsValue = "none" //nolint:goconst // test fixture / generic identifier — extracting would explode setup boilerplate.
-			}
-
+			sbomsValue = defaultArtifactSBOMs(*a)
 			a.SBOMs = sbomsValue
 		}
 
@@ -52,6 +47,17 @@ func Derive(cfg *Config) error {
 	resolveContainers(cfg)
 
 	return nil
+}
+
+func defaultArtifactSBOMs(artifact Artifact) string {
+	switch {
+	case artifact.ProjectType == projecttype.GradleAndroid && artifact.BuildType == BuildTypeLibrary:
+		return string(SBOMLayerBuild)
+	case SBOMSupportedTypes[artifact.ProjectType]:
+		return sbomsAllPreset
+	default:
+		return sbomsNonePreset
+	}
 }
 
 // AnyRequireAuthorization reports whether any artifact enables the
@@ -114,11 +120,15 @@ func CargoArtifactBuildMode(a Artifact) CargoBuildMode { //nolint:varnamelen // 
 func SupportedPublishTarget(a Artifact, target PublishTarget) bool { //nolint:varnamelen // idiomatic short name (testing/http/io conventions).
 	switch target {
 	case PublishForgePackages:
-		return a.ProjectType == projecttype.Maven || a.ProjectType == projecttype.NPM
+		if a.ProjectType == projecttype.GradleAndroid {
+			return a.BuildType == BuildTypeLibrary
+		}
+
+		return projecttype.IsIn(a.ProjectType, []projecttype.Type{projecttype.Maven, projecttype.NPM, projecttype.Gradle})
 	case PublishMavenCentral:
-		return a.ProjectType == projecttype.Maven && a.BuildType == BuildTypeLibrary
+		return projecttype.IsIn(a.ProjectType, []projecttype.Type{projecttype.Maven, projecttype.Gradle, projecttype.GradleAndroid}) && a.BuildType == BuildTypeLibrary
 	case PublishGooglePlay:
-		return a.ProjectType == projecttype.GradleAndroid
+		return a.ProjectType == projecttype.GradleAndroid && a.BuildType != BuildTypeLibrary
 	case PublishNPMJS:
 		return false
 	default:

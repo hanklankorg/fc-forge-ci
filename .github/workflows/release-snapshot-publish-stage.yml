@@ -31,6 +31,11 @@ on:
         required: false
         default: "ghcr.io/diggsweden/forge-ci-runtime-node-24:v0.90.0"
         type: string
+      runtime-image-java:
+        description: "JDK/Maven runtime for Maven-format snapshot publication"
+        required: false
+        default: "ghcr.io/diggsweden/forge-ci-runtime-java-25:v0.90.0"
+        type: string
       runtime-image-rust:
         description: "forge-ci runtime image for Cargo SBOM jobs"
         required: false
@@ -46,6 +51,10 @@ on:
         default: "none"
         type: string
     secrets:
+      MAVEN_CENTRAL_USERNAME:
+        required: false
+      MAVEN_CENTRAL_PASSWORD:
+        required: false
       registry-password:
         required: false
     outputs:
@@ -64,6 +73,51 @@ on:
 permissions:
   contents: read
 jobs:
+  forge-packages:
+    name: Publish Maven-format Snapshot - ${{ matrix.artifact.name }}
+    if: ${{ fromJson(inputs['snapshot-publish-stage-plan-json']).targets.forge_packages.runs && fromJson(inputs['build-result-json']).result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        artifact: ${{ fromJson(inputs['snapshot-publish-stage-plan-json']).targets.forge_packages.items }}
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    uses: ./.github/workflows/publish-maven-github.yml
+    with:
+      branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.release_sha }}
+      working-directory: ${{ matrix.artifact.working_directory }}
+      artifact-source: ${{ matrix.artifact.publication_artifact_name || matrix.artifact.build_artifact_name }}
+      package-type: ${{ matrix.artifact.project_type }}
+      java-version: ${{ matrix.artifact.maven.java_version || '25' }}
+      snapshot: true
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+  maven-central:
+    name: Publish Central Snapshot - ${{ matrix.artifact.name }}
+    if: ${{ fromJson(inputs['snapshot-publish-stage-plan-json']).targets.maven_central.runs && fromJson(inputs['build-result-json']).result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        artifact: ${{ fromJson(inputs['snapshot-publish-stage-plan-json']).targets.maven_central.items }}
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+    uses: ./.github/workflows/publish-maven-central.yml
+    secrets:
+      MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+      MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+    with:
+      branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.release_sha }}
+      working-directory: ${{ matrix.artifact.working_directory }}
+      artifact-source: ${{ matrix.artifact.publication_artifact_name || matrix.artifact.build_artifact_name }}
+      project-type: ${{ matrix.artifact.project_type }}
+      profile: ${{ matrix.artifact.maven.profile || 'central-release' }}
+      settings-path: ${{ matrix.artifact.maven.settings_path || '' }}
+      private-dependencies: ${{ matrix.artifact.maven.private_dependencies || false }}
+      snapshot: true
+      runtime-image: ${{ inputs['runtime-image-java'] }}
   # Snapshots publish npm packages and assemble SBOMs for the selected project type.
   # Container-first Go/Cargo have separate Build SBOM jobs. Container images are
   # built on the release path and promoted through the stage ladder.
@@ -81,6 +135,7 @@ jobs:
       branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.branch }}
       registry: ${{ fromJson(inputs['snapshot-release-plan-json']).context.npm_registry }}
       package-scope: ${{ fromJson(inputs['snapshot-release-plan-json']).context.package_scope }}
+      npm-tag: release-{version}
       use-ci-token: ${{ fromJson(inputs['snapshot-release-plan-json']).policy.use_ci_token }}
       runtime-image: ${{ inputs['runtime-image-node'] }}
     secrets:
@@ -168,7 +223,7 @@ jobs:
           if-no-files-found: error
   summarize-snapshot-publish-stage:
     name: Summarize Snapshot Publish Stage
-    needs: [npm, cargo-container-first, go-container-first, sbom]
+    needs: [npm, forge-packages, maven-central, cargo-container-first, go-container-first, sbom]
     if: always()
     runs-on: ubuntu-26.04
     container:

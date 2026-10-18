@@ -32,9 +32,19 @@ on:
         required: true
         type: string
       package-type:
-        description: "Package type: maven or npm"
+        description: "Package type: maven, npm, gradle or gradle-android (exported Maven publications)"
         required: true
         type: string
+      version:
+        description: "Expected immutable version of exported Gradle publications"
+        required: false
+        default: ""
+        type: string
+      snapshot:
+        description: "Publish only Maven-format snapshots; not applicable to npm."
+        required: false
+        default: false
+        type: boolean
       java-version:
         description: "Java version"
         required: false
@@ -44,6 +54,11 @@ on:
         description: "Node.js version"
         required: false
         default: "24"
+        type: string
+      npm-tag:
+        description: "Required for npm: release-{version} or release-<packed-version>. No latest, next or movable channel tags."
+        required: false
+        default: ""
         type: string
       working-directory:
         description: "Working directory"
@@ -71,6 +86,8 @@ jobs:
     name: Publish to GitHub Packages (${{ inputs['package-type'] }})
     runs-on: ubuntu-26.04
     timeout-minutes: 30
+    env:
+      MAVEN_SNAPSHOT: ${{ inputs.snapshot }}
     permissions:
       # Least-privilege: publishes to GitHub Packages via GITHUB_TOKEN
       # (packages: write), and reads the build artifact; no git write performed.
@@ -78,6 +95,20 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Validate package type before checkout and downloads
+        env:
+          PACKAGE_TYPE: ${{ inputs['package-type'] }}
+        run: |
+          case "$PACKAGE_TYPE" in
+            maven | gradle | gradle-android) ;;
+            npm)
+              if [ "$MAVEN_SNAPSHOT" = true ]; then
+                printf 'snapshot is a Maven-format option, not an npm channel\n' >&2
+                exit 78
+              fi
+              ;;
+            *) printf 'package-type must be maven, npm, gradle or gradle-android\n' >&2; exit 78 ;;
+          esac
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -101,12 +132,30 @@ jobs:
       # from leaking via PR-HEAD code.
       - name: Refuse PR-context trigger (publish/release secrets in scope)
         run: forge-ci validate event-context
+      - name: Validate exported publication version before downloading
+        if: ${{ (inputs['package-type'] == 'gradle' || inputs['package-type'] == 'gradle-android') && !inputs.snapshot }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: forge-ci validate tag release-guard --tag "v${VERSION#v}"
+      - name: Validate npm tag before downloading artifacts
+        if: ${{ inputs['package-type'] == 'npm' }}
+        env:
+          NPM_TAG: ${{ inputs['npm-tag'] }}
+        run: forge-ci publish npm validate-tag
       - name: Download build artifacts
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_NAME: ${{ inputs['artifact-source'] }}
-          ARTIFACT_DIR: ${{ inputs['working-directory'] }}/
+          ARTIFACT_DIR: ${{ (inputs['package-type'] == 'gradle' || inputs['package-type'] == 'gradle-android') && '.forge-ci/gradle-publication' || format('{0}/', inputs['working-directory']) }}
         run: forge-ci artifact download
+      # Maven publishing. Auth/settings/registry are resolved by the binary
+      - name: Publish exported Gradle publications
+        if: ${{ inputs['package-type'] == 'gradle' || inputs['package-type'] == 'gradle-android' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          MAVEN_SNAPSHOT: ${{ inputs.snapshot }}
+        run: forge-ci publish forge-packages deploy --project-type gradle --working-dir .forge-ci/gradle-publication
       # Maven publishing. Auth/settings/registry are resolved by the binary
       # (`publish forge-packages deploy`), so setup-java only installs the JDK.
       - name: Set up JDK for Maven
@@ -136,6 +185,7 @@ jobs:
         working-directory: ${{ inputs['working-directory'] }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TAG: ${{ inputs['npm-tag'] }}
         run: forge-ci publish forge-packages deploy --project-type npm
       # Optional: Attach artifacts to GitHub release
       - name: Upload artifacts to release

@@ -285,6 +285,11 @@
         "type": "string",
         "default": ""
       },
+      "publish-maven-snapshots": {
+        "required": false,
+        "type": "boolean",
+        "default": false
+      },
       "publish-npm": {
         "required": false,
         "type": "boolean",
@@ -359,6 +364,8 @@
       "IOS_SIGNING_CERTIFICATE_BASE64",
       "IOS_SIGNING_CERTIFICATE_PASSPHRASE",
       "KEYCHAIN_PASSWORD",
+      "MAVEN_CENTRAL_PASSWORD",
+      "MAVEN_CENTRAL_USERNAME",
       "PROVISIONING_PROFILE_BASE64",
       "SECRETS_PROPERTIES_BASE64",
       "XCCONFIG_BASE64",

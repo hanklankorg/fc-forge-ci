@@ -296,6 +296,16 @@ honoured, differs from 3.8 and earlier.
 - **`package-lock.json`** committed: required for reproducible builds and the build-layer SBOM.
 - **`files:` allowlist in `package.json`** (recommended): keeps `npm pack` from including dev files like tests / source maps in the published tarball.
 - **Registry configuration**: production `forge-packages` publishing generates a private temporary npmrc for the active forge. Direct snapshot callers select the registry/scope and provide its credentials through the workflow inputs and secrets.
+- **Version-specific tags**: set `config.npm-tag: release-{version}` explicitly for npm package publication.
+  The publisher reads the version from the packed tarball and publishes, for example, `release-1.2.3` or `release-1.2.3-rc.1`.
+  A literal tag must match the registry version. npm removes SemVer build metadata from published versions;
+  Forge CI warns before publication and uses the same normalized version for the tag.
+  `latest`, `next`, `snapshot`, and other movable channel tags are refused; nothing selects a channel by default.
+  An existing version-specific tag pointing elsewhere is refused before publication.
+  This read-before-publish check is not atomic and does not prevent another registry client from changing tags.
+- **Prebuilt publication**: the publisher disables npm lifecycle scripts with `--ignore-scripts`.
+  Run package preparation during the build, before publication credentials are available.
+- **Early checks**: configuration validation rejects a missing or invalid npm tag before building. Direct callers can run `forge-ci publish npm validate-tag --npm-tag 'release-{version}'` without a package, token, or network. The deploy command also checks the packed identity and existing registry tag before its publishing request. Packed `publishConfig` must not override the selected tag or registry.
 - **Tests in a caller-owned PR workflow**: forge-ci runs `npm test` as a soft release check unless `skip-tests` is enabled, but failures only warn. The consumer-owned PR workflow remains the test gate.
 
 #### See also
@@ -331,13 +341,13 @@ honoured, differs from 3.8 and earlier.
 | Gradle wrapper required | ✅ | `gradlew` checked in | Pinned-version wrapper guarantees the same Gradle across CI and developer machines. |
 | Version-bump (build.gradle / gradle.properties) | ✅ | `forge-ci version bump --project-type gradle --version 1.2.3` | Updates `version =` in build.gradle{,.kts} or `version=` in gradle.properties. |
 | Release prerequisite checks | ✅ | `validate-release-prerequisites.yml` | Confirms JDK toolchain pin + wrapper presence. |
-| Publish: Maven Central | ❌ | caller-owned publishing workflow | `publish-to: [maven-central]` is rejected for Gradle. |
-| Publish: GitHub Packages | ❌ | caller-owned publishing workflow | `publish-to: [forge-packages]` is rejected for Gradle. |
+| Publish: Maven Central | ✅ JVM libraries | exported Maven-layout files, separate signing and Central API upload | Native `maven-publish`, immutable release version, sources/javadoc and Central metadata required; see [Gradle publishing](gradle-publishing.md). |
+| Publish: GitHub Packages | ✅ JVM libraries | exported Maven-layout files, forge-native repository upload | `publish-to: [forge-packages]`; no Gradle execution in the publishing job. GitLab/Forgejo composition limits are documented in the [guide](gradle-publishing.md#gitlab-and-forgejo). |
 
 #### Caller responsibilities
 
 - **Gradle wrapper (`gradlew`)** committed: pinned to a specific Gradle version.
-- **`gradle-tasks` in `artifacts.yml`**: explicitly name which tasks run (e.g. `build`, `publish`, `distZip`); avoids ambiguity for multi-module projects.
+- **`gradle-tasks` in `artifacts.yml`**: explicitly name build tasks (e.g. `build`, `assemble`, `distZip`). Package publication is a separate exported-artifact phase; do not select a remote `publish` task as a build task.
 - **Reproducibility settings on archive tasks**: see `validate jvm-reproducibility` for the exact form.
 - **Tests in a caller-owned PR workflow**: the release workflow defaults to `assemble`. Select `config.gradle-tasks: build` or explicit test tasks if release-build tests are also required.
 
@@ -352,7 +362,7 @@ honoured, differs from 3.8 and earlier.
 
 | Property | Value |
 |---|---|
-| Pattern | artifact-first (Android-specific deliverable: APK / AAB) |
+| Pattern | artifact-first (applications: APK / AAB; libraries: AAR) |
 | project-type identifier | `gradle-android` |
 | Canonical tool | Gradle + Android SDK |
 | Status | Production |
@@ -363,6 +373,7 @@ honoured, differs from 3.8 and earlier.
 | Concern | Status | Workflow / Mechanism | Notes |
 |---|---|---|---|
 | Build (standalone deliverable) | ✅ | `build-gradle-android.yml` (`gradle assemble`) | Produces release APK (signed if `enable-signing: true`) and AAB (if `include-aab: true`, default). |
+| Library build/publication | ✅ | `build-type: library`, native `maven-publish` export | Produces a release AAR; stable and snapshot publication to Central or forge packages uses exported files. See [Android libraries](gradle-publishing.md#android-libraries). |
 | Lint | external | caller's `test.yml` | Android Lint + detekt belong in the consumer repo. |
 | Test | external | caller's `test.yml` | Unit tests run via `gradle test`; instrumented tests need emulator (out-of-scope). |
 | SBOM: build layer | ✅ | cyclonedx-gradle-plugin | Uses the Gradle init-script generator; see [Build tools](sbom.md#per-language-build-tools). |
@@ -373,7 +384,7 @@ honoured, differs from 3.8 and earlier.
 | Product flavor selection | ✅ | `product-flavor` config field | E.g., `staging`, `production`. |
 | Build-type subset | ✅ | `build-types: debug,release` (default) | Pick which variants to build. |
 | Version-bump (Android `versionName` / `versionCode`) | ✅ | `forge-ci version bump --project-type gradle-android --version 1.2.3` | Bumps `versionName` and increments `versionCode` together. |
-| GitHub Release selection | AAB only | release artifact-transfer plan | Selected only when `build-types` includes `release` and `include-aab` is true; APK uploads remain run artifacts. |
+| GitHub Release selection | Application AAB or library AAR | release artifact-transfer plan | Applications require release/AAB selection; libraries use their AAR artifact. APK uploads remain run artifacts. |
 | Release prerequisite checks | ✅ | `validate-release-prerequisites.yml` | Confirms keystore secrets present when `enable-signing: true`. |
 | Publish: Google Play | ✅ | `publish-google-play.yml` | Track-aware (`internal` / `alpha` / `beta` / `production`); supports staged rollouts. |
 | Whats-new notes | ✅ | `whats-new-directory` config field | Localised release notes. |
@@ -383,7 +394,7 @@ honoured, differs from 3.8 and earlier.
 
 #### Caller responsibilities
 
-- **Signing keystore committed neither to repo nor exported**: set as repo/org secret per the declared inputs (`ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`).
+- **Application signing keystore**: set as repo/org secret per the declared inputs (`ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`). Libraries do not use an Android keystore.
 - **Explicit Android SBOM policy**: exclude `analyzed-artifact` until APK/AAB scanning is implemented.
 - **Signing policy**: enable Android signing for distributable release outputs. forge-ci does not reject an unsigned release APK/AAB or the `google-play` combination at config-parse time.
 - **Service-account JSON** for Google Play (`GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`): required when publishing.
@@ -395,6 +406,7 @@ honoured, differs from 3.8 and earlier.
 
 - [Gradle Android config fields](artifacts-reference.md#configuration-fields-gradle-android)
 - [Android app example](../examples/android-app/)
+- [Android-library configuration and snapshots](gradle-publishing.md#android-libraries)
 - [Google Play workflow](../.github/workflows/publish-google-play.yml)
 
 ---

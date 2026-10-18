@@ -81,6 +81,9 @@ on:
       RELEASE_GPG_PRIVATE_KEY:
         description: "Armored OpenPGP private key for jar signing"
         required: false
+      RELEASE_GPG_PUBLIC_KEY:
+        description: "Public key verifying the prepared Git release tag"
+        required: false
       RELEASE_GPG_PASSPHRASE:
         description: "Passphrase for RELEASE_GPG_PRIVATE_KEY"
         required: false
@@ -148,14 +151,16 @@ jobs:
     with:
       working-directory: ${{ matrix.artifact.working_directory }}
       branch: ${{ inputs.branch }}
-      artifact-source: ${{ matrix.artifact.build_artifact_name }}
+      artifact-source: ${{ matrix.artifact.publication_artifact_name || matrix.artifact.build_artifact_name }}
       package-type: ${{ matrix.artifact.project_type }}
+      version: ${{ inputs['release-tag'] }}
       java-version: ${{ matrix.artifact.maven.java_version }}
       node-version: ${{ matrix.artifact.npm.node_version }}
+      npm-tag: ${{ matrix.artifact.npm.tag }}
       attach-pattern: ${{ matrix.artifact.maven.attach_pattern || matrix.artifact.npm.attach_pattern }}
   maven-central:
     name: "Publish: ${{ matrix.artifact.name }} to Maven Central"
-    if: ${{ fromJson(inputs['publish-stage-plan-json']).targets.maven_central.runs && fromJson(inputs['build-result-json']).targets.maven == 'success' }}
+    if: ${{ fromJson(inputs['publish-stage-plan-json']).targets.maven_central.runs && fromJson(inputs['build-result-json']).result == 'success' }}
     strategy:
       matrix:
         artifact: ${{ fromJson(inputs['publish-stage-plan-json']).targets.maven_central.items }}
@@ -165,16 +170,21 @@ jobs:
       # artifact. It uses neither GitHub Packages nor OIDC and performs no git write.
       actions: read
       contents: read
+      packages: read
     secrets:
       MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
       MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+      RELEASE_GPG_PUBLIC_KEY: ${{ secrets.RELEASE_GPG_PUBLIC_KEY }}
       RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
       RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
     uses: ./.github/workflows/publish-maven-central.yml
     with:
       working-directory: ${{ matrix.artifact.working_directory }}
       branch: ${{ inputs.branch }}
-      artifact-source: ${{ matrix.artifact.build_artifact_name }}
+      artifact-source: ${{ matrix.artifact.publication_artifact_name || matrix.artifact.build_artifact_name }}
+      project-type: ${{ matrix.artifact.project_type }}
+      version: ${{ inputs['release-tag'] }}
+      private-dependencies: ${{ matrix.artifact.maven.private_dependencies || false }}
       settings-path: ${{ matrix.artifact.maven.settings_path }}
       profile: ${{ matrix.artifact.maven.profile || 'central-release' }}
       runtime-image: ${{ inputs['runtime-image-java'] }}

@@ -23,7 +23,7 @@ func prerequisitesConfigPlan(t *testing.T) pipeline.ConfigPlan {
 
 	cfg := config.Config{Artifacts: []config.Artifact{
 		{Name: "lib", ProjectType: projecttype.Maven, BuildType: config.BuildTypeLibrary, PublishTo: []config.PublishTarget{config.PublishMavenCentral}},
-		{Name: "pkg", ProjectType: projecttype.NPM, BuildType: config.BuildTypeApplication, PublishTo: []config.PublishTarget{config.PublishForgePackages}},
+		{Name: "pkg", ProjectType: projecttype.NPM, BuildType: config.BuildTypeApplication, PublishTo: []config.PublishTarget{config.PublishForgePackages}, NPM: &config.NPMConfig{Tag: "release-{version}"}},
 	}}
 	require.NoError(t, config.Derive(&cfg))
 	plan := pipeline.NewConfigPlan(&cfg)

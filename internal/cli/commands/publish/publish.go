@@ -16,6 +16,14 @@ package publish
 
 import "github.com/urfave/cli/v3"
 
+const (
+	commandDeploy = "deploy"
+	flagVersion   = "version"
+	flagNPMTag    = "npm-tag"
+	flagRegistry  = "registry"
+	flagSnapshot  = "snapshot"
+)
+
 // New returns the `publish` subgroup command tree.
 func New() *cli.Command {
 	return &cli.Command{

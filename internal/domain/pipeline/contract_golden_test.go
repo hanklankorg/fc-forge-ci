@@ -83,7 +83,7 @@ func contractConfig(t *testing.T) *config.Config {
 	t.Helper()
 
 	cfg := &config.Config{
-		Sign: config.SignConfig{Method: domainrelease.SignMethodSigstore},
+		Sign: config.SignConfig{Method: domainrelease.SignMethodSigstore, Transparency: domainrelease.TransparencyPublic},
 		Artifacts: []config.Artifact{
 			{
 				Name:                 "lib",
@@ -105,6 +105,7 @@ func contractConfig(t *testing.T) *config.Config {
 				PublishTo:        []config.PublishTarget{config.PublishForgePackages, config.PublishNPMJS},
 				NPM: &config.NPMConfig{
 					NodeVersion: "24",
+					Tag:         "release-{version}",
 				},
 			},
 			{

@@ -106,11 +106,14 @@ jobs:
       fail-fast: false
     permissions:
       contents: read
+      packages: read
     # build-maven uses only auto-provided GITHUB_TOKEN.
     uses: ./.github/workflows/build-maven.yml
     with:
       working-directory: ${{ matrix.artifact.working_directory }}
-      branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.branch }}
+      private-dependencies: ${{ matrix.artifact.maven.private_dependencies || false }}
+      settings-path: ${{ matrix.artifact.maven.settings_path || '' }}
+      branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.release_sha }}
       build-type: ${{ matrix.artifact.build_type == 'library' && 'lib' || 'app' }}
       profile: ${{ matrix.artifact.build_type == 'library' && (matrix.artifact.maven.maven_profile || 'central-release') || '' }}
       artifact-name: ${{ matrix.artifact.name }}
@@ -125,10 +128,13 @@ jobs:
       fail-fast: false
     permissions:
       contents: read
+      packages: read
     # build-npm uses only auto-provided GITHUB_TOKEN.
     uses: ./.github/workflows/build-npm.yml
     with:
       working-directory: ${{ matrix.artifact.working_directory }}
+      private-dependencies: ${{ matrix.artifact.npm.private_dependencies || false }}
+      dependency-registry: ${{ matrix.artifact.npm.dependency_registry || '' }}
       branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.branch }}
       artifact-name: ${{ matrix.artifact.name }}
       enable-build-sbom: ${{ inputs.sboms != 'none' && contains(matrix.artifact.effective_sboms, 'build') }}
@@ -142,11 +148,15 @@ jobs:
       fail-fast: false
     permissions:
       contents: read
+      packages: read
     # build-gradle-app uses only auto-provided GITHUB_TOKEN.
     uses: ./.github/workflows/build-gradle-app.yml
     with:
+      publication-artifact-name: ${{ fromJson(inputs['snapshot-build-stage-plan-json']).export_publications && matrix.artifact.publication_artifact_name || '' }}
+      snapshot-publication: true
       working-directory: ${{ matrix.artifact.working_directory }}
-      branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.branch }}
+      private-dependencies: ${{ matrix.artifact.gradle.private_dependencies || false }}
+      branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.release_sha }}
       artifact-name: ${{ matrix.artifact.name }}
       gradle-tasks: ${{ matrix.artifact.gradle.gradle_tasks }}
       enable-build-sbom: ${{ inputs.sboms != 'none' && contains(matrix.artifact.effective_sboms, 'build') }}
@@ -191,9 +201,12 @@ jobs:
       SECRETS_PROPERTIES_BASE64: ${{ secrets.SECRETS_PROPERTIES_BASE64 }}
     uses: ./.github/workflows/build-gradle-android.yml
     with:
+      library: ${{ matrix.artifact.build_type == 'library' }}
+      publication-artifact-name: ${{ fromJson(inputs['snapshot-build-stage-plan-json']).export_publications && matrix.artifact.publication_artifact_name || '' }}
+      snapshot-publication: true
       working-directory: ${{ matrix.artifact.working_directory }}
       build-module: ${{ matrix.artifact.gradle_android.build_module }}
-      branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.branch }}
+      branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.release_sha }}
       product-flavor: ${{ matrix.artifact.gradle_android.product_flavor || '' }}
       build-types: ${{ matrix.artifact.gradle_android.build_types || 'debug,release' }}
       include-aab: ${{ matrix.artifact.gradle_android.include_aab != false }}

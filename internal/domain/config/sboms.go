@@ -11,6 +11,11 @@ import (
 	"github.com/diggsweden/forge-ci/internal/listval"
 )
 
+const (
+	sbomsAllPreset  = "all"
+	sbomsNonePreset = "none"
+)
+
 // ExpandSBOMs translates an `sboms` enum value to the deduped list of
 // CISA SBOM layers it represents.
 //
@@ -35,13 +40,13 @@ func ExpandSBOMs(value string) ([]SBOMLayer, error) {
 	}
 
 	switch cleaned {
-	case "all": //nolint:goconst // test fixture / generic identifier — extracting would explode setup boilerplate.
+	case sbomsAllPreset:
 		// Return a copy so callers can't mutate ValidSBOMLayers.
 		out := make([]SBOMLayer, len(ValidSBOMLayers))
 		copy(out, ValidSBOMLayers)
 
 		return out, nil
-	case "none": //nolint:goconst // test fixture / generic identifier — extracting would explode setup boilerplate.
+	case sbomsNonePreset:
 		return []SBOMLayer{}, nil
 	}
 
@@ -59,7 +64,7 @@ func ExpandSBOMs(value string) ([]SBOMLayer, error) {
 
 			seen[layer] = struct{}{}
 			out = append(out, layer)
-		case "all", "none":
+		case sbomsAllPreset, sbomsNonePreset:
 			return nil, fmt.Errorf("sboms: %q is a shortcut and cannot be combined with other values: %w", p, errs.ErrValidation)
 		default:
 			return nil, fmt.Errorf("sboms: unknown token %q (valid: build, analyzed-artifact, analyzed-container, or shortcuts all|none): %w", p, errs.ErrValidation)
@@ -91,7 +96,7 @@ func PipelineSBOMs(artifacts []Artifact) string {
 	}
 
 	if len(parts) == 0 {
-		return "none"
+		return sbomsNonePreset
 	}
 
 	return strings.Join(parts, ",")

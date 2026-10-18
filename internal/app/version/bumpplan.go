@@ -16,6 +16,7 @@ import (
 
 	"github.com/diggsweden/forge-ci/internal/cliio"
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
+	"github.com/diggsweden/forge-ci/internal/domain/config"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/output"
 	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
@@ -96,7 +97,7 @@ func BumpPlan(ctx context.Context, ops BumpOps, sink ci.OutputSink, out, stderr 
 			gradleVersionFile = artifact.GradleAndroid.GradleVersionFile
 		}
 
-		bump, err := normalizeBumpTarget(BumpInput{ProjectType: artifact.ProjectType, Version: in.Version, WorkingDir: dir,
+		bump, err := normalizeBumpTarget(BumpInput{ProjectType: artifact.ProjectType, Library: artifact.BuildType == config.BuildTypeLibrary, Version: in.Version, WorkingDir: dir,
 			GradleVersionFile: gradleVersionFile, XcconfigFile: in.XcconfigFile, MavenCLIOpts: in.MavenCLIOpts})
 		if err != nil {
 			return fmt.Errorf("preflight artifact %q: %w", artifact.Name, err)

@@ -54,14 +54,12 @@ func TestInRunner_ForgePackages_NPMPublishReachesTheRegistry(t *testing.T) {
 		base = "fci-parpkg"
 	)
 
-	// Unique per run, and deliberately NOT a prerelease.
+	// Unique per run. The explicit version-specific tag is required by the
+	// publication policy for stable versions and prereleases alike.
 	//
 	// Unique because the Gitea family scopes packages to the owner, not to the
 	// repository: a fresh scratch repo does not give a fresh registry, so a fixed
-	// version would collide with the previous run and be refused. Not a
-	// prerelease because npm refuses to publish one without an explicit --tag,
-	// which would make this scenario fail on npm's release policy rather than on
-	// anything the forge did.
+	// version would collide with the previous run and be refused.
 	version := forgePackageVersion(time.Now())
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "a package registry"), livetest.NeedsInRunner) {
@@ -154,7 +152,7 @@ ls -l pkg`
     - |
       ` + indent(livetest.ProbePrelude(target, assetURL), 6) + `
       ` + indent(manifest, 6) + `
-      ` + indent(`run_product publish forge-packages deploy --project-type npm --working-dir pkg`, 6) + `
+			` + indent(`run_product publish forge-packages deploy --project-type npm --working-dir pkg --npm-tag 'release-{version}'`, 6) + `
 `
 	}
 
@@ -172,7 +170,7 @@ jobs:
         run: |
           ` + indent(livetest.ProbePrelude(target, assetURL), 10) + `
           ` + indent(manifest, 10) + `
-          ` + indent(`run_product publish forge-packages deploy --project-type npm --working-dir pkg`, 10) + `
+			` + indent(`run_product publish forge-packages deploy --project-type npm --working-dir pkg --npm-tag 'release-{version}'`, 10) + `
 `
 }
 

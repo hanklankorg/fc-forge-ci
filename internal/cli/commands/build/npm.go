@@ -12,6 +12,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/adapters/npm"
 	appbuild "github.com/diggsweden/forge-ci/internal/app/build"
 	"github.com/diggsweden/forge-ci/internal/cli/deps"
+	domainbuild "github.com/diggsweden/forge-ci/internal/domain/build"
 )
 
 func npmCmd() *cli.Command {
@@ -40,7 +41,8 @@ func npmRunCmd() *cli.Command {
 
 EXAMPLE:
    forge-ci build npm run --working-dir . --sbom-tool-version 4.2.1`,
-		Flags: []cli.Flag{
+		Flags: append(dependencyFlags(), []cli.Flag{
+			&cli.StringFlag{Name: "dependency-registry", Sources: cli.EnvVars("DEPENDENCY_REGISTRY"), Usage: "private npm registry to authenticate; the project still chooses its registry scopes"},
 			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Sources: cli.EnvVars("WORKING_DIRECTORY"), Usage: usageNPMDirectory},
 			&cli.StringFlag{Name: "scope", Sources: cli.EnvVars("SCOPE", "PACKAGE_SCOPE"), Usage: "expected scope (e.g. @examplescope); errors when package.json disagrees"},
 			&cli.StringFlag{Name: "script", Value: subCmdBuild, Usage: "npm build script name to run (skipped when absent)"},
@@ -48,10 +50,31 @@ EXAMPLE:
 			&cli.BoolFlag{Name: flagBuildSBOM, Value: true, Sources: cli.EnvVars("ENABLE_BUILD_SBOM"), Usage: "generate the CycloneDX Build SBOM (default true)"},
 			&cli.StringFlag{Name: flagSBOMToolVersion, Sources: cli.EnvVars("CYCLONEDX_VERSION"), Usage: "pinned @cyclonedx/cyclonedx-npm version run via npx (required when --build-sbom)"},
 			&cli.StringFlag{Name: "node-version", Sources: cli.EnvVars("NODE_VERSION"), Usage: "Node major version, reported in the build summary"},
-		},
+		}...),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
+			if cmd.Bool("private-dependencies") {
+				if _, err := domainbuild.NPMDependencyAuthConfig(cmd.String("dependency-registry")); err != nil {
+					return err
+				}
+			}
+
+			environment, err := resolveDependencyEnvironment(cmd)
+			if err != nil {
+				return err
+			}
+
+			if cmd.Bool("validate-dependencies-only") {
+				return nil
+			}
+
+			var access *appbuild.NPMDependencyAccess
+			if cmd.Bool("private-dependencies") {
+				access = &appbuild.NPMDependencyAccess{Registry: cmd.String("dependency-registry"), Token: environment.token, Environment: environment.base}
+			}
+
 			return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error {
-				return appbuild.NPMReleaseBuild(ctx, d.SummarySink, npm.New(), npm.NewNpx(), deps.Annotator(cmd), os.Stderr, os.Stderr, appbuild.NPMReleaseBuildInput{
+				return appbuild.NPMReleaseBuild(ctx, d.SummarySink, &npm.Adapter{Env: environment.base}, &npm.Adapter{Bin: "npx", Env: environment.base}, deps.Annotator(cmd), os.Stderr, os.Stderr, appbuild.NPMReleaseBuildInput{
+					DependencyAccess: access,
 					ReleaseBuildOptions: appbuild.ReleaseBuildOptions{
 						Dir:             cmd.String(flagWorkingDir),
 						SkipTests:       cmd.Bool(flagSkipTests),

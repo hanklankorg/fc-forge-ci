@@ -24,6 +24,25 @@
 #         enable-signing: true
 spec:
   inputs:
+    library:
+      type: boolean
+      default: false
+      description: Build an Android library AAR without application keystore signing.
+    export-publications:
+      type: boolean
+      default: false
+      description: Export native Maven publications into .forge-ci/maven-publication.
+    version:
+      default: ""
+      description: Expected release version; optional in snapshot mode.
+    central-publication:
+      type: boolean
+      default: false
+      description: Require Central release metadata and sources/javadoc.
+    snapshot-publication:
+      type: boolean
+      default: false
+      description: Export only resolved Maven snapshot publications.
     stage:
       default: build
       description: Pipeline stage the build runs in.
@@ -73,6 +92,11 @@ spec:
   stage: $[[ inputs.stage ]]
   image: $[[ inputs.runtime-image ]]
   variables:
+    ANDROID_LIBRARY: "$[[ inputs.library ]]"
+    EXPORT_PUBLICATIONS: "$[[ inputs.export-publications ]]"
+    CENTRAL_PUBLICATION: "$[[ inputs.central-publication ]]"
+    SNAPSHOT_PUBLICATION: "$[[ inputs.snapshot-publication ]]"
+    VERSION: "$[[ inputs.version ]]"
     RC_PROJECT_DIRECTORY: "$[[ inputs.working-directory ]]"
     INCLUDE_DATE_STAMP: "true"
     REPOSITORY_NAME: "$CI_PROJECT_NAME"
@@ -89,10 +113,13 @@ spec:
     CI_SUMMARY_FILE: "$CI_PROJECT_DIR/android-build-summary.md"
   script:
     - cd -- "$RC_PROJECT_DIRECTORY"
+    - if [ "$EXPORT_PUBLICATIONS" = "true" ]; then forge-ci build gradle export-publications --project "$BUILD_MODULE" --output .forge-ci/maven-publication --snapshot="$SNAPSHOT_PUBLICATION" --validate-only; fi
     - forge-ci build gradle-android run
+    - if [ "$EXPORT_PUBLICATIONS" = "true" ]; then forge-ci build gradle export-publications --project "$BUILD_MODULE" --output .forge-ci/maven-publication --central="$CENTRAL_PUBLICATION" --snapshot="$SNAPSHOT_PUBLICATION"; fi
   artifacts:
     reports:
       dotenv: "$CI_PROJECT_DIR/android-build.env"
     paths:
+      - $[[ inputs.working-directory ]]/.forge-ci/maven-publication/
       - $[[ inputs.working-directory ]]/$[[ inputs.build-module ]]/build/outputs/
       - $[[ inputs.working-directory ]]/build/reports/

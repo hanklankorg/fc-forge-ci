@@ -21,12 +21,12 @@
 # 4. If already published: logs warning, skips remaining steps, exits successfully
 # 5. Applies version to package.json (no git commit)
 # 6. Creates npm pack tarball
-# 7. Publishes to registry with 'snapshot' tag
+# 7. Publishes to registry with an explicit version-specific tag
 # 8. Uploads tarball as workflow artifact
 #
 # Security controls:
 # - Minimal - optimized for speed
-# - Packages tagged with 'snapshot' not 'latest'
+# - No movable distribution tags (including latest, next and snapshot)
 # - No SBOM, no signing, no attestation
 #
 # Dependencies:
@@ -76,6 +76,10 @@ on:
         description: "Name of the NPM build artifact to download"
         required: false
         default: "npm-build-artifacts"
+        type: string
+      npm-tag:
+        description: "Explicit release-{version} or release-<packed-version>; movable channel tags are forbidden."
+        required: true
         type: string
       use-ci-token:
         description: "Use GITHUB_TOKEN for authentication (GitHub Packages only)"
@@ -157,6 +161,10 @@ jobs:
       # forge-ci is pre-baked in the runtime image.
       - name: Refuse PR-context trigger (publish/release secrets in scope)
         run: forge-ci validate event-context
+      - name: Validate npm tag before checkout and authentication
+        env:
+          NPM_TAG: ${{ inputs['npm-tag'] }}
+        run: forge-ci publish npm validate-tag
       - name: Checkout repository
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -241,7 +249,5 @@ jobs:
           NPM_REGISTRY: ${{ inputs.registry }}
           PACKAGE_NAME: ${{ steps.meta.outputs.name }}
           SNAPSHOT_VERSION: ${{ steps.tags.outputs.snapshot-version }}
-        run: |
-          printf "Publishing %s@%s to %s with tag 'snapshot'\n" "$PACKAGE_NAME" "$SNAPSHOT_VERSION" "$NPM_REGISTRY"
-          npm publish --tag snapshot
-          printf "✅ Published successfully\n"
+          NPM_TAG: ${{ inputs['npm-tag'] }}
+        run: forge-ci publish npm deploy --working-dir .forge-ci/npm-snapshot-artifact

@@ -80,7 +80,7 @@ func TestTimestampedSummaries_RenderUTCAndExplicitInputs(t *testing.T) {
 			render: func(ctx context.Context, sink *fakeSummarySink) error {
 				return appsummary.MavenCentralPublish(ctx, sink, appsummary.MavenCentralPublishInput{Now: now})
 			},
-			want: []string{"*Published at 2026-05-09 22:30:00 UTC*"},
+			want: []string{"*Command completed at 2026-05-09 22:30:00 UTC*"},
 		},
 		"forge packages publish": {
 			render: func(ctx context.Context, sink *fakeSummarySink) error {

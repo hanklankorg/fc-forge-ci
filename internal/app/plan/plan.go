@@ -25,6 +25,7 @@ import (
 
 // ReleaseInput drives `plan release`.
 type ReleaseInput struct {
+	RepositoryVisibility            string
 	ConfigPlanJSON                  string
 	Branch                          string
 	RefName                         string
@@ -51,6 +52,7 @@ func Release(ctx context.Context, sink ci.OutputSink, summary ci.SummarySink, in
 	}
 
 	releasePlan, err := pipeline.NewReleasePlan(pipeline.ReleasePlanInput{
+		RepositoryVisibility:            in.RepositoryVisibility,
 		ConfigPlan:                      configPlan,
 		Branch:                          in.Branch,
 		RefName:                         in.RefName,
@@ -112,23 +114,24 @@ func warnSBOMConflict(ctx context.Context, summary ci.SummarySink, releaseSBOMs,
 
 // SnapshotReleaseInput drives `plan snapshot-release`.
 type SnapshotReleaseInput struct {
-	ConfigPlanJSON    string
-	ProjectType       string
-	Branch            string
-	ReleaseSHA        string
-	ReleaseActor      string
-	ReleaseRepository string
-	WorkingDirectory  string
-	JavaVersion       string
-	NodeVersion       string
-	RustToolchain     string
-	Registry          string
-	ForgeCIBinaryRef  string
-	NPMRegistry       string
-	PackageScope      string
-	SBOMs             string
-	PublishNPM        bool
-	UseCIToken        bool
+	ConfigPlanJSON        string
+	ProjectType           string
+	Branch                string
+	ReleaseSHA            string
+	ReleaseActor          string
+	ReleaseRepository     string
+	WorkingDirectory      string
+	JavaVersion           string
+	NodeVersion           string
+	RustToolchain         string
+	Registry              string
+	ForgeCIBinaryRef      string
+	NPMRegistry           string
+	PackageScope          string
+	SBOMs                 string
+	PublishNPM            bool
+	PublishMavenSnapshots bool
+	UseCIToken            bool
 }
 
 // SnapshotRelease composes the typed snapshot-release plan outputs.
@@ -143,23 +146,24 @@ func SnapshotRelease(ctx context.Context, sink ci.OutputSink, in SnapshotRelease
 	}
 
 	devPlan, err := pipeline.NewSnapshotReleasePlan(pipeline.SnapshotReleasePlanInput{
-		ConfigPlan:        configPlan,
-		ProjectType:       projecttype.Type(in.ProjectType),
-		Branch:            in.Branch,
-		ReleaseSHA:        in.ReleaseSHA,
-		ReleaseActor:      in.ReleaseActor,
-		ReleaseRepository: in.ReleaseRepository,
-		WorkingDirectory:  in.WorkingDirectory,
-		JavaVersion:       in.JavaVersion,
-		NodeVersion:       in.NodeVersion,
-		RustToolchain:     in.RustToolchain,
-		Registry:          in.Registry,
-		ForgeCIBinaryRef:  in.ForgeCIBinaryRef,
-		NPMRegistry:       in.NPMRegistry,
-		PackageScope:      in.PackageScope,
-		SBOMs:             in.SBOMs,
-		PublishNPM:        in.PublishNPM,
-		UseCIToken:        in.UseCIToken,
+		ConfigPlan:            configPlan,
+		ProjectType:           projecttype.Type(in.ProjectType),
+		Branch:                in.Branch,
+		ReleaseSHA:            in.ReleaseSHA,
+		ReleaseActor:          in.ReleaseActor,
+		ReleaseRepository:     in.ReleaseRepository,
+		WorkingDirectory:      in.WorkingDirectory,
+		JavaVersion:           in.JavaVersion,
+		NodeVersion:           in.NodeVersion,
+		RustToolchain:         in.RustToolchain,
+		Registry:              in.Registry,
+		ForgeCIBinaryRef:      in.ForgeCIBinaryRef,
+		NPMRegistry:           in.NPMRegistry,
+		PackageScope:          in.PackageScope,
+		SBOMs:                 in.SBOMs,
+		PublishNPM:            in.PublishNPM,
+		PublishMavenSnapshots: in.PublishMavenSnapshots,
+		UseCIToken:            in.UseCIToken,
 	})
 	if err != nil {
 		return nil, err

@@ -41,7 +41,7 @@ func kindCases() map[string]kindCase {
 		},
 		"publish maven-central": {
 			args:   []string{"--version", "1.2.3"},
-			marker: "## Published to Maven Central",
+			marker: "## Maven Central deployment command completed",
 		},
 		"publish forge-packages": {
 			args:   []string{"--repository", "org/app", "--package-type", "maven", "--registry-name", "GitHub Packages"},

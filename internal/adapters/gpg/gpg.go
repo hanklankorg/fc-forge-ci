@@ -100,6 +100,14 @@ func (a *Adapter) DetachedSign(ctx context.Context, fingerprint, passphrase, inp
 	return nil
 }
 
+// DetachedSignArmored emits the ASCII-armored .asc form required by Maven
+// repositories. Passphrases use stdin, exactly as for binary detached signing.
+func (a *Adapter) DetachedSignArmored(ctx context.Context, fingerprint, passphrase, inputPath, outputPath string) error {
+	_, err := a.runStdin(ctx, passphrase, a.gpg(), "--batch", "--armor", "--pinentry-mode", "loopback", "--passphrase-fd", "0", "--local-user", fingerprint, "--output", outputPath, "--detach-sign", inputPath)
+
+	return err
+}
+
 // ConfigureAgent writes the canonical gpg-agent.conf into the resolved
 // GNUPGHOME (env or $HOME/.gnupg) at mode 0600 inside a 0700 directory,
 // then asks gpg-agent to reload. Idempotent.

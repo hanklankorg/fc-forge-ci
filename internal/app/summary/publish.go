@@ -29,7 +29,7 @@ func MavenCentralPublish(ctx context.Context, sink ci.SummarySink, in MavenCentr
 
 	var b strings.Builder //nolint:varnamelen // idiomatic short name (testing/http/io conventions).
 
-	_, _ = fmt.Fprintf(&b, "## Published to Maven Central 🚀\n\n")
+	_, _ = fmt.Fprintf(&b, "## Maven Central deployment command completed\n\n")
 	_, _ = fmt.Fprintf(&b, "- **Version:** %s\n", domainsummary.LiteralText(in.Version))
 
 	if in.IsSnapshot {
@@ -38,15 +38,15 @@ func MavenCentralPublish(ctx context.Context, sink ci.SummarySink, in MavenCentr
 		_, _ = fmt.Fprintf(&b, "- **Type:** Release\n")
 	}
 
-	_, _ = fmt.Fprintf(&b, "- **Registry:** [Maven Central](https://central.sonatype.com/)\n\n")
-
 	if in.IsSnapshot {
-		_, _ = fmt.Fprintf(&b, "⚠️ **SNAPSHOT** releases are available immediately in the snapshot repository.\n")
+		_, _ = fmt.Fprintf(&b, "- **Registry:** [Central snapshots](https://central.sonatype.com/repository/maven-snapshots/)\n\n")
+		_, _ = fmt.Fprintf(&b, "The project's Maven profile reported completion. Snapshot availability was not independently observed; verify the snapshot repository before consuming this version.\n")
 	} else {
-		_, _ = fmt.Fprintf(&b, "✓ **Release** deployed to staging. Will be published to Central within 30 minutes.\n")
+		_, _ = fmt.Fprintf(&b, "- **Registry:** [Maven Central](https://central.sonatype.com/)\n\n")
+		_, _ = fmt.Fprintf(&b, "The project's Maven profile reported completion. Publication state was not independently observed; check the Central Portal before treating this version as publicly available.\n")
 	}
 
-	_, _ = fmt.Fprintf(&b, "\n*Published at %s*\n", now.UTC().Format("2006-01-02 15:04:05 UTC"))
+	_, _ = fmt.Fprintf(&b, "\n*Command completed at %s*\n", now.UTC().Format("2006-01-02 15:04:05 UTC"))
 
 	return sink.Append(ctx, b.String())
 }

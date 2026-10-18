@@ -17,7 +17,9 @@ import (
 // Adapter wraps the gradle wrapper. Bin is overridable for tests; the
 // production path is the project-local "./gradlew".
 type Adapter struct {
-	Bin string // empty → "./gradlew"
+	Bin      string   // empty → "./gradlew"
+	Env      []string // nil inherits; explicit base for credential-bearing invocations
+	NoDaemon bool     // do not retain dependency credentials in a reusable daemon
 }
 
 // New returns an Adapter using the project-local ./gradlew.
@@ -47,11 +49,21 @@ func (a *Adapter) RunInDirEnvInherit(ctx context.Context, dir string, env []stri
 }
 
 func (a *Adapter) command(ctx context.Context, dir string, env []string, stdout, stderr io.Writer, args ...string) *exec.Cmd {
+	if a.NoDaemon {
+		args = append(args, "--no-daemon")
+	}
+
 	cmd := safeexec.Command(ctx, a.bin(), args...)
 	cmd.Dir = dir
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	cmd.Env = append(cmd.Environ(), env...)
+
+	base := a.Env
+	if base == nil {
+		base = cmd.Environ()
+	}
+
+	cmd.Env = append(append([]string{}, base...), env...)
 	// exec applies last-value-wins; normalize now so the command itself exposes
 	// the exact effective environment to pure builder tests.
 	cmd.Env = cmd.Environ()

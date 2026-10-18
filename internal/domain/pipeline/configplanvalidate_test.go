@@ -232,9 +232,9 @@ func invariantConfigPlan(t *testing.T) pipeline.ConfigPlan {
 	no := false
 
 	cfg := &config.Config{
-		Sign: config.SignConfig{Method: domainrelease.SignMethodSigstore}, GitSigning: config.GitSigningConfig{Method: config.GitSignSSH},
+		Sign: config.SignConfig{Method: domainrelease.SignMethodSigstore, Transparency: domainrelease.TransparencyPublic}, GitSigning: config.GitSigningConfig{Method: config.GitSignSSH},
 		Artifacts: []config.Artifact{
-			{Name: "web", ProjectType: projecttype.NPM, PublishTo: []config.PublishTarget{config.PublishForgePackages}, NPM: &config.NPMConfig{NodeVersion: "24"}},
+			{Name: "web", ProjectType: projecttype.NPM, PublishTo: []config.PublishTarget{config.PublishForgePackages}, NPM: &config.NPMConfig{NodeVersion: "24", Tag: "release-{version}"}},
 			{Name: "app", ProjectType: projecttype.Maven, BuildType: config.BuildTypeApplication, PublishTo: []config.PublishTarget{config.PublishForgePackages}},
 			{Name: "lib", ProjectType: projecttype.Maven, BuildType: config.BuildTypeLibrary, PublishTo: []config.PublishTarget{config.PublishForgePackages, config.PublishMavenCentral}, RequireAuthorization: true},
 			{Name: "jvm", ProjectType: projecttype.Gradle},

@@ -131,7 +131,7 @@ func (e *ValidationError) Unwrap() error { return errs.ErrInvalidConfig }
 // support" wording would mislead (maven *does* support Central). Spell the
 // rule out and show the artifact's actual build-type.
 func unsupportedTargetReason(artifact Artifact, target PublishTarget) string {
-	if target == PublishMavenCentral && artifact.ProjectType == projecttype.Maven {
+	if target == PublishMavenCentral && projecttype.IsIn(artifact.ProjectType, []projecttype.Type{projecttype.Maven, projecttype.Gradle, projecttype.GradleAndroid}) {
 		return fmt.Sprintf(
 			"artifact %q: publish target %q requires build-type %q (got %q)",
 			artifact.Name, target, BuildTypeLibrary, artifact.BuildType,
@@ -295,6 +295,9 @@ func validateArtifact(a Artifact, idx int, artifactNames map[string]bool, validT
 	}
 
 	v = append(v, validateAndroidBuildTypes(a)...)
+	v = append(v, validateNPMPublish(a)...)
+	v = append(v, validatePrivateDependencies(a)...)
+	v = append(v, validateAndroidLibraryOptions(a)...)
 
 	v = append(v, validateWorkingDirectory(a)...)
 	v = append(v, validateArtifactFileNames(a)...)

@@ -272,9 +272,9 @@ on:
         default: ""
         type: string
       transparency-log:
-        description: "Whether Cosign signatures are also written to the public Sigstore transparency log: `public` (default) or `none`. `none` is valid only with a key (sign-method=kms): a keyless signature needs the log to be verifiable. `none` writes no entry and contacts no Sigstore service; verify against the key with --insecure-ignore-tlog. Any other value is refused before signing."
+        description: "Cosign transparency: public or none. Omission defaults to public only for public repositories; private or unknown visibility requires explicit public consent. none is valid only with sign-method=kms and requires --insecure-ignore-tlog when verifying. Invalid values are refused before signing."
         required: false
-        default: "public"
+        default: ""
         type: string
       cosign-public-key:
         description: "The trusted Cosign public key, PEM, when artifacts.yml signs with sign.key env://COSIGN_KEY. Pass the COSIGN_PUBLIC_KEY repository or organization variable: each job that receives the key secret refuses to sign unless the key derives this public key."
@@ -323,6 +323,11 @@ on:
         value: ${{ jobs.prep.outputs.metadata }}
 permissions:
   contents: read # Default permission; individual jobs declare additions.
+env:
+  REPOSITORY_VISIBILITY: ${{ toJSON(github.event.repository.private) == 'true' && 'private' || (toJSON(github.event.repository.private) == 'false' && 'public' || 'unknown') }}
+  SIGN_METHOD: ${{ inputs['sign-method'] }}
+  SIGN_ENABLED: ${{ inputs['sign-image'] }}
+  TRANSPARENCY_LOG: ${{ inputs['transparency-log'] }}
 jobs:
   prep:
     name: Prepare Build${{ inputs.name && format(' ({0})', inputs.name) || '' }}
@@ -399,14 +404,7 @@ jobs:
         # falling back to the default; the same rule as the Forgejo layer.
         env:
           TRANSPARENCY_LOG: ${{ inputs['transparency-log'] }}
-        run: |
-          case "$TRANSPARENCY_LOG" in
-          public | none) ;;
-          *)
-            printf '::error::transparency-log must be public or none, got %s\n' "$TRANSPARENCY_LOG"
-            exit 1
-            ;;
-          esac
+        run: forge-ci validate signing-privacy
       # A key that does not derive the trusted public key fails here, before
       # the build jobs push anything: checked only in the signing jobs, it
       # would leave pushed image tags without a signature.
@@ -1025,7 +1023,7 @@ jobs:
           SIGN_METHOD: ${{ inputs['sign-method'] }}
           SIGN_KEY: ${{ inputs['sign-key'] }}
           SIGN_OIDC_ISSUER: ${{ inputs['sign-oidc-issuer'] }}
-          FORGE_CI_COSIGN_TRANSPARENCY: ${{ inputs['transparency-log'] }}
+          FORGE_CI_COSIGN_TRANSPARENCY: ${{ inputs['transparency-log'] || 'public' }}
           # The Cosign key secret reaches only a step that signs with it.
           COSIGN_KEY: ${{ inputs['sign-key'] == 'env://COSIGN_KEY' && secrets.RELEASE_COSIGN_PRIVATE_KEY || '' }}
           COSIGN_PASSWORD: ${{ inputs['sign-key'] == 'env://COSIGN_KEY' && secrets.RELEASE_COSIGN_PASSPHRASE || '' }}
@@ -1033,6 +1031,7 @@ jobs:
         run: |
           set -euo pipefail
           pred="$(find . -maxdepth 1 -name '*-analyzed-container-sbom.cyclonedx.json' | head -1)"
+          forge-ci validate signing-privacy
           forge-ci container attest --type cyclonedx --predicate "$pred" "$IMAGE_REF"
 
   merge:
@@ -1155,11 +1154,12 @@ jobs:
           SIGN_METHOD: ${{ inputs['sign-method'] }}
           SIGN_KEY: ${{ inputs['sign-key'] }}
           SIGN_OIDC_ISSUER: ${{ inputs['sign-oidc-issuer'] }}
-          FORGE_CI_COSIGN_TRANSPARENCY: ${{ inputs['transparency-log'] }}
+          FORGE_CI_COSIGN_TRANSPARENCY: ${{ inputs['transparency-log'] || 'public' }}
           # The Cosign key secret reaches only a step that signs with it.
           COSIGN_KEY: ${{ inputs['sign-key'] == 'env://COSIGN_KEY' && secrets.RELEASE_COSIGN_PRIVATE_KEY || '' }}
           COSIGN_PASSWORD: ${{ inputs['sign-key'] == 'env://COSIGN_KEY' && secrets.RELEASE_COSIGN_PASSPHRASE || '' }}
         run: |
+          forge-ci validate signing-privacy
           forge-ci container sign "${{ steps.outputs.outputs.image-digest-ref }}"
       - name: Attest SLSA provenance (cosign)
         # Portable, SIGNED SLSA v1.0 provenance attached to the manifest-list
@@ -1173,7 +1173,7 @@ jobs:
           SIGN_METHOD: ${{ inputs['sign-method'] }}
           SIGN_KEY: ${{ inputs['sign-key'] }}
           SIGN_OIDC_ISSUER: ${{ inputs['sign-oidc-issuer'] }}
-          FORGE_CI_COSIGN_TRANSPARENCY: ${{ inputs['transparency-log'] }}
+          FORGE_CI_COSIGN_TRANSPARENCY: ${{ inputs['transparency-log'] || 'public' }}
           # The Cosign key secret reaches only a step that signs with it.
           COSIGN_KEY: ${{ inputs['sign-key'] == 'env://COSIGN_KEY' && secrets.RELEASE_COSIGN_PRIVATE_KEY || '' }}
           COSIGN_PASSWORD: ${{ inputs['sign-key'] == 'env://COSIGN_KEY' && secrets.RELEASE_COSIGN_PASSPHRASE || '' }}
@@ -1181,6 +1181,7 @@ jobs:
           # (same value Buildah clamped the image to).
           SOURCE_DATE_EPOCH: ${{ needs.prep.outputs.source-date-epoch }}
         run: |
+          forge-ci validate signing-privacy
           forge-ci container attest --type slsaprovenance1 "${{ steps.outputs.outputs.image-digest-ref }}"
       # Record the build-once entry in the release-image ledger: the immutable
       # digest plus its final (:<version>) and staging-candidate tags. The typed

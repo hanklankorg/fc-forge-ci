@@ -13,6 +13,7 @@ artifacts:
       - forge-packages
     config:
       node-version: 24
+      npm-tag: release-{version}
 containers:
   - name: my-app
     from: [my-app]

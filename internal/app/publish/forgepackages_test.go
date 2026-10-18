@@ -4,7 +4,10 @@
 package publish_test
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -90,7 +93,13 @@ type fakeNPMPublish struct {
 	args []string
 }
 
-func (f *fakeNPMPublish) RunInherit(_ context.Context, dir string, _, _ io.Writer, args ...string) error {
+func (f *fakeNPMPublish) RunInherit(_ context.Context, dir string, stdout, _ io.Writer, args ...string) error {
+	if args[0] == "view" {
+		_, err := io.WriteString(stdout, "{}")
+
+		return err
+	}
+
 	f.dir = dir
 	f.args = args
 
@@ -101,21 +110,19 @@ func TestForgePackagesNPMPublish_PublishesTheTarball(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "pkg-1.0.0.tgz"), []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeNPMPackage(t, filepath.Join(dir, "pkg-1.0.0.tgz"), "pkg", "1.0.0")
 
 	npmOps := &fakeNPMPublish{}
 	resolver := fakeNPMRegistryResolver{reg: provider.ForgeNPMRegistry{Registry: "https://gl/api/v4/projects/1/packages/npm/", Token: "jt"}}
 
 	err := apppublish.ForgePackagesNPMPublish(context.Background(), npmOps, resolver, io.Discard, io.Discard,
-		apppublish.ForgePackagesNPMPublishInput{WorkingDir: dir})
+		apppublish.ForgePackagesNPMPublishInput{WorkingDir: dir, Tag: "release-{version}"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(npmOps.args) != 4 {
-		t.Fatalf("npm args = %q, want four", npmOps.args)
+	if len(npmOps.args) != 9 {
+		t.Fatalf("npm args = %q, want nine", npmOps.args)
 	}
 
 	// The .npmrc path is generated per run, so it is taken from the argv and
@@ -133,7 +140,7 @@ func TestForgePackagesNPMPublish_PublishesTheTarball(t *testing.T) {
 	// "<dir>/<name>.tgz" is GitHub shorthand. A Contains check passes for both
 	// spellings, which is why this was not caught until a real npm saw it.
 	// Comparing the argv in order says it once and covers the rest with it.
-	want := []string{"publish", "./pkg-1.0.0.tgz", "--userconfig", userconfig}
+	want := []string{"publish", "./pkg-1.0.0.tgz", "--userconfig", userconfig, "--registry", "https://gl/api/v4/projects/1/packages/npm/", "--tag", "release-1.0.0", "--ignore-scripts"}
 	if !slices.Equal(npmOps.args, want) {
 		t.Errorf("npm args = %q\nwant %q", npmOps.args, want)
 	}
@@ -150,7 +157,7 @@ func TestForgePackagesNPMPublish_NoTarballIsMissingInput(t *testing.T) {
 
 	err := apppublish.ForgePackagesNPMPublish(context.Background(), &fakeNPMPublish{},
 		fakeNPMRegistryResolver{reg: provider.ForgeNPMRegistry{Registry: "https://r/"}}, io.Discard, io.Discard,
-		apppublish.ForgePackagesNPMPublishInput{WorkingDir: t.TempDir()})
+		apppublish.ForgePackagesNPMPublishInput{WorkingDir: t.TempDir(), Tag: "release-{version}"})
 
 	if !errors.Is(err, errs.ErrMissingInput) {
 		t.Errorf("no tarball should be ErrMissingInput, got %v", err)
@@ -217,7 +224,13 @@ type npmCredProbe struct {
 	err error
 }
 
-func (p *npmCredProbe) RunInherit(_ context.Context, _ string, _, _ io.Writer, args ...string) error {
+func (p *npmCredProbe) RunInherit(_ context.Context, _ string, stdout, _ io.Writer, args ...string) error {
+	if args[0] == "view" {
+		_, err := io.WriteString(stdout, "{}")
+
+		return err
+	}
+
 	p.obs.observe("--userconfig", args)
 
 	return p.err
@@ -256,9 +269,7 @@ func TestForgePackages_CredentialFileIsOwnerOnlyAndRemoved(t *testing.T) {
 		t.Parallel()
 
 		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "pkg-1.0.0.tgz"), []byte("x"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		writeNPMPackage(t, filepath.Join(dir, "pkg-1.0.0.tgz"), "pkg", "1.0.0")
 
 		probe := &npmCredProbe{}
 		resolver := fakeNPMRegistryResolver{reg: provider.ForgeNPMRegistry{
@@ -266,7 +277,7 @@ func TestForgePackages_CredentialFileIsOwnerOnlyAndRemoved(t *testing.T) {
 		}}
 
 		if err := apppublish.ForgePackagesNPMPublish(context.Background(), probe, resolver, io.Discard, io.Discard,
-			apppublish.ForgePackagesNPMPublishInput{WorkingDir: dir}); err != nil {
+			apppublish.ForgePackagesNPMPublishInput{WorkingDir: dir, Tag: "release-{version}"}); err != nil {
 			t.Fatal(err)
 		}
 
@@ -336,15 +347,13 @@ func TestForgePackages_FailedPublishRemovesOnlyItsCredentialFile(t *testing.T) {
 			dir := t.TempDir()
 			tarball := filepath.Join(dir, "pkg-1.0.0.tgz")
 
-			if err := os.WriteFile(tarball, []byte("x"), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			writeNPMPackage(t, tarball, "pkg", "1.0.0")
 
 			probe := &npmCredProbe{err: errPublishRejected}
 			resolver := fakeNPMRegistryResolver{reg: provider.ForgeNPMRegistry{Registry: "https://gl/api/v4/projects/1/packages/npm/", Token: "s3cret-token"}}
 
 			err := apppublish.ForgePackagesNPMPublish(context.Background(), probe, resolver, io.Discard, io.Discard,
-				apppublish.ForgePackagesNPMPublishInput{WorkingDir: dir})
+				apppublish.ForgePackagesNPMPublishInput{WorkingDir: dir, Tag: "release-{version}"})
 
 			if _, statErr := os.Stat(tarball); statErr != nil {
 				t.Errorf("the caller's tarball is gone after a failed publish: %v", statErr)
@@ -380,5 +389,42 @@ func TestForgePackages_FailedPublishRemovesOnlyItsCredentialFile(t *testing.T) {
 				t.Errorf("temp dir after a failed publish holds %v, want only the caller's file", entries)
 			}
 		})
+	}
+}
+
+func writeNPMPackage(t *testing.T, filename, name, version string) {
+	t.Helper()
+
+	file, err := os.Create(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gz := gzip.NewWriter(file)
+	tw := tar.NewWriter(gz)
+
+	body, err := json.Marshal(map[string]string{"name": name, "version": version})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := tw.WriteHeader(&tar.Header{Name: "package/package.json", Mode: 0o600, Size: int64(len(body))}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := tw.Write(body); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
 	}
 }

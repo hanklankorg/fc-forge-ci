@@ -32,6 +32,11 @@ on:
         required: false
         default: "."
         type: string
+      private-dependencies:
+        description: "Allow Gradle to read DEPENDENCY_TOKEN/DEPENDENCY_USERNAME; no daemon, no fork pull requests."
+        required: false
+        default: false
+        type: boolean
       gradle-tasks:
         description: "Gradle tasks to run"
         required: false
@@ -52,6 +57,26 @@ on:
         required: false
         default: ""
         type: string
+      publication-artifact-name:
+        description: "When nonempty, export JVM Maven publications into this separate workflow artifact."
+        required: false
+        default: ""
+        type: string
+      version:
+        description: "Expected immutable publication version; required when exporting publications."
+        required: false
+        default: ""
+        type: string
+      central-publication:
+        description: "Require Central publication metadata, sources and javadoc during export."
+        required: false
+        default: false
+        type: boolean
+      snapshot-publication:
+        description: "Export resolved Maven snapshots instead of an immutable release."
+        required: false
+        default: false
+        type: boolean
       enable-build-sbom:
         description: "Run the cyclonedx plugin step (false skips Build SBOM generation entirely; derived from per-artefact 'sboms' when called from release-build-stage)"
         required: false
@@ -73,7 +98,11 @@ jobs:
       image: ${{ inputs['runtime-image'] }}
     permissions:
       contents: read
+      packages: read
     steps:
+      - name: Refuse private dependency access from fork pull requests
+        if: ${{ inputs['private-dependencies'] && startsWith(github.event_name, 'pull_request') && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: forge-ci validate event-context
       - name: Guard working-directory stays inside the workspace
         # Every upload below is rooted at this caller-supplied value. An
         # absolute path or a parent step would take the artifact from outside
@@ -94,7 +123,15 @@ jobs:
           CHECKOUT_REF: ${{ inputs.branch }}
           CHECKOUT_FETCH_ALL_REFS: "true"
         run: forge-ci platform checkout
+      - name: Validate publication inputs before build
+        if: ${{ inputs['publication-artifact-name'] != '' }}
+        working-directory: ${{ inputs['working-directory'] }}
+        env:
+          VERSION: ${{ inputs.version }}
+          SNAPSHOT_PUBLICATION: ${{ inputs['snapshot-publication'] }}
+        run: forge-ci build gradle export-publications --output .forge-ci/maven-publication --validate-only --snapshot="$SNAPSHOT_PUBLICATION"
       - name: Cache Gradle
+        if: ${{ !inputs['private-dependencies'] }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
@@ -115,9 +152,32 @@ jobs:
           SKIP_TESTS: ${{ inputs['skip-tests'] }}
           ENABLE_BUILD_SBOM: ${{ inputs['enable-build-sbom'] }}
           JAVA_VERSION: "25"
+          PRIVATE_DEPENDENCIES: ${{ inputs['private-dependencies'] }}
+          DEPENDENCY_USERNAME: ${{ github.actor }}
+          DEPENDENCY_TOKEN: ${{ inputs['private-dependencies'] && github.token || '' }}
           # renovate: datasource=maven depName=org.cyclonedx:cyclonedx-gradle-plugin
           CYCLONEDX_GRADLE_VERSION: "3.2.1"
         run: forge-ci build gradle run
+      - name: Export Maven publications without release credentials
+        if: ${{ inputs['publication-artifact-name'] != '' }}
+        working-directory: ${{ inputs['working-directory'] }}
+        env:
+          VERSION: ${{ inputs.version }}
+          CENTRAL_PUBLICATION: ${{ inputs['central-publication'] }}
+          SNAPSHOT_PUBLICATION: ${{ inputs['snapshot-publication'] }}
+          PRIVATE_DEPENDENCIES: ${{ inputs['private-dependencies'] }}
+          DEPENDENCY_USERNAME: ${{ github.actor }}
+          DEPENDENCY_TOKEN: ${{ inputs['private-dependencies'] && github.token || '' }}
+        run: forge-ci build gradle export-publications --output .forge-ci/maven-publication --central="$CENTRAL_PUBLICATION" --snapshot="$SNAPSHOT_PUBLICATION"
+      - name: Upload Maven publications
+        if: ${{ inputs['publication-artifact-name'] != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs['publication-artifact-name'] }}
+          path: ${{ inputs['working-directory'] }}/.forge-ci/maven-publication/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload Gradle artifacts
         # Root and subproject JARs. Single-module projects put jars under
         # `build/libs/`; multi-module projects put them under
@@ -134,8 +194,8 @@ jobs:
       # matrix uploads (release-build-stage dispatches build-gradle per
       # artifact) don't collide on a single fixed SBOM name. Default falls
       # back to `gradle-build-sbom` when `artifact-name` is not overridden.
-      # cyclonedx-gradle-plugin 3.x writes to build/reports/bom.json;
-      # build/reports/cyclonedx/bom.json is retained for older plugin versions.
+      # cyclonedx-gradle-plugin 3.x writes to build/reports/cyclonedx/bom.json;
+      # build/reports/bom.json is retained for older plugin versions.
       - name: Upload Gradle Build SBOM
         if: ${{ inputs['enable-build-sbom'] }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

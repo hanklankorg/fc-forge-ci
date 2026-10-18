@@ -421,6 +421,7 @@ jobs:
           RELEASE_DRAFT: ${{ inputs['release.draft'] }}
           RELEASE_SBOMS: ${{ inputs['release.sboms'] }}
           RELEASE_SIGN_ARTIFACTS: ${{ inputs['release.signartifacts'] }}
+          REPOSITORY_VISIBILITY: ${{ toJSON(github.event.repository.private) == 'true' && 'private' || (toJSON(github.event.repository.private) == 'false' && 'public' || 'unknown') }}
           CHANGELOG_CREATOR: ${{ inputs['changelog-creator'] }}
           CHANGELOG_SKIP_VERSION_BUMP: ${{ inputs['changelog.skipversionbump'] }}
 
@@ -534,6 +535,7 @@ jobs:
     if: ${{ !failure() && !cancelled() }}
     permissions:
       contents: read
+      packages: read
     secrets:
       ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -578,6 +580,7 @@ jobs:
     secrets:
       MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
       MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+      RELEASE_GPG_PUBLIC_KEY: ${{ secrets.RELEASE_GPG_PUBLIC_KEY }}
       RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
       RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
       RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}

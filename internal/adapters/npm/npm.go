@@ -14,7 +14,8 @@ import (
 
 // Adapter wraps the npm binary. Bin is overridable for tests.
 type Adapter struct {
-	Bin string // empty → "npm"
+	Bin string   // empty → "npm"
+	Env []string // nil inherits; an explicit base scopes dependency credentials
 }
 
 // Run captures stdout/stderr from `npm` while still returning the command
@@ -22,6 +23,7 @@ type Adapter struct {
 func (a *Adapter) Run(ctx context.Context, dir string, args ...string) (string, string, error) {
 	cmd := safeexec.Command(ctx, a.bin(), args...)
 	cmd.Dir = dir
+	cmd.Env = a.Env
 
 	var stdout, stderr bytes.Buffer
 
@@ -48,8 +50,14 @@ func NewNpx() *Adapter { return &Adapter{Bin: "npx"} }
 // RunInherit invokes `npm` with args and streams stdout/stderr to the
 // provided writers. The bash uses npm directly; this matches the shape.
 func (a *Adapter) RunInherit(ctx context.Context, dir string, stdout, stderr io.Writer, args ...string) error {
+	return a.RunWithEnv(ctx, dir, a.Env, stdout, stderr, args...)
+}
+
+// RunWithEnv invokes npm with an explicitly selected environment for one phase.
+func (a *Adapter) RunWithEnv(ctx context.Context, dir string, env []string, stdout, stderr io.Writer, args ...string) error {
 	cmd := safeexec.Command(ctx, a.bin(), args...)
 	cmd.Dir = dir
+	cmd.Env = env
 	cmd.Stdout = stdout
 
 	cmd.Stderr = stderr

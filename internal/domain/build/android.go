@@ -20,6 +20,7 @@ import (
 // the date-stamped composed names are emitted from the remaining
 // fields.
 type AndroidArtifactNamesInput struct {
+	Library     bool
 	IncludeDate bool
 	Prefix      string
 	RepoName    string
@@ -33,6 +34,7 @@ type AndroidArtifactNamesInput struct {
 
 // AndroidArtifactNames is the four output names the workflow consumes.
 type AndroidArtifactNames struct {
+	AARName     string
 	DebugName   string
 	ReleaseName string
 	AABName     string
@@ -47,6 +49,10 @@ func ResolveAndroidArtifactNames(in AndroidArtifactNamesInput) (AndroidArtifactN
 	}
 
 	if in.Override != "" {
+		if in.Library {
+			return AndroidArtifactNames{AARName: in.Override, SBOMName: in.Override + "-sbom"}, nil
+		}
+
 		return AndroidArtifactNames{
 			DebugName:   in.Override + "-debug",
 			ReleaseName: in.Override + "-release",
@@ -71,6 +77,9 @@ func ResolveAndroidArtifactNames(in AndroidArtifactNamesInput) (AndroidArtifactN
 	}
 
 	base := dateStamp + prefix + in.RepoName + flavorSuffix
+	if in.Library {
+		return AndroidArtifactNames{AARName: base + " - AAR release", SBOMName: base + " - build SBOM"}, nil
+	}
 
 	return AndroidArtifactNames{
 		DebugName:   base + " - APK debug",
@@ -82,6 +91,7 @@ func ResolveAndroidArtifactNames(in AndroidArtifactNamesInput) (AndroidArtifactN
 
 // ResolveAndroidBuildTasksInput drives ResolveAndroidBuildTasks.
 type ResolveAndroidBuildTasksInput struct {
+	Library     bool
 	Flavor      string
 	BuildTypes  string // exact comma/whitespace-separated "debug" and/or "release" values
 	IncludeAAB  bool
@@ -96,11 +106,6 @@ type AndroidBuildTypeSet struct {
 
 // ResolveAndroidBuildTasks computes the gradle task list. Pure mirror.
 func ResolveAndroidBuildTasks(in ResolveAndroidBuildTasksInput) (string, error) {
-	buildTypes, err := ParseAndroidBuildTypes(in.BuildTypes)
-	if err != nil {
-		return "", err
-	}
-
 	// The module is trimmed and defaulted, and a module containing whitespace
 	// is refused. The task list is a space-separated string that is later split
 	// into Gradle arguments, so an untrimmed "  " produced the task
@@ -115,6 +120,14 @@ func ResolveAndroidBuildTasks(in ResolveAndroidBuildTasksInput) (string, error) 
 	}
 
 	flavorCap := capitalizeFirst(in.Flavor)
+	if in.Library {
+		return module + ":assemble" + flavorCap + "Release", nil
+	}
+
+	buildTypes, err := ParseAndroidBuildTypes(in.BuildTypes)
+	if err != nil {
+		return "", err
+	}
 
 	var parts []string
 	if buildTypes.Debug {
@@ -216,6 +229,8 @@ func ParseGradleVersionFromProperties(body string) (string, string) {
 
 // AndroidSummaryInput drives RenderAndroidSummary.
 type AndroidSummaryInput struct {
+	Library     bool
+	AARName     string
 	JavaVersion string
 	JDKDist     string
 	BuildModule string
@@ -234,6 +249,10 @@ type AndroidSummaryInput struct {
 // RenderAndroidSummary is the pure markdown body of.
 func RenderAndroidSummary(in AndroidSummaryInput, now time.Time) string {
 	var b strings.Builder //nolint:varnamelen // idiomatic short name (testing/http/io conventions).
+
+	if in.Library {
+		in.BuildTypes, in.IncludeAAB, in.Signing = "release (library)", false, false
+	}
 
 	_, _ = fmt.Fprintf(&b, "## Android Variants Build Summary 📱\n\n")
 
@@ -260,26 +279,40 @@ func RenderAndroidSummary(in AndroidSummaryInput, now time.Time) string {
 	}
 
 	if in.Version != "" && in.Version != "unknown" {
-		_, _ = fmt.Fprintf(&b, "| **Version** | %s (%s) |\n", summary.LiteralText(in.Version), summary.LiteralText(in.VersionCode))
+		if in.Library {
+			_, _ = fmt.Fprintf(&b, "| **Version** | %s |\n", summary.LiteralText(in.Version))
+		} else {
+			_, _ = fmt.Fprintf(&b, "| **Version** | %s (%s) |\n", summary.LiteralText(in.Version), summary.LiteralText(in.VersionCode))
+		}
 	}
 
 	_, _ = fmt.Fprintf(&b, "\n### Artifacts Generated\n")
 
-	if hasAndroidBuildType(in.BuildTypes, "debug") {
-		_, _ = fmt.Fprintf(&b, "✓ Debug APK: %s\n", summary.InlineCode(in.DebugName))
-	}
-
-	if hasAndroidBuildType(in.BuildTypes, "release") {
-		_, _ = fmt.Fprintf(&b, "✓ Release APK: %s\n", summary.InlineCode(in.ReleaseName))
-	}
-
-	if in.IncludeAAB && hasAndroidBuildType(in.BuildTypes, "release") {
-		_, _ = fmt.Fprintf(&b, "✓ Release AAB: %s\n", summary.InlineCode(in.AABName))
-	}
-
+	_, _ = b.WriteString(androidArtifactSummary(in))
 	_, _ = fmt.Fprintf(&b, "\n*Build completed at %s*\n", now.UTC().Format("2006-01-02 15:04:05 UTC"))
 
 	return b.String()
+}
+
+func androidArtifactSummary(in AndroidSummaryInput) string {
+	if in.Library {
+		return "✓ Release AAR: " + summary.InlineCode(in.AARName) + "\n"
+	}
+
+	var builder strings.Builder
+	if hasAndroidBuildType(in.BuildTypes, "debug") {
+		_, _ = fmt.Fprintf(&builder, "✓ Debug APK: %s\n", summary.InlineCode(in.DebugName))
+	}
+
+	if hasAndroidBuildType(in.BuildTypes, "release") {
+		_, _ = fmt.Fprintf(&builder, "✓ Release APK: %s\n", summary.InlineCode(in.ReleaseName))
+	}
+
+	if in.IncludeAAB && hasAndroidBuildType(in.BuildTypes, "release") {
+		_, _ = fmt.Fprintf(&builder, "✓ Release AAB: %s\n", summary.InlineCode(in.AABName))
+	}
+
+	return builder.String()
 }
 
 func checkmark(b bool) string {

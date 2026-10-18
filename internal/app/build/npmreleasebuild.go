@@ -28,6 +28,7 @@ import (
 // ReleaseBuildOptions and adds the npm-specific knobs as configuration: the
 // SBOM tool version and the build script name.
 type NPMReleaseBuildInput struct {
+	DependencyAccess *NPMDependencyAccess
 	ReleaseBuildOptions
 
 	// PackageScope, when set, requires package.json's name to be scoped to it.
@@ -104,7 +105,7 @@ func NPMReleaseBuild(ctx context.Context, summarySink ci.SummarySink, npmRunner,
 
 	_, _ = fmt.Fprintf(w, "NPM release build: %s@%s\n", meta.Name, meta.Version)
 
-	if err := npmRunner.RunInherit(ctx, dir, w, stderr, "ci"); err != nil {
+	if err := installNPMDependencies(ctx, npmRunner, w, stderr, dir, in.DependencyAccess); err != nil {
 		return fmt.Errorf("npm ci: %w", err)
 	}
 
@@ -256,7 +257,7 @@ func npmBuildSBOM(ctx context.Context, deps npmSBOMDeps, dir, toolVersion string
 
 	path := filepath.Join(stage.Root().Name(), "bom.json")
 	if err = deps.npx.RunInherit(ctx, dir, deps.w, deps.stderr,
-		"--yes", "@cyclonedx/cyclonedx-npm@"+version, "--output-format", "json", "--output", path); err != nil {
+		"--yes", "@cyclonedx/cyclonedx-npm@"+version, "--output-format", "json", "--output-file", path); err != nil {
 		return err
 	}
 

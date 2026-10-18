@@ -13,6 +13,8 @@ import (
 
 // AndroidBuildInput drives `summary android-build`.
 type AndroidBuildInput struct {
+	Library     bool
+	AARName     string
 	JavaVersion string
 	JDKDist     string
 	BuildModule string
@@ -41,6 +43,7 @@ func AndroidBuild(ctx context.Context, sink ci.SummarySink, in AndroidBuildInput
 	}
 
 	md := build.RenderAndroidSummary(build.AndroidSummaryInput{
+		Library: in.Library, AARName: in.AARName,
 		JavaVersion: in.JavaVersion,
 		JDKDist:     in.JDKDist,
 		BuildModule: in.BuildModule,

@@ -104,6 +104,8 @@ func androidBuildKind() summaryKind {
 		usage:   "append the Android variants build summary block to the step summary",
 		example: `forge-ci report build android --version 1.2.3 --version-code 42 --java-version 21`,
 		flags: []cli.Flag{
+			&cli.BoolFlag{Name: "library", Sources: cli.EnvVars("ANDROID_LIBRARY"), Usage: "report an Android library AAR build"},
+			&cli.StringFlag{Name: "aar-name", Sources: cli.EnvVars("AAR_NAME"), Usage: "uploaded Android library artifact name"},
 			&cli.StringFlag{Name: "java-version", Sources: cli.EnvVars("JAVA_VERSION"), Usage: "JDK major version used for the build"}, //nolint:goconst // test fixture / generic identifier — extracting would explode setup boilerplate.
 			&cli.StringFlag{Name: "jdk-dist", Sources: cli.EnvVars("JDK_DIST"), Usage: "JDK distribution (e.g. temurin, zulu, corretto)"},
 			&cli.StringFlag{Name: "build-module", Sources: cli.EnvVars("BUILD_MODULE"), Usage: "gradle module name (e.g. \"app\")"},
@@ -121,6 +123,7 @@ func androidBuildKind() summaryKind {
 		required: []string{"java-version", "jdk-dist", "build-module"},
 		write: func(ctx context.Context, cmd *cli.Command, d *deps.Deps) error {
 			return appsummary.AndroidBuild(ctx, d.SummarySink, appsummary.AndroidBuildInput{
+				Library: cmd.Bool("library"), AARName: cmd.String("aar-name"),
 				JavaVersion: cmd.String("java-version"),
 				JDKDist:     cmd.String("jdk-dist"),
 				BuildModule: cmd.String("build-module"),

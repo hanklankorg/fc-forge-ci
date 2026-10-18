@@ -491,7 +491,7 @@ func checkAllowedSignersIfRequired(root string, artifacts []config.Artifact) Che
 	required := false
 
 	for _, a := range artifacts {
-		if a.RequireAuthorization {
+		if a.RequireAuthorization || slices.Contains(a.PublishTo, config.PublishMavenCentral) {
 			required = true
 
 			break
@@ -502,7 +502,7 @@ func checkAllowedSignersIfRequired(root string, artifacts []config.Artifact) Che
 		return Check{
 			Name:     "release-authorization allowlist (n/a)",
 			Severity: SeverityOK,
-			Message:  "no artifact has require-authorization: true",
+			Message:  "no artifact requires release authorization or publishes to Maven Central",
 		}
 	}
 
@@ -520,7 +520,7 @@ func checkAllowedSignersIfRequired(root string, artifacts []config.Artifact) Che
 	return Check{
 		Name:     "release-authorization allowlist present",
 		Severity: SeverityFail,
-		Message:  "require-authorization is true but neither .forge-ci/allowed_signers nor allowed_gpg_keys.asc exists",
+		Message:  "release authorization is required but neither .forge-ci/allowed_signers nor allowed_gpg_keys.asc exists",
 		Remediation: "commit .forge-ci/allowed_signers (SSH OpenSSH format) and/or " +
 			".forge-ci/allowed_gpg_keys.asc (armored GPG public keys of authorised signers); see docs/verification.md#release-authorisation",
 	}

@@ -132,8 +132,8 @@ producers provide the classified manifest directly instead of using discovery.
 
 | Target                    | Artifact types     | Authentication              |
 |---------------------------|--------------------|-----------------------------|
-| Maven Central             | Maven libraries    | Sonatype credentials        |
-| GitHub Packages (Maven)   | Maven artifacts    | `GITHUB_TOKEN` (automatic)  |
+| Maven Central             | Maven and Gradle JVM libraries | Signed release request, GPG key and Sonatype credentials |
+| GitHub Packages (Maven)   | Maven and Gradle JVM libraries | `GITHUB_TOKEN` (automatic)  |
 | GitHub Packages (NPM)     | NPM packages       | `GITHUB_TOKEN` (automatic)  |
 | Container registries      | Container images   | `GITHUB_TOKEN` or registry-password |
 | Apple App Store           | iOS / macOS apps   | App Store Connect API v2    |
@@ -142,6 +142,10 @@ producers provide the classified manifest directly instead of using discovery.
 ---
 
 ### NPM
+
+Publishing requires an explicit version-specific `config.npm-tag`, normally
+`release-{version}`. There is no movable default channel. See the
+[npm publication policy](ecosystems.md#npm-artifact-first).
 
 ```bash
 # Configure npm to use GitHub Packages
@@ -160,6 +164,10 @@ podman pull ghcr.io/<owner>/<repo>:v1.0.0
 
 ## Maven Central
 
+Gradle uses exported Maven-layout files with separate signing and upload; see
+[Gradle JVM package publishing](gradle-publishing.md). The Maven profile setup
+below applies to Maven projects.
+
 ### Prerequisites
 
 1. **GPG Key Setup**: configure `RELEASE_GPG_PRIVATE_KEY`,
@@ -168,6 +176,10 @@ podman pull ghcr.io/<owner>/<repo>:v1.0.0
 
 2. **Maven Central Credentials**: configure `MAVEN_CENTRAL_USERNAME`
    and `MAVEN_CENTRAL_PASSWORD` the same way.
+
+3. **Release authority**: use an allowlisted signed `release-request/vMAJOR.MINOR.PATCH`
+   and the exact prepared release commit. The publisher rechecks authorization,
+   including on reruns, before importing keys or running project tools.
 
 ### Configuration
 
@@ -382,9 +394,12 @@ No additional configuration needed - Maven Central is included by default.
 #### Snapshot channel
 
 The production release flow publishes stable versions only. Branch snapshots
-use `release-snapshot-orchestrator.yml`, do not create release tags or GitHub
-Releases, and currently publish only content-addressed npm snapshot versions.
-Maven snapshot publication is not implemented by forge-ci.
+use `release-snapshot-orchestrator.yml` and do not create release tags or GitHub
+Releases. They support content-addressed npm versions and opt-in Maven-format
+snapshots through `publish-maven-snapshots: true`. Maven snapshots use ordinary CI
+authorization; stable Central releases require an allowlisted signed request.
+See [snapshot publication](gradle-publishing.md#snapshots) for Maven, Gradle JVM
+and Android-library usage and the separate Central snapshot endpoint.
 
 ---
 
@@ -411,6 +426,7 @@ artifacts:
       - forge-packages  # Publish to GitHub Packages
     config:
       node-version: 24
+      npm-tag: release-{version}
 ```
 
 ### Package Requirements

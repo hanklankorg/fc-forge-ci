@@ -14,6 +14,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/cli/cienv"
 	"github.com/diggsweden/forge-ci/internal/cli/deps"
 	"github.com/diggsweden/forge-ci/internal/cli/secret"
+	"github.com/diggsweden/forge-ci/internal/safeexec"
 )
 
 func gradleAndroidCmd() *cli.Command {
@@ -21,7 +22,7 @@ func gradleAndroidCmd() *cli.Command {
 		Name:  "gradle-android",
 		Usage: "android (gradle) build pipeline",
 		Commands: []*cli.Command{
-			gradleAndroidRunCmd(gradle.New()),
+			gradleAndroidRunCmd(nil),
 			gradleAndroidListArtifactsCmd(),
 		},
 	}
@@ -53,6 +54,7 @@ func gradleAndroidRunCmd(ops appbuild.AndroidGradleOps) *cli.Command {
 EXAMPLE:
    cd app && forge-ci build gradle-android run --build-types release --include-aab --enable-signing`,
 		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "library", Sources: cli.EnvVars("ANDROID_LIBRARY"), Usage: "build an Android library release AAR rather than APK/AAB application variants"},
 			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Sources: cli.EnvVars("WORKING_DIRECTORY"), Usage: "project directory for metadata, the Gradle build and Build SBOM"},
 			&cli.BoolFlag{Name: "include-date-stamp", Value: true, Sources: cli.EnvVars("INCLUDE_DATE_STAMP"), Usage: "append a YYYYMMDD-HHMMSS stamp to the artifact name"},
 			&cli.StringFlag{Name: "prefix", Sources: cli.EnvVars("ARTIFACT_NAME_PREFIX"), Usage: "optional prefix prepended to every artifact name"},
@@ -72,6 +74,11 @@ EXAMPLE:
 			&cli.StringFlag{Name: flagTempDir, Sources: cienv.TempDir(), Usage: "existing scratch parent for a private signing directory, outside the project dir"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
+			buildOps := ops
+			if buildOps == nil {
+				buildOps = &gradle.Adapter{Env: safeexec.EnvWithout(buildEnvironment(), "ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PATH", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD", "SECRETS_PROPERTIES_BASE64")}
+			}
+
 			keystoreBase64, err := secret.Resolve(cmd.String("keystore-base64-file"), "ANDROID_KEYSTORE_BASE64")
 			if err != nil {
 				return err
@@ -83,7 +90,8 @@ EXAMPLE:
 			}
 
 			return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error {
-				return appbuild.AndroidReleaseBuild(ctx, d.OutputSink, d.SummarySink, ops, deps.Annotator(cmd), os.Stderr, os.Stderr, appbuild.AndroidReleaseBuildInput{
+				return appbuild.AndroidReleaseBuild(ctx, d.OutputSink, d.SummarySink, buildOps, deps.Annotator(cmd), os.Stderr, os.Stderr, appbuild.AndroidReleaseBuildInput{
+					Library: cmd.Bool("library"),
 					ReleaseBuildOptions: appbuild.ReleaseBuildOptions{
 						Dir:             cmd.String(flagWorkingDir),
 						ArtifactName:    cmd.String("name-override"),

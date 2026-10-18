@@ -50,6 +50,9 @@ const (
 	// NeedsFulcio is a certificate authority that will issue for this forge:
 	// one deployed at all, and configured to trust this issuer.
 	NeedsFulcio
+
+	// NeedsPackages requires the contract to advertise a package registry.
+	NeedsPackages
 )
 
 // Requires reports whether forge satisfies every need, logging the first that
@@ -114,6 +117,19 @@ func Requires(tb TB, forge provider.ForgeAPI, needs ...Need) bool { //nolint:cyc
 
 				return false
 			}
+		case NeedsPackages:
+			endpoint, endpointErr := contract.Endpoint(labcontract.Kind(forge))
+			if endpointErr != nil {
+				tb.Fatalf("livetest: %v", endpointErr)
+
+				return false
+			}
+
+			if !endpoint.HasCapability(labcontract.CapabilityPackages) {
+				tb.Logf("SKIP %s: endpoint %q has no packages capability", forge, endpoint.Name)
+
+				return false
+			}
 		default:
 			// An unwired Need is a programming error, not a skip: silently
 			// treating it as satisfied is how a gate stops gating.
@@ -167,6 +183,8 @@ func (n Need) String() string {
 		return "NeedsInRunner"
 	case NeedsFulcio:
 		return "NeedsFulcio"
+	case NeedsPackages:
+		return "NeedsPackages"
 	default:
 		return "Need(" + strconv.Itoa(int(n)) + ")"
 	}
@@ -176,5 +194,5 @@ func (n Need) String() string {
 // exhaustiveness guard the default case cannot provide on its own: a new Need
 // that nobody wired would otherwise only fail the first time a scenario used it.
 func allNeeds() []Need {
-	return []Need{NeedsInRunner, NeedsFulcio}
+	return []Need{NeedsInRunner, NeedsFulcio, NeedsPackages}
 }

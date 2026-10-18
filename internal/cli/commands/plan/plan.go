@@ -72,6 +72,7 @@ func releaseCmd() *cli.Command {
 EXAMPLE:
    CONFIG_PLAN_JSON="$(forge-ci config parse-artifacts)" forge-ci plan release --tag v1.2.3 --branch main`,
 		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "repository-visibility", Sources: cli.EnvVars("REPOSITORY_VISIBILITY"), Usage: "public, private, internal or unknown; unknown requires explicit public-transparency consent"},
 			&cli.StringFlag{Name: "config-plan-json", Sources: cli.EnvVars("CONFIG_PLAN_JSON"), Usage: "typed config-plan JSON (output of 'config parse-artifacts')"},
 			&cli.StringFlag{Name: "branch", Sources: cli.EnvVars("BRANCH"), Usage: "git branch the release is being built from"},
 			&cli.StringFlag{Name: "tag", Required: true, Sources: cienv.Tag(), Usage: "release tag (e.g. v1.2.3)"},
@@ -88,6 +89,7 @@ EXAMPLE:
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error {
 				_, err := appplan.Release(ctx, d.OutputSink, d.SummarySink, appplan.ReleaseInput{
+					RepositoryVisibility:            cmd.String("repository-visibility"),
 					ConfigPlanJSON:                  cmd.String("config-plan-json"),
 					Branch:                          cmd.String("branch"),
 					RefName:                         cmd.String("tag"),
@@ -132,28 +134,30 @@ func snapshotReleaseCmd() *cli.Command {
 			&cli.StringFlag{Name: "scope", Sources: cli.EnvVars("SCOPE", "PACKAGE_SCOPE"), Usage: "npm package scope (e.g. @examplescope) routed to the registry"},
 			&cli.StringFlag{Name: "sboms", Value: "none", Sources: cli.EnvVars("SBOMS"), Usage: "sboms enum gating which CISA layers the snapshot-release produces"},
 			&cli.BoolFlag{Name: "publish-npm", Value: true, Sources: cli.EnvVars("PUBLISH_NPM"), Usage: "include the npm dev-publish step in the plan"},
+			&cli.BoolFlag{Name: "publish-maven-snapshots", Sources: cli.EnvVars("PUBLISH_MAVEN_SNAPSHOTS"), Usage: "opt into Maven-format snapshot publication for Maven, Gradle JVM and Android libraries"},
 			&cli.BoolFlag{Name: "use-ci-token", Value: true, Sources: cli.EnvVars("USE_CI_TOKEN"), Usage: "use the CI platform token in place of an explicit registry password"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error {
 				_, err := appplan.SnapshotRelease(ctx, d.OutputSink, appplan.SnapshotReleaseInput{
-					ConfigPlanJSON:    cmd.String("config-plan-json"),
-					ProjectType:       cmd.String("project-type"),
-					Branch:            cmd.String("branch"),
-					ReleaseSHA:        cmd.String("release-sha"),
-					ReleaseActor:      cmd.String("release-actor"),
-					ReleaseRepository: cmd.String("release-repository"),
-					WorkingDirectory:  cmd.String("working-dir"),
-					JavaVersion:       cmd.String("java-version"),
-					NodeVersion:       cmd.String("node-version"),
-					RustToolchain:     cmd.String("rust-toolchain"),
-					Registry:          cmd.String("registry"),
-					ForgeCIBinaryRef:  cmd.String("forge-ci-binary-ref"),
-					NPMRegistry:       cmd.String("npm-registry"),
-					PackageScope:      cmd.String("scope"),
-					SBOMs:             cmd.String("sboms"),
-					PublishNPM:        cmd.Bool("publish-npm"),
-					UseCIToken:        cmd.Bool("use-ci-token"),
+					ConfigPlanJSON:        cmd.String("config-plan-json"),
+					ProjectType:           cmd.String("project-type"),
+					Branch:                cmd.String("branch"),
+					ReleaseSHA:            cmd.String("release-sha"),
+					ReleaseActor:          cmd.String("release-actor"),
+					ReleaseRepository:     cmd.String("release-repository"),
+					WorkingDirectory:      cmd.String("working-dir"),
+					JavaVersion:           cmd.String("java-version"),
+					NodeVersion:           cmd.String("node-version"),
+					RustToolchain:         cmd.String("rust-toolchain"),
+					Registry:              cmd.String("registry"),
+					ForgeCIBinaryRef:      cmd.String("forge-ci-binary-ref"),
+					NPMRegistry:           cmd.String("npm-registry"),
+					PackageScope:          cmd.String("scope"),
+					SBOMs:                 cmd.String("sboms"),
+					PublishNPM:            cmd.Bool("publish-npm"),
+					PublishMavenSnapshots: cmd.Bool("publish-maven-snapshots"),
+					UseCIToken:            cmd.Bool("use-ci-token"),
 				})
 
 				return err

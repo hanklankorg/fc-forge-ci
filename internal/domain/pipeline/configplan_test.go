@@ -19,7 +19,7 @@ func TestNewConfigPlan_GroupsArtifactsAndDefaultsContainers(t *testing.T) {
 		Artifacts: []config.Artifact{
 			{Name: "app", ProjectType: projecttype.Maven, BuildType: config.BuildTypeApplication, PublishTo: []config.PublishTarget{config.PublishForgePackages}},
 			{Name: "lib", ProjectType: projecttype.Maven, BuildType: config.BuildTypeLibrary, PublishTo: []config.PublishTarget{config.PublishForgePackages, config.PublishMavenCentral}},
-			{Name: "pkg", ProjectType: projecttype.NPM, PublishTo: []config.PublishTarget{config.PublishForgePackages, config.PublishNPMJS}},
+			{Name: "pkg", ProjectType: projecttype.NPM, PublishTo: []config.PublishTarget{config.PublishForgePackages, config.PublishNPMJS}, NPM: &config.NPMConfig{Tag: "release-{version}"}},
 			{Name: "jvm-app", ProjectType: projecttype.Gradle},
 			{Name: "go-cli", ProjectType: projecttype.Go, Go: &config.GoConfig{BuildMode: config.GoBuildModeArtifactFirst}},
 			{Name: "go-service", ProjectType: projecttype.Go, Go: &config.GoConfig{BuildMode: config.GoBuildModeContainerFirst}},

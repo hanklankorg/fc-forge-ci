@@ -28,6 +28,13 @@ spec:
     scope:
       default: ""
       description: Expected package scope (e.g. @diggsweden); errors when package.json disagrees.
+    private-dependencies:
+      type: boolean
+      default: false
+      description: "Use the caller's read-scoped DEPENDENCY_TOKEN during npm ci only."
+    dependency-registry:
+      default: ""
+      description: HTTPS registry to authenticate; project configuration retains registry/scope routing.
     skip-tests:
       type: boolean
       default: false
@@ -38,7 +45,7 @@ spec:
       description: Generate the CycloneDX Build SBOM with cyclonedx-npm.
     sbom-tool-version:
       # renovate: datasource=npm depName=@cyclonedx/cyclonedx-npm
-      default: "4.2.1"
+      default: "6.0.0"
       description: Pinned @cyclonedx/cyclonedx-npm version run via npx.
     node-version:
       default: "24"
@@ -53,6 +60,8 @@ spec:
   variables:
     WORKING_DIRECTORY: "$[[ inputs.working-directory ]]"
     SCOPE: "$[[ inputs.scope ]]"
+    PRIVATE_DEPENDENCIES: "$[[ inputs.private-dependencies ]]"
+    DEPENDENCY_REGISTRY: "$[[ inputs.dependency-registry ]]"
     SKIP_TESTS: "$[[ inputs.skip-tests ]]"
     ENABLE_BUILD_SBOM: "$[[ inputs.enable-build-sbom ]]"
     CYCLONEDX_VERSION: "$[[ inputs.sbom-tool-version ]]"

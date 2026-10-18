@@ -129,7 +129,7 @@ func TestPublishStagePipeline_RejectsUnsupportedForgePackageProjectType(t *testi
 	plan := pipeline.ReleasePublishStagePlan{Targets: pipeline.ReleasePublishTargets{
 		ForgePackages: pipeline.TargetPlan[pipeline.PlannedArtifact]{
 			Runs:  true,
-			Items: []pipeline.PlannedArtifact{{Name: "jvm", ProjectType: projecttype.Gradle}},
+			Items: []pipeline.PlannedArtifact{{Name: "cli", ProjectType: projecttype.Go}},
 		},
 	}}
 
@@ -137,7 +137,7 @@ func TestPublishStagePipeline_RejectsUnsupportedForgePackageProjectType(t *testi
 		ComponentBase: "$CI_SERVER_FQDN/diggsweden/forge-ci",
 		ComponentRef:  "1.0.0",
 	})
-	if !errors.Is(err, errs.ErrUnsupported) || !strings.Contains(err.Error(), `cannot represent project type "gradle"`) {
+	if !errors.Is(err, errs.ErrUnsupported) || !strings.Contains(err.Error(), `cannot represent project type "go"`) {
 		t.Fatalf("err = %v, want ErrUnsupported naming the unsupported project type", err)
 	}
 }

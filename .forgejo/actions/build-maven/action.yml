@@ -26,6 +26,14 @@ inputs:
     description: Maven profile to activate (library builds).
     required: false
     default: ''
+  private-dependencies:
+    description: "'true' uses the caller's read-scoped DEPENDENCY_TOKEN in trusted builds; never supply it to an untrusted PR."
+    required: false
+    default: 'false'
+  settings-path:
+    description: Consumer-owned settings.xml relative to working-directory; required with private-dependencies.
+    required: false
+    default: ''
   skip-tests:
     description: "'true' skips the Maven test phase."
     required: false
@@ -46,6 +54,8 @@ runs:
         BUILD_MAVEN_BUILD_TYPE: ${{ inputs.build-type }}
         BUILD_MAVEN_WORKING_DIRECTORY: ${{ inputs.working-directory }}
         BUILD_MAVEN_PROFILE: ${{ inputs.profile }}
+        BUILD_MAVEN_PRIVATE_DEPENDENCIES: ${{ inputs.private-dependencies }}
+        BUILD_MAVEN_SETTINGS_PATH: ${{ inputs.settings-path }}
         BUILD_MAVEN_SKIP_TESTS: ${{ inputs.skip-tests }}
         BUILD_MAVEN_BUILD_SBOM: ${{ inputs.enable-build-sbom }}
       run: |
@@ -84,4 +94,6 @@ runs:
           --skip-tests="${skip_tests}" \
           --build-sbom="${build_sbom}" \
           --sbom-tool-version "${CYCLONEDX_MAVEN_VERSION:?}" \
+          --private-dependencies="${BUILD_MAVEN_PRIVATE_DEPENDENCIES:?private-dependencies is required}" \
+          --settings-path "${BUILD_MAVEN_SETTINGS_PATH}" \
           --expect-version "${version}"

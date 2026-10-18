@@ -19,6 +19,8 @@ Learn by starting from a working setup.
 Solve a specific task.
 
 - [Publishing](publishing.md) - Configure Maven Central, GitHub Packages, containers, App Store Connect, and Google Play.
+- [Gradle publishing](gradle-publishing.md) - Export JVM publications, sign files and observe Central deployment state.
+- [Private dependencies](private-dependencies.md) - Opt into scoped dependency-read credentials for npm, Maven and Gradle.
 - [Runtime Images](runtime-images.md) - Override runtime images for reproducibility, mirroring, or branch testing.
 - [Verification](verification.md) - Verify release assets, checksums, signatures, attestations, and SBOMs.
 - [SBOM](sbom.md) - Configure SBOM layers and understand release/snapshot defaults.

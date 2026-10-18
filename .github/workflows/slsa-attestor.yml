@@ -31,9 +31,9 @@ on:
         required: true
         type: string
       transparency-log:
-        description: "Whether Cosign signatures are also written to the public Sigstore transparency log: `public` (default) or `none`. `none` writes no entry and contacts no Sigstore service; verify against the key with --insecure-ignore-tlog. Any other value is refused before signing."
+        description: "Cosign transparency: public or none. Omission defaults to public only for public repositories; private or unknown visibility requires explicit public consent. none writes no log entry and requires --insecure-ignore-tlog when verifying. Invalid values are refused before signing."
         required: false
-        default: "public"
+        default: ""
         type: string
       builder-id:
         description: "SLSA provenance builder.id — the operator's documented builder identity. Defaults to the KMS key URI."
@@ -111,14 +111,9 @@ jobs:
         # falling back to the default; the same rule as the Forgejo layer.
         env:
           TRANSPARENCY_LOG: ${{ inputs['transparency-log'] }}
-        run: |
-          case "$TRANSPARENCY_LOG" in
-          public | none) ;;
-          *)
-            printf '::error::transparency-log must be public or none, got %s\n' "$TRANSPARENCY_LOG"
-            exit 1
-            ;;
-          esac
+          REPOSITORY_VISIBILITY: ${{ toJSON(github.event.repository.private) == 'true' && 'private' || (toJSON(github.event.repository.private) == 'false' && 'public' || 'unknown') }}
+          SIGN_METHOD: kms
+        run: forge-ci validate signing-privacy
       - name: Configure KMS authentication
         env:
           KMS_AUTH_ENV: ${{ secrets.kms-auth-env }}
@@ -138,7 +133,7 @@ jobs:
         env:
           SIGN_METHOD: kms
           SIGN_KEY: ${{ inputs.kms-key }}
-          FORGE_CI_COSIGN_TRANSPARENCY: ${{ inputs['transparency-log'] }}
+          FORGE_CI_COSIGN_TRANSPARENCY: ${{ inputs['transparency-log'] || 'public' }}
           BUILDER_ID: ${{ inputs.builder-id || inputs.kms-key }}
           PREDICATE_TYPE: ${{ inputs.predicate-type }}
           IMAGE_REF: ${{ inputs.image }}

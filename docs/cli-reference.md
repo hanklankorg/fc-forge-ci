@@ -237,6 +237,23 @@ EXAMPLE:
 
 gradle (JVM) build wrappers
 
+#### `forge-ci build gradle export-publications`
+
+export immutable JVM Maven publications without signing or publishing credentials
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--private-dependencies` | explicitly allow dependency resolution to use the read-only dependency credential | bool | `false` | `$PRIVATE_DEPENDENCIES` |
+| `--dependency-token-file` | read-only package token file; defaults to $DEPENDENCY_TOKEN | string | `""` | n/a |
+| `--dependency-username` | username for the project's dependency repository settings | string | `""` | `$DEPENDENCY_USERNAME` |
+| `--working-dir` | prepared Gradle project root | string | `"."` | `$WORKING_DIRECTORY` |
+| `--project` | exact Gradle project path to export (e.g. :lib); omitted exports every project | string | `""` | n/a |
+| `--output` | fresh output directory for the local Maven-layout repository (required) | string | `""` | n/a |
+| `--version` | required release version (leading v allowed); optional expected version in snapshot mode | string | `""` | `$VERSION` |
+| `--snapshot` | export only snapshot publications using their resolved versions; no signed release request required | bool | `false` | n/a |
+| `--central` | also require Central metadata, sources and javadoc before exporting | bool | `false` | n/a |
+| `--validate-only` | check static publication inputs before building; no tools, files or credentials are changed | bool | `false` | n/a |
+
 #### `forge-ci build gradle run`
 
 run the full Gradle release build (gradlew chmod, metadata, tasks, SBOM, summary)
@@ -258,6 +275,10 @@ EXAMPLE:
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
+| `--validate-dependencies-only` | check dependency credentials/settings without running any project tool | bool | `false` | n/a |
+| `--private-dependencies` | explicitly allow dependency resolution to use the read-only dependency credential | bool | `false` | `$PRIVATE_DEPENDENCIES` |
+| `--dependency-token-file` | read-only package token file; defaults to $DEPENDENCY_TOKEN | string | `""` | n/a |
+| `--dependency-username` | username for the project's dependency repository settings | string | `""` | `$DEPENDENCY_USERNAME` |
 | `--working-dir` | directory of gradle.properties to read for metadata; ./gradlew itself runs in the current directory (cd in first) | string | `"."` | `$WORKING_DIRECTORY` |
 | `--tasks` | whitespace-separated gradle tasks to run (required) | string | `""` | `$GRADLE_TASKS` |
 | `--skip-tests` | append -x test to skip the test task | bool | `false` | `$SKIP_TESTS` |
@@ -309,6 +330,7 @@ EXAMPLE:
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
+| `--library` | build an Android library release AAR rather than APK/AAB application variants | bool | `false` | `$ANDROID_LIBRARY` |
 | `--working-dir` | project directory for metadata, the Gradle build and Build SBOM | string | `"."` | `$WORKING_DIRECTORY` |
 | `--include-date-stamp` | append a YYYYMMDD-HHMMSS stamp to the artifact name | bool | `true` | `$INCLUDE_DATE_STAMP` |
 | `--prefix` | optional prefix prepended to every artifact name | string | `""` | `$ARTIFACT_NAME_PREFIX` |
@@ -342,7 +364,12 @@ EXAMPLE:
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
+| `--private-dependencies` | explicitly allow dependency resolution to use the read-only dependency credential | bool | `false` | `$PRIVATE_DEPENDENCIES` |
+| `--dependency-token-file` | read-only package token file; defaults to $DEPENDENCY_TOKEN | string | `""` | n/a |
+| `--dependency-username` | username for the project's dependency repository settings | string | `""` | `$DEPENDENCY_USERNAME` |
 | `--working-dir` | directory containing the pom.xml to parse | string | `"."` | `$WORKING_DIRECTORY` |
+| `--settings-path` | consumer-owned settings used when metadata needs Maven evaluation | string | `""` | `$MAVEN_SETTINGS_PATH`, `$SETTINGS_PATH` |
+| `--profile` | profile used for resolved metadata | string | `""` | `$MAVEN_PROFILE` |
 
 #### `forge-ci build maven run`
 
@@ -361,11 +388,16 @@ Runs the whole Maven build sequence in one step: install modules to the
    metadata.
 
 EXAMPLE:
-   cd module && forge-ci build maven run --build-type app --cli-opts "-B -ntp" --sbom-tool-version 2.9.1
+   cd module && forge-ci build maven run --build-type app --cli-opts "-B -ntp" --sbom-tool-version 2.9.3
 ```
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
+| `--validate-dependencies-only` | check dependency credentials/settings without running any project tool | bool | `false` | n/a |
+| `--private-dependencies` | explicitly allow dependency resolution to use the read-only dependency credential | bool | `false` | `$PRIVATE_DEPENDENCIES` |
+| `--dependency-token-file` | read-only package token file; defaults to $DEPENDENCY_TOKEN | string | `""` | n/a |
+| `--dependency-username` | username for the project's dependency repository settings | string | `""` | `$DEPENDENCY_USERNAME` |
+| `--settings-path` | consumer-owned Maven settings; required with private dependencies; reference DEPENDENCY_TOKEN and DEPENDENCY_USERNAME | string | `""` | `$MAVEN_SETTINGS_PATH` |
 | `--working-dir` | directory of the pom.xml to read for metadata; mvn itself runs in the current directory (cd in first) | string | `"."` | `$WORKING_DIRECTORY` |
 | `--build-type` | lifecycle: "app" (clean package) or "lib" (compile/test/package with optional --profile; POM owns attached artifacts) | string | `""` | `$BUILD_TYPE` |
 | `--cli-opts` | extra args forwarded to mvn (whitespace-separated, e.g. "-B -ntp") | string | `""` | `$MAVEN_CLI_OPTS` |
@@ -424,6 +456,11 @@ EXAMPLE:
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
+| `--validate-dependencies-only` | check dependency credentials/settings without running any project tool | bool | `false` | n/a |
+| `--private-dependencies` | explicitly allow dependency resolution to use the read-only dependency credential | bool | `false` | `$PRIVATE_DEPENDENCIES` |
+| `--dependency-token-file` | read-only package token file; defaults to $DEPENDENCY_TOKEN | string | `""` | n/a |
+| `--dependency-username` | username for the project's dependency repository settings | string | `""` | `$DEPENDENCY_USERNAME` |
+| `--dependency-registry` | private npm registry to authenticate; the project still chooses its registry scopes | string | `""` | `$DEPENDENCY_REGISTRY` |
 | `--working-dir` | directory containing package.json | string | `"."` | `$WORKING_DIRECTORY` |
 | `--scope` | expected scope (e.g. @examplescope); errors when package.json disagrees | string | `""` | `$SCOPE`, `$PACKAGE_SCOPE` |
 | `--script` | npm build script name to run (skipped when absent) | string | `"build"` | n/a |
@@ -2155,6 +2192,7 @@ EXAMPLE:
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
+| `--repository-visibility` | public, private, internal or unknown; unknown requires explicit public-transparency consent | string | `""` | `$REPOSITORY_VISIBILITY` |
 | `--config-plan-json` | typed config-plan JSON (output of 'config parse-artifacts') | string | `""` | `$CONFIG_PLAN_JSON` |
 | `--branch` | git branch the release is being built from | string | `""` | `$BRANCH` |
 | `--tag` | release tag (e.g. v1.2.3) (required) | string | `""` | `$TAG_NAME`, `$RELEASE_TAG`, `$REF_NAME`, `$CI_REF_NAME`, `$FORGEJO_REF_NAME`, `$GITHUB_REF_NAME` |
@@ -2196,6 +2234,7 @@ EXAMPLE:
 | `--scope` | npm package scope (e.g. @examplescope) routed to the registry | string | `""` | `$SCOPE`, `$PACKAGE_SCOPE` |
 | `--sboms` | sboms enum gating which CISA layers the snapshot-release produces | string | `"none"` | `$SBOMS` |
 | `--publish-npm` | include the npm dev-publish step in the plan | bool | `true` | `$PUBLISH_NPM` |
+| `--publish-maven-snapshots` | opt into Maven-format snapshot publication for Maven, Gradle JVM and Android libraries | bool | `false` | `$PUBLISH_MAVEN_SNAPSHOTS` |
 | `--use-ci-token` | use the CI platform token in place of an explicit registry password | bool | `true` | `$USE_CI_TOKEN` |
 
 ### `forge-ci plan write`
@@ -2364,7 +2403,7 @@ publish to the forge-native package registry (GitHub Packages / GitLab Package R
 
 #### `forge-ci publish forge-packages deploy`
 
-publish to the detected forge's own package registry (Maven or npm)
+publish to the detected forge's package registry (Maven, npm, or exported Gradle publications)
 
 ```
 Resolves the forge-native registry for the active forge + ecosystem (URL +
@@ -2381,9 +2420,12 @@ EXAMPLE:
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
-| `--project-type` | ecosystem: "maven" or "npm" | string | `"maven"` | `$PROJECT_TYPE` |
+| `--snapshot` | publish only Maven-format snapshots; rejected for npm | bool | `false` | `$MAVEN_SNAPSHOT` |
+| `--project-type` | ecosystem: maven, npm, or gradle (exported Maven publications) | string | `"maven"` | `$PROJECT_TYPE` |
+| `--version` | expected version for exported Gradle publications | string | `""` | `$VERSION` |
 | `--cli-opts` | extra args forwarded to mvn (maven only; whitespace-separated) | string | `""` | `$MAVEN_CLI_OPTS` |
 | `--working-dir` | directory holding the packed *.tgz (npm only) | string | `"."` | `$WORKING_DIRECTORY` |
+| `--npm-tag` | required for npm: release-{version} or release-<packed-version>; latest, next and movable channel tags are forbidden | string | `""` | `$NPM_TAG` |
 
 ### `forge-ci publish google-play`
 
@@ -2420,6 +2462,34 @@ EXAMPLE:
 
 maven central pre-flight checks
 
+#### `forge-ci publish maven-central authorize`
+
+verify the signed request and prepared source before importing keys or executing project code
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--request-tag` | signed human release-request/vMAJOR.MINOR.PATCH tag | string | `""` | `$RELEASE_REQUEST_TAG` |
+| `--release-sha` | full prepared release commit SHA | string | `""` | `$RELEASE_SHA` |
+| `--authorization-dir` | reviewed checkout root holding .forge-ci signer allowlists | string | `"."` | `$FORGE_CI_AUTHORIZATION_DIR` |
+| `--release-gpg-public-key` | public key verifying the prepared release tag when GPG-signed | string | `""` | `$RELEASE_GPG_PUBLIC_KEY` |
+
+#### `forge-ci publish maven-central bundle`
+
+verify and submit a signed Maven-layout bundle once, then observe its Central deployment
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--request-tag` | signed human release-request/vMAJOR.MINOR.PATCH tag | string | `""` | `$RELEASE_REQUEST_TAG` |
+| `--release-sha` | full prepared release commit SHA | string | `""` | `$RELEASE_SHA` |
+| `--authorization-dir` | reviewed checkout root holding .forge-ci signer allowlists | string | `"."` | `$FORGE_CI_AUTHORIZATION_DIR` |
+| `--release-gpg-public-key` | public key verifying the prepared release tag when GPG-signed | string | `""` | `$RELEASE_GPG_PUBLIC_KEY` |
+| `--working-dir` | exported Maven-layout publication directory | string | `"."` | `$WORKING_DIRECTORY` |
+| `--version` | expected immutable publication version; leading v allowed (required) | string | `""` | `$VERSION` |
+| `--username-file` | Central token username file; defaults to $MAVEN_CENTRAL_USERNAME | string | `""` | n/a |
+| `--password-file` | Central token password file; defaults to $MAVEN_CENTRAL_PASSWORD | string | `""` | n/a |
+| `--automatic` | request/observe automatic publication; success requires PUBLISHED, not just VALIDATED | bool | `false` | n/a |
+| `--wait-timeout` | maximum observation time; timeout never resubmits the bundle | duration | `30m0s` | n/a |
+
 #### `forge-ci publish maven-central deploy`
 
 validate settings.xml (if set) and run `mvn deploy -P&lt;profile&gt; -DskipTests`
@@ -2431,9 +2501,41 @@ EXAMPLE:
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
-| `--cli-opts` | extra args forwarded to mvn (whitespace-separated, e.g. "-B -ntp") | string | `""` | `$MAVEN_CLI_OPTS` |
+| `--request-tag` | signed human release-request/vMAJOR.MINOR.PATCH tag | string | `""` | `$RELEASE_REQUEST_TAG` |
+| `--release-sha` | full prepared release commit SHA | string | `""` | `$RELEASE_SHA` |
+| `--authorization-dir` | reviewed checkout root holding .forge-ci signer allowlists | string | `"."` | `$FORGE_CI_AUTHORIZATION_DIR` |
+| `--release-gpg-public-key` | public key verifying the prepared release tag when GPG-signed | string | `""` | `$RELEASE_GPG_PUBLIC_KEY` |
+| `--validate-only` | authorize and validate the resolved reactor without deploying; suitable before importing signing keys | bool | `false` | n/a |
+| `--snapshot` | deploy only a resolved all-SNAPSHOT reactor using ordinary CI credentials; no signed release request required | bool | `false` | `$MAVEN_SNAPSHOT` |
+| `--cli-opts` | diagnostic Maven flags and -Dproperties, whitespace-separated; use dedicated settings/profile flags | string | `""` | `$MAVEN_CLI_OPTS` |
 | `--settings-path` | path to the settings.xml passed via -s | string | `""` | `$SETTINGS_PATH` |
 | `--profile` | Maven profile activated for the deploy (e.g. release) (required) | string | `""` | `$MAVEN_PROFILE` |
+
+#### `forge-ci publish maven-central sign-publication`
+
+sign exported Maven files without running Gradle or Maven
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--request-tag` | signed human release-request/vMAJOR.MINOR.PATCH tag | string | `""` | `$RELEASE_REQUEST_TAG` |
+| `--release-sha` | full prepared release commit SHA | string | `""` | `$RELEASE_SHA` |
+| `--authorization-dir` | reviewed checkout root holding .forge-ci signer allowlists | string | `"."` | `$FORGE_CI_AUTHORIZATION_DIR` |
+| `--release-gpg-public-key` | public key verifying the prepared release tag when GPG-signed | string | `""` | `$RELEASE_GPG_PUBLIC_KEY` |
+| `--working-dir` | exported Maven-layout publication directory | string | `"."` | `$WORKING_DIRECTORY` |
+| `--version` | expected immutable publication version; leading v allowed (required) | string | `""` | `$VERSION` |
+| `--fingerprint` | imported signing key's primary fingerprint (required) | string | `""` | `$GPG_FINGERPRINT` |
+| `--passphrase-file` | signing passphrase file; defaults to $GPG_PASSPHRASE | string | `""` | n/a |
+
+#### `forge-ci publish maven-central snapshot`
+
+upload exported Maven-format snapshots using native metadata handling, without running consumer project code
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--username-file` | Central token username file; defaults to $MAVEN_CENTRAL_USERNAME | string | `""` | n/a |
+| `--password-file` | Central token password file; defaults to $MAVEN_CENTRAL_PASSWORD | string | `""` | n/a |
+| `--working-dir` | exported snapshot publication directory | string | `"."` | `$WORKING_DIRECTORY` |
+| `--validate-only` | validate exported snapshots without credentials or upload | bool | `false` | n/a |
 
 #### `forge-ci publish maven-central validate-artifacts`
 
@@ -2445,9 +2547,41 @@ EXAMPLE:
    forge-ci publish maven-central validate-artifacts
 ```
 
+#### `forge-ci publish maven-central validate-publication`
+
+validate all exported JVM publications and Central metadata before importing signing keys
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--working-dir` | exported Maven-layout publication directory | string | `"."` | `$WORKING_DIRECTORY` |
+| `--version` | expected immutable publication version; leading v allowed (required) | string | `""` | `$VERSION` |
+
+#### `forge-ci publish maven-central wait`
+
+resume observation of a Central deployment by ID; never uploads or releases anything
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--username-file` | Central token username file; defaults to $MAVEN_CENTRAL_USERNAME | string | `""` | n/a |
+| `--password-file` | Central token password file; defaults to $MAVEN_CENTRAL_PASSWORD | string | `""` | n/a |
+| `--automatic` | request/observe automatic publication; success requires PUBLISHED, not just VALIDATED | bool | `false` | n/a |
+| `--wait-timeout` | maximum observation time; timeout never resubmits the bundle | duration | `30m0s` | n/a |
+| `--deployment-id` | deployment ID printed by the accepted submission (required) | string | `""` | n/a |
+
 ### `forge-ci publish npm`
 
 npm publish pre-flight checks
+
+#### `forge-ci publish npm deploy`
+
+publish one packed npm tarball to an explicit registry under a version-specific tag
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--working-dir` | directory containing exactly one packed .tgz | string | `"."` | `$WORKING_DIRECTORY` |
+| `--registry` | destination npm registry URL (required) | string | `""` | `$NPM_REGISTRY` |
+| `--npm-tag` | required release-{version} or release-<packed-version> | string | `""` | `$NPM_TAG` |
+| `--token-file` | registry token file; defaults to $NODE_AUTH_TOKEN | string | `""` | n/a |
 
 #### `forge-ci publish npm find-tarball`
 
@@ -2461,6 +2595,15 @@ EXAMPLE:
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
 | `--working-dir` | directory scanned for the npm tarball (where 'npm pack' ran) | string | `"."` | `$WORKING_DIRECTORY` |
+
+#### `forge-ci publish npm validate-tag`
+
+validate a required version-specific npm tag before build or authentication; with --version, print the resolved tag
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--npm-tag` | release-{version} or release-<package-version>; movable channels are forbidden | string | `""` | `$NPM_TAG` |
+| `--version` | package version to bind the tag to | string | `""` | n/a |
 
 #### `forge-ci publish npm validate-tarball`
 
@@ -3276,6 +3419,8 @@ EXAMPLE:
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
+| `--library` | report an Android library AAR build | bool | `false` | `$ANDROID_LIBRARY` |
+| `--aar-name` | uploaded Android library artifact name | string | `""` | `$AAR_NAME` |
 | `--java-version` | JDK major version used for the build | string | `""` | `$JAVA_VERSION` |
 | `--jdk-dist` | JDK distribution (e.g. temurin, zulu, corretto) | string | `""` | `$JDK_DIST` |
 | `--build-module` | gradle module name (e.g. "app") | string | `""` | `$BUILD_MODULE` |
@@ -4280,6 +4425,7 @@ EXAMPLE:
 | `--sign-artifacts` | release-artifact signing is enabled | bool | `false` | `$SIGN_ARTIFACTS` |
 | `--requires-gpg-signing` | artifact signing and/or git-object signing uses GPG (enables public-key check) | bool | `false` | `$REQUIRES_GPG_SIGNING` |
 | `--has-maven-central-target` | the plan targets Maven Central (enables credential check) | bool | `false` | `$HAS_MAVEN_CENTRAL_TARGET` |
+| `--has-maven-central-signing-key` | the workflow has the private signing key needed by Maven Central (presence only; no key value) | bool | `false` | `$HAS_RELEASE_GPG_PRIVATE_KEY` |
 | `--has-cargo-target` | the plan targets crates.io (enables Cargo prerequisites check) | bool | `false` | `$HAS_CARGO_TARGET` |
 | `--has-jvm-target` | the plan includes a Maven/Gradle/Gradle-Android artifact (enables JVM reproducibility check) | bool | `false` | `$HAS_JVM_TARGET` |
 
@@ -4306,6 +4452,17 @@ EXAMPLE:
 | `--key` | cosign key reference whose public half is derived (e.g. env://COSIGN_KEY, a KMS URI, or a private key file) (required) | string | `""` | `$SIGN_KEY` |
 | `--trusted-public-key` | path to the public key the signing key must match; which key is trusted is the caller's policy (required) | string | `""` | n/a |
 | `--trusted-public-key-digest` | optional sidecar recording the trusted public key's SHA-256 (sha256sum format), checked before it is used as the comparison target | string | `""` | n/a |
+
+### `forge-ci validate signing-privacy`
+
+refuse implicit public transparency for private or unknown repositories before signing
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--repository-visibility` | public, private, internal or unknown; omission is unknown | string | `""` | `$REPOSITORY_VISIBILITY` |
+| `--method` | signing method: sigstore, kms or gpg | string | `""` | `$SIGN_METHOD` |
+| `--transparency` | explicit public or none; omission defaults to public but is not consent | string | `""` | `$TRANSPARENCY_LOG` |
+| `--enabled` | whether this phase signs or attests | bool | `true` | `$SIGN_ENABLED` |
 
 ### `forge-ci validate tag`
 
@@ -4451,6 +4608,7 @@ EXAMPLES:
 | `--project-type` | ecosystem driving the bump (maven/gradle/npm/cargo/xcode-ios) (required) | string | `""` | `$PROJECT_TYPE` |
 | `--version` | new version-of-record (without a leading 'v') (required) | string | `""` | `$VERSION` |
 | `--working-dir` | directory containing the project root | string | `"."` | `$WORKING_DIRECTORY` |
+| `--library` | for gradle-android, bump the library's version property instead of application metadata | bool | `false` | `$ANDROID_LIBRARY` |
 | `--gradle-version-file` | path to the gradle.properties file holding the version key (gradle only) | string | `""` | `$GRADLE_VERSION_FILE` |
 | `--xcode-version-file` | path to the xcconfig file holding MARKETING_VERSION (xcode-ios only) | string | `""` | `$XCODE_VERSION_FILE` |
 | `--maven-cli-opts` | extra args forwarded to mvn (whitespace-separated, e.g. "-B -ntp") | string | `""` | `$MAVEN_CLI_OPTS` |

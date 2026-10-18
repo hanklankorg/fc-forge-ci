@@ -35,7 +35,7 @@ func TestPlanRelease_EmitsTypedPlanOutputs(t *testing.T) {
 	sink := fakeoutputsink.New(t)
 
 	cfg := &config.Config{
-		Sign: config.SignConfig{Method: domainrelease.SignMethodSigstore},
+		Sign: config.SignConfig{Method: domainrelease.SignMethodSigstore, Transparency: domainrelease.TransparencyPublic},
 		Artifacts: []config.Artifact{
 			{
 				Name:                 "lib",
@@ -528,7 +528,7 @@ func TestPlanRelease_IsByteIdenticalForAnEquivalentInput(t *testing.T) {
 		t.Helper()
 
 		cfg := &config.Config{
-			Sign: config.SignConfig{Method: domainrelease.SignMethodSigstore},
+			Sign: config.SignConfig{Method: domainrelease.SignMethodSigstore, Transparency: domainrelease.TransparencyPublic},
 			Artifacts: []config.Artifact{
 				{Name: "lib", ProjectType: projecttype.Maven, BuildType: config.BuildTypeLibrary},
 				{Name: "go-cli", ProjectType: projecttype.Go, Go: &config.GoConfig{BuildMode: config.GoBuildModeArtifactFirst}},

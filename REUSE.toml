@@ -27,6 +27,8 @@ path = [
   "docs/artifacts-reference.md",
   "docs/components.md",
   "docs/ecosystems.md",
+  "docs/gradle-publishing.md",
+  "docs/private-dependencies.md",
   "docs/publishing.md",
   "docs/reference.md",
   "docs/sbom.md",

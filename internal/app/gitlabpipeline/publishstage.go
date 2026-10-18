@@ -104,13 +104,13 @@ func PublishStagePipeline(plan pipeline.ReleasePublishStagePlan, opts BuildPipel
 // equivalent in the GitLab component the target would map to.
 func representableProjectTypes(tgt pipeline.ReleasePublishTargets) error {
 	for _, artifact := range tgt.ForgePackages.Items {
-		if artifact.ProjectType != projecttype.Maven && artifact.ProjectType != projecttype.NPM {
+		if !projecttype.IsIn(artifact.ProjectType, []projecttype.Type{projecttype.Maven, projecttype.NPM, projecttype.Gradle, projecttype.GradleAndroid}) {
 			return fmt.Errorf("GitLab publish target forge-packages cannot represent project type %q: %w", artifact.ProjectType, errs.ErrUnsupported)
 		}
 	}
 
 	for _, artifact := range tgt.MavenCentral.Items {
-		if artifact.ProjectType != projecttype.Maven {
+		if !projecttype.IsIn(artifact.ProjectType, []projecttype.Type{projecttype.Maven, projecttype.Gradle, projecttype.GradleAndroid}) {
 			return fmt.Errorf("GitLab publish target maven-central cannot represent project type %q: %w", artifact.ProjectType, errs.ErrUnsupported)
 		}
 	}

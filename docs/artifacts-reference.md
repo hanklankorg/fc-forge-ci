@@ -153,7 +153,7 @@ requirements and incompatible fields.
 #### `build-type`
 
 - **Type:** `string`
-- **Description:** Maven build type used by the orchestrator when calling `build-maven.yml`
+- **Description:** Application or library role used for build behavior and publication eligibility.
 <!-- schema-values:build-type -->
 - **Valid values:** `application` (default), `library`
 <!-- /schema-values:build-type -->
@@ -163,11 +163,12 @@ requirements and incompatible fields.
   `forge-packages` eligibility when requested; explicit `application` excludes
   the artifact from that publish set. Maven Central still requires explicit
   `library`.
-- **Applies to:** Maven only. Gradle workflows ignore this field today.
+- **Applies to:** Maven lifecycle, Central publication eligibility, and Android application/library mode. JVM Gradle build tasks are selected by `config.gradle-tasks`.
 - **Example:** `build-type: library`
 - **Behavior:**
   - `application`: Builds with `mvn package`
   - `library`: Selects the compile/test/package lifecycle and optional Maven profile. The project POM/profile owns attached sources and javadoc artifacts; forge-ci does not invoke source or javadoc plugin goals. Maven Central validation later requires both JARs.
+  - Android `library`: Builds a release AAR, exports native Maven publications, and bumps `version` rather than application `versionName`/`versionCode`. It uses neither an Android keystore nor Google Play. See [Android libraries](gradle-publishing.md#android-libraries).
 
 #### `require-authorization`
 
@@ -252,6 +253,16 @@ requirements and incompatible fields.
 
 ### Configuration Fields (Maven/Gradle)
 
+#### `config.private-dependencies`
+
+- **Type:** `boolean`; default `false`.
+- **Applies to:** Maven, JVM Gradle and npm.
+- **Description:** Opt into a separate dependency-read credential. GitHub build workflows use their job token with `packages: read`; CLI callers supply `DEPENDENCY_TOKEN` or `--dependency-token-file`.
+- **Maven:** Requires consumer-owned `config.settings-path`; preserve mirrors and repository IDs and reference the dependency environment variables in those settings.
+- **Gradle:** Configure dependency authentication in the project using `DEPENDENCY_TOKEN` and `DEPENDENCY_USERNAME`. Private builds avoid reusable daemons and workflow caches.
+- **npm:** Also requires `config.dependency-registry`; authentication is available only during `npm ci`.
+- **Details:** [Private dependency access](private-dependencies.md).
+
 #### `config.java-version`
 
 - **Type:** `string` or `number`
@@ -272,6 +283,18 @@ requirements and incompatible fields.
 ---
 
 ### Configuration Fields (NPM)
+
+#### `config.npm-tag`
+
+- **Type:** `string`; no default.
+- **Required:** When publishing npm through `forge-packages`.
+- **Values:** Explicit `release-{version}` or `release-<packed-version>`. The publisher reads the packed manifest; a literal tag must match npm's normalized registry version.
+- **Policy:** Movable tags such as `latest`, `next` and `snapshot` are refused. An existing tag bound to a different version is refused before publication. See [npm caller responsibilities](ecosystems.md#npm-artifact-first).
+
+#### `config.dependency-registry`
+
+- **Type:** `string`; required with `config.private-dependencies: true`.
+- **Description:** HTTPS registry URL whose host/path receives the dependency token. Loopback HTTP is permitted for local fixtures. This does not replace consumer-owned registry or scope routing in `.npmrc`.
 
 #### `config.node-version`
 
@@ -976,7 +999,7 @@ containers:
 
 - **Description:** GitHub Packages registry
 - **Requirements:** `GITHUB_TOKEN` (automatic)
-- **Applies to:** Maven libraries and NPM packages. Maven apps and Gradle publishing are not wired today; use a project-owned publishing workflow until forge-ci adds those publishers.
+- **Applies to:** Maven libraries, npm packages, and [Gradle JVM/Android-library publications](gradle-publishing.md). Maven apps are not supported by this target.
 - **Registry:** `maven.pkg.github.com/<owner>/<repo>` (Maven), `npm.pkg.github.com` (NPM). Container registries are configured separately under `containers`.
 
 ### `maven-central`
@@ -986,8 +1009,10 @@ containers:
   - `MAVEN_CENTRAL_USERNAME` secret
   - `MAVEN_CENTRAL_PASSWORD` secret
   - `build-type: library` (required)
-- **Package signing:** Requires `RELEASE_GPG_PRIVATE_KEY`, plus `RELEASE_GPG_PASSPHRASE` for a protected key, independently of the release artifact signing method. See [publisher credentials](components.md#artifact-publishers).
-- **Applies to:** Maven only
+- **Authorization:** Requires an allowlisted signed `release-request/vMAJOR.MINOR.PATCH` and the exact prepared release SHA, even when general release authorization is disabled.
+- **Package signing:** Requires `RELEASE_GPG_PRIVATE_KEY` and `RELEASE_GPG_PUBLIC_KEY`, plus `RELEASE_GPG_PASSPHRASE` for a protected key, independently of the release artifact signing method. See [publisher credentials](components.md#artifact-publishers).
+- **Applies to:** Maven and [Gradle JVM/Android-library publications](gradle-publishing.md).
+- **Snapshots:** Explicit snapshot mode uses ordinary CI credentials; the signed-request and GPG-key requirements above apply to stable releases. See [snapshot publication](gradle-publishing.md#snapshots).
 - **Note:** Requires Sonatype account and approved groupId
 
 ### `npmjs`

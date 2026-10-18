@@ -33,7 +33,7 @@ families, which get the engine differently.
 | `release` (with `release-jobs`) | checksum-bound | The native release: request validation, changelog, signed release commit and final tag, key-free build, signing, image promotion, publication and cleanup, in separately scoped jobs. |
 | `nanolinter`, `megalinter` | Catalog | The merge-request lint gate, with findings published as a GitLab SAST report. |
 | `build-go`, `build-cargo`, `build-maven`, `build-npm`, `build-gradle`, `build-gradle-android` | Catalog | One release build per artifact: `forge-ci build <ecosystem> run` in a runtime image. |
-| `publish-forge-packages`, `publish-maven-central`, `publish-apple-appstore` | Catalog | Maven or npm to the GitLab Package Registry, Maven Central, and App Store Connect. |
+| `publish-forge-packages`, `publish-maven-central`, `publish-apple-appstore` | Catalog | Maven, npm and exported Gradle JVM packages to the GitLab Package Registry; Maven/Gradle to Central; App Store Connect. |
 
 **Checksum-bound** components declare `spec: component: [sha, reference]` and
 must be included by full commit SHA. Every job clones the engine project at
@@ -768,7 +768,7 @@ job through native artifacts.
 | Component | Publishes | Needs |
 |---|---|---|
 | `publish-forge-packages` | Maven (`mvn deploy`) or npm to the project's GitLab Package Registry | `CI_JOB_TOKEN`; JARs under `*/target/` or the packed `*.tgz` |
-| `publish-maven-central` | A Maven library to Maven Central, GPG-signed through the Maven profile | The variables in [Secrets and tokens](#secrets-and-tokens); sources and javadoc JARs |
+| `publish-maven-central` | A Maven library through its profile, or exported Gradle JVM publications through the Central API | Signed release request and prepared SHA; publisher secrets including the GPG public key; sources and javadoc JARs |
 | `publish-apple-appstore` | An IPA to App Store Connect with `xcrun altool` | A macOS runner with Xcode and `forge-ci`; the IPA under `artifacts/` |
 
 Google Play and container publishing have no GitLab component. See

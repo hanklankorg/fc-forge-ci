@@ -18,23 +18,24 @@ const SnapshotReleasePlanVersion = 1
 
 // SnapshotReleasePlanInput contains workflow inputs plus the parsed config plan.
 type SnapshotReleasePlanInput struct {
-	ConfigPlan        ConfigPlan
-	ProjectType       projecttype.Type
-	Branch            string
-	ReleaseSHA        string
-	ReleaseActor      string
-	ReleaseRepository string
-	WorkingDirectory  string
-	JavaVersion       string
-	NodeVersion       string
-	RustToolchain     string
-	Registry          string
-	ForgeCIBinaryRef  string
-	NPMRegistry       string
-	PackageScope      string
-	SBOMs             string
-	PublishNPM        bool
-	UseCIToken        bool
+	ConfigPlan            ConfigPlan
+	ProjectType           projecttype.Type
+	Branch                string
+	ReleaseSHA            string
+	ReleaseActor          string
+	ReleaseRepository     string
+	WorkingDirectory      string
+	JavaVersion           string
+	NodeVersion           string
+	RustToolchain         string
+	Registry              string
+	ForgeCIBinaryRef      string
+	NPMRegistry           string
+	PackageScope          string
+	SBOMs                 string
+	PublishNPM            bool
+	PublishMavenSnapshots bool
+	UseCIToken            bool
 }
 
 // SnapshotReleasePlan is the top-level typed contract for the dev release setup job.
@@ -65,9 +66,10 @@ type SnapshotReleaseContext struct {
 
 // SnapshotReleasePolicy is the dev release policy envelope.
 type SnapshotReleasePolicy struct {
-	PublishNPM bool   `json:"publish_npm"`
-	UseCIToken bool   `json:"use_ci_token"`
-	SBOMs      string `json:"sboms"`
+	PublishMavenSnapshots bool   `json:"publish_maven_snapshots"`
+	PublishNPM            bool   `json:"publish_npm"`
+	UseCIToken            bool   `json:"use_ci_token"`
+	SBOMs                 string `json:"sboms"`
 }
 
 // SnapshotReleaseStagePlans contains the stage-specific plans emitted separately
@@ -79,9 +81,10 @@ type SnapshotReleaseStagePlans struct {
 
 // DevBuildStagePlan describes dev build-stage targets.
 type DevBuildStagePlan struct {
-	Version int             `json:"version"`
-	Stage   string          `json:"stage"`
-	Targets DevBuildTargets `json:"targets"`
+	ExportPublications bool            `json:"export_publications,omitempty"`
+	Version            int             `json:"version"`
+	Stage              string          `json:"stage"`
+	Targets            DevBuildTargets `json:"targets"`
 }
 
 // DevBuildTargets are the artifact-first build jobs in the dev build stage.
@@ -116,6 +119,8 @@ type DevPublishInputs struct {
 
 // DevPublishTargets are the publish-stage jobs and supporting inputs.
 type DevPublishTargets struct {
+	ForgePackages       TargetPlan[PlannedArtifact] `json:"forge_packages"`
+	MavenCentral        TargetPlan[PlannedArtifact] `json:"maven_central"`
 	NPM                 TargetPlan[PlannedArtifact] `json:"npm"`
 	CargoContainerFirst TargetPlan[PlannedArtifact] `json:"cargo_container_first"`
 	GoContainerFirst    TargetPlan[PlannedArtifact] `json:"go_container_first"`
@@ -167,11 +172,13 @@ func NewSnapshotReleasePlan(in SnapshotReleasePlanInput) (SnapshotReleasePlan, e
 		PackageScope:      in.PackageScope,
 	}
 	policy := SnapshotReleasePolicy{
-		PublishNPM: in.PublishNPM,
-		UseCIToken: in.UseCIToken,
-		SBOMs:      cmp.Or(in.SBOMs, SBOMsNone),
+		PublishMavenSnapshots: in.PublishMavenSnapshots,
+		PublishNPM:            in.PublishNPM,
+		UseCIToken:            in.UseCIToken,
+		SBOMs:                 cmp.Or(in.SBOMs, SBOMsNone),
 	}
 	build := newDevBuildStagePlan(in.ConfigPlan)
+	build.ExportPublications = policy.PublishMavenSnapshots
 
 	// The policy's SBOM choice is read once, expanded: whether any layer is
 	// selected and whether the build layer is decide the dev SBOM targets.
@@ -279,7 +286,10 @@ func newDevPublishStagePlan(configPlan ConfigPlan, policy SnapshotReleasePolicy,
 	// The snapshot flow builds no containers: a container is built ONCE on the
 	// release path and promoted to :dev by the build-once/promote-many ladder
 	// (promote-stage.yml), never rebuilt for the snapshot flow.
+	forgePackages := filterArtifacts(artifacts.ForgePackages, func(artifact PlannedArtifact) bool { return artifact.ProjectType != projecttype.NPM })
 	targets := DevPublishTargets{
+		ForgePackages:       targetPlan(forgePackages, policy.PublishMavenSnapshots && len(forgePackages) > 0),
+		MavenCentral:        targetPlan(artifacts.MavenCentral, policy.PublishMavenSnapshots && len(artifacts.MavenCentral) > 0),
 		NPM:                 targetPlan(artifacts.NPM, len(artifacts.NPM) > 0 && policy.PublishNPM),
 		CargoContainerFirst: targetPlan(artifacts.CargoContainerFirst, len(artifacts.CargoContainerFirst) > 0 && buildSBOM),
 		GoContainerFirst:    targetPlan(artifacts.GoContainerFirst, len(artifacts.GoContainerFirst) > 0 && buildSBOM),

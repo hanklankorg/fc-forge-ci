@@ -26,11 +26,11 @@ func TestMavenCentralPublish_RendersSummary(t *testing.T) {
 	// release and a SNAPSHOT publish -- was never actually checked.
 	got := sink.buf.String()
 	for _, want := range []string{
-		"## Published to Maven Central 🚀",
+		"## Maven Central deployment command completed",
 		"- **Version:** 1.2.3",
 		"- **Type:** Release",
-		"✓ **Release** deployed to staging. Will be published to Central within 30 minutes.\n",
-		"*Published at 2026-05-10 14:00:00 UTC*",
+		"Publication state was not independently observed; check the Central Portal",
+		"*Command completed at 2026-05-10 14:00:00 UTC*",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %s", want, got)
@@ -47,8 +47,8 @@ func TestMavenCentralPublish_RendersSummary(t *testing.T) {
 }
 
 // TestMavenCentralPublish_SnapshotFlipsTypeAndAvailabilityNote is the other
-// half of the IsSnapshot branch: a SNAPSHOT is available immediately, a
-// release waits on Central's staging, and the summary has to say which.
+// half of the IsSnapshot branch: snapshots use a different repository, and
+// successful process exit alone is not independent proof of availability.
 func TestMavenCentralPublish_SnapshotFlipsTypeAndAvailabilityNote(t *testing.T) {
 	t.Parallel()
 
@@ -66,7 +66,8 @@ func TestMavenCentralPublish_SnapshotFlipsTypeAndAvailabilityNote(t *testing.T) 
 	for _, want := range []string{
 		"- **Version:** 1.2.3-SNAPSHOT",
 		"- **Type:** SNAPSHOT",
-		"available immediately in the snapshot repository",
+		"Snapshot availability was not independently observed",
+		"https://central.sonatype.com/repository/maven-snapshots/",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %s", want, got)

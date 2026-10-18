@@ -64,6 +64,9 @@
   "release-snapshot-orchestrator.yml jobs.execute-snapshot-publish-stage": [
     "packages: write"
   ],
+  "release-snapshot-publish-stage.yml jobs.forge-packages": [
+    "packages: write"
+  ],
   "release-snapshot-publish-stage.yml jobs.npm": [
     "packages: write"
   ],

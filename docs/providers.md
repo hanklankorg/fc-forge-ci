@@ -419,7 +419,7 @@ supply one with `write:package`:
 - name: publish to the forge package registry
   env:
     FORGEJO_TOKEN: ${{ secrets.PACKAGE_TOKEN }}   # needs write:package
-  run: forge-ci publish forge-packages deploy --project-type npm
+  run: forge-ci publish forge-packages deploy --project-type npm --npm-tag 'release-{version}'
 ```
 
 The container registry is different: the automatic token *does* authenticate

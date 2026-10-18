@@ -27,6 +27,7 @@ import (
 // resolution, and the pinned SBOM plugin.
 type AndroidReleaseBuildInput struct {
 	ReleaseBuildOptions
+	Library bool
 
 	// Artifact-name composition (ArtifactName from the embed is the override).
 	IncludeDateStamp   bool
@@ -80,6 +81,9 @@ func AndroidReleaseBuild(ctx context.Context, sink ci.OutputSink, summarySink ci
 	}
 
 	in.Dir = dir
+	if in.Library && in.EnableSigning {
+		return fmt.Errorf("android libraries do not use APK keystore signing: %w", errs.ErrInvalidConfig)
+	}
 
 	// Validate both blobs before publishing outputs or staging either secret.
 	var keystore, properties []byte
@@ -102,25 +106,9 @@ func AndroidReleaseBuild(ctx context.Context, sink ci.OutputSink, summarySink ci
 		}
 	}
 
-	tasks := strings.TrimSpace(in.GradleTasksOverride)
-	if tasks == "" {
-		tasks, err = build.ResolveAndroidBuildTasks(build.ResolveAndroidBuildTasksInput{
-			Flavor:      in.ProductFlavor,
-			BuildTypes:  in.BuildTypes,
-			IncludeAAB:  in.IncludeAAB,
-			BuildModule: in.BuildModule,
-		})
-		if err != nil {
-			return fmt.Errorf("resolve Android build tasks: %w", err)
-		}
-	}
-	// Tabs and spaces separate task names, so the string as a whole is not a
-	// scalar; each task that becomes an argv entry is.
-	for _, task := range strings.Fields(tasks) {
-		if err = validateScalarValue(task); err != nil {
-			// The task string is caller-controlled; name the field, not the value.
-			return fmt.Errorf("resolved Android build tasks: %w: %w", err, errs.ErrValidation)
-		}
+	tasks, err := androidReleaseTasks(in)
+	if err != nil {
+		return err
 	}
 	// These compose the artifact names this build publishes as job outputs, so
 	// they have to be printable text before a name is derived from them, not
@@ -183,6 +171,7 @@ func AndroidReleaseBuild(ctx context.Context, sink ci.OutputSink, summarySink ci
 	}
 
 	if err = AndroidArtifactNames(ctx, sink, stderr, AndroidArtifactNamesInput{
+		Library:     in.Library,
 		IncludeDate: in.IncludeDateStamp,
 		Prefix:      in.ArtifactNamePrefix,
 		RepoName:    in.RepoName,
@@ -221,7 +210,13 @@ func AndroidReleaseBuild(ctx context.Context, sink ci.OutputSink, summarySink ci
 		}
 	}
 
-	if err = AndroidVersionInfo(ctx, sink, stderr, annot, AndroidVersionInfoInput{Dir: in.Dir}); err != nil {
+	if in.Library {
+		err = sink.Set(ctx, "version", resolveGradleVersion(in.Dir))
+	} else {
+		err = AndroidVersionInfo(ctx, sink, stderr, annot, AndroidVersionInfoInput{Dir: in.Dir})
+	}
+
+	if err != nil {
 		return fmt.Errorf("resolve version: %w", err)
 	}
 
@@ -238,6 +233,26 @@ func AndroidReleaseBuild(ctx context.Context, sink ci.OutputSink, summarySink ci
 	}
 
 	return androidSBOMStep(ctx, gradleDeps{summary: summarySink, ops: bound, w: w, stderr: stderr}, in)
+}
+
+func androidReleaseTasks(in AndroidReleaseBuildInput) (string, error) {
+	tasks := strings.TrimSpace(in.GradleTasksOverride)
+	if tasks == "" {
+		var err error
+
+		tasks, err = build.ResolveAndroidBuildTasks(build.ResolveAndroidBuildTasksInput{Library: in.Library, Flavor: in.ProductFlavor, BuildTypes: in.BuildTypes, IncludeAAB: in.IncludeAAB, BuildModule: in.BuildModule})
+		if err != nil {
+			return "", fmt.Errorf("resolve Android build tasks: %w", err)
+		}
+	}
+	// Each task becomes one argument; name the field instead of echoing input.
+	for _, task := range strings.Fields(tasks) {
+		if err := validateScalarValue(task); err != nil {
+			return "", fmt.Errorf("resolved Android build tasks: %w: %w", err, errs.ErrValidation)
+		}
+	}
+
+	return tasks, nil
 }
 
 // AndroidGradleOps adds per-invocation environment overrides without widening

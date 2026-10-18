@@ -59,12 +59,13 @@ type PrerequisitesInput struct {
 	// require-authorization is set OR the workflow input explicitly enables
 	// it. When true, a missing/empty allowlist or an unverifiable signature
 	// fails closed (ErrPermissionDenied → exit 77).
-	RequireAllowlistedSigner bool
-	SignArtifacts            bool
-	RequiresGPGSigning       bool
-	HasMavenCentralTarget    bool
-	HasCargoTarget           bool
-	HasJVMTarget             bool // any Maven, Gradle, or Gradle-Android artifact in the plan
+	RequireAllowlistedSigner  bool
+	SignArtifacts             bool
+	RequiresGPGSigning        bool
+	HasMavenCentralTarget     bool
+	HasMavenCentralSigningKey bool
+	HasCargoTarget            bool
+	HasJVMTarget              bool // any Maven, Gradle, or Gradle-Android artifact in the plan
 
 	// Secrets — passed in by the orchestrator after reading from env so
 	// nothing winds up in argv. Empty values surface a validator-specific
@@ -220,10 +221,7 @@ func Prerequisites(
 
 	if in.HasMavenCentralTarget {
 		checks.run(gctx, g, "maven-central", func(_ context.Context, out *bytes.Buffer) error {
-			return MavenCentralCredentials(out, out, annot, MavenCentralCredentialsInput{
-				Username: in.MavenCentralUsername,
-				Password: in.MavenCentralPassword,
-			})
+			return centralPrerequisites(out, annot, in)
 		})
 	} else {
 		checks.skip("maven-central", "no maven-central target")
@@ -290,6 +288,20 @@ func Prerequisites(
 
 type tagExistenceOps interface {
 	TagExists(ctx context.Context, tag string) (bool, error)
+}
+
+func centralPrerequisites(out io.Writer, annot output.Annotator, in PrerequisitesInput) error {
+	if err := MavenCentralCredentials(out, out, annot, MavenCentralCredentialsInput{
+		Username: in.MavenCentralUsername, Password: in.MavenCentralPassword,
+	}); err != nil {
+		return err
+	}
+
+	if !in.HasMavenCentralSigningKey {
+		return fmt.Errorf("maven Central publication requires RELEASE_GPG_PRIVATE_KEY before building: %w", errs.ErrPermissionDenied)
+	}
+
+	return GPGPublicKey(out, in.ReleaseGPGPublicKey)
 }
 
 func releaseRequestFinalTag(ctx context.Context, repo gitOps, tagTrigger bool, tag string) (string, string, error) {

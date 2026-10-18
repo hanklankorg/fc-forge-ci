@@ -335,6 +335,8 @@ artifacts:
     build-type: library
     working-directory: packages/lib
     publish-to: [forge-packages]
+    config:
+      npm-tag: release-{version}
   - name: android-app
     project-type: gradle-android
     build-type: application

@@ -63,7 +63,8 @@
               "build_artifact_name": "web-build-artifacts",
               "build_sbom_artifact_name": "web-build-sbom",
               "npm": {
-                "node_version": "24"
+                "node_version": "24",
+                "tag": "release-{version}"
               }
             },
             {
@@ -137,7 +138,8 @@
               "build_artifact_name": "web-build-artifacts",
               "build_sbom_artifact_name": "web-build-sbom",
               "npm": {
-                "node_version": "24"
+                "node_version": "24",
+                "tag": "release-{version}"
               }
             }
           ]
@@ -188,7 +190,8 @@
               "build_artifact_name": "web-build-artifacts",
               "build_sbom_artifact_name": "web-build-sbom",
               "npm": {
-                "node_version": "24"
+                "node_version": "24",
+                "tag": "release-{version}"
               }
             }
           ]

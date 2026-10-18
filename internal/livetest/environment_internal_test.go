@@ -74,6 +74,17 @@ func withoutWorkflowRuns(t *testing.T, body string) string {
 	return strings.ReplaceAll(body, capability, "")
 }
 
+func withoutPackages(t *testing.T, body string) string {
+	t.Helper()
+
+	const capability = ",\n        \"packages\""
+	if !strings.Contains(body, capability) {
+		t.Fatalf("fixture no longer declares %q", capability)
+	}
+
+	return strings.ReplaceAll(body, capability, "")
+}
+
 // withoutGitLabIssuer removes the GitLab Fulcio issuer mapping from the
 // compose fixture.
 func withoutGitLabIssuer(t *testing.T, body string) string {
@@ -106,7 +117,7 @@ func TestRequires_HandlesEveryNeed(t *testing.T) {
 func TestAllNeeds_ListsEveryNeed(t *testing.T) {
 	setCurrentContract(t, writeContract(t, composeFixtureBody(t)))
 
-	want := []Need{NeedsInRunner, NeedsFulcio}
+	want := []Need{NeedsInRunner, NeedsFulcio, NeedsPackages}
 	got := allNeeds()
 
 	counts := make(map[Need]int)
@@ -145,6 +156,7 @@ func TestRequires_NamesTheContractField(t *testing.T) {
 	}{
 		{NeedsInRunner, withoutWorkflowRuns, `endpoint "gitlab" (capability workflow-runs)`},
 		{NeedsFulcio, withoutGitLabIssuer, `contract fulcio has no issuer mapping for endpoint "gitlab"`},
+		{NeedsPackages, withoutPackages, `endpoint "gitlab" has no packages capability`},
 	} {
 		setCurrentContract(t, writeContract(t, tc.body(t, composeFixtureBody(t))))
 

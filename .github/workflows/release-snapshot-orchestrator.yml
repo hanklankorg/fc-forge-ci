@@ -92,6 +92,11 @@ on:
         required: false
         default: true
         type: boolean
+      publish-maven-snapshots:
+        description: "Opt into Maven-format snapshot publication for Maven, Gradle JVM and Android libraries."
+        required: false
+        default: false
+        type: boolean
       npm-registry:
         description: "NPM registry URL"
         required: false
@@ -158,6 +163,10 @@ on:
     # GITHUB_TOKEN auto-provided + the external registry-password).
     # All `required: false` — `secrets: inherit` callers unchanged.
     secrets:
+      MAVEN_CENTRAL_USERNAME:
+        required: false
+      MAVEN_CENTRAL_PASSWORD:
+        required: false
       registry-password:
         description: "External NPM registry token (required when use-ci-token=false)"
         required: false
@@ -256,6 +265,7 @@ jobs:
           PACKAGE_SCOPE: ${{ inputs['package-scope'] }}
           SBOMS: ${{ inputs.sboms }}
           PUBLISH_NPM: ${{ inputs['publish-npm'] }}
+          PUBLISH_MAVEN_SNAPSHOTS: ${{ inputs['publish-maven-snapshots'] }}
           USE_CI_TOKEN: ${{ inputs['use-ci-token'] }}
         run: forge-ci plan snapshot-release
 
@@ -266,6 +276,7 @@ jobs:
     if: ${{ !failure() && !cancelled() }}
     permissions:
       contents: read
+      packages: read
     secrets:
       ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -306,11 +317,14 @@ jobs:
     # subtraction in dotted references.
     secrets:
       registry-password: ${{ secrets['registry-password'] }}
+      MAVEN_CENTRAL_USERNAME: ${{ inputs['publish-maven-snapshots'] && secrets.MAVEN_CENTRAL_USERNAME || '' }}
+      MAVEN_CENTRAL_PASSWORD: ${{ inputs['publish-maven-snapshots'] && secrets.MAVEN_CENTRAL_PASSWORD || '' }}
     uses: ./.github/workflows/release-snapshot-publish-stage.yml
     with:
       snapshot-release-plan-json: ${{ needs.setup-snapshot.outputs.snapshot-release-plan-json }}
       forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
       runtime-image: ${{ inputs['runtime-image-full'] }}
+      runtime-image-java: ${{ inputs['runtime-image-java'] }}
       runtime-image-node: ${{ inputs['runtime-image-node'] }}
       runtime-image-rust: ${{ inputs['runtime-image-rust'] }}
       runtime-image-go: ${{ inputs['runtime-image-go'] }}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/diggsweden/forge-ci/internal/domain/config"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 	"github.com/diggsweden/forge-ci/internal/listval"
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
 )
@@ -24,6 +25,7 @@ const ArtifactTransferPlanVersion = 1
 
 // ReleasePlanInput contains workflow inputs plus the parsed config plan.
 type ReleasePlanInput struct {
+	RepositoryVisibility            string
 	ConfigPlan                      ConfigPlan
 	Branch                          string
 	RefName                         string
@@ -247,10 +249,16 @@ func NewReleasePlan(in ReleasePlanInput) (ReleasePlan, error) {
 		return ReleasePlan{}, err
 	}
 
+	if err := domainrelease.ValidateTransparencyConsent(in.RepositoryVisibility, in.ConfigPlan.Sign.Transparency, in.ConfigPlan.Sign.TransparencyExplicit, in.ReleaseSignArtifacts); err != nil {
+		return ReleasePlan{}, err
+	}
+
 	policy, err := resolveReleasePolicy(releasePolicyInputs{
-		ReleaseType:                     in.ReleaseType,
-		ReleasePublisher:                in.ReleasePublisher,
-		ReleaseRequireAllowlistedSigner: in.ReleaseRequireAllowlistedSigner,
+		ReleaseType:      in.ReleaseType,
+		ReleasePublisher: in.ReleasePublisher,
+		// A Central release is permanent. Its destination requires a signed,
+		// allowlisted request even when no artifact opted into the general gate.
+		ReleaseRequireAllowlistedSigner: in.ReleaseRequireAllowlistedSigner || len(in.ConfigPlan.Artifacts.MavenCentral) > 0,
 		ReleaseDraft:                    in.ReleaseDraft,
 		ReleaseSBOMs:                    in.ReleaseSBOMs,
 		ReleaseSignArtifacts:            in.ReleaseSignArtifacts,
@@ -265,13 +273,8 @@ func NewReleasePlan(in ReleasePlanInput) (ReleasePlan, error) {
 		return ReleasePlan{}, err
 	}
 
-	for _, container := range in.ConfigPlan.Containers.All {
-		if container.EnableSLSA && (!policy.SignArtifacts || !in.ConfigPlan.Sign.SignsContainers) {
-			return ReleasePlan{}, fmt.Errorf(
-				"container %q enables pushed SLSA provenance but signing is not enabled with a cosign-capable method; enable release artifact signing with sign.method sigstore or kms, or set enable-slsa: false: %w",
-				container.Name, errs.ErrInvalidConfig,
-			)
-		}
+	if signingErr := validateContainerSigning(in.ConfigPlan, policy); signingErr != nil {
+		return ReleasePlan{}, signingErr
 	}
 
 	buildSBOM, err := hasSBOMLayer(policy.SBOMs, config.SBOMLayerBuild)
@@ -302,6 +305,19 @@ func NewReleasePlan(in ReleasePlanInput) (ReleasePlan, error) {
 		},
 		ArtifactTransfers: transfers,
 	}, nil
+}
+
+func validateContainerSigning(plan ConfigPlan, policy ReleasePolicy) error {
+	for _, container := range plan.Containers.All {
+		if container.EnableSLSA && (!policy.SignArtifacts || !plan.Sign.SignsContainers) {
+			return fmt.Errorf(
+				"container %q enables pushed SLSA provenance but signing is not enabled with a cosign-capable method; enable release artifact signing with sign.method sigstore or kms, or set enable-slsa: false: %w",
+				container.Name, errs.ErrInvalidConfig,
+			)
+		}
+	}
+
+	return nil
 }
 
 // newReleasePrepareStagePlan builds the standalone release prepare-stage plan.

@@ -50,7 +50,7 @@ compares recorded digests with the registry.
 "report status" renders collected outcomes; it is not a validation gate.`,
 		Commands: slices.Concat(
 			cmdmeta.WithCategory("Release pre-flight gates",
-				prerequisitesCmd(), releaseProviderCmd(), eventContextCmd(), isolationCmd(), jobGraphCmd(), pinReachabilityCmd(), tagGroup(), workflowGroup(), changelogCmd()),
+				prerequisitesCmd(), releaseProviderCmd(), eventContextCmd(), signingPrivacyCmd(), isolationCmd(), jobGraphCmd(), pinReachabilityCmd(), tagGroup(), workflowGroup(), changelogCmd()),
 			cmdmeta.WithCategory("Auth & secrets", authGroup()),
 			cmdmeta.WithCategory("Signature verification", artifactSignatureCmd(), containerSignatureCmd(), signingKeyCmd()),
 			cmdmeta.WithCategory("Ecosystem checks", cargoCmd(), jvmReproducibilityCmd()),

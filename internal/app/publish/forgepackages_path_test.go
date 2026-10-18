@@ -45,7 +45,7 @@ func TestForgePackagesNPMPublish_RefusesLinkedTarballsBeforePublish(t *testing.T
 
 			var log bytes.Buffer
 
-			err := apppublish.ForgePackagesNPMPublish(t.Context(), ops, resolver, &log, &log, apppublish.ForgePackagesNPMPublishInput{WorkingDir: dir})
+			err := apppublish.ForgePackagesNPMPublish(t.Context(), ops, resolver, &log, &log, apppublish.ForgePackagesNPMPublishInput{WorkingDir: dir, Tag: "release-{version}"})
 			require.ErrorIs(t, err, errs.ErrValidation)
 			require.Empty(t, ops.args)
 			require.Empty(t, log.String())

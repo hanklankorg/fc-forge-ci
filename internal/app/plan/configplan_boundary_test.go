@@ -88,7 +88,7 @@ func TestConfigPlanBoundary_ProducerControl(t *testing.T) {
 	summary := &fakeSummary{}
 
 	release, err := appplan.Release(t.Context(), sink, summary, appplan.ReleaseInput{
-		ConfigPlanJSON: raw, ReleaseSBOMs: "all", ReleaseSignArtifacts: true, ReleasePublisher: "github-cli", RefName: "v1.2.3",
+		ConfigPlanJSON: raw, ReleaseSBOMs: "all", ReleaseSignArtifacts: true, ReleasePublisher: "github-cli", RefName: "v1.2.3", RepositoryVisibility: "public",
 	})
 	if err != nil || release == nil {
 		t.Fatalf("release producer control: %v", err)
@@ -128,7 +128,7 @@ func assertConfigPlanBoundaryRefusal(t *testing.T, raw, reason string) {
 	sink := &patternSink{Sink: fakeoutputsink.New(t), events: &events}
 	summary := &fakeSummary{}
 
-	release, err := appplan.Release(t.Context(), sink, summary, appplan.ReleaseInput{ConfigPlanJSON: raw, ReleaseSBOMs: "all", ReleaseSignArtifacts: true, ReleasePublisher: "github-cli", RefName: "v1.2.3"})
+	release, err := appplan.Release(t.Context(), sink, summary, appplan.ReleaseInput{ConfigPlanJSON: raw, ReleaseSBOMs: "all", ReleaseSignArtifacts: true, ReleasePublisher: "github-cli", RefName: "v1.2.3", RepositoryVisibility: "public"})
 	if release != nil || !errors.Is(err, errs.ErrInvalidConfig) || !strings.Contains(err.Error(), reason) {
 		t.Errorf("release = %+v, %v, want nil / %s / ErrInvalidConfig", release, err, reason)
 	}

@@ -133,3 +133,33 @@ func TestAndroidReleaseBuild_SigningWithoutKeystoreFails(t *testing.T) {
 		t.Errorf("wrote a summary for a build that never started: %q", summary.buf.String())
 	}
 }
+
+func TestAndroidLibraryBuildUsesAARContract(t *testing.T) {
+	t.Parallel()
+
+	ops := &recordingGradle{}
+	sink := fakeoutputsink.New(t)
+
+	input := appbuild.AndroidReleaseBuildInput{
+		ReleaseBuildOptions: appbuild.ReleaseBuildOptions{Dir: newGradleDir(t), ArtifactName: "library"},
+		Library:             true, BuildModule: "lib", ProductFlavor: "demo", BuildTypes: "debug,release", IncludeAAB: true,
+	}
+	if err := appbuild.AndroidReleaseBuild(t.Context(), sink, &recordingSummarySink{}, ops, output.Annotator{}, io.Discard, io.Discard, input); err != nil {
+		t.Fatal(err)
+	}
+
+	assertGradleCalls(t, ops.calls, []string{"lib:assembleDemoRelease"})
+
+	want := map[string]string{"aar-name": "library", "sbom-name": "library-sbom", "version": "1.0.0"}
+	if got := sink.AllScalar(); !maps.Equal(got, want) {
+		t.Fatalf("library outputs = %v, want %v", got, want)
+	}
+
+	input.EnableSigning = true
+	refused := &recordingGradle{}
+
+	err := appbuild.AndroidReleaseBuild(t.Context(), fakeoutputsink.New(t), &recordingSummarySink{}, refused, output.Annotator{}, io.Discard, io.Discard, input)
+	if !errors.Is(err, errs.ErrInvalidConfig) || len(refused.calls) != 0 {
+		t.Fatalf("library accepted application signing: %v, %v", err, refused.calls)
+	}
+}

@@ -111,6 +111,7 @@ jobs:
     with:
       branch: main
       package-type: npm
+      npm-tag: release-{version}
       artifact-source: npm-build-artifacts
 
   build-container:
@@ -139,7 +140,7 @@ jobs:
 | Component | Purpose | Output | Required Secrets | Use When |
 |-----------|---------|--------|------------------|----------|
 | **publish-maven-github** | Publishes Maven libraries/NPM to GitHub Packages | Artifacts in GitHub Packages | GITHUB_TOKEN | When supported artifacts include `publish-to: [forge-packages]` |
-| **publish-maven-central** | Publishes Maven libraries to Maven Central | Public Maven artifacts | MAVEN_CENTRAL_USERNAME, MAVEN_CENTRAL_PASSWORD, RELEASE_GPG_PRIVATE_KEY; RELEASE_GPG_PASSPHRASE for a passphrase-protected key | Public libraries (requires build-type: library) |
+| **publish-maven-central** | Publishes Maven and Gradle JVM/Android libraries | Public Maven artifacts | MAVEN_CENTRAL_USERNAME, MAVEN_CENTRAL_PASSWORD; stable releases also need RELEASE_GPG_PRIVATE_KEY, RELEASE_GPG_PUBLIC_KEY and the passphrase for a protected key | Stable: signed release request; snapshot: ordinary CI authorization |
 
 #### Container Builders
 
@@ -295,24 +296,31 @@ keystore wiring and an internal-track snapshot workflow.
 ### Publish Workflows
 
 #### `publish-maven-github.yml`
-Publishes Maven libraries and NPM artifacts to GitHub Packages. Maven apps and
-Gradle publishing are not wired today; use a project-owned publishing workflow
-until forge-ci adds those publishers.
+Publishes Maven libraries, npm packages, and exported Gradle JVM/Android publications
+to GitHub Packages. npm requires an explicit `npm-tag`; Gradle requires
+`version` and its separate publication artifact. See [Gradle publishing](gradle-publishing.md).
 ```yaml
 uses: diggsweden/forge-ci/.github/workflows/publish-maven-github.yml@v0.90.0
 with:
   branch: main
-  package-type: maven          # maven or npm
+  package-type: maven          # maven, npm, or gradle
   artifact-source: maven-build-artifacts  # Name of workflow artifact
   working-directory: "."
 ```
 
 #### `publish-maven-central.yml`
-Publishes Maven libraries to Maven Central.
+Publishes Maven libraries through their profile, or exported Gradle JVM/Android
+publications through the Central API. Supply a full prepared commit SHA, trigger
+from the signed release request, and pass the publisher secrets listed above.
+New publication inputs require matching engine, workflow and runtime revisions;
+see [branch testing](runtime-images.md#branch-testing).
+Set `snapshot: true` for Maven-format snapshots. The existing snapshot
+orchestrator selects this mode with `publish-maven-snapshots: true`; snapshot
+jobs do not import release signing keys or require signed release-request tags.
 ```yaml
-uses: diggsweden/forge-ci/.github/workflows/publish-maven-central.yml@v0.90.0
+uses: diggsweden/forge-ci/.github/workflows/publish-maven-central.yml@<reviewed-ref>
 with:
-  branch: main
+  branch: <full-prepared-release-sha>
   artifact-source: maven-build-artifacts  # Name of workflow artifact
   working-directory: "."
   settings-path: ".mvn/settings.xml"

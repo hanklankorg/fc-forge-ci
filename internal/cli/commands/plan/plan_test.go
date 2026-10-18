@@ -26,9 +26,9 @@ func TestReleaseCmd_UsesConfigPlanAndEmitsTypedPlans(t *testing.T) {
 	env := ghaenv.Setup(t)
 
 	cfg := &config.Config{
-		Sign: config.SignConfig{Method: domainrelease.SignMethodSigstore},
+		Sign: config.SignConfig{Method: domainrelease.SignMethodSigstore, Transparency: domainrelease.TransparencyPublic},
 		Artifacts: []config.Artifact{
-			{Name: "web", ProjectType: projecttype.NPM, PublishTo: []config.PublishTarget{config.PublishForgePackages}},
+			{Name: "web", ProjectType: projecttype.NPM, PublishTo: []config.PublishTarget{config.PublishForgePackages}, NPM: &config.NPMConfig{Tag: "release-{version}"}},
 			{Name: "go-cli", ProjectType: projecttype.Go, Go: &config.GoConfig{BuildMode: config.GoBuildModeArtifactFirst}},
 		},
 		Containers: []config.Container{{Name: "image"}},

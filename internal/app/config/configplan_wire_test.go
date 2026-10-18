@@ -58,6 +58,8 @@ artifacts:
     project-type: npm
     working-directory: web
     publish-to: [forge-packages]
+    config:
+      npm-tag: release-{version}
 containers:
   - name: go-service
     from: [go-cli, go-service]

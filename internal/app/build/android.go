@@ -23,6 +23,7 @@ import (
 
 // AndroidArtifactNamesInput drives AndroidArtifactNames.
 type AndroidArtifactNamesInput struct {
+	Library     bool
 	IncludeDate bool
 	Prefix      string
 	RepoName    string
@@ -44,6 +45,7 @@ func AndroidArtifactNames(ctx context.Context, sink ci.OutputSink, stderr io.Wri
 	}
 
 	names, err := build.ResolveAndroidArtifactNames(build.AndroidArtifactNamesInput{
+		Library:     in.Library,
 		IncludeDate: in.IncludeDate,
 		Prefix:      in.Prefix,
 		RepoName:    in.RepoName,
@@ -56,20 +58,31 @@ func AndroidArtifactNames(ctx context.Context, sink ci.OutputSink, stderr io.Wri
 	}
 
 	type kv struct{ k, v string }
-	for _, p := range []kv{ //nolint:varnamelen // idiomatic short name (testing/http/io conventions).
+
+	pairs := []kv{
 		{"debug-name", names.DebugName},
 		{"release-name", names.ReleaseName},
 		{"aab-name", names.AABName},
 		{"sbom-name", names.SBOMName},
-	} {
+	}
+	if in.Library {
+		pairs = []kv{{"aar-name", names.AARName}, {"sbom-name", names.SBOMName}}
+	}
+
+	for _, p := range pairs { //nolint:varnamelen // idiomatic short name for an output pair.
 		if err := sink.Set(ctx, p.k, p.v); err != nil {
 			return fmt.Errorf("set %s: %w", p.k, err)
 		}
 	}
 
-	_, _ = fmt.Fprintf(stderr, "Debug artifact: %s\n", names.DebugName)
-	_, _ = fmt.Fprintf(stderr, "Release artifact: %s\n", names.ReleaseName)
-	_, _ = fmt.Fprintf(stderr, "AAB artifact: %s\n", names.AABName)
+	if in.Library {
+		_, _ = fmt.Fprintf(stderr, "AAR artifact: %s\n", names.AARName)
+	} else {
+		_, _ = fmt.Fprintf(stderr, "Debug artifact: %s\n", names.DebugName)
+		_, _ = fmt.Fprintf(stderr, "Release artifact: %s\n", names.ReleaseName)
+		_, _ = fmt.Fprintf(stderr, "AAB artifact: %s\n", names.AABName)
+	}
+
 	_, _ = fmt.Fprintf(stderr, "SBOM artifact: %s\n", names.SBOMName)
 
 	return nil
