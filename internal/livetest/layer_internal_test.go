@@ -41,6 +41,7 @@ func layerFixtureFacts() []string {
 		"RENDER_RELEASE_GIT_URL", "ssh://git@forgejo.compose.forgelab:2222/forgeci/fci-layer-minimal-release.git",
 		"RENDER_RELEASE_GIT_HOST_KEY_FINGERPRINT", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 		"RENDER_BASE_REPOSITORY", "forgejo.compose.forgelab:8443/forgeci/fci-layer-registry-smoke-base",
+		"RENDER_PLATFORM", "linux/amd64",
 	}
 }
 

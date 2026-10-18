@@ -311,7 +311,8 @@ optional components and does not select account `forgeci`.
 Back in the forge-ci checkout, provide the pinned Go toolchain and the
 launcher's host tools: `base64`, `cosign`, `flock`, `jq`, `syft`, `buildah`,
 `git` and `sha256sum`. Buildah must work for the current user. The suite builds
-host and Linux/amd64 runner binaries, writes caches/evidence, runs containers
+host binaries and runner binaries for the architecture the contract's
+`runner_arch` names, writes caches/evidence, runs containers
 and trusted runner jobs, may fetch modules/images, and deletes/recreates
 `fci-` resources on the lab.
 
@@ -1109,9 +1110,11 @@ just test-live-gitlab-consumer-release /absolute/clean-consumer \
 
 Optional trailing `KEY=value` arguments set literal environment variables only
 for the key-free consumer build command. Their meaning belongs
-to the consumer; the harness imposes no architecture default. For example, a
-consumer that supports platform selection can be tried with
-`RELEASE_PLATFORMS=linux/amd64`. Duplicate or malformed names are refused;
+to the consumer, except `RELEASE_PLATFORMS`: a consumer trial on Forgejo or
+GitLab sets it to `linux/<runner_arch>` when it is not given, and refuses a
+selection of another architecture before anything is pushed, because the lab's
+runners build and run what is selected and a release never emulates. Duplicate
+or malformed names are refused;
 values are shell-quoted as data. These settings are recorded in the live log
 and do not enter the independent preparation, signing, or publication commands.
 
@@ -1120,8 +1123,8 @@ Compose road the ordinary, unprivileged GitLab runner builds images for the
 host's architecture in a job (observed for an amd64 release). It cannot run a
 `RUN` step of another architecture: emulation registered on the host does not
 reach a build nested in a job container, and the step ends with `exec format
-error`. A release that builds arm64 images on an amd64 host therefore runs
-inside Forge Lab's documented GitLab full-release wrapper on the k3s road. A
+error`. Image builds of another architecture than the runner's are refused for
+that reason; a lab on hardware of that architecture tries them natively. A
 release larger than GitLab's 100 MB artifact default also needs the limit
 raised first, with `just compose-gitlab-artifact-limit` or
 `just k3s-gitlab-artifact-limit` in Forge Lab. Prepare all three image archives first;

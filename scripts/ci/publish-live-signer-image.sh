@@ -22,7 +22,7 @@ if [[ $# -ne 1 || "$forge_lab" != /* || ! -f "$forge_lab/justfile" ]]; then
 fi
 
 missing=()
-for tool in podman git just; do
+for tool in podman git "${GO:-go}" just; do
 	command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
 done
 ((${#missing[@]} == 0)) || {
@@ -30,15 +30,17 @@ done
 	exit 2
 }
 
-# The lab's runners are AMD64, and the build executes the image's toolchain
-# check. Ask the engine that builds it (on macOS a VM, not this controller)
-# for its architecture, so the build is native rather than emulated.
+# The image is for the lab's runners, whose architecture the contract states,
+# and the build executes the image's toolchain check. Ask the engine that
+# builds it (on macOS a VM, not this controller) for its architecture, so the
+# build is native rather than emulated.
+runner_arch=$(cd -- "$repo_root" && "${GO:-go}" run ./internal/livetest/preflight runner-arch) || exit 2
 engine_arch=$(podman info --format '{{.Host.Arch}}') || {
 	printf 'live: cannot ask podman for its host architecture\n' >&2
 	exit 2
 }
-if [[ "$engine_arch" != amd64 ]]; then
-	printf 'live: the signer image is linux/amd64 and its build runs it; use a podman engine on a native AMD64 host (this engine is %s)\n' "$engine_arch" >&2
+if [[ "$engine_arch" != "$runner_arch" ]]; then
+	printf 'live: the lab runners are linux/%s and the signer build runs the image; use a podman engine on a native %s host (this engine is %s)\n' "$runner_arch" "$runner_arch" "$engine_arch" >&2
 	exit 2
 fi
 
@@ -52,14 +54,14 @@ if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=all -- "${i
 fi
 commit=$(git -C "$repo_root" rev-parse --verify HEAD)
 
-# The lab's runners are linux/amd64. The Containerfile ends by running
+# The Containerfile ends by running
 # verify-signer-toolchain.sh in strict mode, so an image that builds has the
 # reviewed toolchain and nothing the signing boundary forbids.
 image="localhost/forge-ci-live-signer:$commit"
 if podman image exists "$image"; then
 	printf 'live: reusing the signer image built for %s\n' "$commit" >&2
 else
-	podman build --platform linux/amd64 \
+	podman build --platform "linux/$runner_arch" \
 		--file "$repo_root/containers/signer/Containerfile" \
 		--label "org.opencontainers.image.revision=$commit" \
 		--tag "$image" "$repo_root" >&2

@@ -18,8 +18,22 @@ import (
 )
 
 func main() {
+	// `preflight runner-arch` prints only the architecture the lab's runners
+	// execute, which the run script builds the runner binaries for.
+	if len(os.Args) == 2 && os.Args[1] == "runner-arch" {
+		arch, err := livetest.LabRunnerArch()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "live preflight: %v\n", err)
+			os.Exit(2)
+		}
+
+		fmt.Println(arch)
+
+		return
+	}
+
 	if len(os.Args) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: preflight (reads the lab contract for account forgeci, LAB_TARGETS_FILE when set, and FORGE_CI_LIVE_PROFILE)")
+		fmt.Fprintln(os.Stderr, "usage: preflight [runner-arch] (reads the lab contract for account forgeci, LAB_TARGETS_FILE when set, and FORGE_CI_LIVE_PROFILE)")
 		os.Exit(2)
 	}
 

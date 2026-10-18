@@ -228,13 +228,25 @@ func ParseGitHubTrialSettings(event string, words []string) (GitHubTrialSettings
 
 	for _, word := range words {
 		key, value, found := strings.Cut(word, "=")
-		if !found || value == "" || !settings.set(key, value) {
+		if !found || value == "" || (!settings.setPlatforms(key, value) && !settings.set(key, value)) {
 			return GitHubTrialSettings{}, fmt.Errorf("setting %q: want workflow=<file>, fixtures=<dir>, version=X.Y.Z or image=<name> (release), "+
 				"RELEASE_PLATFORMS=linux/amd64[,linux/arm64], or nanolinter-image=/megalinter-image=<reference>: %w", word, errs.ErrValidation)
 		}
 	}
 
 	return settings, nil
+}
+
+// setPlatforms takes RELEASE_PLATFORMS and reports whether it was that setting
+// with a valid value; any other key is left to set.
+func (settings *GitHubTrialSettings) setPlatforms(key, value string) bool {
+	if key != releasePlatformsVariable {
+		return false
+	}
+
+	settings.Platforms = value
+
+	return githubPlatforms(value)
 }
 
 func (settings *GitHubTrialSettings) set(key, value string) bool {
@@ -258,10 +270,6 @@ func (settings *GitHubTrialSettings) set(key, value string) bool {
 		settings.Image = value
 
 		return release && regexp.MustCompile(`^[a-z0-9][a-z0-9._/-]*$`).MatchString(value)
-	case key == "RELEASE_PLATFORMS":
-		settings.Platforms = value
-
-		return githubPlatforms(value)
 	case githubOverridable[key]:
 		settings.Overrides[key] = value
 

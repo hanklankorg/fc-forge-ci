@@ -90,6 +90,11 @@ run_dir="$log_root/$(date -u +%Y%m%dT%H%M%SZ)-$$"
 install -d -m 0700 -- "$run_dir"
 log="$run_dir/live-run.log"
 
+# The runner binaries are built for the architecture the lab's runners
+# execute, as the contract states it; nothing here runs under emulation.
+runner_arch=$(cd -- "$repo_root" && "$go_bin" run ./internal/livetest/preflight runner-arch)
+printf 'live: building runner binaries for linux/%s, the lab runners architecture\n' "$runner_arch"
+
 state=$(mktemp -d "${TMPDIR:-/tmp}/forge-ci-live.XXXXXXXX")
 trap 'rm -rf -- "$state"' EXIT
 
@@ -99,16 +104,16 @@ trap 'rm -rf -- "$state"' EXIT
 (
 	cd -- "$repo_root"
 	CGO_ENABLED=0 "$go_bin" build -trimpath -buildvcs=false -o "$state/forge-ci-host" ./cmd/forge-ci
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 "$go_bin" build -trimpath -buildvcs=false \
+	CGO_ENABLED=0 GOOS=linux GOARCH="$runner_arch" "$go_bin" build -trimpath -buildvcs=false \
 		-o "$state/forge-ci-runner" ./cmd/forge-ci
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 "$go_bin" build -trimpath -buildvcs=false \
+	CGO_ENABLED=0 GOOS=linux GOARCH="$runner_arch" "$go_bin" build -trimpath -buildvcs=false \
 		-o "$state/credential-proxy" ./internal/livetest/credentialproxy
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 "$go_bin" build -trimpath -buildvcs=false \
+	CGO_ENABLED=0 GOOS=linux GOARCH="$runner_arch" "$go_bin" build -trimpath -buildvcs=false \
 		-o "$state/probe-json" ./internal/livetest/probejson
-	# The Forgejo layer's binary, as its jobs download it: the linux/amd64
-	# build the tree's checksum names, for the lab's AMD64 runners (as the
-	# runner binaries above), which the layer scenarios publish to the lab.
-	bash scripts/ci/forgejo-binary.sh build amd64 "$state/forge-ci-layer"
+	# The Forgejo layer's binary, as its jobs download it: the build of the
+	# runners' architecture that the tree's checksum names, which the layer
+	# scenarios publish to the lab.
+	bash scripts/ci/forgejo-binary.sh build "$runner_arch" "$state/forge-ci-layer"
 	chmod 500 "$state/forge-ci-host" "$state/forge-ci-runner" "$state/credential-proxy" "$state/probe-json"
 	"$state/forge-ci-host" --version >/dev/null
 	# Run the compiled suites directly: the go test driver's signal handling

@@ -178,6 +178,18 @@ func gitlabConsumerSettings(t *testing.T, consumerRoot string) (livetest.GitLabR
 		t.Fatal("consumer settings require a consumer release trial")
 	}
 
+	// A consumer's release builds for the lab's runners, and only for them.
+	if consumerRoot != "" {
+		var arch string
+		if arch, err = livetest.LabRunnerArch(); err != nil {
+			t.Fatal(err)
+		}
+
+		if settings.Variables, err = livetest.NativeReleasePlatforms(settings.Variables, arch); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	buildCommand, err := livetest.GitLabConsumerBuildCommand(settings.Variables)
 	if err != nil {
 		t.Fatal(err)

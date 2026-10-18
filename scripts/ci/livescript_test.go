@@ -44,7 +44,11 @@ env)
   printf '%s\n' 'FAKE_PINNED_GO'
   ;;
 run)
-  printf '%s\n' "$FAKE_PREFLIGHT_REPORT"
+  if [[ "${3:-}" == runner-arch ]]; then
+    printf '%s\n' arm64
+  else
+    printf '%s\n' "$FAKE_PREFLIGHT_REPORT"
+  fi
   ;;
 build)
   output=''
@@ -301,8 +305,9 @@ func TestRunLiveTests_HappyPathRunsTheSuiteAndKeepsARedactedLog(t *testing.T) {
 			// A consumer recipe's inputs are in the log, so the run can be repeated from it.
 			logPath := requireRedactedLog(t, run, stdout, "profile="+tc.args[0], tc.scenario, fakePreflightReport+"\n",
 				"forge_ci_live_consumer=/absolute/consumer\n", "forge_ci_live_consumer_event=release\n", "forge_ci_live_consumer_visibility=private\n")
-			if !strings.HasPrefix(stdout, fakePreflightReport+"\n") {
-				t.Fatalf("stdout does not start with the preflight report:\n%s", stdout)
+			if !strings.HasPrefix(stdout, fakePreflightReport+"\n") ||
+				!strings.Contains(stdout, "\nlive: building runner binaries for linux/arm64, the lab runners architecture\n") {
+				t.Fatalf("stdout does not start with the preflight report and name the runner architecture:\n%s", stdout)
 			}
 
 			if !strings.HasSuffix(stdout, "Live result: passed\nLive log: "+logPath+" (retained for 30 days)\n") {
@@ -323,19 +328,21 @@ const fakePreflightReport = "live preflight: 2 provider(s), generation fake-gene
 // with two credential-shaped lines the log must not keep.
 const fakeSuiteOutput = "=== RUN TestFake\ntoken glpat-ABCDEFGHIJKLMNOPQRSTUVWX\nAuthorization: Bearer abc.def\n--- PASS: TestFake\nok\tfake\t0.01s" // gitleaks:allow -- synthetic redaction canaries.
 
-// requireGoCalls requires preflight, four product builds, test compilation,
-// package discovery and direct suite execution, in that order.
+// requireGoCalls requires preflight, the runner architecture, four product
+// builds, test compilation, package discovery and direct suite execution, in
+// that order.
 func requireGoCalls(t *testing.T, calls []string, wantTest string) {
 	t.Helper()
 
-	if len(calls) != 8 || calls[0] != "run ./internal/livetest/preflight" || calls[7] != wantTest {
+	if len(calls) != 9 || calls[0] != "run ./internal/livetest/preflight" ||
+		calls[1] != "run ./internal/livetest/preflight runner-arch" || calls[8] != wantTest {
 		t.Fatalf("go calls:\n%s", strings.Join(calls, "\n"))
 	}
 
-	if !strings.HasPrefix(calls[5], "test -c -tags=live -buildvcs=false -o ") ||
-		!strings.HasSuffix(calls[5], "/tests/ ./internal/livetest/...") ||
-		!strings.HasPrefix(calls[6], "list -tags=live -f ") || !strings.HasSuffix(calls[6], " ./internal/livetest/...") {
-		t.Fatalf("test compilation/discovery calls: %v", calls[5:7])
+	if !strings.HasPrefix(calls[6], "test -c -tags=live -buildvcs=false -o ") ||
+		!strings.HasSuffix(calls[6], "/tests/ ./internal/livetest/...") ||
+		!strings.HasPrefix(calls[7], "list -tags=live -f ") || !strings.HasSuffix(calls[7], " ./internal/livetest/...") {
+		t.Fatalf("test compilation/discovery calls: %v", calls[6:8])
 	}
 
 	for i, target := range []string{
@@ -344,7 +351,7 @@ func requireGoCalls(t *testing.T, calls []string, wantTest string) {
 		"credential-proxy ./internal/livetest/credentialproxy",
 		"probe-json ./internal/livetest/probejson",
 	} {
-		if call := calls[1+i]; !strings.HasPrefix(call, "build -trimpath -buildvcs=false -o ") || !strings.HasSuffix(call, "/"+target) {
+		if call := calls[2+i]; !strings.HasPrefix(call, "build -trimpath -buildvcs=false -o ") || !strings.HasSuffix(call, "/"+target) {
 			t.Fatalf("build call %d: %q", i, call)
 		}
 	}

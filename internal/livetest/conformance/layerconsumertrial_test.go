@@ -151,6 +151,12 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 		}
 	}
 
+	// The consumer builds for the lab's runners, and only for them.
+	variables, err = livetest.NativeReleasePlatforms(variables, livetest.RunnerArch(t, target))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	for _, secret := range settings.TokenSecrets {
 		if _, set := plan.Secrets[secret]; set {
 			t.Fatalf("secret %s is set by the trial itself, from the consumer's own workflow; leave it out", secret)

@@ -142,6 +142,7 @@ func runLayerRegistrySignerSmoke(t *testing.T, private bool) {
 				"RENDER_RELEASE_GIT_URL", gitURL,
 				"RENDER_RELEASE_GIT_HOST_KEY_FINGERPRINT", fingerprint,
 				"RENDER_BASE_REPOSITORY", baseImage,
+				"RENDER_PLATFORM", "linux/"+livetest.RunnerArch(t, target),
 			),
 		},
 	})
