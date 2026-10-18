@@ -63,7 +63,7 @@ jobs:
   verify:
     name: Build And Verify
     needs: [build-cli]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -284,7 +284,7 @@ jobs:
     needs: [build-cli]
     if: >-
       github.event_name == 'schedule' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     outputs:
@@ -324,7 +324,7 @@ jobs:
     if: >-
       github.event_name == 'schedule' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)
     # GitHub's hosted runner label for the leg's architecture.
-    runs-on: ${{ matrix.platform.suffix == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    runs-on: ${{ matrix.platform.suffix == 'arm64' && 'ubuntu-26.04-arm' || 'ubuntu-26.04' }}
     strategy:
       fail-fast: false
       matrix:
@@ -557,7 +557,7 @@ jobs:
     needs: [publish-arch, build-cli]
     if: >-
       github.event_name == 'schedule' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == format('refs/heads/{0}', vars.FORGE_CI_PRERELEASE_BRANCH || 'main'))
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -606,7 +606,7 @@ jobs:
       - name: Stage prebuilt forge-ci (runner tool)
         # Use the CLI built once by build-cli as the runner-side tool for
         # metadata / manifest-merge / sign — no on-runner Go compile. This
-        # job runs on ubuntu-24.04 (amd64).
+        # job runs on ubuntu-26.04 (amd64).
         env:
           VERSION: ${{ needs.build-cli.outputs.version }}
         run: |
@@ -739,7 +739,7 @@ jobs:
     concurrency:
       group: self-runtime-cli-v0.90.0-pre
       cancel-in-progress: false
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: write # create/update the pre-release + its tag

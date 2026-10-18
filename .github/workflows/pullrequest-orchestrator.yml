@@ -100,7 +100,7 @@ jobs:
   # ===== Stage 0: PR Plan =====
   compose-pr-plan:
     name: "Check: plan"
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ inputs['runtime-image'] }}
     permissions:
@@ -144,7 +144,7 @@ jobs:
     name: Summary
     needs: [compose-pr-plan, execute-quality-stage]
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ inputs['runtime-image'] }}
     permissions:

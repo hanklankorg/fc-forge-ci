@@ -41,7 +41,7 @@ describes how.
 | Requirement | Value |
 |---|---|
 | Forge | **github.com.** The release workflows pin `actions/upload-artifact@v7`, which GitHub Enterprise Server does not support, so `release-orchestrator.yml` stops with exit 78 in its first preflight there. The CLI's own release API commands work on GHES. |
-| Runners | GitHub-hosted `ubuntu-24.04`; `ubuntu-24.04-arm` for the arm64 leg of a container build; macOS runners (the `macos-version` input) for Xcode and Swift jobs. |
+| Runners | GitHub-hosted `ubuntu-26.04`; `ubuntu-26.04-arm` for the arm64 leg of a container build; macOS runners (the `macos-version` input) for Xcode and Swift jobs. |
 | Runtime images | Readable from `ghcr.io`, or mirrored and selected with the `runtime-image*` inputs. See [Images and the engine binary](#images-and-the-engine-binary). |
 | Caller permissions | The `permissions:` each orchestrator declares; see the [permission matrix](reference.md#permission-requirements-matrix). |
 | Release authorisation | Committed `.forge-ci/allowed_signers` (SSH) or `.forge-ci/allowed_gpg_keys.asc` (GPG) when allowlisting is on; see [Release Authorisation](verification.md#release-authorisation). |

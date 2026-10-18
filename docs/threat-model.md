@@ -40,7 +40,7 @@ Two assumptions sit under every row. Within one job, state persists between step
 | Silent CVE-laden container release | `publish-container.yml` Trivy scan + severity gate (fail on CRITICAL/HIGH by default) |
 | Silent SBOM-missing release | All SBOM steps mandatory; explicit `enable-build-sbom: false` opt-out |
 | Non-reproducible JVM / Cargo releases | `validate jvm-reproducibility` + `validate cargo` hard-fail at prerequisites stage |
-| Stale-runner drift | `runs-on: ubuntu-24.04` pinned (not `ubuntu-latest`) |
+| Stale-runner drift | `runs-on: ubuntu-26.04` pinned (not `ubuntu-latest`) |
 | Workflow contract drift | `TestWorkflowInputContract` fails CI if a `with:` key doesn't match a declared `inputs:` |
 | Plan/code drift | `TestTargetKeys_MatchStructTags` + `TestPlanContracts_Golden` |
 | Docs/code drift | `TestDocsCLIReferenceInSync` covers the generated CLI surface. `cmd/forge-ci/smoke_cli_contract_test.go` maps the binary-smoke scenarios, including `ART-01`–`ART-05`, to real CLI behaviour. `ART-06`–`ART-09` in `docs/cli-black-box.md` are manual traceability references to supporting domain/adapter/live evidence, not docs/code guards; those direct tests do not prove built-binary flag/env wiring, provider selection, or process exit-code wiring. |

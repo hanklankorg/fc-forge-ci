@@ -156,7 +156,7 @@ jobs:
         run: forge-ci lint swift swiftlint
   summary:
     name: Lint Summary
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: [swift-format-lint, swiftlint]
     if: always()
     container:

@@ -36,7 +36,7 @@ jobs:
       lint-engine: none
   lint:
     name: Lint (nanolinter verify)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -68,7 +68,7 @@ jobs:
       - name: nanolinter verify (full plan from nanolinter.toml)
         run: just lint
   test:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - name: Set up Go
@@ -103,7 +103,7 @@ jobs:
     # and wrong for a gate. This job gives it that release and runs it in the
     # strict profile, where "not proven" is a failure.
     name: Forgejo layer binary (the checksum is a build of this tree)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -134,7 +134,7 @@ jobs:
     # against this repo's default branch for drift detection, so the two
     # directions stay deliberately asymmetric — no circular pin.
     name: Integration testsuite (black-box)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
     permissions:
       contents: read
@@ -205,7 +205,7 @@ jobs:
 
   go:
     name: Go (build, test, lint)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:

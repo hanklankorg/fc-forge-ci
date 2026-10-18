@@ -130,7 +130,7 @@ permissions:
 jobs:
   validate:
     name: "Check: release request"
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     outputs:
       existing-release-sha: ${{ steps.prerequisites.outputs.existing-release-sha }}

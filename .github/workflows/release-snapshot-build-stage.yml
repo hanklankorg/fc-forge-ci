@@ -263,7 +263,7 @@ jobs:
     name: Summarize Snapshot Build Stage
     needs: [maven, npm, gradle, go, cargo, gradle-android, xcode-ios]
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ inputs['runtime-image'] }}
     permissions:

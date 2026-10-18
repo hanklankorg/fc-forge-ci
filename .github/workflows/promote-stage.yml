@@ -131,7 +131,7 @@ permissions:
 jobs:
   promote:
     name: "Publish: images to ${{ inputs.stage }}"
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     # Stage gate: the Environment's protection rules (required reviewers, wait
     # timer, branch policy) pause this job before any tag-move. Empty = no gate.

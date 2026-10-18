@@ -159,7 +159,7 @@ jobs:
     # choice, and a job container starts before any step could check it.
     name: "Publish: release files"
     needs: [generate-changelog]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     container:
       image: ${{ inputs['runtime-image'] }}
@@ -266,7 +266,7 @@ jobs:
     # to load a private key while swap is active (docs/verification.md#swap-policy).
     name: "Publish: release"
     needs: [assemble-release]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
       actions: read

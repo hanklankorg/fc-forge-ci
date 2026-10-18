@@ -10,3 +10,11 @@ paths:
   .forgejo/workflows/**/*.yml:
     ignore:
       - 'undefined variable "forgejo"'
+
+# GitHub's Ubuntu 26.04 hosted images (generally available 2026-09-17) are
+# newer than actionlint 1.7.12's label list. Drop these once a pinned
+# actionlint release knows them.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
+    - ubuntu-26.04-arm

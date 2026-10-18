@@ -58,7 +58,7 @@ permissions:
 jobs:
   sbom-cargo:
     name: Cargo SBOM
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     container:
       image: ${{ inputs['runtime-image'] }}

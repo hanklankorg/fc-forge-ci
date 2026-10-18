@@ -87,7 +87,7 @@ permissions:
 jobs:
   build-go:
     name: Build Go Project
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     container:
       image: ${{ inputs['runtime-image'] }}

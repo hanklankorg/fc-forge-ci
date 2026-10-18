@@ -59,7 +59,7 @@ on:
         description: "Runner label for the attestor job. Use an ephemeral pool when the caller's threat model requires job isolation."
         required: false
         type: string
-        default: "ubuntu-24.04"
+        default: "ubuntu-26.04"
       forge-ci-binary-ref:
         description: "forge-ci ref/version whose bootstrap installers + CLI to use."
         required: false

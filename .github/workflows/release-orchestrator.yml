@@ -346,7 +346,7 @@ jobs:
   # ===== Stage 0: Configuration And Policy =====
   parse-config:
     name: "Check: plan"
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ inputs['runtime-image'] }}
     permissions:
@@ -497,7 +497,7 @@ jobs:
     name: "Prepare: check the release tag"
     needs: [parse-config, execute-prepare-stage]
     if: ${{ !failure() && !cancelled() }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ inputs['runtime-image'] }}
     permissions:
@@ -714,7 +714,7 @@ jobs:
       - promote-release
       - create-release
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ inputs['runtime-image'] }}
     permissions:

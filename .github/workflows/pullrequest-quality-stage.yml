@@ -77,7 +77,7 @@ jobs:
       runtime-image: ${{ inputs['runtime-image'] }}
   quality-status:
     name: "Check: status"
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ inputs['runtime-image'] }}
     if: always()
@@ -97,7 +97,7 @@ jobs:
     name: Summary
     needs: [nanolinter, megalinter, swift, quality-status]
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ inputs['runtime-image'] }}
     permissions:

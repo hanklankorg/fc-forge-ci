@@ -138,7 +138,7 @@ jobs:
   bump-version:
     name: "Prepare: version and release commit"
     needs: [generate-full-changelog, generate-minimal-changelog]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ inputs['runtime-image'] }}
     permissions:

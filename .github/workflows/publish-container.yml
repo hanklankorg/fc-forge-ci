@@ -12,7 +12,7 @@
 # 1. prep: compute image coordinate, tags, and labels once via forge-ci.
 #    Validate namespace early.
 # 2. build-arch (matrix, fail-fast: false): per-platform native runner
-#    (linux/amd64 -> ubuntu-24.04, linux/arm64 -> ubuntu-24.04-arm).
+#    (linux/amd64 -> ubuntu-26.04, linux/arm64 -> ubuntu-26.04-arm).
 #    Each leg builds to a local layout, runs its configured Trivy gate, and
 #    transfers the recorded layout through the run-scoped artifact store.
 #    Within the same job: per-arch scan reports and binary extraction.
@@ -110,7 +110,7 @@ on:
         default: ""
         type: string
       platforms:
-        description: "Comma-separated list of platforms to build. Each platform builds natively on a runner of that architecture (linux/amd64 -> ubuntu-24.04, linux/arm64 -> ubuntu-24.04-arm). No QEMU emulation. Multi-platform inputs split across runners and are merged into a single manifest list."
+        description: "Comma-separated list of platforms to build. Each platform builds natively on a runner of that architecture (linux/amd64 -> ubuntu-26.04, linux/arm64 -> ubuntu-26.04-arm). No QEMU emulation. Multi-platform inputs split across runners and are merged into a single manifest list."
         required: false
         default: "linux/amd64"
         type: string
@@ -326,7 +326,7 @@ permissions:
 jobs:
   prep:
     name: Prepare Build${{ inputs.name && format(' ({0})', inputs.name) || '' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -489,9 +489,9 @@ jobs:
   build-arch:
     name: Build${{ inputs.name && format(' ({0})({1})', inputs.name, matrix.platform) || format(' ({0})', matrix.platform) }}
     needs: prep
-    # linux/arm64 -> ubuntu-24.04-arm (native ARM hosted runner). Anything
-    # else falls through to ubuntu-24.04. No QEMU emulation in either path.
-    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    # linux/arm64 -> ubuntu-26.04-arm (native ARM hosted runner). Anything
+    # else falls through to ubuntu-26.04. No QEMU emulation in either path.
+    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-26.04-arm' || 'ubuntu-26.04' }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -853,7 +853,7 @@ jobs:
     name: Publish verified image layouts
     needs: [prep, build-arch]
     if: ${{ inputs['push-image'] }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     permissions:
       actions: read
@@ -911,7 +911,7 @@ jobs:
   image-evidence:
     name: Image evidence (${{ matrix.platform }})
     needs: [prep, publish-images]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -1036,7 +1036,7 @@ jobs:
     name: Merge Manifest${{ inputs.name && format(' ({0})', inputs.name) || '' }}
     needs: [prep, image-evidence]
     if: ${{ inputs['push-image'] }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       actions: read

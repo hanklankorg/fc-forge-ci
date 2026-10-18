@@ -128,7 +128,7 @@ jobs:
     name: "Prepare: version, release commit and tag"
     needs: [generate-full-changelog, generate-minimal-changelog]
     if: ${{ !cancelled() && needs.generate-full-changelog.result != 'failure' && needs.generate-minimal-changelog.result != 'failure' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       actions: read
       contents: write
@@ -255,7 +255,7 @@ jobs:
     name: Summary
     needs: [version-bump]
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ inputs['runtime-image'] }}
     permissions:

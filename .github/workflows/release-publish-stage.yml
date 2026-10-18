@@ -355,7 +355,7 @@ jobs:
     name: Summary
     needs: [forge-packages, maven-central, xcode-ios, google-play, containers, cargo-container-first, go-container-first]
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ inputs['runtime-image'] }}
     permissions:

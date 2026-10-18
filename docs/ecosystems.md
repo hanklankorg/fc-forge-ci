@@ -54,7 +54,7 @@ belongs for compiled-native code.
 Forcing compiled-native ecosystems into artifact-first would require
 cross-compile machinery in CI (cargo-zigbuild, cross-rs, native-apt
 sysroots), which is significant complexity for a problem that split-runner
-multi-arch (`ubuntu-24.04` for amd64 + `ubuntu-24.04-arm` for arm64)
+multi-arch (`ubuntu-26.04` for amd64 + `ubuntu-26.04-arm` for arm64)
 already solves inside the Containerfile. container-first accepts that the
 container IS the build environment and orchestrates accordingly. The
 naming reflects this: `build-<lang>.yml` for artifact-first (produces the
@@ -161,7 +161,7 @@ opt-in.
 | SBOM: analyzed-artifact | ✅ (artifact-first) / conditional (container-first) | syft scan of binaries | Artifact-first: scans `dist/<goos>-<goarch>/...`. Container-first: scans extracted binaries when the container declares `extract.binary`. |
 | SBOM: analyzed-container | ✅ | `publish-container.yml` (syft) | Standard for all containers; derived from `sboms` |
 | Container build | ✅ | `publish-container.yml` | Native split-runner multi-arch (no QEMU) |
-| Multi-arch (linux variants) | ✅ | split-runner matrix | linux/amd64 → `ubuntu-24.04`, linux/arm64 → `ubuntu-24.04-arm`, merged into one manifest list |
+| Multi-arch (linux variants) | ✅ | split-runner matrix | linux/amd64 → `ubuntu-26.04`, linux/arm64 → `ubuntu-26.04-arm`, merged into one manifest list |
 | Multi-arch artifact-first (linux x86 + arm) | ✅ | `build-cargo.yml` with `platforms: linux/amd64,linux/arm64` | The `runtime-rust-stable` image installs `aarch64-unknown-linux-gnu` target + `gcc-aarch64-linux-gnu` cross-linker. |
 | Multi-arch artifact-first (macOS / Windows) | partial | runtime image extension required | The mapping table accepts darwin/windows triples; the default runtime image does not install osxcross / mingw-w64. Adopters extend the image or use a host runner with the right toolchain. |
 | Binary extraction (CI artifact) | ✅ | `extract.binary` field | Opt-in; uploads one `${name}-binaries-${arch}` artifact per architecture |

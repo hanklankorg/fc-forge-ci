@@ -104,7 +104,7 @@ permissions:
   contents: read
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - run: rustup show active-toolchain >/dev/null 2>&1 || rustup toolchain install

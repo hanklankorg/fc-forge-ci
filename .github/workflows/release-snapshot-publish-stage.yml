@@ -124,7 +124,7 @@ jobs:
     # 'skipped' means the job was gated off (non-container-first project or no
     # Build layer requested), which is fine.
     if: ${{ inputs.sboms != 'none' && (fromJson(inputs['build-result-json']).result == 'success' || fromJson(inputs['build-result-json']).result == 'skipped') && !cancelled() && needs.cargo-container-first.result != 'failure' && needs.go-container-first.result != 'failure' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ inputs['runtime-image'] }}
     permissions:
@@ -170,7 +170,7 @@ jobs:
     name: Summarize Snapshot Publish Stage
     needs: [npm, cargo-container-first, go-container-first, sbom]
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ inputs['runtime-image'] }}
     permissions:
