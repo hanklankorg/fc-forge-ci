@@ -958,7 +958,10 @@ demo forge name *settings:
 
 # Build a demo's job image from test/live/demos/<name>/job.Containerfile and
 # save it as <directory>/<name>-job.tar, the archive `just demo gitlab` takes
-# as job-archive= and build-archive=. Prints the archive's path.
+# as job-archive=. A demo whose GitLab release build needs more than its job
+# image, such as Buildah for an image, also has build.Containerfile, saved as
+# <name>-build.tar for build-archive=; otherwise the job archive serves both.
+# Prints each archive's path.
 [arg('name', help='Demo name: a directory of test/live/demos with a job.Containerfile')]
 [arg('directory', help='Absolute directory to write the archive to')]
 [doc('Build a demo job image archive; network')]
@@ -976,13 +979,16 @@ demo-image name directory:
         printf 'the archive directory must be an absolute path, got %q\n' "$directory" >&2
         exit 2
     fi
-    image="localhost/forge-ci-demo-$name-job:latest"
-    podman build --file "$demo/job.Containerfile" --tag "$image" "$demo" >&2
     mkdir -p -- "$directory"
-    archive="$directory/$name-job.tar"
-    rm -f -- "$archive"
-    podman save --quiet --format docker-archive --output "$archive" "$image"
-    printf '%s\n' "$archive"
+    for role in job build; do
+        [[ -f "$demo/$role.Containerfile" ]] || continue
+        image="localhost/forge-ci-demo-$name-$role:latest"
+        podman build --file "$demo/$role.Containerfile" --tag "$image" "$demo" >&2
+        archive="$directory/$name-$role.tar"
+        rm -f -- "$archive"
+        podman save --quiet --format docker-archive --output "$archive" "$image"
+        printf '%s\n' "$archive"
+    done
 
 # List the demos `just demo` made: each demo with its repositories, IDs and
 # links. On the lab it reads lab account demo's contract; on GitHub it runs
