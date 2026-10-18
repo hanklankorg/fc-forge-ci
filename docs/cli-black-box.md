@@ -64,7 +64,9 @@ Out of scope as built-binary scenarios:
 - Internal algorithms and helpers already covered by direct tests.
   `ART-06`–`ART-09` cross-reference that supporting evidence without
   reclassifying it as black-box coverage.
-- TUI behaviour: `forge-ci` is intentionally a non-interactive CI CLI.
+- TUI behaviour: workflow commands are non-interactive. `init` may ask for an
+  example on a terminal when it cannot detect the ecosystem; `--example`
+  avoids that prompt, and non-terminal calls without a detectable ecosystem fail.
 - Live runs against real forges, registries, or the GitHub Actions artifact
   "results" backend. Those need a real runner and are explicitly opt-in, never
   part of this isolated plan or CI (see HAR-05/06 and the off-runner note under

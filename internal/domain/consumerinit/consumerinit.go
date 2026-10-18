@@ -118,7 +118,7 @@ func Apply(content string, r []Replacement) string {
 }
 
 // placeholderPattern finds what an example leaves for a person to fill in.
-var placeholderPattern = regexp.MustCompile(`PIN_[A-Z0-9_]+|FIXME[A-Za-z0-9_-]*|FORGE_HOST|OWNER/forge-ci|[a-z]+\.example\.(?:com|org)`)
+var placeholderPattern = regexp.MustCompile(`PIN_[A-Z0-9_]+|FIXME[A-Za-z0-9_-]*|FORGE_HOST|OWNER/forge-ci|[a-z]+\.example\.(?:com|org)|\bmy-(?:cli|service|app)\b|com\.example\.myapp(?:\.[a-z]+)?`)
 
 // Placeholder is one value a written file still needs.
 type Placeholder struct {

@@ -51,6 +51,18 @@ func TestParseDefaultsRefusesUnknownKeys(t *testing.T) {
 	}
 }
 
+func TestRemainingReportsProjectSpecificExampleValues(t *testing.T) {
+	t.Parallel()
+	for _, content := range []string{
+		"main-package: ./cmd/my-cli", "name: my-service", "from: [my-app]",
+		"package-name: com.example.myapp.demo",
+	} {
+		if got := consumerinit.Remaining(content); len(got) != 1 || got[0].Line != 1 {
+			t.Errorf("Remaining(%q) = %v, want one customization on line 1", content, got)
+		}
+	}
+}
+
 // github.com needs no defaults file; any other host must name its forge.
 func TestResolveForge(t *testing.T) {
 	t.Parallel()

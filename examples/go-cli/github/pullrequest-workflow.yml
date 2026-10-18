@@ -4,6 +4,9 @@
 
 name: Pull Request Workflow
 
+# This workflow runs lint and security checks. It does not run your Go tests.
+# Add your project's test job separately and require both jobs before merging.
+
 on:
   pull_request:
     branches:

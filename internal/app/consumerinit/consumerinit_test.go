@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -111,9 +112,21 @@ func checkFilled(t *testing.T, forge provider.ForgeAPI, mirror, example string) 
 
 	for file, left := range result.Remaining {
 		for _, p := range left {
-			if !strings.HasPrefix(p.Token, "FIXME") && p.Token != "PIN_MAVEN_IMAGE_DIGEST" {
+			if !strings.HasPrefix(p.Token, "FIXME") && !slices.Contains([]string{
+				"PIN_MAVEN_IMAGE_DIGEST", "my-cli", "my-service", "my-app",
+				"com.example.myapp", "com.example.myapp.demo",
+			}, p.Token) {
 				t.Errorf("%s:%d still holds %s", file, p.Line, p.Token)
 			}
+		}
+	}
+	if forge == provider.ForgeGitHub && example == "go-cli" {
+		found := false
+		for _, p := range result.Remaining[".forge-ci/artifacts.yml"] {
+			found = found || p.Token == "my-cli"
+		}
+		if !found {
+			t.Fatal("generated Go build names and paths must be reported for customization")
 		}
 	}
 }

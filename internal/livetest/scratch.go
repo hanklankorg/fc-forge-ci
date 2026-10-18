@@ -79,7 +79,7 @@ func NewScratchRepo(tb TB, target Target, scenario string) string {
 	ctx, cancel := context.WithTimeout(Context(tb), timeoutScratch)
 	defer cancel()
 
-	if err := repos.Ensure(ctx, repo); err != nil {
+	if err := repos.Recreate(ctx, repo); err != nil {
 		tb.Fatalf("livetest: reset and create %s/%s: %v", target.Owner, repo, err)
 	}
 

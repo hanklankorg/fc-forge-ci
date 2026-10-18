@@ -27,16 +27,43 @@ readiness.
 
 ## Quick Start
 
+### Evaluate from source now
+
+Use a reviewed checkout and the pinned Go toolchain from
+[Development](docs/DEVELOPMENT.md#source-checkout). From that checkout:
+
+```bash
+mise exec -- go install ./cmd/forge-ci
+forge-ci --version
+forge-ci --help
+```
+
+Your Go bin directory must be on `PATH`. This installs the CLI for local
+inspection and development; it does not publish reusable workflows or runtime
+images. `init` reads examples from a release tag on the repository you name,
+so a local build alone does not make an unpublished adoption path available.
+
+### Adopt released workflows when available
+
+The following release-based route applies once the matching release and its
+runtime images are published and your forge's prerequisites are in place.
+
 On every forge a release starts from a signed `release-request/vX.Y.Z` tag,
 and the flow creates `vX.Y.Z` once: never push the final tag yourself.
 `forge-ci doctor` in a job shows what the detected forge supports.
 
-On a laptop, `go install github.com/diggsweden/forge-ci/cmd/forge-ci@v0.90.0`
+At that point, `go install github.com/diggsweden/forge-ci/cmd/forge-ci@v0.90.0`
 installs the CLI. `forge-ci init <Forge CI URL>` writes a repository's first
 files for its forge and ecosystem, and `forge-ci doctor` then checks the
 setup.
 
-### GitHub
+Initialization writes a starting point, not a ready-to-release guarantee:
+review the generated project names and build paths. Doctor checks local
+configuration, not remote secrets, runner availability or publication rights.
+The GitHub PR caller below runs lint and security checks; add your own project
+test job and require both before merging.
+
+#### GitHub
 
 Copy the example's `github/` workflows into `.github/workflows/`. The
 pull-request caller is one job:
@@ -56,7 +83,7 @@ jobs:
 See [Getting started](docs/github.md#getting-started) and the
 [examples](examples/README.md).
 
-### GitLab
+#### GitLab
 
 Include the components, hosted on your own instance, in `.gitlab-ci.yml`; the
 example's `gitlab/.gitlab-ci.yml` is the merge-request gate, the lint
@@ -84,7 +111,7 @@ merge requests.
 See [Getting started](docs/gitlab.md#getting-started) and the
 [examples](examples/README.md).
 
-### Forgejo
+#### Forgejo
 
 Fill in the example's `forgejo/` workflows and add them to
 `.forgejo/workflows/`. The release calls the layer, served on your instance,
@@ -128,6 +155,8 @@ Start with the [Documentation Index](docs/README.md) for the full map.
 - **[Development](docs/DEVELOPMENT.md)** • Source checkout, installing the CLI
   from it, prerequisites, checks and branch testing
 - **[Testing](docs/testing.md)** • Test helpers and conventions
+- **[Black-box suite running guide][blackbox-running]** • Local, strict and
+  focused compatibility runs
 - **[Workflow Design Policy](docs/workflow-design-policy.md)** ·
   **[Scripts](docs/scripts.md)** ·
   **[Architecture Decisions](docs/README.md#architecture-decisions)** ·
@@ -136,6 +165,8 @@ Start with the [Documentation Index](docs/README.md) for the full map.
 - **[Changelog](CHANGELOG.md)**
 
 ## License
+
+[blackbox-running]: https://github.com/diggsweden/forge-ci-blackbox-tests/blob/main/docs/running.md
 
 The `forge-ci` program, meaning the Go source, is dual-licensed
 [EUPL-1.2](LICENSES/EUPL-1.2.txt) **OR**

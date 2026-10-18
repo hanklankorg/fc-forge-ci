@@ -41,7 +41,7 @@ then the environment variables listed per flag, then the flag default.
 - [`build`](#forge-ci-build) — toolchain build wrappers (go, cargo, maven, npm, gradle, gradle-android, xcode-ios)
 - [`config`](#forge-ci-config) — artifacts.yml schema helpers
 - [`container`](#forge-ci-container) — container-image helpers (name resolution, manifests, namespace policy, tag/label metadata, …)
-- [`doctor`](#forge-ci-doctor) — check that a repository is configured correctly for forge-ci
+- [`doctor`](#forge-ci-doctor) — check local repository configuration for forge-ci
 - [`init`](#forge-ci-init) — write a repository's first Forge CI files from an example
 - [`lint`](#forge-ci-lint) — code-style lint wrappers (swift-format, swiftlint)
 - [`plan`](#forge-ci-plan) — typed release, snapshot-release, and pull-request plan composition
@@ -1979,7 +1979,7 @@ EXAMPLE:
 
 ## `forge-ci doctor`
 
-check that a repository is configured correctly for forge-ci
+check local repository configuration for forge-ci
 
 ```
 EXAMPLES:
@@ -4223,7 +4223,7 @@ EXAMPLE:
 
 ### `forge-ci validate jvm-reproducibility`
 
-warn when Maven/Gradle artifacts lack reproducible-build settings (outputTimestamp / archive-task config)
+fail when Maven/Gradle artifacts lack reproducible-build settings (outputTimestamp / archive-task config)
 
 ```
 CONFIG_PLAN_JSON is produced by `config parse-artifacts`.

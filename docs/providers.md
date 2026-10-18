@@ -118,9 +118,9 @@ archive. Bootstrap, download, checksum or signature failures stop installation;
 there is no automatic source fallback. Cosign need not be preinstalled.
 
 Branch and commit refs select source installation and require Go. The upstream
-route uses version-suffixed `go install`, which cannot install revisions with
-the current local module replacement. Use the reviewed
-[source checkout procedure](DEVELOPMENT.md#source-checkout) for those revisions.
+route uses version-suffixed `go install`; current revisions require only
+published modules. The reviewed [source checkout procedure](DEVELOPMENT.md#source-checkout)
+also supports local work.
 Forks use a checkout-based source build instead. Setting
 `FORGE_CI_USE_GO_INSTALL=1` explicitly selects source installation even for a
 release ref; that route does not verify release assets.

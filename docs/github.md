@@ -13,6 +13,11 @@ the others is in [Delivery layers side by side](providers.md#delivery-layers-sid
 > [Branch Testing](runtime-images.md#branch-testing) and do not substitute an
 > unreviewed moving ref in production.
 
+To inspect the CLI today, use the reviewed
+[source checkout](DEVELOPMENT.md#source-checkout). The adoption steps below
+require available release artifacts: `init` reads examples from a release tag,
+and installing a local binary does not publish workflow images.
+
 ## What ships
 
 | Path | Content |
@@ -38,6 +43,13 @@ describes how.
 
 ## Requirements
 
+**Organization prerequisites:** allow the reviewed reusable workflows and their
+runtime images, and provide the runners below.
+
+**Per repository:** select the example, review its build paths and names, add
+your own test job, then configure release secrets and protected tags. A green
+lint job alone does not establish that your project tests passed.
+
 | Requirement | Value |
 |---|---|
 | Forge | **github.com.** The release workflows pin `actions/upload-artifact@v7`, which GitHub Enterprise Server does not support, so `release-orchestrator.yml` stops with exit 78 in its first preflight there. The CLI's own release API commands work on GHES. |
@@ -58,7 +70,8 @@ see the [Artifacts Reference](artifacts-reference.md).
 steps 1 to 3 for the example its build files imply (`--example` picks
 another): it writes the workflows, `.forge-ci/artifacts.yml` and
 `nanolinter.toml`, pinned to the newest release, and never overwrites a
-file. By hand:
+file. Review generated project-specific values before running; `doctor` checks
+local configuration, not remote secrets or runner/publishing availability. By hand:
 
 1. **Pick an example** from [`examples/`](../examples/README.md) for your
    ecosystem, and a signing backend from

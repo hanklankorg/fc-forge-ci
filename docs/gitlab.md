@@ -15,6 +15,12 @@ the others is in [Delivery layers side by side](providers.md#delivery-layers-sid
 > Validate the selected instance and runner through
 > [GitLab live acceptance](testing.md#gitlab-live-acceptance).
 
+For local CLI evaluation, use the reviewed
+[source checkout](DEVELOPMENT.md#source-checkout). Consumer adoption below also
+requires your instance's published components, engine package and job images.
+`init` reads its examples and defaults from a release tag on that mirror; a
+local build alone does not supply them.
+
 ## What ships
 
 Components must be hosted on the consumer's own GitLab instance: GitLab
@@ -67,6 +73,11 @@ lint components' SAST conversion fetch the engine binary from the instance's
 own package registry.
 
 ## Getting started
+
+First get a green merge-request gate; then configure release publishing.
+After pushing a request tag, follow its pipeline's prepare, build, sign and
+publish jobs and inspect the final release. If it fails, use
+[Failed Release Recovery](failed-release-recovery.md) rather than deleting final tags.
 
 Two roles share the work. **The organization, once:** host the components
 (steps 1 and 2), build the job, build and signer images, hold the Cosign key

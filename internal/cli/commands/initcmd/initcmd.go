@@ -135,9 +135,9 @@ func report(out io.Writer, example string, result appinit.Result) {
 	}
 
 	if len(result.Remaining) == 0 {
-		_, _ = fmt.Fprintln(out, "\nNothing left to fill in.")
+		_, _ = fmt.Fprintln(out, "\nNo recognized placeholders remain. Review the generated build paths, names and release settings before running.")
 	} else {
-		_, _ = fmt.Fprintln(out, "\nStill to fill in")
+		_, _ = fmt.Fprintln(out, "\nReview and customize before running")
 
 		for _, f := range result.Written {
 			for _, p := range result.Remaining[f] {

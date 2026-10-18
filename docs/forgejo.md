@@ -19,6 +19,12 @@ implementation, test and live-evidence status per forge is in
 > or signer image. [Release readiness](#release-readiness) lists the checks needed
 > for the selected instance and runner.
 
+For local CLI evaluation, use the reviewed
+[source checkout](DEVELOPMENT.md#source-checkout). Consumer adoption below also
+requires the serving repository, engine package and reviewed images on your
+instance. `init` reads examples and defaults from a release tag on the serving
+repository; a local CLI build does not publish those inputs.
+
 ## What ships
 
 A consumer's build job runs between two workflows of this layer, so signing
@@ -61,6 +67,16 @@ What each of the three layers has, capability by capability, is in
 [Delivery layers side by side](providers.md#delivery-layers-side-by-side).
 
 ## Requirements
+
+**Organization prerequisites:** host the reviewed layer and its published
+binary, provide fresh job containers on a trusted runner, and publish the
+reviewed job and signer images with their trusted signing-key information.
+
+**Per repository:** fill the example's pins and project values, select the
+runner and job image, configure release secrets, and protect branches and
+release-request tags. Get the pull-request checks green before requesting a
+release; follow its workflow run to the final release, or use
+[Failed Release Recovery](failed-release-recovery.md) on failure.
 
 | Requirement | Value |
 |---|---|
@@ -1297,10 +1313,6 @@ Not supported yet, and known:
   nanolinter, its check tools and your toolchain, and nothing here builds one
   for a Forgejo instance.
 - An authenticated release of the layer to pin.
-- Rebuilding everything from a copy: `go.mod` replaces one module with a path
-  outside the repository, so `go test ./...` and `go mod download` run only
-  where that path exists. Building the CLI, publishing its binary and running
-  `just test-forgejo` do not need it.
 
 Not in the layer:
 

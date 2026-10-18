@@ -9,6 +9,10 @@ module proxy and needs no sibling directory or `replace` directive. Install the
 CLI from the forge-ci checkout using the pinned toolchain, and check that it
 runs:
 
+If the pinned Go toolchain is not installed yet, follow the Linux or macOS
+prerequisites below first. Building the CLI is independent of publishing the
+workflow/runtime artifacts required by consumers.
+
 ```bash
 mise exec -- go install ./cmd/forge-ci
 forge-ci --version
@@ -21,6 +25,12 @@ same command, or install a pushed commit or tag without a checkout:
 ```bash
 go install github.com/diggsweden/forge-ci/cmd/forge-ci@<ref>
 ```
+
+Use `forge-ci --help` to inspect the local interface. `forge-ci init` still
+requires a release tag and its examples on the repository it reads; it does not
+copy examples from your local checkout. For pre-release workflow evaluation,
+follow [Branch Testing](runtime-images.md#branch-testing) with the reviewed
+pre-release images, rather than substituting a moving ref into production.
 
 The bootstrap installer takes the same path for a branch or SHA
 `forge-ci-binary-ref`; release tags install the signed archive instead. See
@@ -52,6 +62,8 @@ The bootstrap installer takes the same path for a branch or SHA
    workflow/live-tier utilities:
 
    ```bash
+   mise trust
+   mise install just
    just install-dev-tools
    ```
 
