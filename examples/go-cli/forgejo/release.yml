@@ -271,6 +271,7 @@ jobs:
 
       - name: Write the release summary
         env:
+          CI_RUN_URL: ${{ forgejo.server_url }}/${{ forgejo.repository }}/actions/runs/${{ forgejo.run_number }}
           RELEASE_VERSION: ${{ needs.prepare.outputs.release-tag }}
           RELEASE_COMMIT: ${{ needs.prepare.outputs.release-sha }}
           RELEASE_ACTOR: ${{ forgejo.actor }}

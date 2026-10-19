@@ -3513,7 +3513,7 @@ EXAMPLE:
 | `--source-branch` | PR source branch | string | `""` | `$CI_BRANCH` |
 | `--commit` | head commit SHA of the PR | string | `""` | `$CI_COMMIT`, `$CI_COMMIT_SHA`, `$COMMIT_SHA`, `$FORGEJO_SHA`, `$GITHUB_SHA` |
 | `--actor` | user who opened/updated the PR | string | `""` | `$CI_ACTOR`, `$FORGEJO_ACTOR`, `$GITHUB_ACTOR` |
-| `--run-url` | URL of the CI run linked from the summary | string | `""` | `$CI_RUN_URL` |
+| `--run-url` | URL of the CI run linked from the summary | string | `""` | `$CI_RUN_URL`, `$CI_PIPELINE_URL` |
 | `--quality-stage-result-json` | inline JSON of the quality-stage result table | string | `""` | `$QUALITY_STAGE_RESULT_JSON` |
 | `--quality-stage-result-path` | path to the quality-stage result JSON file (alternative to inline) | string | `""` | `$QUALITY_STAGE_RESULT_PATH` |
 | `--job` | job outcome as "Name=result" (repeatable); lists these jobs in the status table instead of GitHub's stage targets, for GitLab and Forgejo | string | `""` | n/a |
@@ -3602,7 +3602,7 @@ EXAMPLE:
 | `--release-branch` | branch the release was cut from | string | `""` | `$RELEASE_BRANCH` |
 | `--release-commit` | commit SHA the release was cut from | string | `""` | `$RELEASE_COMMIT` |
 | `--release-actor` | user who triggered the release | string | `""` | `$RELEASE_ACTOR` |
-| `--run-url` | URL of the CI run linked from the summary | string | `""` | `$CI_RUN_URL` |
+| `--run-url` | URL of the CI run linked from the summary | string | `""` | `$CI_RUN_URL`, `$CI_PIPELINE_URL` |
 | `--create-release-result` | outcome of the create-release step (success/failure/skipped) | string | `""` | `$CREATE_RELEASE_RESULT` |
 | `--promote-dev-result` | outcome of the image promote-dev job (success/failure/skipped) | string | `""` | `$PROMOTE_DEV_RESULT` |
 | `--promote-staging-result` | outcome of the image promote-staging job (success/failure/skipped) | string | `""` | `$PROMOTE_STAGING_RESULT` |
@@ -3630,7 +3630,7 @@ EXAMPLE:
 | `--release-sha` | commit SHA the snapshot-release was cut from | string | `""` | `$RELEASE_SHA` |
 | `--release-actor` | user who triggered the snapshot-release | string | `""` | `$RELEASE_ACTOR` |
 | `--release-repository` | "owner/repo" the snapshot-release was published from | string | `""` | `$RELEASE_REPOSITORY` |
-| `--run-url` | URL of the CI run linked from the summary | string | `""` | `$CI_RUN_URL` |
+| `--run-url` | URL of the CI run linked from the summary | string | `""` | `$CI_RUN_URL`, `$CI_PIPELINE_URL` |
 | `--build-stage-result-json` | inline JSON of the dev-build stage result table | string | `""` | `$BUILD_STAGE_RESULT_JSON` |
 | `--publish-stage-result-json` | inline JSON of the dev-publish stage result table | string | `""` | `$PUBLISH_STAGE_RESULT_JSON` |
 | `--snapshot-artifacts-json` | inline JSON listing the snapshot artifacts shown in the summary | string | `""` | `$SNAPSHOT_ARTIFACTS_JSON` |

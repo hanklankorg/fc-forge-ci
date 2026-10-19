@@ -133,6 +133,7 @@ jobs:
 
       - name: Write the pull request summary
         env:
+          CI_RUN_URL: ${{ forgejo.server_url }}/${{ forgejo.repository }}/actions/runs/${{ forgejo.run_number }}
           PROJECT_TYPE: go
           CI_BRANCH: ${{ forgejo.head_ref }}
           LINT_RESULT: ${{ needs.lint.result }}

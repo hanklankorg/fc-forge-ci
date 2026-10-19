@@ -339,10 +339,13 @@ func RunID() Var {
 	}}
 }
 
-// RunURL resolves the human-facing CI run URL.
+// RunURL resolves the human-facing CI run URL. GitLab injects its pipeline's;
+// GitHub's orchestrators and Forgejo's summary jobs set CI_RUN_URL, since
+// Forgejo injects none.
 func RunURL() Var {
 	return Var{Concept: "run url", Names: []Name{
 		orchestrated("CI_RUN_URL"),
+		gitlabInjected("CI_PIPELINE_URL"),
 	}}
 }
 
