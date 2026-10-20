@@ -730,7 +730,13 @@ func requireGitLabPackageSignatures(t *testing.T, target livetest.Target, repo s
 
 		dir := t.TempDir()
 		for _, item := range []struct{ asset, file string }{{asset, "package"}, {asset + ".sig", "signature"}} {
-			body := livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, tag, item.asset), maxReleaseFile)
+			limit := int64(maxReleaseFile)
+			if strings.HasSuffix(item.asset, ".apk") {
+				// Android APKs share Alpine's suffix and can exceed the small
+				// fixture limit. Keep signature downloads at the original bound.
+				limit = 256 << 20
+			}
+			body := livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, tag, item.asset), limit)
 			if err := os.WriteFile(filepath.Join(dir, item.file), body, 0o600); err != nil {
 				t.Fatal(err)
 			}
