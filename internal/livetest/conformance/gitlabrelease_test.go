@@ -181,6 +181,7 @@ const (
 	gitlabStandardRelease gitlabReleaseCase = iota
 	gitlabBaseRelease
 	gitlabInterruptedConsumerRelease
+	gitlabPreseededProvenanceRelease
 )
 
 // gitlabConsumerSettings returns the caller's settings and the consumer's build
@@ -267,6 +268,10 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, scenario gitlab
 	settings, buildCommand := gitlabConsumerSettings(t, consumerRoot)
 	bases := scenario == gitlabBaseRelease
 	recovery := scenario == gitlabInterruptedConsumerRelease
+	preseeded := scenario == gitlabPreseededProvenanceRelease
+	if preseeded && (consumerRoot == "" || settings.NextVersion != "") {
+		t.Fatal("preseeded provenance requires a consumer checkout and no next-version")
+	}
 	if recovery && (consumerRoot == "" || settings.Version == "" || settings.Version == "0.0.0" || settings.NextVersion != "") {
 		t.Fatal("consumer recovery requires one explicit nonzero version and no next-version")
 	}
@@ -446,6 +451,10 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, scenario gitlab
 		run, child = recoverGitLabConsumerAfterCandidate(t, ctx, client, target, repo, publication, requestTag, request, finalTag, previousDigest)
 	} else {
 		run = waitGitLabTagPipeline(t, ctx, client, project, requestTag, request)
+		if preseeded {
+			requireGitLabPreseededProvenanceRejection(t, ctx, client, project, livetest.RepoSlug(target, publication), run)
+			return
+		}
 		child = requireGitLabReleaseChild(t, ctx, client, project, run)
 	}
 	if consumer != nil {
