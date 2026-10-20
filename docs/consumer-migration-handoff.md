@@ -27,6 +27,14 @@ Native promotion retry also passes: pipeline380 retains the failed job787's
 journal after a real registry write; clean-job retry790 converges to the expected
 digest while publication/cleanup remain blocked during the injected failure.
 This proves the existing recovery primitive, not whole-consumer interruption.
+Consecutive container-first Cargo fixture releases **0.1.1 → 0.1.2 pass
+public/private** on `fddc70e`: parent/child `399/400` then `404/405`, and `410/411`
+then `415/416`; follow-up MR gates `408/419` pass. Each release checks the committed
+Cargo version/lockfile, required release bundles and final image attestations.
+Native cross-job rejection also passes for stale digests, changed artifact bytes
+and changed bundle bytes, requiring the actual CLI's digest-mismatch reason.
+Bundle-byte rejection is not cryptographic signature or provenance-identity
+rejection; those remaining checks are still listed below.
 The overall migration and cleanup remain incomplete.
 
 ## Bottom line
@@ -56,7 +64,8 @@ named trial flows and revisions, not every capability of each application.
 
 | Consumer | Native trial evidence | Important boundary |
 | --- | --- | --- |
-| Java service, Java CLI, Java library, API linter, web | Public/private PR or MR gates and stable release flows on GitHub, GitLab and Forgejo; consecutive API-linter npm releases on GitLab | Consecutive Forgejo/Cargo releases and npm registry installation remain open |
+| Java service, Java CLI, Java library, API linter, web | Public/private PR or MR gates and stable release flows on GitHub, GitLab and Forgejo; consecutive API-linter npm releases on GitLab | Consecutive Forgejo releases and npm registry installation remain open |
+| Container-first Cargo fixture | Public/private consecutive GitLab releases 0.1.1→0.1.2, bundles, image attestations and MR gates | Built-in demo fixture; does not establish the actual Rust application's local-forge acceptance |
 | Android | Full app/camera PR or MR checks on all three forges; GitHub unsigned and test-signed development builds | Local stable/development, real devices, production signing and store delivery are not established |
 | iOS | Public/private GitHub ARM64 simulator PRs and unsigned development archives | No physical device, Secure Enclave or App Store acceptance |
 | Rust services | Public/private GitHub PRs and stable releases; all three images per visibility independently verified; all four downloaded executables match retained runtime images and pass bounded loader/help checks | Local-forge PR/stable/development coverage remains open; no HSM/service-startup claim |
@@ -102,6 +111,7 @@ into each consumer as workarounds.
 | FC-16 | Publish retained Maven build bytes rather than rebuilding during publication | `internal/app/publish/mavenbuild*`; original-build/fresh-cache native checks |
 | FC-17 | Forward configured Node version, retain actual runtime version and supply libatomic for Node26 | npm reusable workflows and shared runtime; public/private native web stable0.2.4 |
 | FC-18 | Render SARIF automation IDs using GitHub's category/run-ID convention | Security domain/application tests; processed known-alert native acceptance39403232350 |
+| FC-19 | Preserve the build-tool image's environment in key-free GitLab version preparation; the standard Rust image's Cargo lives outside the signer's fixed PATH | `templates/release-jobs.yml`; role-credential behavior tests and native consecutive Cargo releases |
 
 Related working-tree fixes cover Android's default test execution and task/SBOM
 boundaries, exact scoped toolchain selection, scan diagnostics, private host image
@@ -156,9 +166,10 @@ blanket scanner ignore or renewed approval hold.
   existing OCI/API paths; status/credential/redirect regressions pass. Native
   checks pass for the named Rust, Maven and web trials; this does not establish
   every consumer's optional publication surface.
-- [ ] Real cross-job rejection: tamper artifact/bundle bytes, supply stale handoff
-  digests and wrong provenance subject/source/commit/workflow; require the expected
-  reason for rejection, not an unrelated setup failure.
+- [ ] Finish real cross-job rejection: native artifact/bundle byte mutations and
+  stale handoff digests now reject for the expected digest-mismatch reason.
+  Cryptographic bundle rejection and wrong provenance subject/source/commit/workflow
+  remain open; unrelated setup failures do not satisfy them.
 
 ### P1: reusable release behavior and consolidation
 
@@ -166,8 +177,8 @@ blanket scanner ignore or renewed approval hold.
   version with retained remote state; prove final digest/assets and preservation
   of prior moving tags. Existing rollback primitives do not prove this workflow.
 - [ ] Complete consecutive npm/Cargo local releases and compare version, lockfile,
-  tag, SBOM and provenance. Public/private GitLab npm2.0.1→2.0.2 now passes;
-  Forgejo npm and native Cargo sequences remain open.
+  tag, SBOM and provenance. Public/private GitLab npm 2.0.1→2.0.2 and container-first
+  Cargo fixture 0.1.1→0.1.2 now pass; consecutive Forgejo cases remain open.
 - [ ] Add independent GitLab/Forgejo development flows and Rust container-first
   development; preserve unchanged main and absence of stable tags/releases.
 - [ ] Complete Rust local-forge PR/stable coverage and applicable Android local

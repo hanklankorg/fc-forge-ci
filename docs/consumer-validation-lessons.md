@@ -133,7 +133,16 @@ proved a missing shared runtime dependency, `libatomic.so.1`. The common runtime
 now includes `libatomic1`, with a real loader-library smoke check during image
 verification. Version recording also explicitly fails if `node --version` fails;
 a command substitution inside printf had previously masked that failure and
-written an empty version. The runtime rebuild/native retry remains required.
+written an empty version. The runtime retry passes public/private stable web
+runs `39403245605` / `39403250036`.
+
+GitLab's key-free version-preparation job also needs its build image's tool
+environment. Resetting it to the signer's fixed PATH hid Cargo in the standard
+Rust image: the bump warned, left Cargo.lock unchanged and the signer correctly
+refused the incomplete patch. FC-19 retains the tool environment for that key-free
+job; public/private consecutive Cargo fixture releases now pass. Require named
+checksum/provenance bundles, not an arbitrary minimum count: container-first
+releases can carry their SBOM as image evidence instead of a standalone asset.
 
 Scoped tool installation does not waive exact-version validation of the complete
 mise config. Pin every declared version; the selected subset only narrows installs
