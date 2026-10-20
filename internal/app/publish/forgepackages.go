@@ -16,6 +16,8 @@ import (
 type ForgePackagesDeployInput struct {
 	// CLIOpts is $MAVEN_CLI_OPTS split into argv.
 	CLIOpts []string
+	// Profile activates the project-owned publication attachments, when selected.
+	Profile string
 }
 
 // ForgePackagesDeploy publishes a Maven package to the forge-native registry of
@@ -47,6 +49,9 @@ func ForgePackagesDeploy(ctx context.Context, ops MavenOps, resolver provider.Fo
 	args = append(args, "deploy", "-DskipTests",
 		"--settings", settingsPath,
 		"-DaltDeploymentRepository="+reg.AltDeploymentRepository())
+	if in.Profile != "" {
+		args = append(args, "-P"+in.Profile)
+	}
 
 	return ops.RunInherit(ctx, stdout, stderr, args...)
 }

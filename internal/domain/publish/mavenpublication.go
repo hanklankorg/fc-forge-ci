@@ -23,7 +23,18 @@ type MavenPublication struct {
 	Name        string   `xml:"name"`
 	Description string   `xml:"description"`
 	URL         string   `xml:"url"`
-	Licenses    []struct {
+	Parent      struct {
+		GroupID string `xml:"groupId"`
+		Version string `xml:"version"`
+	} `xml:"parent"`
+	Modules  []string `xml:"modules>module"`
+	Profiles []struct {
+		Modules []string `xml:"modules>module"`
+	} `xml:"profiles>profile"`
+	Build struct {
+		FinalName string `xml:"finalName"`
+	} `xml:"build"`
+	Licenses []struct {
 		Name string `xml:"name"`
 		URL  string `xml:"url"`
 	} `xml:"licenses>license"`
@@ -67,6 +78,12 @@ func parseMavenPublication(body []byte, expectedVersion string, central, snapsho
 
 	if publication.Packaging == "" {
 		publication.Packaging = "jar"
+	}
+	if publication.GroupID == "" {
+		publication.GroupID = publication.Parent.GroupID
+	}
+	if publication.Version == "" {
+		publication.Version = publication.Parent.Version
 	}
 
 	if snapshot && expectedVersion == "" {

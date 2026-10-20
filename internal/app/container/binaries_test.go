@@ -187,6 +187,23 @@ func TestSuffixExtractedBinaries_EmptyDirNoOp(t *testing.T) {
 	}
 }
 
+func TestSuffixExtractedBinaries_EmptyBinaryRefusesBeforeAnyRename(t *testing.T) {
+	t.Parallel()
+	files := testfs.NewReal(t)
+	files.WriteFile("worker", []byte("executable content"))
+	files.WriteFile("keytool", nil)
+	var output bytes.Buffer
+	err := appcontainer.SuffixExtractedBinaries(&output, appcontainer.SuffixExtractedBinariesInput{
+		Dir: files.Root, Arch: "amd64", ExpectedNames: "worker,keytool",
+	})
+	if !errors.Is(err, errs.ErrValidation) || !strings.Contains(err.Error(), "keytool") || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("empty extracted executable must identify the invalid input: %v", err)
+	}
+	if got := dirEntryNames(t, files.Root); !slices.Equal(got, []string{"keytool", "worker"}) || output.Len() != 0 {
+		t.Fatalf("failed preflight mutated the handoff: files=%v output=%q", got, output.String())
+	}
+}
+
 // TestSuffixExtractedBinaries_RefusesNonRegularNamedBinaries covers the
 // regular-file guard, which no case reached.
 //

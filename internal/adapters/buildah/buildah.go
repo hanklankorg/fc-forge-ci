@@ -57,9 +57,9 @@ func (a *Adapter) Build(ctx context.Context, req container.BuildRequest, out io.
 
 	switch req.Mode {
 	case container.BuildModeLoad:
-		return a.runWithEnv(ctx, out, registryAuthEnv(req.AuthFile), a.buildArgs(req, "-t", req.ImageRef)...)
+		return a.runBuildWithEnv(ctx, out, registryAuthEnv(req.AuthFile), req.SourceDateEpoch, a.buildArgs(req, "-t", req.ImageRef)...)
 	case container.BuildModeLocal:
-		return a.runWithEnv(ctx, out, registryAuthEnv(req.AuthFile), a.buildArgs(req, "--output", "type=local,dest="+req.OutputDir)...)
+		return a.runBuildWithEnv(ctx, out, registryAuthEnv(req.AuthFile), req.SourceDateEpoch, a.buildArgs(req, "--output", "type=local,dest="+req.OutputDir)...)
 	case container.BuildModePushByDigest:
 		return fmt.Errorf("push-by-digest builds go through BuildToLayout, not Build: %w", errs.ErrUsage)
 	default:
@@ -85,7 +85,7 @@ func (a *Adapter) BuildToLayout(ctx context.Context, req container.BuildRequest,
 
 	defer func() { _ = os.Remove(iidPath) }()
 
-	if err = a.runWithEnv(ctx, out, registryAuthEnv(req.AuthFile), a.buildArgs(req, "--iidfile", iidPath)...); err != nil {
+	if err = a.runBuildWithEnv(ctx, out, registryAuthEnv(req.AuthFile), req.SourceDateEpoch, a.buildArgs(req, "--iidfile", iidPath)...); err != nil {
 		return err
 	}
 
@@ -260,13 +260,29 @@ func (a *Adapter) run(ctx context.Context, w io.Writer, args ...string) error {
 }
 
 func (a *Adapter) runWithEnv(ctx context.Context, w io.Writer, env []string, args ...string) error {
+	return a.runWithCommandEnv(ctx, w, append(os.Environ(), env...), args...)
+}
+
+// runBuildWithEnv keeps --timestamp authoritative. Newer Buildah defaults
+// --source-date-epoch from SOURCE_DATE_EPOCH and rejects it alongside
+// --timestamp, even when both values agree. Keep --timestamp's layer and config
+// normalization and older-version support; without it, leave Buildah's defaults
+// alone. Explicit build arguments are passed through unchanged.
+func (a *Adapter) runBuildWithEnv(ctx context.Context, w io.Writer, env []string, timestamp string, args ...string) error {
+	env = append(os.Environ(), env...)
+	if timestamp != "" {
+		env = safeexec.EnvWithout(env, "SOURCE_DATE_EPOCH")
+	}
+
+	return a.runWithCommandEnv(ctx, w, env, args...)
+}
+
+func (a *Adapter) runWithCommandEnv(ctx context.Context, w io.Writer, env []string, args ...string) error {
 	cmd := safeexec.Command(ctx, a.bin(), args...)
 	cmd.Stdout = w
 
 	cmd.Stderr = w
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
+	cmd.Env = env
 
 	if err := cmd.Run(); err != nil {
 		return safeexec.WrapError(err, a.bin(), safeexec.FirstArg(args))

@@ -109,13 +109,13 @@ on:
         default: main
       version-bump:
         description: >-
-          Project type whose project files the signed release commit bumps to the release version: maven, or empty (the default) for no bump. The bump runs the project's build tool in a separate job that holds no secret; the signing job only verifies and applies the resulting patch.
+          Project type whose project files the signed release commit bumps to the release version: maven, npm, cargo, or empty (the default) for no bump. The bump runs the project's build tool in a separate job that holds no secret; the signing job only verifies and applies the resulting patch. npm/Cargo require consistent existing lockfiles and semantic version-only changes.
         type: string
         required: false
         default: ''
       version-bump-image:
         description: >-
-          Digest-pinned image the version-bump job runs in, <registry>/<repository>[:<tag>]@sha256:<digest>, carrying bash, git, curl, sha256sum and the build tool (a JDK and Maven for maven). Required with version-bump.
+          Digest-pinned image the version-bump job runs in, <registry>/<repository>[:<tag>]@sha256:<digest>, carrying bash, git, curl, sha256sum and the selected build tool (JDK/Maven, Node/npm or Rust/Cargo). Required with version-bump.
         type: string
         required: false
         default: ''
@@ -232,14 +232,14 @@ jobs:
                 exit 1
               fi
               ;;
-            maven)
+            maven | npm | cargo)
               if [[ ! "${VERSION_BUMP_IMAGE_INPUT}" =~ ^[a-z0-9]+([.-][a-z0-9]+)*(:[0-9]+)?/([a-z0-9]+(([._]|__|-+)[a-z0-9]+)*/)*[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?@sha256:[0-9a-f]{64}$ ]]; then
                 echo "ERROR: version-bump-image must be a complete OCI repository coordinate pinned by sha256 digest: <registry>/<repository>[:<tag>]@sha256:<64 hex>" >&2
                 exit 1
               fi
               ;;
             *)
-              echo "ERROR: version-bump must be maven or empty: ${VERSION_BUMP_INPUT}" >&2
+              echo "ERROR: version-bump must be maven, npm, cargo or empty: ${VERSION_BUMP_INPUT}" >&2
               exit 1
               ;;
           esac

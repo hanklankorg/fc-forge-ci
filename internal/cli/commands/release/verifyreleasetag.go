@@ -34,7 +34,7 @@ func verifyTagCmd() *cli.Command {
 			&cli.StringFlag{Name: "repo-url", Sources: cli.EnvVars("REPO_URL"), Usage: "remote repository URL for ls-remote (defaults to origin)"},
 			&cli.StringFlag{Name: "expected-parent", Sources: cli.EnvVars("RELEASE_REQUEST_SHA"), Usage: "require the release commit to be the single child of this commit (the authorised release-request source)"},
 			&cli.BoolFlag{Name: "changelog-only", Usage: "require exactly a CHANGELOG.md change from --expected-parent, and bind release-request/<tag> to that tested commit"},
-			&cli.StringFlag{Name: "version-bump", Usage: "with --changelog-only, also admit this project type's version bump (maven), checked as a version substitution to the tag's version"},
+			&cli.StringFlag{Name: "version-bump", Usage: "with --changelog-only, also admit this project type's version bump (maven/npm/cargo), checked as a version substitution to the tag's version"},
 			clitoken.FileFlag("Read token for a private repository."),
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/diggsweden/forge-ci/internal/domain/build"
 	"github.com/diggsweden/forge-ci/internal/domain/config"
+	domaincontainer "github.com/diggsweden/forge-ci/internal/domain/container"
 	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
 	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 )
@@ -171,6 +172,7 @@ type PlannedContainer struct {
 	GradleArtifactName          string             `json:"gradle_artifact_name,omitempty"`
 	ExtractBinaryTarget         string             `json:"extract_binary_target,omitempty"`
 	ExtractBinaryNames          []string           `json:"extract_binary_names,omitempty"`
+	ExtractBinaryPaths          []string           `json:"extract_binary_paths,omitempty"`
 }
 
 // NewConfigPlan builds a plan from an already validated and derived config.
@@ -377,6 +379,10 @@ func planContainers(artifacts []config.Artifact, containers []config.Container) 
 		if c.Extract != nil && c.Extract.Binary != nil {
 			pc.ExtractBinaryTarget = c.Extract.Binary.Target
 			pc.ExtractBinaryNames = slices.Clone(c.Extract.Binary.Names)
+			pc.ExtractBinaryPaths = slices.Clone(c.Extract.Binary.Paths)
+			if len(pc.ExtractBinaryPaths) != 0 {
+				pc.ExtractBinaryNames, _ = domaincontainer.ImageFileNames(pc.ExtractBinaryPaths) // Config validation already checked these paths.
+			}
 		}
 
 		out = append(out, pc)

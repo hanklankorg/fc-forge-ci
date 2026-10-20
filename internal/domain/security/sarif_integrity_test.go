@@ -104,7 +104,7 @@ func TestSARIFRewriters_PreserveNumbersDuringActiveChanges(t *testing.T) {
 				if name == "enrichment" {
 					expected = strings.Replace(string(body), `"other":"keep"`, `"other":"keep","primaryLocationLineHash":"[\"rule\",\"file.go\",\"42\",\"keep\"]"`, 1)
 				} else {
-					expected = strings.Replace(string(body), `"automationDetails":{`, `"automationDetails":{"id":"new-category",`, 1)
+					expected = strings.Replace(string(body), `"automationDetails":{`, `"automationDetails":{"id":"new-category/",`, 1)
 				}
 
 				if bytes.Equal(body, []byte(expected)) {

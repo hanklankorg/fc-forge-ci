@@ -76,6 +76,10 @@ type ImageEvidenceInput struct {
 	TrivyAttempts   int
 	TrivyRetryDelay time.Duration
 	TempDir         string
+	// Gate, when set, judges each platform's own layout after its evidence is
+	// recorded, with the publication policy; its error fails the run. Nil
+	// records evidence only.
+	Gate func(ctx context.Context, layout, platform string) error
 }
 
 // imageEvidenceScan is how one Trivy scan runs: its own timeout and the
@@ -271,6 +275,8 @@ func imageEvidenceScanOnePlatform(ctx context.Context, deps imageEvidenceDeps, i
 	var scanErr error
 	if err := scanImageEvidenceLayout(ctx, deps, layout, trivyOutput, sbomOutput, scan); err != nil {
 		scanErr = err
+	} else if in.Gate != nil {
+		scanErr = in.Gate(ctx, layout, platform.OS+"/"+platform.Arch)
 	}
 
 	if err := os.RemoveAll(layout); err != nil && scanErr == nil {

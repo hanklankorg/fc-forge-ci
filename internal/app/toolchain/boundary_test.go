@@ -265,8 +265,8 @@ func TestMiseBoundary_MergeRejectsDuplicateToolAuthority(t *testing.T) {
 	in := toolchain.InstallMiseToolsInput{Root: root, Locked: "true", Tools: "aqua:org/tool", RetryAttempts: 1}
 
 	runner := &recordingMiseRunner{}
-	if err := toolchain.InstallMiseTools(t.Context(), runner, io.Discard, in); err != nil || len(runner.calls) != 2 {
-		t.Fatalf("err=%v calls=%v", err, runner.calls)
+	if err := toolchain.InstallMiseTools(t.Context(), runner, io.Discard, in); err != nil || len(runner.calls) != 1 {
+		t.Fatalf("err=%v call count=%d; the unrelated Go runtime must not install", err, len(runner.calls))
 	}
 
 	writeToolchainFile(t, root, "mise.toml", "[tools]\ngo='other-version'\n")

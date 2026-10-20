@@ -168,3 +168,40 @@ func TestClassifyTrivyFindings_EmptyBody(t *testing.T) {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 }
+
+func TestClassifyTrivyFindings_PreservesAffectedBinaries(t *testing.T) {
+	t.Parallel()
+
+	got, err := security.ClassifyTrivyFindings([]byte(`{"Results":[
+		{"Target":"usr/bin/pebble","Vulnerabilities":[
+			{"VulnerabilityID":"CVE-2026-78667","PkgName":"stdlib","InstalledVersion":"v1.27.1","FixedVersion":"1.27.2","Severity":"HIGH"},
+			{"VulnerabilityID":"CVE-2026-78667","PkgName":"stdlib","InstalledVersion":"v1.27.1","FixedVersion":"1.27.2","Severity":"HIGH"}]},
+		{"Target":"usr/bin/another-helper","Vulnerabilities":[
+			{"VulnerabilityID":"CVE-2026-78667","PkgName":"stdlib","InstalledVersion":"v1.27.1","FixedVersion":"1.27.2","Severity":"HIGH"}]}
+	]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Fixable) != 2 {
+		t.Fatalf("want one finding per affected binary, got %+v", got)
+	}
+	if got.Fixable[0].Target != "usr/bin/another-helper" || got.Fixable[1].Target != "usr/bin/pebble" {
+		t.Fatalf("affected binaries lost or unsorted: %+v", got.Fixable)
+	}
+}
+
+func TestClassifyTrivyFindings_IdentifiesNestedPackage(t *testing.T) {
+	t.Parallel()
+	got, err := security.ClassifyTrivyFindings([]byte(`{"Results":[{
+		"Target":"Java","Vulnerabilities":[{
+			"VulnerabilityID":"CVE-JAR","PkgName":"jackson-core",
+			"PkgPath":"app/application.jar/BOOT-INF/lib/jackson-core-3.1.5.jar",
+			"InstalledVersion":"3.1.5","FixedVersion":"3.1.7","Severity":"HIGH"
+		}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Fixable) != 1 || got.Fixable[0].Target != "app/application.jar/BOOT-INF/lib/jackson-core-3.1.5.jar" {
+		t.Fatalf("want actionable nested package path rather than generic Java target, got %+v", got)
+	}
+}

@@ -57,7 +57,7 @@ spec:
     release-branch:
       regex: '^$|^[A-Za-z0-9_][A-Za-z0-9_./-]*$'
     version-bump:
-      options: ['', maven]
+      options: ['', maven, npm, cargo]
 ---
 stages: [check, prepare, build, sign, publish]
 .forge-ci-release:

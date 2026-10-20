@@ -83,13 +83,9 @@ func InstallMiseTools(ctx context.Context, runner MiseRunner, out io.Writer, in 
 
 	tools := strings.Fields(in.Tools)
 
-	seen := map[string]bool{}
-	for _, tool := range tools {
-		if strings.HasPrefix(tool, "-") || !toolDeclared(configs, tool) || seen[tool] {
-			return fmt.Errorf("requested tools must be a unique subset of [tools] declarations: %w", errs.ErrUsage)
-		}
-
-		seen[tool] = true
+	configs, err = selectedMiseTools(configs, tools)
+	if err != nil {
+		return err
 	}
 
 	root, err = filepath.Abs(root)

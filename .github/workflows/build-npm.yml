@@ -6,8 +6,9 @@
 # Purpose: Builds NPM projects and uploads artifacts for subsequent publishing steps.
 # Separates build logic from registry-specific publishing.
 #
-# Runs inside the forge-ci-runtime-node image. Node, npm, corepack, and the
-# forge-ci binary are baked in.
+# Runs inside the forge-ci-runtime-node image. Its baked-in Node is the default;
+# an explicit node-version selects that toolchain before the binary-owned npm
+# lifecycle. The summary records the Node actually executed.
 #
 # Build Process:
 #   1. Install dependencies (npm ci)
@@ -52,6 +53,16 @@ on:
         type: string
       artifact-name:
         description: "Logical artifact name for upload naming (defaults to 'npm-build-artifacts' when empty)"
+        required: false
+        default: ""
+        type: string
+      node-version:
+        description: "Optional Node.js version to select before npm runs; empty retains the runtime image's Node. Use an exact version for reproducible builds."
+        required: false
+        default: ""
+        type: string
+      expect-version:
+        description: "Expected already committed package version for a release; empty leaves development builds unconstrained."
         required: false
         default: ""
         type: string
@@ -100,6 +111,20 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           CHECKOUT_REF: ${{ inputs.branch }}
         run: forge-ci platform checkout
+      - name: Select configured Node version
+        # Transport/toolchain selection is outside the binary-owned lifecycle.
+        # The configured version must affect PATH, not just a summary field.
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        if: ${{ inputs['node-version'] != '' }}
+        with:
+          node-version: ${{ inputs['node-version'] }}
+          package-manager-cache: false
+      - name: Record executed Node version
+        id: node-version
+        run: |
+          set -eu
+          version=$(node --version)
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
       - name: Build NPM project
         # One step owns the whole build sequence (metadata → ci → test → build →
         # SBOM → pack → summary); the binary threads metadata internally and the
@@ -111,7 +136,8 @@ jobs:
           WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
           SKIP_TESTS: ${{ inputs['skip-tests'] }}
           ENABLE_BUILD_SBOM: ${{ inputs['enable-build-sbom'] }}
-          NODE_VERSION: "24"
+          NODE_VERSION: ${{ steps['node-version'].outputs.version }}
+          EXPECT_VERSION: ${{ inputs['expect-version'] }}
           PRIVATE_DEPENDENCIES: ${{ inputs['private-dependencies'] }}
           DEPENDENCY_REGISTRY: ${{ inputs['dependency-registry'] }}
           DEPENDENCY_TOKEN: ${{ inputs['private-dependencies'] && github.token || '' }}

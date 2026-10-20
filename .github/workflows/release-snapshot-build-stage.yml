@@ -139,6 +139,7 @@ jobs:
       artifact-name: ${{ matrix.artifact.name }}
       enable-build-sbom: ${{ inputs.sboms != 'none' && contains(matrix.artifact.effective_sboms, 'build') }}
       runtime-image: ${{ inputs['runtime-image-node'] }}
+      node-version: ${{ matrix.artifact.npm.node_version || '' }}
   gradle:
     name: Build Gradle Snapshot - ${{ matrix.artifact.name }}
     if: ${{ fromJson(inputs['snapshot-build-stage-plan-json']).targets.gradle.runs }}

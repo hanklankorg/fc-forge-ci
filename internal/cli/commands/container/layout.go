@@ -21,7 +21,21 @@ import (
 const flagImageRef = "image-ref"
 
 func layoutGroup() *cli.Command {
-	return &cli.Command{Name: "layout", Usage: "record and publish OCI artifacts across a build/scan job barrier", Commands: []*cli.Command{layoutRecordCmd(), layoutPublishCmd()}}
+	return &cli.Command{Name: "layout", Usage: "record and publish OCI artifacts across a build/scan job barrier", Commands: []*cli.Command{layoutRecordCmd(), layoutPublishCmd(), layoutExtractFilesCmd()}}
+}
+
+func layoutExtractFilesCmd() *cli.Command {
+	return &cli.Command{
+		Name: "extract-files", Usage: "copy selected executables from the retained image filesystem without rebuilding",
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "layout-dir", Required: true, Usage: "verified single-image OCI layout directory"},
+			&cli.StringFlag{Name: "output-dir", Required: true, Usage: "directory receiving unique executable basenames; existing files are never overwritten"},
+			&cli.StringFlag{Name: "paths", Required: true, Sources: cli.EnvVars("EXTRACT_BINARY_PATHS"), Usage: "comma/space-separated regular-file paths inside the image"},
+		},
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			return appcontainer.ExtractLayoutFiles(ctx, ociregistry.NewAnonymous(), os.Stderr, cmd.String("layout-dir"), cmd.String("output-dir"), listval.Tokens(cmd.String("paths")))
+		},
+	}
 }
 
 func layoutIdentityFlags() []cli.Flag {

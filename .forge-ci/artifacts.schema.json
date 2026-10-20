@@ -160,8 +160,20 @@
                   "type": "array",
                   "items": { "type": "string" },
                   "description": "Expected binary filenames; the build fails if any are missing."
+                },
+                "paths": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 128,
+                  "uniqueItems": true,
+                  "items": { "type": "string", "minLength": 1 },
+                  "description": "Regular executable paths in the retained runtime image, copied without rebuilding. Output basenames must be unique. Mutually exclusive with target and names."
                 }
-              }
+              },
+              "allOf": [
+                { "not": { "required": ["paths", "target"] } },
+                { "not": { "required": ["paths", "names"] } }
+              ]
             }
           }
         }

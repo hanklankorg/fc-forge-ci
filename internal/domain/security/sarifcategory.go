@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // SetSARIFCategory stamps every run's `automationDetails.id` with the
@@ -20,9 +21,9 @@ import (
 //   - Empty category is a no-op (returns the body unchanged).
 //   - A run with a pre-existing non-empty id is left alone — a producer
 //     that already declared its analysis identity is authoritative.
-//   - With more than one run, the run index is appended (`<category>/<i>`)
-//     so the runs stay distinct within one document while still resolving
-//     to the same category prefix.
+//   - Generated ids end in `/`: GitHub interprets the final component as a
+//     run id and everything before the last slash as the analysis category.
+//   - Multiple runs use `<category>/<i>/`, retaining distinct category scopes.
 //
 // Operates on a generic `any` decoded by encoding/json, so every other
 // SARIF field is preserved untouched.
@@ -50,7 +51,7 @@ func SetSARIFCategory(body []byte, category string) ([]byte, error) {
 
 		id, _ := details["id"].(string)
 		if id != "" {
-			reserved[id] = true
+			reserved[sarifAnalysisCategory(id)] = true
 		}
 	}
 
@@ -66,25 +67,33 @@ func SetSARIFCategory(body []byte, category string) ([]byte, error) {
 		}
 
 		id := automationID(category, index, len(runs))
-		for suffix := 1; reserved[id]; suffix++ {
-			id = automationID(category, index, len(runs)) + "/" + strconv.Itoa(suffix)
+		for suffix := 1; reserved[sarifAnalysisCategory(id)]; suffix++ {
+			id = strings.TrimSuffix(automationID(category, index, len(runs)), "/") + "/" + strconv.Itoa(suffix) + "/"
 		}
 
 		setRunAutomationID(object, id)
-		reserved[id] = true
+		reserved[sarifAnalysisCategory(id)] = true
 	}
 
 	return json.Marshal(root)
 }
 
+func sarifAnalysisCategory(id string) string {
+	if slash := strings.LastIndexByte(id, '/'); slash >= 0 {
+		return id[:slash]
+	}
+	return ""
+}
+
 // automationID is the category for a single run, suffixed with the run
 // index only when a document carries more than one run.
 func automationID(category string, index, runCount int) string {
+	category = strings.TrimRight(category, "/")
 	if runCount > 1 {
-		return category + "/" + strconv.Itoa(index)
+		return category + "/" + strconv.Itoa(index) + "/"
 	}
 
-	return category
+	return category + "/"
 }
 
 // setRunAutomationID fills run.automationDetails.id unless the run already

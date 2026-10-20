@@ -143,6 +143,8 @@ jobs:
       artifact-name: ${{ matrix.artifact.name }}
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
       runtime-image: ${{ inputs['runtime-image-node'] }}
+      node-version: ${{ matrix.artifact.npm.node_version || '' }}
+      expect-version: ${{ inputs['release-tag'] }}
   gradle:
     name: "Build: ${{ matrix.artifact.name }} (Gradle)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.gradle.runs }}

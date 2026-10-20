@@ -140,6 +140,8 @@ jobs:
         with:
           name: ${{ inputs['artifact-name'] && format('{0}-build-artifacts', inputs['artifact-name']) || 'maven-build-artifacts' }}
           path: |
+            ${{ inputs['working-directory'] }}/pom.xml
+            ${{ inputs['working-directory'] }}/**/pom.xml
             ${{ inputs['working-directory'] }}/target/*.jar
             ${{ inputs['working-directory'] }}/target/*.war
             ${{ inputs['working-directory'] }}/target/*.pom

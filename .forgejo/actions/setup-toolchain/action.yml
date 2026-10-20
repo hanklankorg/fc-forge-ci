@@ -179,6 +179,7 @@ runs:
     - name: Validate mise install mode
       shell: bash
       env:
+        TOOLS_SUBSET: ${{ inputs.tools }}
         MISE_LOCKED_INSTALL: ${{ inputs.mise-locked }}
         MISE_GITHUB_TOKEN: ${{ inputs.mise-github-token }}
       run: |
@@ -191,6 +192,7 @@ runs:
         # shellcheck source=.forgejo/bin/lib-forge-ci.sh
         source "${GITHUB_ACTION_PATH}/../../bin/lib-forge-ci.sh"
         run_forge_ci toolchain validate-mise-install \
+          --tools "${TOOLS_SUBSET}" \
           --locked "${MISE_LOCKED_INSTALL:?}" \
           --github-token-present="${github_token_present}"
 

@@ -96,6 +96,7 @@ type ResolveAndroidBuildTasksInput struct {
 	BuildTypes  string // exact comma/whitespace-separated "debug" and/or "release" values
 	IncludeAAB  bool
 	BuildModule string // empty → "app"
+	RunTests    bool   // run the selected module's enabled local unit-test variants
 }
 
 // AndroidBuildTypeSet is the exact parsed Android variant selection.
@@ -104,7 +105,9 @@ type AndroidBuildTypeSet struct {
 	Release bool
 }
 
-// ResolveAndroidBuildTasks computes the gradle task list. Pure mirror.
+// ResolveAndroidBuildTasks computes artifact tasks and an optional module unit-
+// test aggregate. AGP may disable release unit-test variants, so do not invent
+// variant task names. The test aggregate does not select connected-device tests.
 func ResolveAndroidBuildTasks(in ResolveAndroidBuildTasksInput) (string, error) {
 	// The module is trimmed and defaulted, and a module containing whitespace
 	// is refused. The task list is a space-separated string that is later split
@@ -120,8 +123,12 @@ func ResolveAndroidBuildTasks(in ResolveAndroidBuildTasksInput) (string, error) 
 	}
 
 	flavorCap := capitalizeFirst(in.Flavor)
+	var parts []string
+	if in.RunTests {
+		parts = append(parts, module+":test")
+	}
 	if in.Library {
-		return module + ":assemble" + flavorCap + "Release", nil
+		return strings.Join(append(parts, module+":assemble"+flavorCap+"Release"), " "), nil
 	}
 
 	buildTypes, err := ParseAndroidBuildTypes(in.BuildTypes)
@@ -129,7 +136,6 @@ func ResolveAndroidBuildTasks(in ResolveAndroidBuildTasksInput) (string, error) 
 		return "", err
 	}
 
-	var parts []string
 	if buildTypes.Debug {
 		parts = append(parts, "assemble"+flavorCap+"Debug")
 	}

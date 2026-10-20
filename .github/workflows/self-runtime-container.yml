@@ -139,6 +139,7 @@ jobs:
               jq --version
               yq --version
               node --version
+              ldconfig -p | grep -F libatomic.so.1
               npm --version
               corepack --version
               forge-ci --version

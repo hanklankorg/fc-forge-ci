@@ -119,6 +119,7 @@ jobs:
           fi
           rc=0
           docker run --rm --pull never --user "$(id -u):$(id -g)" \
+            -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8 \
             --cap-drop ALL --security-opt no-new-privileges \
             --tmpfs /home/nanolinter:rw,exec,mode=1777 \
             -v "$GITHUB_WORKSPACE/src:/workspace" -v "$NL_OUT:/out" \
@@ -130,7 +131,7 @@ jobs:
             cat "$NL_OUT/step-summary.md" >>"$GITHUB_STEP_SUMMARY"
           fi
           if [ "$rc" -ne 0 ]; then
-            printf '::error::nanolinter found blocking lint issues — see the per-check summary above (this is a lint gate on your code, not a workflow error).\n'
+            printf '::error::nanolinter gate failed — see the per-check summary for findings or a tool/runtime failure.\n'
           fi
           exit "$rc"
       - name: Enrich nanolinter SARIF for GitHub dedupe

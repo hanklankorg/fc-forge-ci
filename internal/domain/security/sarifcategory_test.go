@@ -6,10 +6,49 @@ package security_test
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/diggsweden/forge-ci/internal/domain/security"
 )
+
+func TestSetSARIFCategory_ProducesActualGitHubCategoryComponents(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		body       string
+		categories []string
+	}{
+		{`{"runs":[{"tool":{}}]}`, []string{"repo/scan"}},
+		{`{"runs":[{"tool":{}},{"tool":{}}]}`, []string{"repo/scan/0", "repo/scan/1"}},
+	} {
+		body, err := security.SetSARIFCategory([]byte(test.body), "repo/scan")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for index, expected := range test.categories {
+			id := runID(t, body, index)
+			lastSlash := strings.LastIndexByte(id, '/')
+			category := ""
+			if lastSlash >= 0 {
+				category = id[:lastSlash]
+			}
+			if category != expected || !strings.HasSuffix(id, "/") {
+				t.Fatalf("automation id %q resolves to GitHub category %q, want %q", id, category, expected)
+			}
+		}
+	}
+}
+
+func TestSetSARIFCategory_DoesNotCollideWithAProducerCategoryHavingItsOwnRunID(t *testing.T) {
+	t.Parallel()
+	body, err := security.SetSARIFCategory([]byte(`{"runs":[{"automationDetails":{"id":"cat/1/2026-10-20"}},{"tool":{}}]}`), "cat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if producer, generated := runID(t, body, 0), runID(t, body, 1); producer != "cat/1/2026-10-20" || generated != "cat/1/1/" {
+		t.Fatalf("producer category was overwritten or collided: %s", body)
+	}
+}
 
 // runID parses a SARIF body and returns runs[i].automationDetails.id.
 func runID(t *testing.T, body []byte, i int) string {
@@ -41,8 +80,8 @@ func TestSetSARIFCategory_SingleRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := runID(t, out, 0); got != "trivy-image" {
-		t.Errorf("automationDetails.id = %q, want %q", got, "trivy-image")
+	if got := runID(t, out, 0); got != "trivy-image/" {
+		t.Errorf("automationDetails.id = %q, want %q", got, "trivy-image/")
 	}
 }
 
@@ -65,12 +104,12 @@ func TestSetSARIFCategory_DistinctCategoriesDoNotCollide(t *testing.T) {
 	// value, not merely different: Code Scanning keys the analysis on
 	// this string, so a consumer re-uploading under the same category
 	// has to produce the same id, which inequality alone cannot show.
-	if got := runID(t, image, 0); got != "scan-image" {
-		t.Errorf("image id = %q, want scan-image", got)
+	if got := runID(t, image, 0); got != "scan-image/" {
+		t.Errorf("image id = %q, want scan-image/", got)
 	}
 
-	if got := runID(t, repo, 0); got != "scan-repo" {
-		t.Errorf("repo id = %q, want scan-repo", got)
+	if got := runID(t, repo, 0); got != "scan-repo/" {
+		t.Errorf("repo id = %q, want scan-repo/", got)
 	}
 
 	// The input is shared between the two calls; neither may have
@@ -88,15 +127,13 @@ func TestSetSARIFCategory_MultiRunGetsDistinctIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The documented shape is <category>/<index>, and the shared prefix
-	// is the point: it keeps both runs resolving to one category while
-	// staying distinct analyses. Asserting only that they differ would
-	// accept ids that dropped the prefix entirely.
-	if got, want := runID(t, out, 0), "cat/0"; got != want {
+	// The final empty run-id component is required so GitHub sees distinct
+	// categories cat/0 and cat/1 rather than collapsing both into cat.
+	if got, want := runID(t, out, 0), "cat/0/"; got != want {
 		t.Errorf("run 0 id = %q, want %q", got, want)
 	}
 
-	if got, want := runID(t, out, 1), "cat/1"; got != want {
+	if got, want := runID(t, out, 1), "cat/1/"; got != want {
 		t.Errorf("run 1 id = %q, want %q", got, want)
 	}
 }

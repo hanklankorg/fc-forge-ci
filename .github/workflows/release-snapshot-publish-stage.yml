@@ -91,6 +91,8 @@ jobs:
       artifact-source: ${{ matrix.artifact.publication_artifact_name || matrix.artifact.build_artifact_name }}
       package-type: ${{ matrix.artifact.project_type }}
       java-version: ${{ matrix.artifact.maven.java_version || '25' }}
+      profile: ${{ matrix.artifact.project_type == 'maven' && matrix.artifact.build_type == 'library' && (matrix.artifact.maven.maven_profile || 'central-release') || '' }}
+      from-build: ${{ matrix.artifact.project_type == 'maven' && matrix.artifact.build_type == 'library' }}
       snapshot: true
       forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   maven-central:
@@ -201,7 +203,7 @@ jobs:
         id: artifact-sbom-layers
         env:
           SBOMS: ${{ inputs.sboms }}
-        run: forge-ci config expand-sboms --as comma --exclude analyzed-container "$SBOMS"
+        run: forge-ci config expand-sboms --as comma --exclude analyzed-container --value "$SBOMS"
       - name: Generate CISA-layer SBOMs (snapshot)
         if: ${{ steps.artifact-sbom-layers.outputs.has-layers == 'true' }}
         env:

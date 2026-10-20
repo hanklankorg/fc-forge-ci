@@ -17,6 +17,7 @@ import (
 // fakeNanolinter records its argv, one argument per line, and exits with
 // FAKE_NANOLINTER_STATUS.
 const fakeNanolinter = `#!/usr/bin/env bash
+test "${LANG:-}" = C.UTF-8 && test "${LC_ALL:-}" = C.UTF-8 || exit 97
 printf '%s\n' "$@" >"${FAKE_NANOLINTER_LOG:?}"
 exit "${FAKE_NANOLINTER_STATUS:-0}"
 `

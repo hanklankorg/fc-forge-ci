@@ -111,9 +111,18 @@ func TestVerifyBumpPatch_RefusesOversizedPatch(t *testing.T) {
 func TestBumpPatchFiles_OnlyVerifiedTypes(t *testing.T) {
 	t.Parallel()
 
-	for _, pt := range []projecttype.Type{projecttype.Go, projecttype.Cargo, projecttype.NPM} {
+	for _, pt := range []projecttype.Type{projecttype.Go, projecttype.Gradle, projecttype.GradleAndroid, projecttype.Meta, projecttype.XcodeIOS} {
 		_, ok := version.BumpPatchFiles(pt)
 		require.False(t, ok, pt)
+	}
+	for kind, expected := range map[projecttype.Type][]string{
+		projecttype.Maven: {"pom.xml"},
+		projecttype.NPM:   {"package.json", "package-lock.json", "npm-shrinkwrap.json"},
+		projecttype.Cargo: {"Cargo.toml", "Cargo.lock"},
+	} {
+		files, ok := version.BumpPatchFiles(kind)
+		require.True(t, ok, kind)
+		require.Equal(t, expected, files)
 	}
 }
 

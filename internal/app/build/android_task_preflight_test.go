@@ -43,9 +43,9 @@ func TestAndroidReleaseBuild_SelectedTaskPreflight(t *testing.T) { //nolint:goco
 		{"selected_override", "assembleRelease\x00blocked", "widget", true, true, nil},
 		{"selected_derived_module", "", "widget\x00", true, true, nil},
 		{"colon_override_words", " \t:widget:assembleRelease\nwidget:bundleRelease\r\n", "widget", true, false, []string{":widget:assembleRelease", "widget:bundleRelease"}},
-		{"blank_override_derives", " \t\n", "widget", true, false, []string{"assembleRelease", "widget:bundleRelease"}},
+		{"blank_override_derives", " \t\n", "widget", true, false, []string{"widget:test", "assembleRelease", "widget:bundleRelease"}},
 		{"override_ignores_unused_fields", ":widget:assembleRelease", "widget\x00", true, false, []string{":widget:assembleRelease"}},
-		{"no_bundle_ignores_module", "", "widget\x00", false, false, []string{"assembleRelease"}},
+		{"unit_tests_use_module_without_bundle", "", "widget\x00", false, true, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fsys := testfs.NewReal(t)

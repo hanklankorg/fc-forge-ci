@@ -66,9 +66,9 @@ spec:
       options: [none, public]
     version-bump:
       description: >-
-        Project type whose project files the signed release commit bumps to the release version: maven, or empty (the default) for no bump. A job that holds no credential runs the project's build tool in job-image and hands over the patch; release-prepare only verifies it as text and applies it, the way the Forgejo layer's version-bump does.
+        Project type whose project files the signed release commit bumps to the release version: maven, npm, cargo, or empty (the default) for no bump. A job that holds no release credential runs the project's build tool in job-image and hands over the patch; release-prepare verifies it as data and applies it, without running project code. npm/Cargo lockfiles must remain consistent and other document fields cannot change.
       default: ''
-      options: ['', maven]
+      options: ['', maven, npm, cargo]
     release-branch:
       description: >-
         Branch a release lands on. The release request must be its head, and the release commit is pushed to it. Empty, the default, takes the project's default branch.

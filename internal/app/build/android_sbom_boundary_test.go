@@ -241,7 +241,7 @@ func TestAndroidReleaseBuild_IntegratedArtifactNames(t *testing.T) {
 				})
 				require.NoError(t, err)
 				require.Len(t, ops.calls, 1)
-				require.Equal(t, []string{"assembleDemoFreeRelease", "application:bundleDemoFreeRelease"}, ops.calls[0].Args)
+				require.Equal(t, []string{"application:test", "assembleDemoFreeRelease", "application:bundleDemoFreeRelease"}, ops.calls[0].Args)
 				require.Equal(t, testCase.want, sink.AllScalar())
 			})
 		})

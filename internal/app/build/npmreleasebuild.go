@@ -40,6 +40,8 @@ type NPMReleaseBuildInput struct {
 	SBOMToolVersion string
 	// NodeVersion is reported in the build summary only.
 	NodeVersion string
+	// ExpectVersion binds a release build to the already committed version.
+	ExpectVersion string
 }
 
 const npmEcosystem = "npm"
@@ -84,6 +86,9 @@ func NPMReleaseBuild(ctx context.Context, summarySink ci.SummarySink, npmRunner,
 	if err != nil {
 		return err
 	}
+	if expected := strings.TrimPrefix(in.ExpectVersion, "v"); expected != "" && meta.Version != expected {
+		return fmt.Errorf("package.json declares version %q, but the release requires %q; the release commit must already carry that version: %w", meta.Version, expected, errs.ErrValidation)
+	}
 
 	if npmScopeMismatch(meta.Name, in.PackageScope) {
 		annot.Errorf("package.json name must be scoped as %s/<pkg>", in.PackageScope)
@@ -109,12 +114,19 @@ func NPMReleaseBuild(ctx context.Context, summarySink ci.SummarySink, npmRunner,
 		return fmt.Errorf("npm ci: %w", err)
 	}
 
+	testsSkipped := in.SkipTests
 	if !in.SkipTests {
-		// Soft, matching the workflow's `npm test || warn`: a missing/failing
-		// test script warns but does not fail the release build (tests are the
-		// PR quality stage's gate). Preserved deliberately on consolidation.
-		if err := npmRunner.RunInherit(ctx, dir, w, stderr, "test"); err != nil {
-			annot.Warningf("npm test failed or no tests configured (continuing): %v", err)
+		hasTests, err := npmHasScript(dir, "test")
+		if err != nil {
+			return fmt.Errorf("read npm test script: %w", err)
+		}
+		if hasTests {
+			if err := npmRunner.RunInherit(ctx, dir, w, stderr, "test"); err != nil {
+				return fmt.Errorf("npm test: %w", err)
+			}
+		} else {
+			testsSkipped = true
+			_, _ = fmt.Fprintln(w, "No test script in package.json; tests not run")
 		}
 	}
 
@@ -135,7 +147,7 @@ func NPMReleaseBuild(ctx context.Context, summarySink ci.SummarySink, npmRunner,
 		PackageName: meta.Name,
 		Version:     meta.Version,
 		NodeVersion: in.NodeVersion,
-		SkipTests:   in.SkipTests,
+		SkipTests:   testsSkipped,
 	}); err != nil {
 		return fmt.Errorf("write build summary: %w", err)
 	}

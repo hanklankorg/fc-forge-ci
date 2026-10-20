@@ -12,13 +12,13 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install-common.sh"
 
 # renovate: datasource=github-releases depName=aquasecurity/trivy
-readonly TRIVY_VERSION="v0.69.3"
+readonly TRIVY_VERSION="v0.76.0"
 # Archive hashes are independently pinned here rather than downloaded beside
-# the archive. Source: the upstream v0.69.3 release checksums asset.
-readonly TRIVY_SHA256_LINUX_AMD64="1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75"
-readonly TRIVY_SHA256_LINUX_ARM64="7e3924a974e912e57b4a99f65ece7931f8079584dae12eb7845024f97087bdfd"
-readonly TRIVY_SHA256_DARWIN_AMD64="fec4a9f7569b624dd9d044fca019e5da69e032700edbb1d7318972c448ec2f4e"
-readonly TRIVY_SHA256_DARWIN_ARM64="a2f2179afd4f8bb265ca3c7aefb56a666bc4a9a411663bc0f22c3549fbc643a5"
+# the archive. Source: the upstream v0.76.0 release checksums asset.
+readonly TRIVY_SHA256_LINUX_AMD64="e24b1c51293c1b15e4ba8d45bbc7891ba053f90278ec2698f3562c993e145fe7"
+readonly TRIVY_SHA256_LINUX_ARM64="aab21e677a7b7071fc79f1711480840754c18a1b9d9cefa7ccd06af63a0e8f4c"
+readonly TRIVY_SHA256_DARWIN_AMD64="89563d4d495cf4ef06a0d1950f8710b124e9f7bd2615ec6c47b03673f4ad45a2"
+readonly TRIVY_SHA256_DARWIN_ARM64="e7ec0d21fe842553f59af99aba2efbcc822369fbaed27019c575408b6d135fce"
 
 install_trivy() {
 	if command -v trivy &>/dev/null; then

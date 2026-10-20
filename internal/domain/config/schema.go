@@ -241,4 +241,5 @@ type ContainerExtract struct {
 type ContainerExtractBinary struct {
 	Target string   `yaml:"target,omitempty"`
 	Names  []string `yaml:"names,omitempty"`
+	Paths  []string `yaml:"paths,omitempty"`
 }

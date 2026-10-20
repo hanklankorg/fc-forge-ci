@@ -28,7 +28,7 @@ func TestUploadBoundary_RedactsSuppliedTokenAndPreservesCategory(t *testing.T) {
 	const token = "INVENTED_BOUNDARY_TOKEN"
 
 	fsys := testfs.NewReal(t)
-	body := `{"version":"2.1.0","runs":[{"automationDetails":{"id":"scan/1"},"results":[{"ruleId":"FIRST"}]},{"results":[{"ruleId":"SECOND"}]}]}`
+	body := `{"version":"2.1.0","runs":[{"automationDetails":{"id":"scan/1/"},"results":[{"ruleId":"FIRST"}]},{"results":[{"ruleId":"SECOND"}]}]}`
 	path := fsys.WriteFile("report.sarif", []byte(body))
 
 	for _, fail := range []bool{false, true} {
@@ -72,7 +72,7 @@ func TestUploadBoundary_RedactsSuppliedTokenAndPreservesCategory(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if len(doc.Runs) != 2 || doc.Runs[0].Automation.ID != "scan/1" || doc.Runs[1].Automation.ID != "scan/1/1" || doc.Runs[0].Results[0].RuleID != "FIRST" || doc.Runs[1].Results[0].RuleID != "SECOND" {
+		if len(doc.Runs) != 2 || doc.Runs[0].Automation.ID != "scan/1/" || doc.Runs[1].Automation.ID != "scan/1/1/" || doc.Runs[0].Results[0].RuleID != "FIRST" || doc.Runs[1].Results[0].RuleID != "SECOND" {
 			t.Fatalf("analysis identity=%+v", doc)
 		}
 

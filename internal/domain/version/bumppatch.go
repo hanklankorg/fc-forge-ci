@@ -31,6 +31,10 @@ func BumpPatchFiles(pt projecttype.Type) ([]string, bool) {
 	switch pt { //nolint:exhaustive // only the types with a verified isolated bump are listed.
 	case projecttype.Maven:
 		return []string{"pom.xml"}, true
+	case projecttype.NPM:
+		return []string{"package.json", "package-lock.json", "npm-shrinkwrap.json"}, true
+	case projecttype.Cargo:
+		return []string{"Cargo.toml", "Cargo.lock"}, true
 	default:
 		return nil, false
 	}

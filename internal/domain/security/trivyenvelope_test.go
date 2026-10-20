@@ -37,7 +37,9 @@ import (
 // verifiedTrivyVersion is the version whose native output the consumed field
 // inventory below was checked against. Bumping trivy in .mise.toml without
 // updating this fails TestTrivyEnvelope_IsPinnedToTheVerifiedVersion.
-const verifiedTrivyVersion = "0.74.0"
+// Verified with actual 0.76.0 scans of the Java service and its runtime bases.
+// PkgPath identifies nested JARs when Results.Target is only "Java".
+const verifiedTrivyVersion = "0.76.0"
 
 // consumedTrivyFields is every key the transforms read, by JSON path. Adding a
 // field to a struct in trivy.go without adding it here fails, so the inventory
@@ -57,6 +59,7 @@ func consumedTrivyFields() []string {
 		"Results.Vulnerabilities.FixedVersion",
 		"Results.Vulnerabilities.InstalledVersion",
 		"Results.Vulnerabilities.PkgName",
+		"Results.Vulnerabilities.PkgPath",
 		"Results.Vulnerabilities.PrimaryURL",
 		"Results.Vulnerabilities.References",
 		"Results.Vulnerabilities.Severity",

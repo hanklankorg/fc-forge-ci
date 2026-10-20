@@ -201,6 +201,9 @@ func ScanContainer(
 
 	msg := fmt.Sprintf("Found %d blocking container %s at severity %s or above", len(blocking),
 		plural(len(blocking), "vulnerability", "vulnerabilities"), severity)
+	_, _ = fmt.Fprintf(out, "Scan report: %s\n", jsonPath)
+	_, _ = fmt.Fprintln(out, "Next: update the affected dependency or pinned base image, rebuild, and rerun the scan before publishing or promoting.")
+	_, _ = fmt.Fprintf(out, "If a fix cannot be deployed, request a reviewed CVE-specific exception in %s with a reason and expiry; the gate remains blocked until that review is applied.\n", cmp.Or(ignoreFile, defaultIgnoreFile))
 	annot.Errorf("%s", msg)
 	// Domain rule failure (scan threshold exceeded) — wrap so the CLI
 	// exits with ExitCodeValidation (1), not ExitCodeSoftware (70).
@@ -247,6 +250,12 @@ func printFindings(out io.Writer, blocking, reported []security.TrivyFinding, ig
 			}
 
 			_, _ = fmt.Fprintf(out, "   %-8s  %-20s  %s %s  (%s)\n", finding.Severity, finding.ID, finding.Package, finding.Installed, reason)
+			if finding.Target != "" {
+				_, _ = fmt.Fprintf(out, "     Affected target: %q\n", finding.Target)
+			}
+		}
+		if slices.ContainsFunc(blocking, func(finding security.TrivyFinding) bool { return finding.Package == "stdlib" }) {
+			_, _ = fmt.Fprintln(out, "Go stdlib findings identify an embedded runtime: for each affected target, rebuild that binary with a fixed Go toolchain, or update the base image that supplies it. Updating the scanner does not fix the binary.")
 		}
 
 		_, _ = fmt.Fprintln(out)
@@ -286,7 +295,7 @@ func runTrivyContainerScan(ctx context.Context, trivy TrivyOps, out, stderr io.W
 		"--format", "json",
 		"--output", jsonPath,
 		"--severity", severity,
-		"--vuln-type", "os,library",
+		"--pkg-types", "os,library",
 		"--exit-code", "0",
 	}
 	if ignoreFile != "" {

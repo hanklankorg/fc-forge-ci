@@ -117,7 +117,8 @@ func TestScanContainer_FailsWhenFindingsAtThreshold(t *testing.T) {
 
 	trivy := &recordingTrivy{writeJSON: body}
 
-	err := appsecurity.ScanContainer(context.Background(), trivy, &bytes.Buffer{}, &bytes.Buffer{}, output.Annotator{}, appsecurity.ScanContainerInput{
+	var log bytes.Buffer
+	err := appsecurity.ScanContainer(context.Background(), trivy, &log, &bytes.Buffer{}, output.Annotator{}, appsecurity.ScanContainerInput{
 		ImageRef:         "ghcr.io/example/img@sha256:deadbeef",
 		JSONFile:         jsonPath,
 		SARIFFile:        sarifPath,
@@ -135,6 +136,11 @@ func TestScanContainer_FailsWhenFindingsAtThreshold(t *testing.T) {
 	if !strings.Contains(err.Error(), "1 blocking container vulnerability") {
 		t.Errorf("err message should mention finding count: %v", err)
 	}
+	for _, want := range []string{`Affected target: "alpine"`, "fixed in 3.0.1", "Scan report: " + jsonPath, "rebuild, and rerun the scan", "reason and expiry"} {
+		if !strings.Contains(log.String(), want) {
+			t.Errorf("scan log missing remediation %q: %s", want, log.String())
+		}
+	}
 
 	// SARIF + GitLab reports must be present so the failure is visible
 	// in Code Scanning + GitLab. The pipeline rejects the artifact, but
@@ -145,6 +151,31 @@ func TestScanContainer_FailsWhenFindingsAtThreshold(t *testing.T) {
 
 	if _, statErr := os.Stat(glPath); statErr != nil {
 		t.Errorf("GitLab report should be written even when gate fails: %v", statErr)
+	}
+}
+
+func TestScanContainer_IdentifiesEmbeddedGoRuntime(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	var log bytes.Buffer
+	trivy := &recordingTrivy{writeJSON: []byte(`{"Results":[{
+		"Target":"usr/bin/pebble","Type":"gobinary","Vulnerabilities":[{
+			"VulnerabilityID":"CVE-2026-78667","PkgName":"stdlib",
+			"InstalledVersion":"v1.27.1","FixedVersion":"1.27.2","Severity":"HIGH"
+		}]}]}`)}
+	err := appsecurity.ScanContainer(t.Context(), trivy, &log, io.Discard, output.Annotator{}, appsecurity.ScanContainerInput{
+		ImageRef:         "registry.example/java@sha256:fixture",
+		JSONFile:         filepath.Join(dir, "trivy.json"),
+		SARIFFile:        filepath.Join(dir, "trivy.sarif"),
+		GitLabReportFile: filepath.Join(dir, "gitlab.json"),
+	})
+	if !errors.Is(err, errs.ErrValidation) {
+		t.Fatalf("expected blocking finding, got %v", err)
+	}
+	for _, want := range []string{`Affected target: "usr/bin/pebble"`, "fixed in 1.27.2", "rebuild that binary", "Updating the scanner does not fix the binary"} {
+		if !strings.Contains(log.String(), want) {
+			t.Errorf("missing %q in scan guidance: %s", want, log.String())
+		}
 	}
 }
 
@@ -268,7 +299,7 @@ func TestScanContainer_ImageScanArgsCarryThresholdAndExitZero(t *testing.T) {
 		"--format", "json",
 		"--output", privateOutput,
 		"--severity", "CRITICAL",
-		"--vuln-type", "os,library",
+		"--pkg-types", "os,library",
 		"--exit-code", "0",
 		"ghcr.io/example/img@sha256:deadbeef",
 	}

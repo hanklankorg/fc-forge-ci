@@ -96,6 +96,40 @@ func TestValidateMiseInstall_RejectsInvalidLockedValue(t *testing.T) {
 	}
 }
 
+func TestValidateMiseInstall_SubsetChecksOnlyItsBackendRequirements(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeToolchainFile(t, root, "mise.lock", "locked\n")
+	writeToolchainFile(t, root, ".mise.toml", `[tools]
+java = "temurin-25.0.4+7.0.LTS"
+maven = "3.9.16"
+"aqua:aquasecurity/trivy" = "0.76.0"
+"pipx:reuse" = "6.2.0"
+`)
+	for _, tc := range []struct {
+		tools string
+		want  error
+	}{
+		{"java maven aqua:aquasecurity/trivy", nil},
+		{"", errs.ErrValidation},
+		{"pipx:reuse", errs.ErrValidation},
+		{"java java", errs.ErrUsage},
+		{"missing", errs.ErrUsage},
+		{"--all", errs.ErrUsage},
+	} {
+		t.Run(tc.tools, func(t *testing.T) {
+			err := toolchain.ValidateMiseInstall(toolchain.ValidateMiseInstallInput{Root: root, Locked: "true", Tools: tc.tools})
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("selection %q: got %v, want %v", tc.tools, err, tc.want)
+			}
+		})
+	}
+	writeToolchainFile(t, root, ".mise.toml", "[tools]\nuv = \"0.9.0\"\n\"pipx:reuse\" = \"6.2.0\"\n")
+	if err := toolchain.ValidateMiseInstall(toolchain.ValidateMiseInstallInput{Root: root, Locked: "true", Tools: "pipx:reuse"}); err != nil {
+		t.Fatalf("selected backend with declared runtime must pass: %v", err)
+	}
+}
+
 func writeToolchainFile(t *testing.T, root, rel, body string) {
 	t.Helper()
 

@@ -122,7 +122,7 @@ on:
         default: ""
         type: string
       skip-tests:
-        description: "Skip tests during build"
+        description: "Skip the module's enabled unit tests in the default build. Explicit gradle-tasks overrides control their own test selection."
         required: false
         default: false
         type: boolean

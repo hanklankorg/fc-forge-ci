@@ -127,6 +127,9 @@ func preflightBinaryNames(root *os.Root, names []string, arch string) error {
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("binary %s is not a regular file: %w", name, errs.ErrValidation)
 		}
+		if info.Size() == 0 {
+			return fmt.Errorf("binary %s is empty: %w", name, errs.ErrValidation)
+		}
 
 		if _, destErr := root.Lstat(name + "-linux-" + arch); !errors.Is(destErr, os.ErrNotExist) {
 			return fmt.Errorf("binary destination already exists or cannot be inspected: %s: %w", name, errs.ErrValidation)

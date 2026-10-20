@@ -636,7 +636,7 @@ func TestAndroidReleaseBuild_PathRefusals(t *testing.T) { //nolint:gocognit // o
 }
 
 func TestAndroidReleaseBuild_OptionalControls(t *testing.T) { //nolint:gocognit // contrasting signed, unsigned and fallback controls share one lifecycle oracle.
-	for _, name := range []string{"unsigned", "existing_properties", "signed_without_properties", "fallback", "fallback_alias", "default_dir_module", "debug_aab"} {
+	for _, name := range []string{"unsigned", "existing_properties", "signed_without_properties", "fallback", "fallback_alias", "default_dir_module", "debug_aab", "skip_tests"} {
 		t.Run(name, func(t *testing.T) {
 			testenv.New(t)
 			fsys := testfs.NewReal(t)
@@ -656,17 +656,20 @@ func TestAndroidReleaseBuild_OptionalControls(t *testing.T) { //nolint:gocognit 
 				ReleaseBuildOptions: appbuild.ReleaseBuildOptions{Dir: "project"}, RepoName: "mobile", ProductFlavor: "demoFree", BuildModule: "widget", BuildTypes: "release,debug", IncludeAAB: true,
 				EnableSigning: true, KeystoreBase64: "aw==", KeystorePassword: " \t\n", KeyAlias: " alias ", KeyPassword: "\r\n ", TempDir: fsys.MkdirAll("scratch"),
 			}
-			wantArgs := []string{"assembleDemoFreeDebug", "assembleDemoFreeRelease", "widget:bundleDemoFreeRelease"}
+			wantArgs := []string{"widget:test", "assembleDemoFreeDebug", "assembleDemoFreeRelease", "widget:bundleDemoFreeRelease"}
 
 			switch name {
 			case "default_dir_module":
 				t.Chdir(fsys.Path("project"))
 
 				in.Dir, in.BuildModule = "", ""
-				wantArgs[2] = "app:bundleDemoFreeRelease"
+				wantArgs = []string{"app:test", "assembleDemoFreeDebug", "assembleDemoFreeRelease", "app:bundleDemoFreeRelease"}
 			case "debug_aab":
 				in.BuildTypes = "debug"
-				wantArgs = []string{"assembleDemoFreeDebug"}
+				wantArgs = []string{"widget:test", "assembleDemoFreeDebug"}
+			case "skip_tests":
+				in.SkipTests = true
+				wantArgs = []string{"assembleDemoFreeDebug", "assembleDemoFreeRelease", "widget:bundleDemoFreeRelease", "-x", "test"}
 			}
 
 			if name == "fallback" || name == "fallback_alias" {

@@ -426,7 +426,7 @@ func newReleaseArtifactTransferPlan(configPlan ConfigPlan, policy ReleasePolicy)
 	}
 
 	for _, container := range configPlan.Containers.All {
-		if container.ExtractBinaryTarget == "" {
+		if container.ExtractBinaryTarget == "" && len(container.ExtractBinaryPaths) == 0 {
 			continue
 		}
 

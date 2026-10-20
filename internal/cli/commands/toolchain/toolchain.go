@@ -342,6 +342,7 @@ requires a committed mise.lock, unlocked repositories with mise config require t
 caller to confirm a GitHub rate-limit token is present, and locked backend tools
 must pin their runtime (uv for pipx, go for go, rust or rustup+rust-toolchain for cargo).`,
 		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "tools", Sources: cli.EnvVars("TOOLS_SUBSET"), Usage: "whitespace-separated tool subset to validate; empty validates all declared tools"},
 			&cli.StringFlag{Name: flagMiseRoot, Value: ".", Sources: cli.EnvVars("MISE_PROJECT_ROOT"), Usage: usageMiseRoot},
 			&cli.StringFlag{Name: flagLocked, Value: lockedDefault, Sources: cli.EnvVars("MISE_LOCKED_INSTALL"), Usage: "whether mise install will run in locked mode: true|false"},
 			&cli.BoolFlag{Name: "github-token-present", Sources: cli.EnvVars("MISE_GITHUB_TOKEN_PRESENT"), Usage: "whether the caller has a GitHub rate-limit token; pass presence only, never the token"},
@@ -351,6 +352,7 @@ must pin their runtime (uv for pipx, go for go, rust or rustup+rust-toolchain fo
 				Root:               cmd.String(flagMiseRoot),
 				Locked:             cmd.String(flagLocked),
 				GithubTokenPresent: cmd.Bool("github-token-present"),
+				Tools:              cmd.String("tools"),
 			})
 		},
 	}

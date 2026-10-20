@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -54,7 +55,16 @@ type builtEngine struct {
 //nolint:gochecknoglobals // one build per architecture shared by every test of the package; TestMain removes them.
 var engines = map[string]*builtEngine{"amd64": {}, "arm64": {}}
 
+//nolint:gochecknoglobals // captured before process isolation; only compiler subprocesses receive it.
+var engineBuildEnv []string
+
 func TestMain(m *testing.M) {
+	var err error
+	engineBuildEnv, err = captureEngineBuildEnv()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "forgejobehavior: prepare compiler inputs: %v\n", err)
+		os.Exit(1)
+	}
 	// The layer's shell and the engine run the developer's git, which would
 	// otherwise read ~/.gitconfig: commit signing with a locked key, global
 	// hooks, prefixes. The whole process is isolated, as isolatedgit does.
@@ -77,6 +87,36 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// Resolve the installed compiler and caches while HOME still names the caller.
+// As in the CLI smoke harness, these are build inputs, not product environment.
+func captureEngineBuildEnv() ([]string, error) {
+	name := os.Getenv("GO")
+	if name == "" {
+		name = "go"
+	}
+	compiler, err := exec.LookPath(name)
+	if err != nil {
+		return nil, fmt.Errorf("find Go compiler: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	query := exec.CommandContext(ctx, compiler, "env", "-json", "GOMODCACHE", "GOCACHE") //nolint:gosec // installed compiler, metadata-only arguments.
+	query.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+	body, err := query.Output()
+	if err != nil {
+		return nil, fmt.Errorf("read Go cache locations: %w", err)
+	}
+	var caches struct {
+		Modules string `json:"GOMODCACHE"`
+		Build   string `json:"GOCACHE"`
+	}
+	if err := json.Unmarshal(body, &caches); err != nil {
+		return nil, fmt.Errorf("decode Go cache locations: %w", err)
+	}
+	return []string{"GO=" + compiler, "GOMODCACHE=" + caches.Modules, "GOCACHE=" + caches.Build,
+		"GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off"}, nil
+}
+
 // script runs binaryScript and returns its standard output. The script gets
 // the variables it reads and no others, so what it builds does not depend on
 // the shell the tests were started from.
@@ -87,9 +127,9 @@ func script(ctx context.Context, root string, arguments ...string) (string, erro
 	command.Dir = root
 	command.Stdout, command.Stderr = &stdout, &stderr
 
-	command.Env = []string{}
+	command.Env = append([]string{}, engineBuildEnv...)
 
-	for _, name := range []string{"PATH", "HOME", "GO", "GOPATH", "GOMODCACHE", "GOCACHE"} {
+	for _, name := range []string{"PATH", "HOME"} {
 		if value, set := os.LookupEnv(name); set {
 			command.Env = append(command.Env, name+"="+value)
 		}

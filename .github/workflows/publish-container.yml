@@ -206,6 +206,11 @@ on:
         required: false
         default: ""
         type: string
+      extract-binary-paths:
+        description: "Comma-separated regular executable paths in the retained runtime image. Copies the scanned image bytes without rebuilding. Requires push-image=true; mutually exclusive with extract-binary-target."
+        required: false
+        default: ""
+        type: string
       build-secrets:
         description: |
           Newline/comma/space-separated list of Containerfile secret NAMES
@@ -363,6 +368,16 @@ jobs:
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: ${{ inputs.egress-policy }}
+      - name: Validate binary extraction mode
+        env:
+          EXTRACT_TARGET: ${{ inputs['extract-binary-target'] }}
+          EXTRACT_PATHS: ${{ inputs['extract-binary-paths'] }}
+          PUSH_IMAGE: ${{ inputs['push-image'] }}
+        run: |
+          if [[ -n "$EXTRACT_PATHS" && ( -n "$EXTRACT_TARGET" || "$PUSH_IMAGE" != true ) ]]; then
+            printf 'image-path extraction requires the retained OCI build and cannot also select an export target\n' >&2
+            exit 78
+          fi
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -809,6 +824,11 @@ jobs:
           BUILD_ARGS: ${{ inputs['build-args'] }}
           BUILD_SECRETS: ${{ steps['build-secrets'].outputs['secret-mounts'] }}
         run: forge-ci container build
+      - name: Extract binaries from retained image filesystem
+        if: ${{ inputs['extract-binary-paths'] != '' }}
+        env:
+          EXTRACT_BINARY_PATHS: ${{ inputs['extract-binary-paths'] }}
+        run: forge-ci container layout extract-files --layout-dir "$RUNNER_TEMP/image-layout" --output-dir ./extracted-binaries
       - name: Remove materialized build secrets
         if: ${{ always() }}
         env:
@@ -823,7 +843,7 @@ jobs:
       # release-asset naming (e.g., hsm-worker-linux-amd64,
       # hsm-worker-linux-arm64).
       - name: Suffix extracted binaries with arch
-        if: ${{ inputs['extract-binary-target'] != '' }}
+        if: ${{ inputs['extract-binary-target'] != '' || inputs['extract-binary-paths'] != '' }}
         env:
           SUFFIX: ${{ steps.arch.outputs.suffix }}
           EXPECTED_NAMES: ${{ inputs['extract-binary-names'] }}
@@ -833,7 +853,7 @@ jobs:
             --arch "$SUFFIX" \
             --expected-names "$EXPECTED_NAMES"
       - name: Upload extracted binaries${{ inputs.name && format(' ({0})', inputs.name) || '' }}
-        if: ${{ inputs['extract-binary-target'] != '' }}
+        if: ${{ inputs['extract-binary-target'] != '' || inputs['extract-binary-paths'] != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.name != '' && format('{0}-binaries-{1}', inputs.name, steps.arch.outputs.suffix) || format('container-binaries-{0}', steps.arch.outputs.suffix) }}
@@ -841,11 +861,11 @@ jobs:
           retention-days: "30"
           if-no-files-found: error
       - name: Write binary extraction summary
-        if: ${{ inputs['extract-binary-target'] != '' }}
+        if: ${{ inputs['extract-binary-target'] != '' || inputs['extract-binary-paths'] != '' }}
         env:
           ARTIFACT_NAME: ${{ inputs.name != '' && format('{0}-binaries-{1}', inputs.name, steps.arch.outputs.suffix) || format('container-binaries-{0}', steps.arch.outputs.suffix) }}
           DISPLAY_NAME: ${{ inputs.name || 'container' }}
-          EXTRACT_TARGET: ${{ inputs['extract-binary-target'] }}
+          EXTRACT_TARGET: ${{ inputs['extract-binary-paths'] != '' && 'retained image filesystem' || inputs['extract-binary-target'] }}
           EXPECTED_NAMES: ${{ inputs['extract-binary-names'] }}
           PLATFORM: ${{ matrix.platform }}
         run: forge-ci report extracted-binaries

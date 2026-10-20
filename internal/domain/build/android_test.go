@@ -163,6 +163,21 @@ func TestResolveAndroidBuildTasks_BuildsTaskListFromTypesAndFlavor(t *testing.T)
 			want: "assembleDebug assembleRelease app:bundleRelease",
 		},
 		{
+			name: "unit tests run once for the selected module",
+			in:   build.ResolveAndroidBuildTasksInput{Flavor: "demo", BuildTypes: "debug,release", IncludeAAB: true, BuildModule: "client", RunTests: true},
+			want: "client:test assembleDemoDebug assembleDemoRelease client:bundleDemoRelease",
+		},
+		{
+			name: "release uses enabled unit tests without assuming a release test variant",
+			in:   build.ResolveAndroidBuildTasksInput{Flavor: "demo", BuildTypes: "release", RunTests: true},
+			want: "app:test assembleDemoRelease",
+		},
+		{
+			name: "library release includes its unit tests",
+			in:   build.ResolveAndroidBuildTasksInput{Library: true, Flavor: "demo", BuildModule: "library", RunTests: true},
+			want: "library:test library:assembleDemoRelease",
+		},
+		{
 			name: "release-only with flavor and AAB",
 			in:   build.ResolveAndroidBuildTasksInput{Flavor: "fdroid", BuildTypes: "release", IncludeAAB: true, BuildModule: "app"},
 			want: "assembleFdroidRelease app:bundleFdroidRelease",

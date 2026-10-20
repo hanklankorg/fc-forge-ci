@@ -30,6 +30,30 @@ func TestValidate_HappyPath(t *testing.T) {
 	}
 }
 
+func TestValidate_ImagePathExtractionHasOneUnambiguousSource(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		binary config.ContainerExtractBinary
+		valid  bool
+	}{
+		{"runtime paths", config.ContainerExtractBinary{Paths: []string{"/worker", "/usr/local/bin/keytool"}}, true},
+		{"mixed source modes", config.ContainerExtractBinary{Target: "export", Paths: []string{"/worker"}}, false},
+		{"mixed naming modes", config.ContainerExtractBinary{Names: []string{"worker"}, Paths: []string{"/worker"}}, false},
+		{"duplicate output", config.ContainerExtractBinary{Paths: []string{"/bin/worker", "/sbin/worker"}}, false},
+		{"escape", config.ContainerExtractBinary{Paths: []string{"../worker"}}, false},
+		{"empty paths", config.ContainerExtractBinary{Paths: []string{}}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{Artifacts: []config.Artifact{{Name: "source", ProjectType: projecttype.Meta}}, Containers: []config.Container{{Name: "runtime", Extract: &config.ContainerExtract{Binary: &test.binary}}}}
+			if err := config.Validate(cfg); (err == nil) != test.valid {
+				t.Fatalf("valid=%v error=%v", test.valid, err)
+			}
+		})
+	}
+}
+
 func TestValidate_RejectsInvalidPublishTarget(t *testing.T) {
 	t.Parallel()
 

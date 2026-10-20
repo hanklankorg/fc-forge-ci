@@ -115,9 +115,11 @@ spec:
       require_args=()
       [ -n "$REQUIRED_LINTS" ] && require_args=(--require "$REQUIRED_LINTS")
       gate=0
-      nanolinter verify "${require_args[@]}" --report sarif-security --out "$SARIF_FILE" || gate=$?
+      # Bundled Python scanners read repository text using the process locale.
+      # GitLab's bare job environment may otherwise select ASCII.
+      LANG=C.UTF-8 LC_ALL=C.UTF-8 nanolinter verify "${require_args[@]}" --report sarif-security --out "$SARIF_FILE" || gate=$?
       if [ "$gate" -ne 0 ]; then
-        echo "nanolinter found blocking lint issues — see the per-check output above (a lint gate on your code, not a pipeline error)."
+        echo "nanolinter gate failed — see the per-check output for findings or a tool/runtime failure."
       fi
 
       # --- SARIF -> GitLab SAST --------------------------------------------

@@ -240,7 +240,7 @@ func androidReleaseTasks(in AndroidReleaseBuildInput) (string, error) {
 	if tasks == "" {
 		var err error
 
-		tasks, err = build.ResolveAndroidBuildTasks(build.ResolveAndroidBuildTasksInput{Library: in.Library, Flavor: in.ProductFlavor, BuildTypes: in.BuildTypes, IncludeAAB: in.IncludeAAB, BuildModule: in.BuildModule})
+		tasks, err = build.ResolveAndroidBuildTasks(build.ResolveAndroidBuildTasksInput{Library: in.Library, Flavor: in.ProductFlavor, BuildTypes: in.BuildTypes, IncludeAAB: in.IncludeAAB, BuildModule: in.BuildModule, RunTests: !in.SkipTests})
 		if err != nil {
 			return "", fmt.Errorf("resolve Android build tasks: %w", err)
 		}

@@ -196,7 +196,7 @@ func TestUploadSARIF_StampsEachRunAndLeavesTheFile(t *testing.T) {
 	require.Len(t, calls, 1)
 
 	want := decodeSARIFTree(t, []byte(`{"version":"2.1.0","runs":[
-{"tool":{"driver":{"name":"trivy"}},"properties":{"rank":123456789012345678901234567890},"automationDetails":{"id":"deps/0"}},
+{"tool":{"driver":{"name":"trivy"}},"properties":{"rank":123456789012345678901234567890},"automationDetails":{"id":"deps/0/"}},
 {"tool":{"driver":{"name":"opengrep"}},"automationDetails":{"id":"producer/own"}}]}`))
 
 	require.Equal(t, want, decodeSARIFTree(t, calls[0].SARIF))

@@ -45,11 +45,11 @@ func TestSetupToolchainEngineCalls(t *testing.T) {
 		{"Trust consumer mise config", nil, func(s *sandbox) []string {
 			return []string{"toolchain", "trust-mise-config", "--mise-bin", filepath.Join(s.root, "home", ".local/bin/mise")}
 		}},
-		{"Validate mise install mode", []string{"MISE_LOCKED_INSTALL=true", "MISE_GITHUB_TOKEN=ghs-secret"}, func(*sandbox) []string {
-			return []string{"toolchain", "validate-mise-install", "--locked", "true", "--github-token-present=true"}
+		{"Validate mise install mode", []string{"MISE_LOCKED_INSTALL=true", "MISE_GITHUB_TOKEN=ghs-secret", "TOOLS_SUBSET=java maven aqua:aquasecurity/trivy"}, func(*sandbox) []string {
+			return []string{"toolchain", "validate-mise-install", "--tools", "java maven aqua:aquasecurity/trivy", "--locked", "true", "--github-token-present=true"}
 		}},
-		{"Validate mise install mode", []string{"MISE_LOCKED_INSTALL=false", "MISE_GITHUB_TOKEN="}, func(*sandbox) []string {
-			return []string{"toolchain", "validate-mise-install", "--locked", "false", "--github-token-present=false"}
+		{"Validate mise install mode", []string{"MISE_LOCKED_INSTALL=false", "MISE_GITHUB_TOKEN=", "TOOLS_SUBSET="}, func(*sandbox) []string {
+			return []string{"toolchain", "validate-mise-install", "--tools", "", "--locked", "false", "--github-token-present=false"}
 		}},
 		{"Install tools (cache miss)", []string{"MISE_LOCKED_INSTALL=true", "TOOLS_SUBSET=aqua:a/b npm:c", "MISE_INSTALL_HTTP_TIMEOUT_SECONDS=240"}, func(s *sandbox) []string {
 			return []string{"toolchain", "install-mise-tools", "--locked", "true", "--tools", "aqua:a/b npm:c",

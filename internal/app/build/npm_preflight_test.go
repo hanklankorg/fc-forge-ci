@@ -185,6 +185,7 @@ func TestNPMReleaseBuild_LocalPreflightPreservesNativeSelection(t *testing.T) {
 
 	for _, tc := range []struct {
 		name, packageName, version, scope, scripts, script, postScripts, wantScript string
+		wantTests                                                                   bool
 	}{
 		{name: "scoped stable", packageName: "@org/app", version: "1.2.3", scope: "@org/", scripts: `,"scripts":{"build":"tsc"}`, wantScript: "build"},
 		{name: "unscoped prerelease", packageName: "app-name", version: "2.0.0-rc.1", scripts: `,"scripts":{"build":"tsc"}`, wantScript: "build"},
@@ -193,7 +194,7 @@ func TestNPMReleaseBuild_LocalPreflightPreservesNativeSelection(t *testing.T) {
 		{name: "no scripts", packageName: "@org/app", version: "1.0.0"},
 		{name: "empty scripts", packageName: "@org/app", version: "1.0.0", scripts: `,"scripts":{}`},
 		{name: "null scripts", packageName: "@org/app", version: "1.0.0", scripts: `,"scripts":null`},
-		{name: "absent build", packageName: "@org/app", version: "1.0.0", scripts: `,"scripts":{"test":"tap"}`},
+		{name: "absent build", packageName: "@org/app", version: "1.0.0", scripts: `,"scripts":{"test":"tap"}`, wantTests: true},
 		{name: "empty build", packageName: "@org/app", version: "1.0.0", scripts: `,"scripts":{"build":""}`},
 		{name: "blank build", packageName: "@org/app", version: "1.0.0", scripts: `,"scripts":{"build":" \t\n "}`},
 		{name: "null build", packageName: "@org/app", version: "1.0.0", scripts: `,"scripts":{"build":null}`},
@@ -274,8 +275,12 @@ func TestNPMReleaseBuild_LocalPreflightPreservesNativeSelection(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			wantCalls := [][]string{{"ci"}, {"test"}}
-			wantEvents := []string{"npm ci", "npm test"}
+			wantCalls := [][]string{{"ci"}}
+			wantEvents := []string{"npm ci"}
+			if tc.wantTests {
+				wantCalls = append(wantCalls, []string{"test"})
+				wantEvents = append(wantEvents, "npm test")
+			}
 
 			if tc.wantScript != "" {
 				wantCalls = append(wantCalls, []string{"run", tc.wantScript})
@@ -298,6 +303,11 @@ func TestNPMReleaseBuild_LocalPreflightPreservesNativeSelection(t *testing.T) {
 			require.Len(t, summaries, 2)
 			require.Contains(t, summaries[0], "Build SBOM")
 			require.Contains(t, summaries[1], "`"+tc.packageName+"@"+tc.version+"`")
+			if tc.wantTests {
+				require.Contains(t, summaries[1], "Tests:** ✓ Executed")
+			} else {
+				require.Contains(t, summaries[1], "Tests:** ⊘ Skipped")
+			}
 			require.Contains(t, stdout.String(), "NPM release build: "+tc.packageName+"@"+tc.version+"\n")
 			require.Empty(t, stderr.String())
 			require.Empty(t, annotations.String())
@@ -324,7 +334,7 @@ func TestNPMReleaseBuild_ScriptTypesRetainPostinstallBoundary(t *testing.T) {
 		},
 		{
 			name: "unused numeric still fails after ci", scripts: `{"build":"tsc","lint":42}`,
-			message: "npm run build", stdout: "NPM release build: @org/app@1.0.0\n", calls: [][]string{{"ci"}, {"test"}},
+			message: "read npm test script", stdout: "NPM release build: @org/app@1.0.0\n", calls: [][]string{{"ci"}},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

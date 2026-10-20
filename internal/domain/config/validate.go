@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	domainbuild "github.com/diggsweden/forge-ci/internal/domain/build"
+	domaincontainer "github.com/diggsweden/forge-ci/internal/domain/container"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
 )
@@ -465,6 +466,15 @@ func validateContainer(ct Container, artifactNames map[string]bool, artifactByNa
 
 	if ct.Name == "" {
 		v = append(v, "container with empty name")
+	}
+	if ct.Extract != nil && ct.Extract.Binary != nil && ct.Extract.Binary.Paths != nil {
+		binary := ct.Extract.Binary
+		if binary.Target != "" || len(binary.Names) != 0 {
+			v = append(v, fmt.Sprintf("container %q extract.binary.paths cannot be combined with target or names", ct.Name))
+		}
+		if _, err := domaincontainer.ImageFileNames(binary.Paths); err != nil {
+			v = append(v, fmt.Sprintf("container %q extract.binary.paths: %v", ct.Name, err))
+		}
 	}
 
 	artifactFirstGoDeps := []string{}

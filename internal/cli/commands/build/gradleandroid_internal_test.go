@@ -388,7 +388,7 @@ func TestGradleAndroidRun_DisabledOptionsSources(t *testing.T) {
 			}
 
 			args := []string{"run", "--enable-signing=false", "--build-sbom=false", "--skip-tests=false", "--include-aab=false", "--include-date-stamp=false", "--build-types", "release", "--name-override", "unsigned"}
-			wantArgs := []string{"assembleRelease"}
+			wantArgs := []string{"app:test", "assembleRelease"}
 
 			if source != "flags" {
 				for key, value := range map[string]string{
@@ -400,7 +400,7 @@ func TestGradleAndroidRun_DisabledOptionsSources(t *testing.T) {
 				args = []string{"run"}
 
 				if source == "env_debug" {
-					wantArgs = []string{"assembleDebug"}
+					wantArgs = []string{"app:test", "assembleDebug"}
 				} else {
 					t.Setenv("BUILD_TYPES", "release")
 				}

@@ -22,6 +22,7 @@ type ValidateMiseInstallInput struct {
 	Root               string
 	Locked             string
 	GithubTokenPresent bool
+	Tools              string
 }
 
 // ValidateMiseInstall checks the setup-toolchain install mode before any token-bearing install work runs.
@@ -44,6 +45,10 @@ func ValidateMiseInstall(in ValidateMiseInstallInput) error {
 	if err = validateMiseInstallMode(root, locked, hasConfig, in.GithubTokenPresent); err != nil {
 		return err
 	}
+	configs, err = selectedMiseTools(configs, strings.Fields(in.Tools))
+	if err != nil {
+		return err
+	}
 
 	checks := []struct{ runtime, backend string }{{"uv", "pipx"}, {toolGo, "go"}, {toolRust, "cargo"}}
 	for _, check := range checks {
@@ -53,6 +58,34 @@ func ValidateMiseInstall(in ValidateMiseInstallInput) error {
 	}
 
 	return nil
+}
+
+// selectedMiseTools uses the same selection for validation and runtime bootstrap.
+// A subset also needs its declared backend runtimes, but not unrelated dev tools.
+// Exact pin and file validation still apply to the complete config before this.
+func selectedMiseTools(configs map[string]any, tools []string) (map[string]any, error) {
+	if len(tools) == 0 {
+		return configs, nil
+	}
+	selected := make(map[string]any, len(tools))
+	for _, tool := range tools {
+		if strings.HasPrefix(tool, "-") || !toolDeclared(configs, tool) || toolDeclared(selected, tool) {
+			return nil, fmt.Errorf("requested tools must be a unique subset of [tools] declarations: %w", errs.ErrUsage)
+		}
+		selected[tool] = configs[tool]
+	}
+	for _, dependency := range []struct{ backend, runtime string }{{"pipx", "uv"}, {"go", toolGo}, {"cargo", toolRust}} {
+		if !backendDeclared(selected, dependency.backend) {
+			continue
+		}
+		if value, ok := configs[dependency.runtime]; ok {
+			selected[dependency.runtime] = value
+		}
+		if dependency.backend == "cargo" && rustupDeclared(configs) {
+			selected["aqua:rust-lang/rustup"] = configs["aqua:rust-lang/rustup"]
+		}
+	}
+	return selected, nil
 }
 
 // validateMiseInstallMode enforces the locked-vs-token contract before installs run.

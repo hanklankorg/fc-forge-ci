@@ -109,7 +109,7 @@ func TestApplyBump_RefusesBeforeApplying(t *testing.T) {
 			require.NoError(t, os.WriteFile(in.PatchPath, []byte(strings.Replace(applyBumpPatch, "0.2.0", "0.2.0-evil", 1)), 0o600))
 		},
 		"project type without an isolated bump": func(_ *testing.T, in *appversion.ApplyBumpInput) {
-			in.ProjectType = projecttype.Cargo
+			in.ProjectType = projecttype.Go
 		},
 		"prerelease version": func(_ *testing.T, in *appversion.ApplyBumpInput) {
 			in.Version = "0.2.0-rc.1"

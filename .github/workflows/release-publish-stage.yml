@@ -149,12 +149,15 @@ jobs:
     # No `secrets:` block needed — auto-token always flows.
     uses: ./.github/workflows/publish-maven-github.yml
     with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
       working-directory: ${{ matrix.artifact.working_directory }}
       branch: ${{ inputs.branch }}
       artifact-source: ${{ matrix.artifact.publication_artifact_name || matrix.artifact.build_artifact_name }}
       package-type: ${{ matrix.artifact.project_type }}
       version: ${{ inputs['release-tag'] }}
       java-version: ${{ matrix.artifact.maven.java_version }}
+      profile: ${{ matrix.artifact.project_type == 'maven' && matrix.artifact.build_type == 'library' && (matrix.artifact.maven.maven_profile || 'central-release') || '' }}
+      from-build: ${{ matrix.artifact.project_type == 'maven' && matrix.artifact.build_type == 'library' }}
       node-version: ${{ matrix.artifact.npm.node_version }}
       npm-tag: ${{ matrix.artifact.npm.tag }}
       attach-pattern: ${{ matrix.artifact.maven.attach_pattern || matrix.artifact.npm.attach_pattern }}
@@ -292,6 +295,7 @@ jobs:
       name: ${{ matrix.container.name }}
       target: ${{ matrix.container.target || '' }}
       extract-binary-target: ${{ matrix.container.extract_binary_target || '' }}
+      extract-binary-paths: ${{ matrix.container.extract_binary_paths && join(matrix.container.extract_binary_paths, ',') || '' }}
       extract-binary-names: ${{ matrix.container.extract_binary_names && join(matrix.container.extract_binary_names, ',') || '' }}
       # build-args is converted from artifacts.yml's object form to
       # KEY=VALUE lines by `forge-ci config parse-artifacts` (see build-args-string

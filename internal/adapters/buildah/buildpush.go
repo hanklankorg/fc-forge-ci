@@ -32,7 +32,7 @@ func (a *Adapter) BuildManifest(ctx context.Context, req container.BuildPushMani
 
 	args = append(args, req.Context)
 
-	return a.runWithEnv(ctx, out, registryAuthEnv(req.AuthFile), args...)
+	return a.runBuildWithEnv(ctx, out, registryAuthEnv(req.AuthFile), req.SourceDateEpoch, args...)
 }
 
 func registryAuthEnv(authFile string) []string {

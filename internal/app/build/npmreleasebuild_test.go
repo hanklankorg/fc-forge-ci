@@ -23,7 +23,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/testutil/testfs"
 )
 
-var errMissingTestScript = errors.New("missing script: test")
+var errNPMTestsFailed = errors.New("test assertion failed")
 
 type fakeNPMRunner struct {
 	calls   [][]string
@@ -88,9 +88,28 @@ func (f *fakeNPMRunner) firstArgs() []string {
 func newNPMDir(t *testing.T) string {
 	t.Helper()
 	fsys := testfs.NewReal(t)
-	fsys.WriteFile("package.json", []byte(`{"name":"@org/app","version":"1.0.0","scripts":{"build":"tsc"}}`))
+	fsys.WriteFile("package.json", []byte(`{"name":"@org/app","version":"1.0.0","scripts":{"build":"tsc","test":"node --test"}}`))
 
 	return fsys.Root
+}
+
+func TestNPMReleaseBuild_RequiresCommittedReleaseVersionBeforeAnyTool(t *testing.T) {
+	t.Parallel()
+	directory := newNPMDir(t)
+	npm, npx := &fakeNPMRunner{}, &fakeNPMRunner{}
+	err := appbuild.NPMReleaseBuild(t.Context(), nil, npm, npx, output.Annotator{}, io.Discard, io.Discard, appbuild.NPMReleaseBuildInput{
+		ReleaseBuildOptions: appbuild.ReleaseBuildOptions{Dir: directory}, ExpectVersion: "v1.0.1",
+	})
+	if !errors.Is(err, errs.ErrValidation) || !strings.Contains(err.Error(), "release commit") {
+		t.Fatalf("wrong committed package version did not fail preflight: %v", err)
+	}
+	if len(npm.calls) != 0 || len(npx.calls) != 0 {
+		t.Fatalf("version mismatch reached npm/npx: %v %v", npm.calls, npx.calls)
+	}
+	body, err := os.ReadFile(filepath.Join(directory, "package.json"))
+	if err != nil || !strings.Contains(string(body), `"version":"1.0.0"`) {
+		t.Fatalf("build rewrote the source version: %s %v", body, err)
+	}
 }
 
 func TestNPMReleaseBuild_RunsFullSequence(t *testing.T) {
@@ -166,30 +185,48 @@ func TestNPMReleaseBuild_SkipTests(t *testing.T) {
 	}
 }
 
-func TestNPMReleaseBuild_SoftTestDoesNotFailBuild(t *testing.T) {
+func TestNPMReleaseBuild_FailingTestsStopBeforeBuildSBOMAndPack(t *testing.T) {
 	t.Parallel()
 
-	npmRunner := &fakeNPMRunner{failOn: map[string]error{"test": errMissingTestScript}}
+	npmRunner := &fakeNPMRunner{failOn: map[string]error{"test": errNPMTestsFailed}}
 
-	var stderr bytes.Buffer
+	npxRunner := &fakeNPMRunner{}
+	summary := &recordingSummarySink{}
+	err := appbuild.NPMReleaseBuild(t.Context(), summary, npmRunner, npxRunner, output.Annotator{}, io.Discard, io.Discard, appbuild.NPMReleaseBuildInput{
+		ReleaseBuildOptions: appbuild.ReleaseBuildOptions{Dir: newNPMDir(t), EnableBuildSBOM: true},
+		SBOMToolVersion:     "4.2.1",
+	})
+	if !errors.Is(err, errNPMTestsFailed) {
+		t.Fatalf("test failure was not returned: %v", err)
+	}
+	if got := strings.Join(npmRunner.firstArgs(), ","); got != "ci,test" {
+		t.Errorf("npm continued after failing tests: %v", npmRunner.firstArgs())
+	}
+	if len(npxRunner.calls) != 0 || summary.buf.Len() != 0 {
+		t.Fatalf("failed tests must not generate an SBOM or successful build summary")
+	}
+}
 
-	// A failing `npm test` must NOT fail the release build; pack still runs.
-	err := appbuild.NPMReleaseBuild(context.Background(), &recordingSummarySink{}, npmRunner, &fakeNPMRunner{}, output.NewAnnotator(&stderr, output.FormatGitHub), io.Discard, io.Discard, appbuild.NPMReleaseBuildInput{
-		ReleaseBuildOptions: appbuild.ReleaseBuildOptions{Dir: newNPMDir(t), EnableBuildSBOM: false},
+func TestNPMReleaseBuild_MissingTestScriptIsReportedAsSkipped(t *testing.T) {
+	t.Parallel()
+	dir := newNPMDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"@org/app","version":"1.0.0","scripts":{"build":"tsc"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	npmRunner := &fakeNPMRunner{}
+	summary := &recordingSummarySink{}
+	var out bytes.Buffer
+	err := appbuild.NPMReleaseBuild(t.Context(), summary, npmRunner, &fakeNPMRunner{}, output.Annotator{}, &out, io.Discard, appbuild.NPMReleaseBuildInput{
+		ReleaseBuildOptions: appbuild.ReleaseBuildOptions{Dir: dir},
 	})
 	if err != nil {
-		t.Fatalf("soft test failure should not fail build: %v", err)
+		t.Fatal(err)
 	}
-
-	// The whole sequence continues unchanged -- test ran, failed, and the
-	// build and pack steps still happened in order.
-	if got := strings.Join(npmRunner.firstArgs(), ","); got != "ci,test,run,pack" {
-		t.Errorf("npm calls = %v, want ci,test,run,pack", npmRunner.firstArgs())
+	if got := strings.Join(npmRunner.firstArgs(), ","); got != "ci,run,pack" {
+		t.Fatalf("missing test script should not execute npm test: %s", got)
 	}
-
-	// The failure is soft, not silent.
-	if !strings.Contains(stderr.String(), "npm test failed or no tests configured (continuing)") {
-		t.Errorf("no warning about the failed test run: %q", stderr.String())
+	if !strings.Contains(out.String(), "tests not run") || !strings.Contains(summary.buf.String(), "Tests:** ⊘ Skipped") {
+		t.Fatalf("absent tests were not reported honestly: output=%s summary=%s", out.String(), summary.buf.String())
 	}
 }
 

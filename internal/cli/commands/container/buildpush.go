@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/adapters/ociregistry"
 	"github.com/diggsweden/forge-ci/internal/adapters/trivy"
 	appcontainer "github.com/diggsweden/forge-ci/internal/app/container"
+	appsecurity "github.com/diggsweden/forge-ci/internal/app/security"
 	"github.com/diggsweden/forge-ci/internal/cli/cienv"
 	"github.com/diggsweden/forge-ci/internal/cli/deps"
 	"github.com/diggsweden/forge-ci/internal/cli/planfile"
@@ -24,6 +26,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/cli/secretenv"
 	domaincontainer "github.com/diggsweden/forge-ci/internal/domain/container"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/output"
 )
 
 // planScopeBuildPush is the plan-file scope of `container
@@ -85,9 +88,12 @@ scope (flag > plan > env > default).`,
 
 				var checkLayout func(context.Context, string, []string) error
 				if template := cmd.String("scan-output-template"); template != "" {
+					scanner := trivy.New(secretenv.Names()...)
+					annot := deps.Annotator(cmd)
 					checkLayout = func(scanContext context.Context, layout string, platforms []string) error {
-						return appcontainer.ImageEvidence(scanContext, nil, registry, trivy.New(secretenv.Names()...), nil, os.Stderr, os.Stderr,
-							appcontainer.ImageEvidenceInput{ScanLayout: layout, Platforms: platforms, TrivyOutputTemplate: template})
+						return appcontainer.ImageEvidence(scanContext, nil, registry, scanner, nil, os.Stderr, os.Stderr,
+							appcontainer.ImageEvidenceInput{ScanLayout: layout, Platforms: platforms, TrivyOutputTemplate: template,
+								Gate: publicationGate(scanner, annot)})
 					}
 				}
 
@@ -119,5 +125,27 @@ scope (flag > plan > env > default).`,
 				return err
 			})
 		},
+	}
+}
+
+// publicationGate is the container scan GitHub's image builds pass before
+// publication, applied to one platform's layout: a fixed finding at CRITICAL
+// or HIGH, or an unfixed CRITICAL, blocks unless .trivyignore.yaml approves
+// it. Its reports go to a scratch directory; the evidence JSON is the record.
+func publicationGate(scanner appsecurity.TrivyOps, annot output.Annotator) func(context.Context, string, string) error {
+	return func(ctx context.Context, layout, platform string) error {
+		reports, err := os.MkdirTemp("", "forge-ci-image-gate-")
+		if err != nil {
+			return fmt.Errorf("create image gate report directory: %w", err)
+		}
+		defer func() { _ = os.RemoveAll(reports) }()
+
+		return appsecurity.ScanContainer(ctx, scanner, os.Stderr, os.Stderr, annot, appsecurity.ScanContainerInput{
+			ImageRef:         "image layout (" + platform + ")",
+			OCILayout:        layout,
+			JSONFile:         filepath.Join(reports, "trivy.json"),
+			SARIFFile:        filepath.Join(reports, "trivy.sarif"),
+			GitLabReportFile: filepath.Join(reports, "gitlab.json"),
+		})
 	}
 }

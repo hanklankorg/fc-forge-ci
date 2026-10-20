@@ -58,6 +58,7 @@ RUN apt-get update \
     gnupg \
     gzip \
     jq \
+    libatomic1 \
     openssh-client \
     tar \
     unzip \
@@ -219,7 +220,7 @@ RUN arch="$(dpkg --print-architecture)" \
 FROM base AS node
 
 # renovate: datasource=node-version depName=node
-ARG NODE_VERSION=24.10.0
+ARG NODE_VERSION=24.17.0
 
 # hadolint ignore=DL3008,SC2155
 RUN arch="$(dpkg --print-architecture)" \

@@ -98,8 +98,6 @@ rust = "1.90.0"
 	}
 
 	wantArgs := [][]string{
-		{"install", "--locked", "uv"},
-		{"install", "--locked", "go"},
 		{"install", "--locked", "rust"},
 		{"install", "--locked", "aqua:rust-lang/rustup"},
 		{"exec", "--no-deps", "--locked", "aqua:rust-lang/rustup", "--", "rustup", "show"},

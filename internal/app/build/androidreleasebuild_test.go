@@ -28,14 +28,14 @@ func TestAndroidReleaseBuild_RunsSequenceAndEmitsNames(t *testing.T) {
 		{
 			name:       "release only",
 			buildTypes: "release",
-			wantTasks:  []string{"assembleRelease"},
+			wantTasks:  []string{"app:test", "assembleRelease"},
 		},
 		{
 			// Debug first: the tasks are ordered by the resolver, not by
 			// the order they were named.
 			name:       "debug and release in one invocation",
 			buildTypes: "release debug",
-			wantTasks:  []string{"assembleDebug", "assembleRelease"},
+			wantTasks:  []string{"app:test", "assembleDebug", "assembleRelease"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -148,7 +148,7 @@ func TestAndroidLibraryBuildUsesAARContract(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertGradleCalls(t, ops.calls, []string{"lib:assembleDemoRelease"})
+	assertGradleCalls(t, ops.calls, []string{"lib:test", "lib:assembleDemoRelease"})
 
 	want := map[string]string{"aar-name": "library", "sbom-name": "library-sbom", "version": "1.0.0"}
 	if got := sink.AllScalar(); !maps.Equal(got, want) {

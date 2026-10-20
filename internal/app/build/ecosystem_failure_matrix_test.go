@@ -25,9 +25,6 @@ type ecosystemRun struct {
 	// run executes the build and returns its error. Everything the run writes
 	// lands in the buffers the harness owns.
 	run func(t *testing.T, rec *toolrecorder.Recorder, summary *recordingSummarySink, stdout *bytes.Buffer) error
-	// softFailures are call indexes the ecosystem deliberately continues past,
-	// with the reason it is allowed to. Everything else must stop the build.
-	softFailures map[int]string
 }
 
 // ecosystemRuns is the whole set of release builds that drive an external tool.
@@ -97,10 +94,6 @@ func ecosystemRuns() []ecosystemRun {
 					SBOMToolVersion:     "4.2.1",
 				})
 			},
-			// npm test is the one tool failure the release build continues past:
-			// the workflow reports tests separately, and a failing test must not
-			// look like a broken packaging step. Every other npm call stops it.
-			softFailures: map[int]string{1: "npm test failures are reported, not fatal to packaging"},
 		},
 	}
 }
@@ -112,9 +105,7 @@ func ecosystemRuns() []ecosystemRun {
 // makes: a unique cause survives to the caller, the stage it failed at is named,
 // nothing runs after it, and nothing is published as if the build had worked.
 //
-// A tool that exits nonzero is a build failure, not a reason to keep going. The
-// one documented exception is recorded per ecosystem in softFailures, so a new
-// silent continuation shows up here rather than in a release.
+// A tool that exits nonzero is a build failure, not a reason to keep going.
 func TestEcosystemToolFailures_StopWithTheirOwnIdentity(t *testing.T) {
 	for _, ecosystem := range ecosystemRuns() {
 		t.Run(ecosystem.name, func(t *testing.T) {
@@ -130,13 +121,6 @@ func TestEcosystemToolFailures_StopWithTheirOwnIdentity(t *testing.T) {
 					var stdout bytes.Buffer
 
 					err := ecosystem.run(t, rec, summary, &stdout)
-
-					if reason, soft := ecosystem.softFailures[index]; soft {
-						require.NoErrorf(t, err, "documented continuation: %s", reason)
-						require.Lenf(t, rec.Calls, calls, "a continuation still runs the rest: %s", reason)
-
-						return
-					}
 
 					require.ErrorIsf(t, err, cause, "the cause that stopped the build must reach the caller")
 					require.Lenf(t, rec.Calls, index+1, "no tool may run after a failed one:\n%s", formatArgs(rec.Args()))

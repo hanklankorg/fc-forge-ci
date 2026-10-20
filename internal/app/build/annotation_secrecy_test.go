@@ -136,10 +136,9 @@ func TestAnnotations_AreActuallyEmitted(t *testing.T) {
 // RunInherit: a status, not its output.
 var errExitStatus = errors.New("exit status 1")
 
-// TestAnnotations_FormatAnErrorsStatusNotItsOutput pins the one annotation that
-// renders an error, so the bound above stays true by measurement rather than by
-// the adapter happening not to capture output today.
-func TestAnnotations_FormatAnErrorsStatusNotItsOutput(t *testing.T) {
+// TestNPMFailureReturnsStatusWithoutCopyingOutput keeps tool output out of the
+// returned error and annotations while preserving the blocking exit status.
+func TestNPMFailureReturnsStatusWithoutCopyingOutput(t *testing.T) {
 	t.Parallel()
 
 	rec := toolrecorder.New(t)
@@ -160,7 +159,7 @@ func TestAnnotations_FormatAnErrorsStatusNotItsOutput(t *testing.T) {
 
 	var annotations, stdout bytes.Buffer
 
-	_ = appbuild.NPMReleaseBuild(context.Background(), &recordingSummarySink{}, npm, npm,
+	err := appbuild.NPMReleaseBuild(context.Background(), &recordingSummarySink{}, npm, npm,
 		output.NewAnnotator(&annotations, output.FormatGitHub), &stdout, &stdout,
 		appbuild.NPMReleaseBuildInput{
 			ReleaseBuildOptions: appbuild.ReleaseBuildOptions{Dir: newNPMDir(t), EnableBuildSBOM: true},
@@ -168,8 +167,8 @@ func TestAnnotations_FormatAnErrorsStatusNotItsOutput(t *testing.T) {
 			SBOMToolVersion:     "4.2.1",
 		})
 
-	require.Contains(t, annotations.String(), "exit status 1",
-		"the soft test-failure warning must keep the status; without it an operator cannot tell what happened")
-	require.NotContains(t, annotations.String(), annotationCanary,
-		"the warning rendered the tool's output, not just its status")
+	require.ErrorIs(t, err, errExitStatus)
+	require.Contains(t, err.Error(), "exit status 1")
+	require.NotContains(t, err.Error(), annotationCanary)
+	require.Empty(t, annotations.String(), "tool output must not be copied into annotations")
 }

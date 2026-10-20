@@ -344,7 +344,7 @@ EXAMPLE:
 | `--build-types` | comma-separated Android build types to assemble | string | `"debug,release"` | `$BUILD_TYPES` |
 | `--include-aab` | also emit bundleRelease (produces an AAB) | bool | `true` | `$INCLUDE_AAB` |
 | `--build-module` | gradle module name (e.g. "app") | string | `"app"` | `$BUILD_MODULE` |
-| `--skip-tests` | append -x test to skip the test task | bool | `false` | `$SKIP_TESTS` |
+| `--skip-tests` | omit unit tests from derived variant tasks; explicit task overrides control their own test selection | bool | `false` | `$SKIP_TESTS` |
 | `--build-sbom` | generate the cyclonedx-gradle-plugin Build SBOM (default true) | bool | `true` | `$ENABLE_BUILD_SBOM` |
 | `--sbom-tool-version` | pinned cyclonedx-gradle-plugin version (required when --build-sbom) | string | `""` | `$CYCLONEDX_GRADLE_VERSION` |
 | `--temp-dir` | existing scratch parent for a private signing directory, outside the project dir | string | `""` | `$CI_TEMP_DIR`, `$RUNNER_TEMP` |
@@ -445,7 +445,7 @@ run the full npm release build (metadata, ci, test, build, SBOM, pack, summary)
 
 ```
 Runs the whole npm build sequence in one step: resolve metadata, npm ci,
-   test (soft, unless --skip-tests), run the build script, generate the Build
+   test (when configured, unless --skip-tests; failures block), run the build script, generate the Build
    SBOM with the pinned cyclonedx-npm (unless --no-build-sbom), and npm pack. The
    tarball is left at its default <name>-<version>.tgz path for the forge job to
    upload.
@@ -463,11 +463,12 @@ EXAMPLE:
 | `--dependency-registry` | private npm registry to authenticate; the project still chooses its registry scopes | string | `""` | `$DEPENDENCY_REGISTRY` |
 | `--working-dir` | directory containing package.json | string | `"."` | `$WORKING_DIRECTORY` |
 | `--scope` | expected scope (e.g. @examplescope); errors when package.json disagrees | string | `""` | `$SCOPE`, `$PACKAGE_SCOPE` |
+| `--expect-version` | expected committed package version (with or without v); mismatch stops before npm ci | string | `""` | `$EXPECT_VERSION` |
 | `--script` | npm build script name to run (skipped when absent) | string | `"build"` | n/a |
-| `--skip-tests` | skip the (soft) npm test run | bool | `false` | `$SKIP_TESTS` |
+| `--skip-tests` | skip the configured npm test script; otherwise test failures stop the build | bool | `false` | `$SKIP_TESTS` |
 | `--build-sbom` | generate the CycloneDX Build SBOM (default true) | bool | `true` | `$ENABLE_BUILD_SBOM` |
 | `--sbom-tool-version` | pinned @cyclonedx/cyclonedx-npm version run via npx (required when --build-sbom) | string | `""` | `$CYCLONEDX_VERSION` |
-| `--node-version` | Node major version, reported in the build summary | string | `""` | `$NODE_VERSION` |
+| `--node-version` | executed Node version, reported in the build summary | string | `""` | `$NODE_VERSION` |
 
 ### `forge-ci build xcode-ios`
 
@@ -1088,6 +1089,16 @@ written by `container login`.
 ### `forge-ci container layout`
 
 record and publish OCI artifacts across a build/scan job barrier
+
+#### `forge-ci container layout extract-files`
+
+copy selected executables from the retained image filesystem without rebuilding
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--layout-dir` | verified single-image OCI layout directory (required) | string | `""` | n/a |
+| `--output-dir` | directory receiving unique executable basenames; existing files are never overwritten (required) | string | `""` | n/a |
+| `--paths` | comma/space-separated regular-file paths inside the image (required) | string | `""` | `$EXTRACT_BINARY_PATHS` |
 
 #### `forge-ci container layout publish`
 
@@ -2422,9 +2433,11 @@ EXAMPLE:
 |------|-------------|------|---------|----------|
 | `--snapshot` | publish only Maven-format snapshots; rejected for npm | bool | `false` | `$MAVEN_SNAPSHOT` |
 | `--project-type` | ecosystem: maven, npm, or gradle (exported Maven publications) | string | `"maven"` | `$PROJECT_TYPE` |
-| `--version` | expected version for exported Gradle publications | string | `""` | `$VERSION` |
+| `--version` | expected version for prebuilt Maven or exported Gradle publications | string | `""` | `$VERSION` |
+| `--from-build` | publish Maven library POM/main/sources/Javadoc build bytes without rerunning the project lifecycle | bool | `false` | `$MAVEN_FROM_BUILD` |
 | `--cli-opts` | extra args forwarded to mvn (maven only; whitespace-separated) | string | `""` | `$MAVEN_CLI_OPTS` |
-| `--working-dir` | directory holding the packed *.tgz (npm only) | string | `"."` | `$WORKING_DIRECTORY` |
+| `--profile` | optional project-owned Maven publication profile; also used for snapshot version preflight | string | `""` | `$MAVEN_PROFILE` |
+| `--working-dir` | packed npm tarball, Maven build handoff or exported Gradle publication directory | string | `"."` | `$WORKING_DIRECTORY` |
 | `--npm-tag` | required for npm: release-{version} or release-<packed-version>; latest, next and movable channel tags are forbidden | string | `""` | `$NPM_TAG` |
 
 ### `forge-ci publish google-play`
@@ -3397,7 +3410,7 @@ EXAMPLE:
 | `--repo-url` | remote repository URL for ls-remote (defaults to origin) | string | `""` | `$REPO_URL` |
 | `--expected-parent` | require the release commit to be the single child of this commit (the authorised release-request source) | string | `""` | `$RELEASE_REQUEST_SHA` |
 | `--changelog-only` | require exactly a CHANGELOG.md change from --expected-parent, and bind release-request/<tag> to that tested commit | bool | `false` | n/a |
-| `--version-bump` | with --changelog-only, also admit this project type's version bump (maven), checked as a version substitution to the tag's version | string | `""` | n/a |
+| `--version-bump` | with --changelog-only, also admit this project type's version bump (maven/npm/cargo), checked as a version substitution to the tag's version | string | `""` | n/a |
 | `--token-file` | Read token for a private repository. Read from a file ("-" for stdin); trailing CR/LF is trimmed. Explicit input overrides environment credentials; empty content supplies no token. Omit for environment selection, with runner-issued tokens scoped to their server. | string | `""` | n/a |
 
 ## `forge-ci report`
@@ -4136,6 +4149,7 @@ must pin their runtime (uv for pipx, go for go, rust or rustup+rust-toolchain fo
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
+| `--tools` | whitespace-separated tool subset to validate; empty validates all declared tools | string | `""` | `$TOOLS_SUBSET` |
 | `--root` | repository root containing mise config | string | `"."` | `$MISE_PROJECT_ROOT` |
 | `--locked` | whether mise install will run in locked mode: true\|false | string | `"false"` | `$MISE_LOCKED_INSTALL` |
 | `--github-token-present` | whether the caller has a GitHub rate-limit token; pass presence only, never the token | bool | `false` | `$MISE_GITHUB_TOKEN_PRESENT` |
@@ -4571,9 +4585,12 @@ verify a version-bump patch from a key-free job and apply it, without running a 
 
 ```
 The patch must match its reported sha256, change only the project files of
-the type (pom.xml for maven), and change nothing but the root project's
+the type (Maven POMs, or the selected npm/Cargo root manifest and lockfile),
+and change nothing but the root project's
 current version into --version. The changed paths are written to --paths-file
-for commit-changelog-release --include-paths-file.
+for commit-changelog-release --include-paths-file. npm/Cargo documents are also
+compared semantically so scripts, dependencies and workspace membership cannot
+be changed by disguising a version token; existing active lockfiles must agree.
 
 EXAMPLE:
    forge-ci version apply-bump --project-type maven --version 1.2.3 \
@@ -4584,7 +4601,7 @@ EXAMPLE:
 |------|-------------|------|---------|----------|
 | `--patch` | git diff the bump job uploaded (required) | string | `""` | n/a |
 | `--sha256` | sha256 the bump job reported for the patch (required) | string | `""` | n/a |
-| `--project-type` | ecosystem whose project files the patch may change (maven) (required) | string | `""` | n/a |
+| `--project-type` | ecosystem whose project files the patch may change (maven/npm/cargo) (required) | string | `""` | n/a |
 | `--version` | release version, with or without a leading v (required) | string | `""` | n/a |
 | `--working-dir` | repository-relative directory of the root project file | string | `"."` | n/a |
 | `--paths-file` | file the changed paths are written to, one per line (required) | string | `""` | n/a |

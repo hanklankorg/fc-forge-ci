@@ -78,6 +78,7 @@ type TrivyResult struct {
 type TrivyVulnerability struct {
 	VulnerabilityID  string   `json:"VulnerabilityID,omitempty"`
 	PkgName          string   `json:"PkgName,omitempty"`
+	PkgPath          string   `json:"PkgPath,omitempty"`
 	InstalledVersion string   `json:"InstalledVersion,omitempty"`
 	FixedVersion     string   `json:"FixedVersion,omitempty"`
 	Title            string   `json:"Title,omitempty"`
@@ -106,7 +107,9 @@ func (r *TrivyReport) OSDescription() string {
 
 // TrivyFinding is one vulnerability of one installed package.
 type TrivyFinding struct {
-	ID        string
+	ID string
+	// Target identifies the affected image file or package database.
+	Target    string
 	Package   string
 	Installed string
 	// Fixed is the version that fixes it, empty while there is none.
@@ -116,11 +119,9 @@ type TrivyFinding struct {
 
 // TrivyFindings are a report's findings split by whether a fix exists.
 //
-// A release gate blocks on Fixable only. An Unfixed finding has no fixed
-// package yet, so neither the consumer nor a rebuild can act on it: blocking
-// on it stops every release of an affected base until upstream ships a fix,
-// and teaches people to turn the scan off. Unfixed findings are still
-// reported, in the scan reports and as a warning.
+// The application decides which severities block, including unfixed CRITICAL
+// findings. Classification preserves the affected target so remediation can
+// identify the binary or package database rather than just a shared library.
 type TrivyFindings struct {
 	Fixable []TrivyFinding
 	Unfixed []TrivyFinding
@@ -146,7 +147,7 @@ func ClassifyTrivyFindings(body []byte) (TrivyFindings, error) {
 
 	for _, result := range doc.Results {
 		for _, v := range result.Vulnerabilities {
-			finding := TrivyFinding{ID: v.VulnerabilityID, Package: v.PkgName, Installed: v.InstalledVersion,
+			finding := TrivyFinding{ID: v.VulnerabilityID, Target: cmp.Or(v.PkgPath, result.Target), Package: v.PkgName, Installed: v.InstalledVersion,
 				Fixed: v.FixedVersion, Severity: strings.ToUpper(v.Severity)}
 			if finding.ID == "" || seen[finding] {
 				continue
@@ -177,6 +178,7 @@ func compareFindings(a, b TrivyFinding) int {
 		strings.Compare(a.ID, b.ID),
 		strings.Compare(a.Package, b.Package),
 		strings.Compare(a.Installed, b.Installed),
+		strings.Compare(a.Target, b.Target),
 	)
 }
 

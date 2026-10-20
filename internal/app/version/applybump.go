@@ -7,12 +7,16 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path"
 	"slices"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 
 	"github.com/diggsweden/forge-ci/internal/cliio"
 	"github.com/diggsweden/forge-ci/internal/domain/build"
@@ -85,9 +89,34 @@ func ApplyBump(ctx context.Context, ops applyBumpOps, out io.Writer, in ApplyBum
 	if !slices.Contains(result.Paths, root) {
 		return none, fmt.Errorf("apply-bump: the patch leaves the root project file %s unchanged: %w", root, errs.ErrValidation)
 	}
+	// Native lockfiles already present at the selected root must travel with
+	// its version update. A warning-only tool failure cannot become a signed
+	// release whose next --locked/npm ci build disagrees with the manifest.
+	for _, lockfile := range files[1:] {
+		lockfile = path.Join(workingDir, lockfile)
+		if in.ProjectType == projecttype.NPM && path.Base(lockfile) == "package-lock.json" {
+			if _, err := os.Lstat(path.Join(workingDir, "npm-shrinkwrap.json")); err == nil {
+				continue // npm gives shrinkwrap precedence over package-lock.
+			}
+		}
+		info, statErr := os.Lstat(lockfile)
+		if errors.Is(statErr, os.ErrNotExist) {
+			continue
+		}
+		if statErr != nil {
+			return none, statErr
+		}
+		if !info.Mode().IsRegular() || !slices.Contains(result.Paths, lockfile) {
+			return none, fmt.Errorf("apply-bump: existing lockfile %s must participate in the version update: %w", lockfile, errs.ErrValidation)
+		}
+	}
 
 	if err := requireProjectVersion(root, result.OldVersion); err != nil {
 		return none, fmt.Errorf("apply-bump: before the bump: %w", err)
+	}
+	before, err := captureIsolatedBumpFiles(in.ProjectType, workingDir, result.Paths)
+	if err != nil {
+		return none, err
 	}
 
 	if err := ops.ApplyPatch(ctx, in.PatchPath, true); err != nil {
@@ -100,6 +129,9 @@ func ApplyBump(ctx context.Context, ops applyBumpOps, out io.Writer, in ApplyBum
 
 	if err := requireProjectVersion(root, release); err != nil {
 		return none, fmt.Errorf("apply-bump: after the bump: %w", err)
+	}
+	if err := verifyIsolatedBumpContent(in.ProjectType, workingDir, before, result.OldVersion, release); err != nil {
+		return none, err
 	}
 
 	if err := os.WriteFile(in.PathsFile, []byte(strings.Join(result.Paths, "\n")+"\n"), 0o600); err != nil {
@@ -125,14 +157,50 @@ func requireProjectVersion(file, want string) error {
 		return fmt.Errorf("read %s: %w", file, err)
 	}
 
-	pom, err := build.ParsePOM(body)
+	declared, err := bumpProjectVersion(file, body)
 	if err != nil {
 		return fmt.Errorf("parse %s: %w", file, err)
 	}
-
-	if pom.Version != want {
-		return fmt.Errorf("%s declares version %q, want %q: %w", file, pom.Version, want, errs.ErrValidation)
+	if declared != want {
+		return fmt.Errorf("%s declares version %q, want %q: %w", file, declared, want, errs.ErrValidation)
 	}
 
 	return nil
+}
+
+func bumpProjectVersion(file string, body []byte) (string, error) {
+	switch path.Base(file) {
+	case "pom.xml":
+		pom, err := build.ParsePOM(body)
+		return pom.Version, err
+	case "package.json":
+		var manifest struct {
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal(body, &manifest); err != nil {
+			return "", fmt.Errorf("parse package.json version: %w: %w", err, errs.ErrMalformedInput)
+		}
+		return manifest.Version, nil
+	case "Cargo.toml":
+		var manifest struct {
+			Package struct {
+				Version any `toml:"version"`
+			} `toml:"package"`
+			Workspace struct {
+				Package struct {
+					Version string `toml:"version"`
+				} `toml:"package"`
+			} `toml:"workspace"`
+		}
+		if err := toml.Unmarshal(body, &manifest); err != nil {
+			return "", fmt.Errorf("parse Cargo.toml version: %w: %w", err, errs.ErrMalformedInput)
+		}
+		if manifest.Workspace.Package.Version != "" {
+			return manifest.Workspace.Package.Version, nil
+		}
+		version, _ := manifest.Package.Version.(string)
+		return version, nil
+	default:
+		return "", fmt.Errorf("unsupported version-of-record file: %w", errs.ErrUsage)
+	}
 }

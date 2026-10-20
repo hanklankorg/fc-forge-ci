@@ -174,6 +174,29 @@ func TestForgePackagesDeploy_ResolverErrorIsReturned(t *testing.T) {
 	}
 }
 
+func TestForgePackagesDeploy_ActivatesThePublicationProfile(t *testing.T) {
+	t.Parallel()
+
+	mvn := &fakePublishMaven{}
+	resolver := fakeRegistryResolver{reg: provider.ForgeMavenRegistry{
+		ServerID: "github", URL: "https://maven.pkg.github.com/example/library",
+		AuthScheme: provider.MavenAuthJobTokenHeader, Token: "fixture-token",
+	}}
+	if err := apppublish.ForgePackagesDeploy(t.Context(), mvn, resolver, io.Discard, io.Discard,
+		apppublish.ForgePackagesDeployInput{CLIOpts: []string{"-B"}, Profile: "library-attachments"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(mvn.runs) != 1 {
+		t.Fatalf("mvn runs = %d, want one", len(mvn.runs))
+	}
+	args := mvn.runs[0]
+	want := []string{"-B", "deploy", "-DskipTests", "--settings", args[4],
+		"-DaltDeploymentRepository=github::default::https://maven.pkg.github.com/example/library", "-Plibrary-attachments"}
+	if !slices.Equal(args, want) {
+		t.Fatalf("profile deploy args = %q, want %q", args, want)
+	}
+}
+
 // credObservation is what a probe records about the generated credentials
 // file at the moment the publish tool is invoked.
 type credObservation struct {
