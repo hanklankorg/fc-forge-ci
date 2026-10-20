@@ -26,8 +26,9 @@ package conformance_test
 // suite, and that rule is respected here. npm is not what is under test — it is
 // the transport, the way curl is the transport elsewhere in this tier. The
 // claim is a forge-API claim: that what the adapter resolved is what the
-// registry accepts. Nothing is asserted about npm's own behaviour, and the
-// verdict is read from the forge rather than from the tool that published.
+// registry accepts. The npm fixture also checks exact-version consumption and
+// the publication tag; package presence is independently read from the forge.
+// This is fixture primitive coverage, not API-linter upstream publish acceptance.
 //
 // The publish must happen inside a job because GitLab's registry credential is
 // $CI_JOB_TOKEN, which exists only while the job runs.
@@ -108,7 +109,7 @@ func TestInRunner_ForgePackages_NPMPublishReachesTheRegistry(t *testing.T) {
 			conclusion := livetest.RunWorkflow(t, target, repo, "forge-packages-npm",
 				npmPublishProbe(target, assetURL, name, version))
 			if conclusion != "success" {
-				t.Fatalf("%s: the publish job concluded %q — `publish forge-packages deploy --project-type npm` did not complete against this forge",
+				t.Fatalf("%s: the publish/consume job concluded %q — npm publication, exact-version installation, runtime content or dist-tag verification failed",
 					forge, conclusion)
 			}
 
@@ -123,12 +124,11 @@ func TestInRunner_ForgePackages_NPMPublishReachesTheRegistry(t *testing.T) {
 	}
 }
 
-// npmPublishProbe packs a minimal package and publishes it with the product.
+// npmPublishProbe publishes a minimal package and consumes its exact version.
 //
 // The job runs in a node image because the product shells out to npm for this
-// ecosystem; that is the product's design, not the scenario's choice. Nothing
-// below asserts anything about npm — the assertion is made by the Go test
-// against the forge afterwards.
+// ecosystem; that is the product's design, not the scenario's choice. The job
+// checks registry consumption; Go independently checks package presence afterward.
 func npmPublishProbe(target livetest.Target, assetURL, name, version string) string {
 	// Single-quoted heredoc: the package manifest must reach disk verbatim,
 	// without the shell touching anything inside it.
@@ -152,6 +152,40 @@ echo "module.exports = 1;" > pkg/index.js
 ( cd pkg && npm pack --silent )
 ls -l pkg`
 
+	// Reuse the publishing job's credential without printing it or putting it on
+	// argv. The product's publish config is temporary, so render a consumer config
+	// with the existing placeholder-based helper. Isolate both install and cache
+	// from the packed source; the exact version must come back from the registry.
+	auth := `registry="` + target.BaseURL() + `/api/packages/` + target.Owner + `/npm/"
+export NODE_AUTH_TOKEN="$FORGEJO_TOKEN"`
+	if target.Forge == provider.ForgeGitLab {
+		auth = `registry="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/npm/"
+export NODE_AUTH_TOKEN="$CI_JOB_TOKEN"`
+	}
+	consume := `set +x
+set -eu
+` + auth + `
+consumer="$(mktemp -d)"
+trap 'rm -rf "$consumer"' EXIT
+run_product publish npm write-npmrc --registry "$registry" --output "$consumer/.npmrc"
+(
+  cd "$consumer"
+  printf '%s\n' '{"name":"registry-consumer","version":"1.0.0","private":true}' > package.json
+  export npm_config_userconfig="$consumer/.npmrc"
+  export npm_config_cache="$consumer/cache"
+  npm install --registry "$registry" --ignore-scripts --no-audit --no-fund --package-lock=false --save-exact '` + name + `@` + version + `'
+  node <<'VERIFY'
+const assert = require('node:assert/strict');
+assert.equal(require('` + name + `'), 1);
+assert.equal(require('` + name + `/package.json').version, '` + version + `');
+VERIFY
+  npm view '` + name + `' dist-tags --json --registry "$registry" > dist-tags.json
+  node <<'VERIFY'
+const assert = require('node:assert/strict');
+assert.equal(require('./dist-tags.json')['release-` + version + `'], '` + version + `');
+VERIFY
+)`
+
 	if target.Forge == provider.ForgeGitLab {
 		return `publish:
   image: node:24
@@ -160,6 +194,7 @@ ls -l pkg`
       ` + indent(livetest.ProbePrelude(target, assetURL), 6) + `
       ` + indent(manifest, 6) + `
 			` + indent(`run_product publish forge-packages deploy --project-type npm --working-dir pkg --npm-tag 'release-{version}'`, 6) + `
+      ` + indent(consume, 6) + `
 `
 	}
 
@@ -178,6 +213,7 @@ jobs:
           ` + indent(livetest.ProbePrelude(target, assetURL), 10) + `
           ` + indent(manifest, 10) + `
 			` + indent(`run_product publish forge-packages deploy --project-type npm --working-dir pkg --npm-tag 'release-{version}'`, 10) + `
+          ` + indent(consume, 10) + `
 `
 }
 
