@@ -15,13 +15,18 @@ guarded status route confirms no hosted GitHub session remains.
 Rust retained-image extraction already passed on engine4248579, runs
 `39393995864` / `39393998582`: all four downloaded executables match their
 retained runtime images, with private asset/image denial checked.
-Consecutive npm acceptance exposed a harness error: the second request targeted
-the generated `[skip ci]` release commit. The harness now uses the existing
-protected-MR next-candidate path. Its native rerun was blocked before release
-execution by Podman runner-network IPAM exhaustion (no free address in
-`10.201.7.1–10.201.7.254`; GitLab pipelines352/355). Provider-free fixture
-checks pass, but consecutive native acceptance and queued recovery checks
-remain open. Shared-lab reset is human-only.
+After operator network recovery, native GitLab artifact handoff passes and
+consecutive npm releases **2.0.1 → 2.0.2 pass public/private** on controller
+`db3e21e`. Public parent/child pipelines:359/360 then364/365; private:370/371
+then375/376. Each release verifies three Cosign bundles and agreement between
+signed manifest/lockfile, published package and Build SBOM versions. Follow-up
+MR gates368/379 also pass. The harness reuses the existing protected-MR
+next-candidate path rather than requesting a release at a `[skip ci]` commit.
+Earlier IPAM failures352/355 are historical, not a current blocker.
+Native promotion retry also passes: pipeline380 retains the failed job787's
+journal after a real registry write; clean-job retry790 converges to the expected
+digest while publication/cleanup remain blocked during the injected failure.
+This proves the existing recovery primitive, not whole-consumer interruption.
 The overall migration and cleanup remain incomplete.
 
 ## Bottom line
@@ -43,15 +48,15 @@ named trial flows and revisions, not every capability of each application.
   candidates, not merged fixes.
 - Evidence spans several frozen engines and later working-tree fixes. One final
   combined-engine acceptance checkpoint is still required.
-- The hosted contract batch finished with zero failures and no retained hosted
-  session. Local consecutive-release validation ended blocked by runner-network
-  exhaustion. Package/image residue still needs exact-resource cleanup.
+- The hosted contract batch and recovered local consecutive-release validation
+  finished successfully. No hosted session remains. Package/image residue still
+  needs exact-resource cleanup.
 
 ## What has passed
 
 | Consumer | Native trial evidence | Important boundary |
 | --- | --- | --- |
-| Java service, Java CLI, Java library, API linter, web | Public/private PR or MR gates and stable release flows on GitHub, GitLab and Forgejo | Initial-version local npm releases do not prove automatic version increments or npm registry installation |
+| Java service, Java CLI, Java library, API linter, web | Public/private PR or MR gates and stable release flows on GitHub, GitLab and Forgejo; consecutive API-linter npm releases on GitLab | Consecutive Forgejo/Cargo releases and npm registry installation remain open |
 | Android | Full app/camera PR or MR checks on all three forges; GitHub unsigned and test-signed development builds | Local stable/development, real devices, production signing and store delivery are not established |
 | iOS | Public/private GitHub ARM64 simulator PRs and unsigned development archives | No physical device, Secure Enclave or App Store acceptance |
 | Rust services | Public/private GitHub PRs and stable releases; all three images per visibility independently verified; all four downloaded executables match retained runtime images and pass bounded loader/help checks | Local-forge PR/stable/development coverage remains open; no HSM/service-startup claim |
@@ -119,7 +124,7 @@ changes worth reviewing upstream from lab-specific adaptations.
 | `wallet-provider` | Migrate obsolete artifact/publisher configuration; align a supported non-root Java runtime; use fixed, aligned Jackson BOM versions until the platform manages them | 99 tests and native service matrices; revalidate chosen runtime/dependency pins at adoption time |
 | `wallet-dss-cli` | Produce an executable versioned JAR and preserve its unversioned executable alias using the existing assembly setup | Alias changes `78b6477` / private `dd6a62e`; actual downloads, runnable/byte-identical JARs and all three public/private stable matrices pass |
 | `cose-lib` | Preserve Java 21 API bytecode; add a versioned reproducible output timestamp; reconcile README coordinates and duplicate compiler properties; retain main/source/Javadoc publication | Java 21/25 tests, installed MAC0/wrong-key consumer, hosted classifiers and actual-library publication identity pass; Sonatype production publication is not proved |
-| `rest-api-profil-lint-processor` | Read installed package metadata for CLI version; include API resources; resolve paths relative to the package; restrict local reference traversal to own data properties | 308 tests/23 suites and clean packed installation smoke pass; published npm install/dist-tag and consecutive local release acceptance remain open |
+| `rest-api-profil-lint-processor` | Read installed package metadata for CLI version; include API resources; resolve paths relative to the package; restrict local reference traversal to own data properties | 308 tests/23 suites, clean packed installation and consecutive public/private GitLab releases pass; published npm install/dist-tag and consecutive Forgejo releases remain open |
 | `wallet-verifier-test-web` | Use noninteractive tests; package complete Nitro output; run the packed output and reuse it in images; update the pinned runtime and remove unused package managers | 32 tests, deployed HTML/client assets and native matrices pass; configured Node26 selection and runtime fix now pass public/private stable0.2.4 |
 | `wallet-r2ps` | Align exact Rust builder/toolchain intent; use `--locked` and shared workspace versions; preserve all three image/four binary outputs; update vulnerable Debian runtimes | Public/private GitHub PR/stable, six image checks and downloaded executable/image-byte checks pass; local-forge flows and development remain open |
 | `wallet-app-android` | Correct backup-rule domains while retaining blocking lint; validate OAuth callback destination/state/code before exchanging tokens; explicitly execute camera-module tests | 42 focused callback checks, full native PR/MR matrix, APK/AAB/SBOM inspection; AAB streaming-verifier warning still requires investigation |
@@ -160,8 +165,9 @@ blanket scanner ignore or renewed approval hold.
 - [ ] Interrupt an image-producing consumer after candidate push; retry the same
   version with retained remote state; prove final digest/assets and preservation
   of prior moving tags. Existing rollback primitives do not prove this workflow.
-- [ ] Run consecutive npm/Cargo local releases and compare version, lockfile,
-  tag, SBOM and provenance. Current local npm success is initial-version only.
+- [ ] Complete consecutive npm/Cargo local releases and compare version, lockfile,
+  tag, SBOM and provenance. Public/private GitLab npm2.0.1→2.0.2 now passes;
+  Forgejo npm and native Cargo sequences remain open.
 - [ ] Add independent GitLab/Forgejo development flows and Rust container-first
   development; preserve unchanged main and absence of stable tags/releases.
 - [ ] Complete Rust local-forge PR/stable coverage and applicable Android local
@@ -193,7 +199,7 @@ remove only verified, owned disposable resources after the final runs.
 | Category | Current observation | Required closure |
 | --- | --- | --- |
 | Active hosted session | Guarded status confirms none after all seven contract cases finished | Session closure does not prove package/image absence |
-| Validation supervisors | Hosted batch completed successfully; consecutive npm trials ended failed; historical failed unit records remain | Preserve results, then clear exact obsolete supervisor state |
+| Validation supervisors | Hosted batch and recovered consecutive npm trials passed; historical failed unit records remain | Preserve results, then clear exact obsolete supervisor state |
 | Source and snapshots | Main Forge CI changes are committed locally; isolated committed consumer/engine copies remain | Retain deliverable commits/docs; inventory and remove only obsolete copies after handoff |
 | Local build/evidence storage | Shared `.live-validation` tree reports approximately 31 GiB with two unreadable subtrees; includes other projects/history | This is an incomplete shared-tree measurement, not this trial's exact residue size; inventory exact task-owned paths before removal |
 | Hosted packages/images | Trial packages can outlive deleted repositories; no fresh remote package inventory was completed in this reconciliation | Enumerate exact immutable package/resource identities, retain receipts, use appropriate authenticated exact-resource cleanup and prove absence |

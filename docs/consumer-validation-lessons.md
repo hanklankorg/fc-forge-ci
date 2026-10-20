@@ -39,6 +39,8 @@ native acceptance.
   branch protection or the release bot's commit message. The native npm trial
   first exposed this after 2.0.1 passed manifest/lockfile/package/SBOM checks;
   pipeline 347 for 2.0.2 was skipped. A skipped request cannot count as acceptance.
+  With the next-candidate path, both versions pass public/private native GitLab
+  acceptance on controller `db3e21e` (parent pipelines 359/364 and 370/375).
 
 ## 2. Preserve the committed source tree
 
