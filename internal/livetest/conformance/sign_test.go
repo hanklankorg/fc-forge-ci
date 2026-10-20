@@ -31,6 +31,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/livetest"
 )
 
@@ -101,6 +102,8 @@ func TestSign_LedgerImages_ProducesAVerifiableSignature(t *testing.T) {
 			// about: an independent verifier must find the CycloneDX and the
 			// SLSA statement, each bound to this exact digest.
 			verifyCosignAttestations(t, target, imagePath+"@"+pushed.Digest, publicKey, authDir, pushed.Digest)
+			requireReleaseImageIdentityRejection(t, target, repo, opts, imagePath+"@"+pushed.Digest, publicKey, authFile)
+			requireReleaseImageSubjectRejection(t, target, repo, opts, imagePath, pushed.Digest, privateKey, publicKey, authFile, authDir)
 
 			// And that the containment held. Publishing to Rekor is
 			// irreversible, so this is asserted every run rather than trusted
@@ -113,14 +116,21 @@ func TestSign_LedgerImages_ProducesAVerifiableSignature(t *testing.T) {
 	}
 }
 
-// writePredicate supplies the SLSA predicate `ledger sign` enriches per image.
-// Its contents are not what this scenario is about — the signature is — so it is
-// the smallest in-toto statement the enrichment accepts.
+const (
+	signReleaseSource   = "https://example.invalid/livetest"
+	signReleaseCommit   = "cccccccccccccccccccccccccccccccccccccccc"
+	signReleaseWorkflow = ".forgejo/workflows/release.yml"
+)
+
+// writePredicate supplies a fixture release identity that ledger sign enriches
+// per image. The verifier must accept it, then reject one changed expectation.
 func writePredicate(t *testing.T, dir string) string {
 	t.Helper()
 
 	name := "slsa-provenance.predicate.json"
-	body := `{"buildDefinition":{"buildType":"https://example.invalid/livetest","externalParameters":{}},` +
+	body := `{"buildDefinition":{"buildType":"https://example.invalid/livetest","externalParameters":{"workflow":` +
+		`{"ref":"v0.0.1","repository":"` + signReleaseSource + `","path":"` + signReleaseWorkflow + `"}},` +
+		`"resolvedDependencies":[{"uri":"` + signReleaseSource + `","digest":{"gitCommit":"` + signReleaseCommit + `"}}]},` +
 		`"runDetails":{"builder":{"id":"https://example.invalid/livetest"}}}`
 
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
@@ -128,6 +138,96 @@ func writePredicate(t *testing.T, dir string) string {
 	}
 
 	return name
+}
+
+func requireReleaseImageIdentityRejection(t *testing.T, target livetest.Target, repo string, opts livetest.RunOptions, ref, publicKey, authFile string) {
+	t.Helper()
+	wrongKeyDir := filepath.Join(opts.Dir, "wrong-key")
+	if err := os.Mkdir(wrongKeyDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, wrongPublicKey := livetest.CosignKey(t, wrongKeyDir)
+	for _, tc := range []struct {
+		name, source, commit, workflow string
+	}{
+		{"matching", signReleaseSource, signReleaseCommit, signReleaseWorkflow},
+		{"wrong source", "https://example.invalid/other", signReleaseCommit, signReleaseWorkflow},
+		{"wrong commit", signReleaseSource, strings.Repeat("d", 40), signReleaseWorkflow},
+		{"wrong workflow", signReleaseSource, signReleaseCommit, ".forgejo/workflows/other.yml"},
+		{"wrong key", signReleaseSource, signReleaseCommit, signReleaseWorkflow},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			key, reason := filepath.Base(publicKey), "signed release image provenance does not match this release"
+			if tc.name == "wrong key" {
+				key = filepath.Join("wrong-key", filepath.Base(wrongPublicKey))
+				reason = "signature verification failed"
+			}
+			result := livetest.CLIIn(t, target, repo, opts,
+				"container", "release-images", "validate", "--ref", ref,
+				"--cosign-public-key-path", key, "--auth-file", authFile,
+				"--expected-tag", "v0.0.1", "--expected-source", tc.source,
+				"--expected-commit", tc.commit, "--expected-workflow", tc.workflow)
+			if tc.name == "matching" {
+				if result.ExitCode != 0 || strings.TrimSpace(result.Stdout) != "verified" {
+					t.Fatalf("valid signed release image was not verified: exit=%d\n%s\n%s", result.ExitCode, result.Stdout, result.Stderr)
+				}
+				return
+			}
+			if result.ExitCode != int(errs.ExitCodeValidation) ||
+				!strings.Contains(result.Stderr, reason) {
+				t.Fatalf("wrong identity/key was not rejected for %q: exit=%d\n%s\n%s", reason, result.ExitCode, result.Stdout, result.Stderr)
+			}
+		})
+	}
+}
+
+// Attach a genuinely signed SLSA envelope to a different image. Its signature
+// remains valid, but its subject must not authorize reuse of that other digest.
+func requireReleaseImageSubjectRejection(t *testing.T, target livetest.Target, repo string, opts livetest.RunOptions, imagePath, digest, privateKey, publicKey, authFile, authDir string) {
+	t.Helper()
+	t.Run("wrong subject", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(livetest.Context(t), 2*time.Minute)
+		defer cancel()
+		cosignRun := func(args ...string) []byte {
+			t.Helper()
+			cmd := exec.CommandContext(ctx, "cosign", args...) //nolint:gosec // Fixture-generated keys, files and exact disposable image refs.
+			cmd.Dir = opts.Dir
+			cmd.Env = livetest.ToolEnvironment(t, target, map[string]string{"DOCKER_CONFIG": authDir, "COSIGN_PASSWORD": ""})
+			var stderr strings.Builder
+			cmd.Stderr = &stderr
+			out, err := cmd.Output()
+			if err != nil {
+				t.Fatalf("cosign %s: %v\n%s", args[0], err, stderr.String())
+			}
+			return out
+		}
+		other := livetest.PushImage(t, target, repo, "wrong-subject")
+		if other.Digest == digest {
+			t.Fatal("subject rejection requires two distinct image digests")
+		}
+		ref := imagePath + "@" + other.Digest
+		// attach uses legacy attestation storage; keep this second image's
+		// evidence in that format rather than mixing it with OCI referrers.
+		cosignRun("sign", "--yes", "--key", privateKey, "--use-signing-config=false", "--tlog-upload=false", "--new-bundle-format=false", ref)
+		cosignRun("attest", "--yes", "--key", privateKey, "--use-signing-config=false", "--tlog-upload=false", "--new-bundle-format=false", "--type", "cyclonedx", "--predicate", writeSBOM(t, opts.Dir, "wrong-subject"), ref)
+		envelope := cosignRun("verify-attestation", "--key", publicKey, "--insecure-ignore-tlog=true", "--type", "slsaprovenance1", imagePath+"@"+digest)
+		file := filepath.Join(opts.Dir, "wrong-subject.dsse.json")
+		if err := os.WriteFile(file, envelope, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cosignRun("attach", "attestation", "--attestation", file, ref)
+		// Establish that the attached envelope exists and is cryptographically
+		// valid before asking the real release verifier to enforce its subject.
+		cosignRun("verify-attestation", "--key", publicKey, "--insecure-ignore-tlog=true", "--check-claims=false", "--type", "slsaprovenance1", ref)
+		result := livetest.CLIIn(t, target, repo, opts,
+			"container", "release-images", "validate", "--ref", ref,
+			"--cosign-public-key-path", filepath.Base(publicKey), "--auth-file", authFile,
+			"--expected-tag", "v0.0.1", "--expected-source", signReleaseSource,
+			"--expected-commit", signReleaseCommit, "--expected-workflow", signReleaseWorkflow)
+		if result.ExitCode != int(errs.ExitCodeValidation) || !strings.Contains(result.Stderr, "SLSA provenance attestation verification failed") {
+			t.Fatalf("wrong subject was not rejected by attestation verification: exit=%d\n%s\n%s", result.ExitCode, result.Stdout, result.Stderr)
+		}
+	})
 }
 
 // verifyCosignSignature runs the real cosign against the registry, which is the

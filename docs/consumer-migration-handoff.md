@@ -33,8 +33,12 @@ then `415/416`; follow-up MR gates `408/419` pass. Each release checks the commi
 Cargo version/lockfile, required release bundles and final image attestations.
 Native cross-job rejection also passes for stale digests, changed artifact bytes
 and changed bundle bytes, requiring the actual CLI's digest-mismatch reason.
-Bundle-byte rejection is not cryptographic signature or provenance-identity
-rejection; those remaining checks are still listed below.
+Signed-image registry checks now also pass on GitLab and Forgejo: matching
+evidence is accepted; wrong source, commit, workflow, trust key and subject are
+rejected for their intended reasons. The wrong-subject envelope is independently
+verified as cryptographically valid before subject enforcement rejects it.
+These are registry-verifier checks; full consumer job-boundary identity and
+cryptographic release-file bundle rejection remain open.
 The overall migration and cleanup remain incomplete.
 
 ## Bottom line
@@ -168,8 +172,10 @@ blanket scanner ignore or renewed approval hold.
   every consumer's optional publication surface.
 - [ ] Finish real cross-job rejection: native artifact/bundle byte mutations and
   stale handoff digests now reject for the expected digest-mismatch reason.
-  Cryptographic bundle rejection and wrong provenance subject/source/commit/workflow
-  remain open; unrelated setup failures do not satisfy them.
+  GitLab/Forgejo signed-image verification also rejects wrong keys and provenance
+  subject/source/commit/workflow. Cryptographic release-file bundle rejection and
+  full consumer job-boundary identity cases remain open; unrelated setup failures
+  do not satisfy them.
 
 ### P1: reusable release behavior and consolidation
 
