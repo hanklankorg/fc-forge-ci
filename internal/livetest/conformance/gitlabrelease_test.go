@@ -822,8 +822,13 @@ func requireGitLabReleaseBundles(t *testing.T, target livetest.Target, repo stri
 		verified++
 	}
 
-	if verified < 3 {
-		t.Fatalf("expected checksums, SBOM and provenance bundles, got %d", verified)
+	// Container-first releases can carry their SBOM in image attestations,
+	// rather than as a standalone release asset. Require the mandatory subjects
+	// by name instead of treating three arbitrary bundles as completeness.
+	for _, subject := range []string{"checksums.txt", releaseProvenance} {
+		if _, present := release.Asset(subject + ".bundle"); !present {
+			t.Fatalf("release has no bundle for required subject %s", subject)
+		}
 	}
 
 	return verified
