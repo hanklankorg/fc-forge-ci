@@ -439,11 +439,7 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 		requireGitLabNPMVersionContract(t, ctx, client, target, repo, finalTag)
 	}
 	if settings.NextVersion != "" {
-		branch, _, err := client.Branches.GetBranch(project, "main", gitlabapi.WithContext(ctx))
-		if err != nil || branch.Commit == nil {
-			t.Fatalf("read first release's main before the second request: %v", err)
-		}
-		parent := branch.Commit.ID
+		parent := mergeGitLabNextCandidate(t, client, target, repo)
 		requestTag, finalTag := "release-request/v"+settings.NextVersion, "v"+settings.NextVersion
 		livetest.SignGitLabRequest(t, target, repo, parent, requestTag, filepath.Join(requestKeyDir, "lab-ssh"))
 		next := waitGitLabTagPipeline(t, ctx, client, project, requestTag, parent)

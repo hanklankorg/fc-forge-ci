@@ -1,14 +1,28 @@
 # DiggSweden consumer migration handoff
 
-Status reconciled on **2026-10-20**, after native Maven profile acceptance.
+Status reconciled on **2026-10-20**, during combined-engine contract acceptance.
 
-Latest update: hosted artifact-first Maven stable2.7.6 now passes public/private
-on engine/controller `9e5b27152168e1c7ebe5f366501fd28f97f1fa8c`, runs
-`39388373461` / `39388374482`. The four-file original-build/fresh-cache/private
-registry contract and all ten private release-asset denial checks pass. Rust's
-stronger inspector found BFF drift under the documented second-build export mode;
-the shared retained-image file-extraction mode is implemented and awaits native
-acceptance. The overall migration and cleanup remain incomplete.
+Latest frozen engine/controller: `77a9c3403542c46a75c4665ecd22bc65f3c47f08`.
+Public/private Node26 web stable0.2.4 passes (`39403245605` / `39403250036`),
+including image verification and private exact-coordinate anonymous denial.
+Private Maven2.7.8 passes (`39403249538`); positive SARIF processing, category,
+commit and known-alert acceptance passes (`39403232350`). Independent web
+development passes public/private (`39405582859` / `39405582564`): five artifact
+archives each verified, main unchanged, no stable tags/releases. Public Maven
+also passes (`39405597442`), including installed-package acceptance and five
+verified Cosign bundles. All seven consumer cases finished successfully; the
+guarded status route confirms no hosted GitHub session remains.
+Rust retained-image extraction already passed on engine4248579, runs
+`39393995864` / `39393998582`: all four downloaded executables match their
+retained runtime images, with private asset/image denial checked.
+Consecutive npm acceptance exposed a harness error: the second request targeted
+the generated `[skip ci]` release commit. The harness now uses the existing
+protected-MR next-candidate path. Its native rerun was blocked before release
+execution by Podman runner-network IPAM exhaustion (no free address in
+`10.201.7.1–10.201.7.254`; GitLab pipelines352/355). Provider-free fixture
+checks pass, but consecutive native acceptance and queued recovery checks
+remain open. Shared-lab reset is human-only.
+The overall migration and cleanup remain incomplete.
 
 ## Bottom line
 
@@ -29,10 +43,9 @@ named trial flows and revisions, not every capability of each application.
   candidates, not merged fixes.
 - Evidence spans several frozen engines and later working-tree fixes. One final
   combined-engine acceptance checkpoint is still required.
-- No new hosted session was started during the handoff reconciliation. The
-  guarded Forge Lab status command reported **no hosted GitHub session**; the
-  inspected `fc-*` user services had no active jobs. Historical failed unit
-  records remain; they are not running jobs.
+- The hosted contract batch finished with zero failures and no retained hosted
+  session. Local consecutive-release validation ended blocked by runner-network
+  exhaustion. Package/image residue still needs exact-resource cleanup.
 
 ## What has passed
 
@@ -41,7 +54,7 @@ named trial flows and revisions, not every capability of each application.
 | Java service, Java CLI, Java library, API linter, web | Public/private PR or MR gates and stable release flows on GitHub, GitLab and Forgejo | Initial-version local npm releases do not prove automatic version increments or npm registry installation |
 | Android | Full app/camera PR or MR checks on all three forges; GitHub unsigned and test-signed development builds | Local stable/development, real devices, production signing and store delivery are not established |
 | iOS | Public/private GitHub ARM64 simulator PRs and unsigned development archives | No physical device, Secure Enclave or App Store acceptance |
-| Rust services | Public/private GitHub PRs and stable releases; all three images per visibility independently verified | Fresh downloaded executable smoke and local-forge PR/stable/development coverage remain open |
+| Rust services | Public/private GitHub PRs and stable releases; all three images per visibility independently verified; all four downloaded executables match retained runtime images and pass bounded loader/help checks | Local-forge PR/stable/development coverage remains open; no HSM/service-startup claim |
 | Maven artifact-first publication | GitLab/Forgejo fixture four-file readback, plus real GitHub public/private library original-build identity, fresh-cache classifiers, MAC0 smoke and private denial | Hosted2.7.6 closes the named forge-package contract; Sonatype production and every custom reactor/profile remain separate |
 
 Useful immutable checkpoints:
@@ -81,6 +94,9 @@ into each consumer as workarounds.
 | FC-13 | Reject repeated `image=` selectors rather than silently checking only the last | Hosted settings parser; single CSV selector regression |
 | FC-14 | Forward the library publication profile through stable/snapshot workflows, CLI, snapshot model preflight and Maven deploy | `internal/app/publish/forgepackages*`, CLI and workflow regressions; native four-file readback |
 | FC-15 | Reject a zero-byte extracted binary before renaming any sibling | `internal/app/container/binaries*`; reproduced acceptance first, then full container application race suite passed with the preflight fix |
+| FC-16 | Publish retained Maven build bytes rather than rebuilding during publication | `internal/app/publish/mavenbuild*`; original-build/fresh-cache native checks |
+| FC-17 | Forward configured Node version, retain actual runtime version and supply libatomic for Node26 | npm reusable workflows and shared runtime; public/private native web stable0.2.4 |
+| FC-18 | Render SARIF automation IDs using GitHub's category/run-ID convention | Security domain/application tests; processed known-alert native acceptance39403232350 |
 
 Related working-tree fixes cover Android's default test execution and task/SBOM
 boundaries, exact scoped toolchain selection, scan diagnostics, private host image
@@ -102,10 +118,10 @@ changes worth reviewing upstream from lab-specific adaptations.
 | --- | --- | --- |
 | `wallet-provider` | Migrate obsolete artifact/publisher configuration; align a supported non-root Java runtime; use fixed, aligned Jackson BOM versions until the platform manages them | 99 tests and native service matrices; revalidate chosen runtime/dependency pins at adoption time |
 | `wallet-dss-cli` | Produce an executable versioned JAR and preserve its unversioned executable alias using the existing assembly setup | Alias changes `78b6477` / private `dd6a62e`; actual downloads, runnable/byte-identical JARs and all three public/private stable matrices pass |
-| `cose-lib` | Preserve Java 21 API bytecode; add a versioned reproducible output timestamp; reconcile README coordinates and duplicate compiler properties; retain main/source/Javadoc publication | Java 21/25 tests and installed MAC0/wrong-key consumer pass; FC-14 hosted classifiers and actual-library publication identity remain open; Sonatype production publication is not proved |
+| `cose-lib` | Preserve Java 21 API bytecode; add a versioned reproducible output timestamp; reconcile README coordinates and duplicate compiler properties; retain main/source/Javadoc publication | Java 21/25 tests, installed MAC0/wrong-key consumer, hosted classifiers and actual-library publication identity pass; Sonatype production publication is not proved |
 | `rest-api-profil-lint-processor` | Read installed package metadata for CLI version; include API resources; resolve paths relative to the package; restrict local reference traversal to own data properties | 308 tests/23 suites and clean packed installation smoke pass; published npm install/dist-tag and consecutive local release acceptance remain open |
-| `wallet-verifier-test-web` | Use noninteractive tests; package complete Nitro output; run the packed output and reuse it in images; update the pinned runtime and remove unused package managers | 32 tests, deployed HTML/client assets and native matrices pass; declared Node 26 does not yet prove the shared GitHub release builder actually selected Node 26 |
-| `wallet-r2ps` | Align exact Rust builder/toolchain intent; use `--locked` and shared workspace versions; preserve all three image/four binary outputs; update vulnerable Debian runtimes | Public/private GitHub PR/stable and six image checks pass; downloaded binary smoke, local-forge flows and development remain open |
+| `wallet-verifier-test-web` | Use noninteractive tests; package complete Nitro output; run the packed output and reuse it in images; update the pinned runtime and remove unused package managers | 32 tests, deployed HTML/client assets and native matrices pass; configured Node26 selection and runtime fix now pass public/private stable0.2.4 |
+| `wallet-r2ps` | Align exact Rust builder/toolchain intent; use `--locked` and shared workspace versions; preserve all three image/four binary outputs; update vulnerable Debian runtimes | Public/private GitHub PR/stable, six image checks and downloaded executable/image-byte checks pass; local-forge flows and development remain open |
 | `wallet-app-android` | Correct backup-rule domains while retaining blocking lint; validate OAuth callback destination/state/code before exchanging tokens; explicitly execute camera-module tests | 42 focused callback checks, full native PR/MR matrix, APK/AAB/SBOM inspection; AAB streaming-verifier warning still requires investigation |
 | `wallet-app-ios` | Use SDK-supported builders/status-bar APIs; approve only reviewed locked build plug-ins; align scanner tests with callbacks and finite streams; use simulator-appropriate signing and a hardware-independent test fake | Public/private native simulator tests pass at `0b9d049`; preserve production crypto and Secure Enclave behavior, with no software-authentication fallback |
 
@@ -126,14 +142,15 @@ blanket scanner ignore or renewed approval hold.
   Profile-only engine8b38ec9 exposed a genuine rebuilt-JAR mismatch (FC-16).
   The shared artifact-first fix passes public/private2.7.6 on frozen9e5b271,
   with 14 provider-free checker cases each and local native registry coverage.
-- [ ] Rust: download every one of the four released executables; inspect format,
+- [x] Rust: download every one of the four released executables; inspect format,
   architecture and loader/dependencies; run bounded safe help in the intended
   non-root runtime without network. Local rebuilt binaries are not substitutes.
-- [ ] Private ACLs: pair authenticated success with anonymous denial on identical
+- [x] Private ACLs: pair authenticated success with anonymous denial on identical
   asset, package and image coordinates, beyond the existing Maven POM/main-JAR
   checks. The shared hosted harness now implements image/asset checks through
   existing OCI/API paths; status/credential/redirect regressions pass. Native
-  checks using this newer controller remain pending.
+  checks pass for the named Rust, Maven and web trials; this does not establish
+  every consumer's optional publication surface.
 - [ ] Real cross-job rejection: tamper artifact/bundle bytes, supply stale handoff
   digests and wrong provenance subject/source/commit/workflow; require the expected
   reason for rejection, not an unrelated setup failure.
@@ -149,9 +166,9 @@ blanket scanner ignore or renewed approval hold.
   development; preserve unchanged main and absence of stable tags/releases.
 - [ ] Complete Rust local-forge PR/stable coverage and applicable Android local
   stable/development coverage, or explicitly agree narrower acceptance scope.
-- [ ] Prove positive GitHub SARIF ingestion by waiting for processing and querying
+- [x] Prove positive GitHub SARIF ingestion by waiting for processing and querying
   the expected analysis/category/commit. Optional upload success is not proof.
-- [ ] Reconcile declared versus executed Node toolchains, especially the web
+- [x] Reconcile declared versus executed Node toolchains, especially the web
   release builder. Do not change healthy lockfiles to hide a tool-version defect.
 - [ ] Freeze one engine containing all intended root fixes; refresh its applicable
   generated checksums; run the required provider-free gates and representative
@@ -175,8 +192,8 @@ remove only verified, owned disposable resources after the final runs.
 
 | Category | Current observation | Required closure |
 | --- | --- | --- |
-| Active hosted session | Guarded `github status` reports none | Recheck after subsequent hosted runs |
-| Validation supervisors | No active inspected `fc-*` units; 21 historical failed unit records remain | Preserve results, then clear exact obsolete supervisor state |
+| Active hosted session | Guarded status confirms none after all seven contract cases finished | Session closure does not prove package/image absence |
+| Validation supervisors | Hosted batch completed successfully; consecutive npm trials ended failed; historical failed unit records remain | Preserve results, then clear exact obsolete supervisor state |
 | Source and snapshots | Main Forge CI changes are committed locally; isolated committed consumer/engine copies remain | Retain deliverable commits/docs; inventory and remove only obsolete copies after handoff |
 | Local build/evidence storage | Shared `.live-validation` tree reports approximately 31 GiB with two unreadable subtrees; includes other projects/history | This is an incomplete shared-tree measurement, not this trial's exact residue size; inventory exact task-owned paths before removal |
 | Hosted packages/images | Trial packages can outlive deleted repositories; no fresh remote package inventory was completed in this reconciliation | Enumerate exact immutable package/resource identities, retain receipts, use appropriate authenticated exact-resource cleanup and prove absence |

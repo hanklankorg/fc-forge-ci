@@ -54,7 +54,7 @@ func requireGitLabBaseReuse(t *testing.T, client *gitlabapi.Client, target livet
 
 	const requestTag, finalTag = "release-request/v0.0.2", "v0.0.2"
 
-	request := mergeGitLabWarmCandidate(t, client, target, repo)
+	request := mergeGitLabNextCandidate(t, client, target, repo)
 	livetest.SignGitLabRequest(t, target, repo, request, requestTag, filepath.Join(requestKeyDir, "lab-ssh"))
 	run := waitGitLabTagPipeline(t, ctx, client, livetest.RepoSlug(target, repo), requestTag, request)
 	child := requireGitLabReleaseChild(t, ctx, client, livetest.RepoSlug(target, repo), run)
@@ -85,7 +85,7 @@ func requireGitLabBaseReuse(t *testing.T, client *gitlabapi.Client, target livet
 // Prepared release commits carry [skip ci]. The next request must name a new
 // candidate, admitted through normal MR merge authority rather than unprotecting
 // main or changing the release bot's generated message.
-func mergeGitLabWarmCandidate(t *testing.T, client *gitlabapi.Client, target livetest.Target, repo string) string {
+func mergeGitLabNextCandidate(t *testing.T, client *gitlabapi.Client, target livetest.Target, repo string) string {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(livetest.Context(t), 5*time.Minute)
@@ -93,18 +93,18 @@ func mergeGitLabWarmCandidate(t *testing.T, client *gitlabapi.Client, target liv
 
 	project := livetest.RepoSlug(target, repo)
 
-	const branch = "next-base-release"
+	const branch = "next-release-candidate"
 
 	commit, _, err := client.Commits.CreateCommit(project, &gitlabapi.CreateCommitOptions{
-		Branch: gitlabapi.Ptr(branch), StartBranch: gitlabapi.Ptr("main"), CommitMessage: gitlabapi.Ptr("test: request warm base reuse"),
-		Actions: []*gitlabapi.CommitActionOptions{{Action: gitlabapi.Ptr(gitlabapi.FileCreate), FilePath: gitlabapi.Ptr("warm-request.txt"), Content: gitlabapi.Ptr("base inputs remain unchanged\n")}},
+		Branch: gitlabapi.Ptr(branch), StartBranch: gitlabapi.Ptr("main"), CommitMessage: gitlabapi.Ptr("test: request next release"),
+		Actions: []*gitlabapi.CommitActionOptions{{Action: gitlabapi.Ptr(gitlabapi.FileCreate), FilePath: gitlabapi.Ptr("next-release-request.txt"), Content: gitlabapi.Ptr("release inputs remain unchanged\n")}},
 	}, gitlabapi.WithContext(ctx))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	mr, _, err := client.MergeRequests.CreateMergeRequest(project, &gitlabapi.CreateMergeRequestOptions{
-		SourceBranch: gitlabapi.Ptr(branch), TargetBranch: gitlabapi.Ptr("main"), Title: gitlabapi.Ptr("Request verified warm base reuse"),
+		SourceBranch: gitlabapi.Ptr(branch), TargetBranch: gitlabapi.Ptr("main"), Title: gitlabapi.Ptr("Request next release candidate"),
 	}, gitlabapi.WithContext(ctx))
 	if err != nil {
 		t.Fatal(err)
@@ -126,10 +126,10 @@ func mergeGitLabWarmCandidate(t *testing.T, client *gitlabapi.Client, target liv
 	}
 
 	merged, _, err := client.MergeRequests.AcceptMergeRequest(project, mr.IID, &gitlabapi.AcceptMergeRequestOptions{
-		SHA: gitlabapi.Ptr(commit.ID), MergeCommitMessage: gitlabapi.Ptr("test: merge warm base candidate"), ShouldRemoveSourceBranch: gitlabapi.Ptr(true),
+		SHA: gitlabapi.Ptr(commit.ID), MergeCommitMessage: gitlabapi.Ptr("test: merge next release candidate"), ShouldRemoveSourceBranch: gitlabapi.Ptr(true),
 	}, gitlabapi.WithContext(ctx))
 	if err != nil || merged.MergeCommitSHA == "" {
-		t.Fatalf("merge warm candidate: %v", err)
+		t.Fatalf("merge next release candidate: %v", err)
 	}
 
 	return merged.MergeCommitSHA

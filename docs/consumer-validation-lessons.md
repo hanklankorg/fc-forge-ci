@@ -32,6 +32,13 @@ native acceptance.
   recreate that file or mutate the existing commit. A rejected branch read must
   stop before writes. Regression: `TestPrepareGitLabTagsSeedsOnlyTheFirstRelease`
   in `internal/livetest/scratch_internal_test.go`.
+- A consecutive GitLab release needs a new admitted candidate. The generated
+  release commit carries `[skip ci]`; signing the next request directly at that
+  commit produces a skipped pipeline, not a second release. Reuse the protected
+  merge-request path already exercised by warm-base acceptance, without changing
+  branch protection or the release bot's commit message. The native npm trial
+  first exposed this after 2.0.1 passed manifest/lockfile/package/SBOM checks;
+  pipeline 347 for 2.0.2 was skipped. A skipped request cannot count as acceptance.
 
 ## 2. Preserve the committed source tree
 
