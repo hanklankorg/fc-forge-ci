@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -143,6 +144,31 @@ func (trial *GitHubTrial) EnsureEngine(root, platforms string) GitHubEngine {
 	return engine
 }
 
+// ReuseEngine reads an engine prepared by EnsureEngine in this same hosted
+// session. The caller must prepare all required image platforms before starting
+// parallel consumers and keep the engine frozen until they all finish. Unlike
+// EnsureEngine this does not push, change variables, or register engine cleanup.
+func (trial *GitHubTrial) ReuseEngine(root string) GitHubEngine {
+	trial.tb.Helper()
+	commit := strings.TrimSpace(trial.git(root, "rev-parse", "HEAD"))
+	if len(commit) != 40 {
+		trial.tb.Fatalf("livetest: the engine checkout must be SHA-1 for GitHub; HEAD is %q", commit)
+	}
+	name := trial.prefix + "forge-ci"
+	for _, refName := range []string{"heads/main", "tags/" + GitHubPrerelease} {
+		ref, _, err := trial.api.Git.GetRef(trial.tb.Context(), trial.org, name, refName)
+		if err != nil || ref.GetObject().GetSHA() != commit {
+			trial.tb.Fatalf("livetest: prepared engine %s %s is not at %s: %v", name, refName, commit, err)
+		}
+	}
+	run := trial.WaitRun(name, githubEngineWorkflow, "push", commit, githubEngineTimeout)
+	if run.GetConclusion() != "success" {
+		trial.tb.Fatalf("livetest: prepared engine build at %s ended %s", commit, run.GetConclusion())
+	}
+	trial.tb.Logf("reusing prepared engine without mutations: %s/%s at %s", trial.org, name, commit)
+	return GitHubEngine{Owner: trial.org, Repository: name, Commit: commit}
+}
+
 // WithHistory returns the trial pushing the consumer's own history under the
 // rendered commit, as a demo does. A trial pushes one parentless commit.
 func (trial *GitHubTrial) WithHistory() *GitHubTrial {
@@ -233,6 +259,16 @@ type GitHubConsumerTree struct {
 func (trial *GitHubTrial) PushConsumer(repo, root, fixtures string, engine GitHubEngine, overrides map[string]string) GitHubConsumerTree {
 	trial.tb.Helper()
 
+	dir, workflows := trial.stageConsumer(root, fixtures, engine, overrides)
+	trial.push(dir, trial.remote(repo), "HEAD:refs/heads/main")
+	trial.waitWorkflows(repo, workflows)
+
+	return GitHubConsumerTree{Dir: dir, Main: strings.TrimSpace(trial.git(dir, "rev-parse", "HEAD"))}
+}
+
+func (trial *GitHubTrial) stageConsumer(root, fixtures string, engine GitHubEngine, overrides map[string]string) (string, string) {
+	trial.tb.Helper()
+
 	dir := trial.tempDir("consumer")
 	message := consumerBaseMessage
 
@@ -263,12 +299,13 @@ func (trial *GitHubTrial) PushConsumer(repo, root, fixtures string, engine GitHu
 
 	trial.renderFixtures(filepath.Join(root, fixtures, "workflows"), workflows, engine, overrides)
 
-	trial.git(dir, "add", "--all")
+	// The archive contains tracked source, including paths covered by the
+	// consumer's ignore rules. In a fresh repository those paths are no longer
+	// tracked: ordinary add would silently drop Cargo src/bin and similar files.
+	trial.git(dir, "add", "--force", "--all")
 	trial.commit(dir, message, "")
-	trial.push(dir, trial.remote(repo), "HEAD:refs/heads/main")
-	trial.waitWorkflows(repo, workflows)
 
-	return GitHubConsumerTree{Dir: dir, Main: strings.TrimSpace(trial.git(dir, "rev-parse", "HEAD"))}
+	return dir, workflows
 }
 
 // PushChange pushes one commit on branch, from main, for a pull request: the
@@ -352,7 +389,8 @@ func (trial *GitHubTrial) SetSecret(repo, name, value string) {
 func (trial *GitHubTrial) Token() string { return trial.token }
 
 // WaitRun waits for the newest run of workflow for event at headSHA to finish
-// and returns it. A run cancelled by a newer one of the same group is skipped.
+// and returns it, including a cancelled terminal run. A cancelled one-dispatch
+// consumer will not be replaced, so ignoring it stalls cleanup until timeout.
 func (trial *GitHubTrial) WaitRun(repo, workflow, event, headSHA string, timeout time.Duration) *github.WorkflowRun {
 	trial.tb.Helper()
 
@@ -366,10 +404,6 @@ func (trial *GitHubTrial) WaitRun(repo, workflow, event, headSHA string, timeout
 		if err == nil {
 			for _, run := range runs.WorkflowRuns {
 				appeared = true
-
-				if run.GetConclusion() == "cancelled" {
-					continue
-				}
 
 				if run.GetStatus() == "completed" {
 					return run
@@ -430,24 +464,49 @@ func (trial *GitHubTrial) ReportRun(repo string, run *github.WorkflowRun) {
 func failureOf(ctx context.Context, location string, lines int) string {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
 	if err != nil {
-		return err.Error()
+		return "could not prepare the job log request"
 	}
 
 	response, err := (&http.Client{Timeout: time.Minute}).Do(request)
 	if err != nil {
-		return err.Error()
+		// The URL is pre-signed; transport errors can include its credentials.
+		return "could not fetch the job log"
 	}
 
 	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Sprintf("could not fetch the job log: HTTP %d", response.StatusCode)
+	}
 
+	return readFailureExcerpt(response.Body, lines)
+}
+
+func readFailureExcerpt(reader io.Reader, lines int) string {
 	var all []string
 
-	scanner := bufio.NewScanner(io.LimitReader(response.Body, 32<<20))
+	const maxLogBytes = 32 << 20
+	limited := &io.LimitedReader{R: reader, N: maxLogBytes}
+	scanner := bufio.NewScanner(limited)
+	// Progress output can put well over Scanner's default 64 KiB on one line.
+	// Keep reading to the actual error, within the existing total log budget.
+	scanner.Buffer(make([]byte, 64<<10), maxLogBytes)
 	for scanner.Scan() {
 		all = append(all, scanner.Text())
 	}
 
-	return strings.Join(FailureExcerpt(all, lines), "\n")
+	excerpt := FailureExcerpt(all, lines)
+	for index, line := range excerpt {
+		if len(line) > 2048 {
+			excerpt[index] = strings.ToValidUTF8(line[:512], "�") +
+				" ... [line shortened; see full job log] ... " + strings.ToValidUTF8(line[len(line)-1536:], "�")
+		}
+	}
+	if scanner.Err() != nil {
+		excerpt = append(excerpt, "[job log incomplete: could not read the remaining data]")
+	} else if limited.N == 0 {
+		excerpt = append(excerpt, "[job log may be truncated at the 32 MiB read limit]")
+	}
+	return strings.Join(excerpt, "\n")
 }
 
 // FailureExcerpt picks the lines of a job log that explain its failure: those
@@ -456,6 +515,9 @@ func failureOf(ctx context.Context, location string, lines int) string {
 // the error of a failed publication entirely. Without an annotation it falls
 // back to the end of the log.
 func FailureExcerpt(log []string, lines int) []string {
+	if lines <= 0 {
+		return nil
+	}
 	end := len(log)
 
 	for index, line := range log {
@@ -614,7 +676,7 @@ func (trial *GitHubTrial) PushReleaseRequest(repo string, tree GitHubConsumerTre
 // CheckRelease checks what the engine promises of a GitHub release beyond a
 // green run: main advanced by one signed commit, the final tag exists, the
 // release offers assets, and each Cosign bundle verifies against trust.
-func (trial *GitHubTrial) CheckRelease(repo string, tree GitHubConsumerTree, final string, trust CosignTrust) {
+func (trial *GitHubTrial) CheckRelease(repo string, tree GitHubConsumerTree, final string, trust CosignTrust) map[string]int64 {
 	trial.tb.Helper()
 
 	ctx := trial.tb.Context()
@@ -645,12 +707,13 @@ func (trial *GitHubTrial) CheckRelease(repo string, tree GitHubConsumerTree, fin
 	}
 
 	trial.tb.Logf("release %s: %d assets, %d Cosign bundles verified against %s", final, len(assets), verified, trust)
+	return assets
 }
 
 // CheckImage verifies the consumer's promoted image at the release version
 // against trust. The registry must let the caller pull: a public consumer's
 // packages, or Docker credentials for a private one.
-func (trial *GitHubTrial) CheckImage(repo, image, final string, engine GitHubEngine, trust CosignTrust) {
+func (trial *GitHubTrial) CheckImage(repo, image, final string, engine GitHubEngine, trust CosignTrust) string {
 	trial.tb.Helper()
 
 	reference := engine.Registry() + "/" + strings.ToLower(repo) + "/" + image
@@ -659,13 +722,14 @@ func (trial *GitHubTrial) CheckImage(repo, image, final string, engine GitHubEng
 		if err == nil {
 			trial.tb.Logf("image %s:%s verifies against %s", reference, tag, trust)
 
-			return
+			return reference + ":" + tag
 		}
 
 		trial.tb.Logf("image %s:%s does not verify: %v\n%s", reference, tag, err, output)
 	}
 
 	trial.tb.Errorf("no promoted tag of %s for %s verifies", reference, final)
+	return ""
 }
 
 // waitWorkflows waits until GitHub lists every workflow just pushed to a new

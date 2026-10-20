@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+artifacts:
+  - name: hello-ios
+    project-type: xcode-ios
+    working-directory: .
+    sboms: none
+    publish-to: []
+    config:
+      xcode-version: "26.6"
+      macos-version: macos-26
+      project: HelloTrial.xcodeproj
+      scheme: HelloTrial
+      configuration: Release
+      use-xcodegen: true
+      enable-code-signing: false

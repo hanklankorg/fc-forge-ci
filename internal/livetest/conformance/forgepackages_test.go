@@ -33,7 +33,14 @@ package conformance_test
 // $CI_JOB_TOKEN, which exists only while the job runs.
 
 import (
+	"archive/zip"
+	"bytes"
+	"crypto/sha256"
+	"fmt"
+	"io/fs"
+	"net/url"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -199,7 +206,7 @@ func TestInRunner_ForgePackages_MavenDeployReachesTheRegistry(t *testing.T) {
 	// Unique and non-prerelease, for the reasons PAR-PKG-1 documents.
 	version := forgePackageVersion(time.Now())
 
-	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "a package registry"), livetest.NeedsInRunner) {
+	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "a package registry"), livetest.NeedsInRunner, livetest.NeedsPackages) {
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
 
@@ -226,7 +233,7 @@ func TestInRunner_ForgePackages_MavenDeployReachesTheRegistry(t *testing.T) {
 			}
 
 			conclusion := livetest.RunWorkflow(t, target, repo, "forge-packages-maven",
-				mavenDeployProbe(target, assetURL, groupID, artifactID, version))
+				mavenDeployProbe(target, assetURL, groupID, artifactID, version, tag))
 			if conclusion != "success" {
 				t.Fatalf("%s: the deploy job concluded %q — `publish forge-packages deploy --project-type maven` did not complete against this forge",
 					forge, conclusion)
@@ -237,6 +244,7 @@ func TestInRunner_ForgePackages_MavenDeployReachesTheRegistry(t *testing.T) {
 				t.Errorf("%s: the job succeeded but %s:%s is not in the forge's package registry (found %v) — the deploy reported success without the artifact arriving",
 					forge, name, version, after)
 			}
+			assertMavenBuildPublication(t, target, repo, groupID, artifactID, version, tag)
 		})
 	}
 }
@@ -245,7 +253,7 @@ func TestInRunner_ForgePackages_MavenDeployReachesTheRegistry(t *testing.T) {
 //
 // The pom sits at the job root because `publish forge-packages deploy` runs mvn
 // in the current directory, which is also where the prelude puts the binary.
-func mavenDeployProbe(target livetest.Target, assetURL, groupID, artifactID, version string) string {
+func mavenDeployProbe(target livetest.Target, assetURL, groupID, artifactID, version, tag string) string {
 	pom := `cat > pom.xml <<'POM'
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0">
@@ -254,11 +262,39 @@ func mavenDeployProbe(target livetest.Target, assetURL, groupID, artifactID, ver
   <artifactId>` + artifactID + `</artifactId>
   <version>` + version + `</version>
   <packaging>jar</packaging>
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.build.outputTimestamp>2026-10-20T00:00:00Z</project.build.outputTimestamp>
+  </properties>
+  <build><plugins>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.14.1</version></plugin>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-jar-plugin</artifactId><version>3.4.2</version></plugin>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-deploy-plugin</artifactId><version>2.8.2</version></plugin>
+  </plugins></build>
+  <profiles><profile>
+    <id>library-attachments</id>
+    <build><plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId><artifactId>maven-source-plugin</artifactId><version>3.3.1</version>
+        <executions><execution><id>sources</id><goals><goal>jar-no-fork</goal></goals></execution></executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId><artifactId>maven-javadoc-plugin</artifactId><version>3.11.2</version>
+        <configuration><notimestamp>true</notimestamp></configuration>
+        <executions><execution><id>javadoc</id><goals><goal>jar</goal></goals></execution></executions>
+      </plugin>
+    </plugins></build>
+  </profile></profiles>
 </project>
 POM
 mkdir -p src/main/java
 cat > src/main/java/Demo.java <<'JAVA'
-public class Demo { public static int one() { return 1; } }
+/** A real compiled library, with source and generated API documentation. */
+public class Demo {
+  /** @return the fixture value */
+  public static int one() { return 1; }
+}
 JAVA`
 
 	// The JVM does not read /etc/ssl/certs, so the prelude's work does not reach
@@ -275,11 +311,24 @@ JAVA`
   -cacerts -storepass changeit -file ` + livetest.LabCAPath
 
 	// -B for non-interactive output.
-	const deploy = `run_product publish forge-packages deploy --project-type maven --cli-opts "-B"`
+	// Freeze build hashes before deploy: Maven deploy reruns the lifecycle. Merely
+	// finding classifier files in target would not prove that deploy attached them,
+	// or that the registry received the bytes built before publication.
+	deploy := `mvn -B --no-transfer-progress package -Plibrary-attachments
+sha256sum pom.xml target/` + artifactID + `-` + version + `.jar target/` + artifactID + `-` + version + `-sources.jar target/` + artifactID + `-` + version + `-javadoc.jar > build-digests.sha256
+`
+	// GitLab's job token can publish packages and job artifacts, but cannot use
+	// the project uploads API backing release attachments. Keep that boundary.
+	if target.Forge == provider.ForgeForgejo {
+		deploy += "run_product release attachments upload --tag " + tag + " --pattern build-digests.sha256\n"
+	}
+	deploy += `run_product publish forge-packages deploy --project-type maven --from-build --working-dir . --version ` + version
 
 	if target.Forge == provider.ForgeGitLab {
 		return `publish:
   image: maven:3.9-eclipse-temurin-21
+  artifacts:
+    paths: [build-digests.sha256]
   script:
     - |
       ` + indent(livetest.ProbePrelude(target, assetURL), 6) + `
@@ -305,4 +354,60 @@ jobs:
           ` + indent(trustInJVM, 10) + `
           ` + indent(deploy, 10) + `
 `
+}
+
+// The oracle reads the pre-deploy receipt from the retained job artifact or
+// release asset and actual registry files, independently of Maven's deploy
+// result and local repository.
+func assertMavenBuildPublication(t *testing.T, target livetest.Target, repo, group, artifact, version, tag string) {
+	t.Helper()
+	var receiptURL string
+	if target.Forge == provider.ForgeGitLab {
+		receiptURL = target.BaseURL() + "/api/v4/projects/" + url.PathEscape(target.Owner+"/"+repo) + "/jobs/artifacts/main/raw/build-digests.sha256?job=publish"
+	} else {
+		receiptURL = livetest.ReleaseAssetURL(t, target, repo, tag, "build-digests.sha256")
+	}
+	receipt := livetest.Download(t, target, receiptURL, 4096)
+	stem := artifact + "-" + version
+	files := map[string]string{
+		"pom.xml":                         stem + ".pom",
+		"target/" + stem + ".jar":         stem + ".jar",
+		"target/" + stem + "-sources.jar": stem + "-sources.jar",
+		"target/" + stem + "-javadoc.jar": stem + "-javadoc.jar",
+	}
+	base := strings.ReplaceAll(group, ".", "/") + "/" + artifact + "/" + version + "/"
+	for _, line := range strings.Split(strings.TrimSpace(string(receipt)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 || len(fields[0]) != 64 {
+			t.Fatal("invalid pre-deploy checksum receipt")
+		}
+		name, ok := files[fields[1]]
+		if !ok {
+			t.Fatalf("unexpected or duplicate build receipt path %q", fields[1])
+		}
+		delete(files, fields[1])
+		body := livetest.MavenRegistryFile(t, target, repo, base+name)
+		if fmt.Sprintf("%x", sha256.Sum256(body)) != fields[0] {
+			t.Fatalf("registry %s differs from the pre-deploy build", name)
+		}
+		if strings.HasSuffix(name, ".jar") {
+			entry := "Demo.class"
+			if strings.HasSuffix(name, "-sources.jar") {
+				entry = "Demo.java"
+			} else if strings.HasSuffix(name, "-javadoc.jar") {
+				entry = "Demo.html"
+			}
+			archive, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := fs.Stat(archive, entry); err != nil {
+				t.Fatalf("registry %s lacks %s: %v", name, entry, err)
+			}
+		}
+	}
+	if len(files) != 0 {
+		t.Fatalf("pre-deploy receipt omits %d publication files", len(files))
+	}
+	t.Log("registry main/POM/sources/Javadoc match all four pre-deploy build hashes")
 }

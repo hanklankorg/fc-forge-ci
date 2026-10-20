@@ -1029,7 +1029,7 @@ demo-delete forge name *settings:
 # Runs inside Forge Lab's hosted session (`just github run --org ... --prefix ...
 # --fixtures none` there), which writes the private context FORGE_LAB_GITHUB_CONTEXT names:
 #
-#   just test-live-github-consumer <org-id> <consumer-checkout> <pull-request|release> [setting ...]
+#   just test-live-github-consumer <org-id> <consumer-checkout> <pull-request|dev-release|release> [setting ...]
 #
 # HEAD of this checkout is force-pushed to main of <prefix>forge-ci in the
 # organization, which builds its runtime images and moves v0.90.0-pre. The
@@ -1039,7 +1039,7 @@ demo-delete forge name *settings:
 # image=<name> (release), RELEASE_PLATFORMS=<linux/amd64 and/or linux/arm64>
 # (default linux/amd64), nanolinter-image= and megalinter-image=<reference>.
 # docs/testing.md, Trying a consumer on GitHub, has the prerequisites.
-[arg('event', help='Consumer workflow kind: pull-request or release')]
+[arg('event', help='Consumer workflow kind: pull-request or dev-release or release')]
 [arg('checkout', help='Absolute path to a clean consumer checkout with GitHub fixtures')]
 [arg('settings', help='Optional key=value settings; see docs/testing.md')]
 [arg('organization_id', help='Numeric GitHub organization ID explicitly authorized for this run')]

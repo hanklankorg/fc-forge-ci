@@ -11,11 +11,14 @@ package githubconsumer_test
 import (
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+
+	githubapi "github.com/google/go-github/v91/github"
 
 	"github.com/diggsweden/forge-ci/internal/livetest"
 	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
@@ -47,7 +50,7 @@ const (
 func TestGitHubLayer_ConsumerTrial(t *testing.T) {
 	root := os.Getenv(checkoutEnv)
 	if root == "" {
-		t.Skip("no consumer checkout is named; run `just test-live-github-consumer <org-id> <checkout> <pull-request|release>`")
+		t.Skip("no consumer checkout is named; run `just test-live-github-consumer <org-id> <checkout> <pull-request|dev-release|release>`")
 	}
 
 	organizationID, err := strconv.ParseInt(os.Getenv(organizationEnv), 10, 64)
@@ -76,7 +79,29 @@ func TestGitHubLayer_ConsumerTrial(t *testing.T) {
 	}
 
 	trial := livetest.OpenGitHubTrial(t, organizationID)
-	engine := trial.EnsureEngine(reporoot.Path(t), livetest.GitHubEnginePlatforms(settings.Platforms))
+	engineRoot := os.Getenv("FORGE_CI_LIVE_ENGINE_CHECKOUT")
+	if engineRoot == "" {
+		engineRoot = reporoot.Path(t)
+	} else if !filepath.IsAbs(engineRoot) {
+		t.Fatal("FORGE_CI_LIVE_ENGINE_CHECKOUT must be an absolute committed engine checkout")
+	}
+	controllerCommit, err := exec.CommandContext(t.Context(), "git", "-C", reporoot.Path(t), "rev-parse", "HEAD").Output() //nolint:gosec // Read-only metadata in the located controller checkout; no shell.
+	if err != nil {
+		t.Fatalf("read hosted controller revision: %v", err)
+	}
+	t.Logf("controller checkout: %s (working tree executed; HEAD %s); engine checkout: %s", reporoot.Path(t), strings.TrimSpace(string(controllerCommit)), engineRoot)
+	var engine livetest.GitHubEngine
+	switch mode := os.Getenv("FORGE_CI_LIVE_ENGINE_MODE"); mode {
+	case "", "prepare":
+		engine = trial.EnsureEngine(engineRoot, livetest.GitHubEnginePlatforms(settings.Platforms))
+		if mode == "prepare" {
+			return
+		}
+	case "reuse":
+		engine = trial.ReuseEngine(engineRoot)
+	default:
+		t.Fatalf("unknown FORGE_CI_LIVE_ENGINE_MODE %q", mode)
+	}
 
 	for _, visibility := range visibilities {
 		t.Run(visibility.Name, func(t *testing.T) {
@@ -96,7 +121,7 @@ func runTrial(t *testing.T, trial *livetest.GitHubTrial, engine livetest.GitHubE
 		trial = trial.WithHistory()
 		repo = trial.NewDemoRepository(demo)
 	} else {
-		repo = trial.NewConsumerRepository(filepath.Base(filepath.Clean(root))+"-"+visibility.Name, visibility.Private)
+		repo = trial.NewConsumerRepository(consumerRepositoryName(root, visibility.Name, settings.Event, settings.Workflow), visibility.Private)
 	}
 
 	overrides := maps.Clone(settings.Overrides)
@@ -104,7 +129,7 @@ func runTrial(t *testing.T, trial *livetest.GitHubTrial, engine livetest.GitHubE
 
 	var cosignKey *livetest.TrialCosignKey
 
-	if settings.Event != livetest.TrialPullRequest && keySigned(t, root, fixtures) {
+	if settings.Event == livetest.TrialRelease && keySigned(t, root, fixtures) {
 		key := trial.NewTrialCosignKey()
 		cosignKey, trust = &key, key.Trust()
 
@@ -129,6 +154,15 @@ func runTrial(t *testing.T, trial *livetest.GitHubTrial, engine livetest.GitHubE
 		return
 	}
 
+	if settings.Event == livetest.TrialDevRelease {
+		dispatched := trial.DispatchDevelopment(repo, settings.Workflow)
+		run := judge(t, trial, repo, settings.Workflow, "workflow_dispatch", tree.Main)
+		if dispatched != 0 && run.GetID() != dispatched {
+			t.Fatal("judged development run differs from the dispatch response")
+		}
+		trial.CheckDevelopmentRelease(repo, tree.Main, run.GetID())
+		return
+	}
 	key := trial.NewTrialGPGKey()
 	secrets := map[string]string{
 		"RELEASE_GPG_PRIVATE_KEY": key.Private,
@@ -162,14 +196,21 @@ func runTrial(t *testing.T, trial *livetest.GitHubTrial, engine livetest.GitHubE
 
 	trial.PushReleaseRequest(repo, tree, key, request, settings.Version)
 	judge(t, trial, repo, settings.Workflow, "push", tree.Main)
-	trial.CheckRelease(repo, tree, final, trust)
+	assets := trial.CheckRelease(repo, tree, final, trust)
+	if visibility.Private {
+		trial.CheckPrivateReleaseAssets(repo, assets)
+	}
 
-	switch {
-	case settings.Image == "":
-	case visibility.Private:
-		t.Logf("image %s of private %s not verified: its package needs registry credentials", settings.Image, repo)
-	default:
-		trial.CheckImage(repo, settings.Image, final, engine, trust)
+	if settings.Image != "" {
+		if visibility.Private {
+			t.Log("private image verification uses the host's registry credentials; provide an isolated DOCKER_CONFIG for GHCR access")
+		}
+		for image := range strings.SplitSeq(settings.Image, ",") {
+			verified := trial.CheckImage(repo, image, final, engine, trust)
+			if visibility.Private && verified != "" {
+				trial.CheckPrivateImage(verified)
+			}
+		}
 	}
 
 	// A demo then shows a pull request, judged by the consumer's own
@@ -183,6 +224,25 @@ func runTrial(t *testing.T, trial *livetest.GitHubTrial, engine livetest.GitHubE
 		head := trial.PushChange(repo, tree, trialBranch)
 		trial.OpenPullRequest(repo, trialBranch)
 		judge(t, trial, repo, pullRequest.Workflow, "pull_request", head)
+	}
+}
+
+func consumerRepositoryName(root, visibility, event, workflow string) string {
+	return filepath.Base(filepath.Clean(root)) + "-" + visibility + "-" + event + "-" + workflow
+}
+
+func TestConsumerRepositoryNamesSeparateConcurrentEvents(t *testing.T) {
+	seen := map[string]bool{}
+	for _, visibility := range []string{"public", "private"} {
+		for _, event := range []string{livetest.TrialPullRequest, livetest.TrialDevRelease, livetest.TrialRelease} {
+			for _, workflow := range []string{"release-dev.yml", "release-dev.yaml", "release-dev-test-signed.yml"} {
+				name := consumerRepositoryName("/consumers/fc-ios-app/", visibility, event, workflow)
+				if seen[name] {
+					t.Fatalf("concurrent consumer cases share repository identity %q", name)
+				}
+				seen[name] = true
+			}
+		}
 	}
 }
 
@@ -202,7 +262,7 @@ func keySigned(t *testing.T, root, fixtures string) bool {
 // judge waits for the run, prints its jobs, and fails the trial unless it
 // succeeded. GitHub records a pull-request run under the branch head and a
 // tag-push run under the tagged commit.
-func judge(t *testing.T, trial *livetest.GitHubTrial, repo, workflow, event, headSHA string) {
+func judge(t *testing.T, trial *livetest.GitHubTrial, repo, workflow, event, headSHA string) *githubapi.WorkflowRun {
 	t.Helper()
 
 	run := trial.WaitRun(repo, workflow, event, headSHA, livetest.GitHubRunTimeout)
@@ -217,6 +277,7 @@ func judge(t *testing.T, trial *livetest.GitHubTrial, repo, workflow, event, hea
 	default:
 		t.Fatalf("the consumer's %s ended %s", workflow, run.GetConclusion())
 	}
+	return run
 }
 
 // fixtureDir is the consumer's GitHub fixture directory: the setting, or the

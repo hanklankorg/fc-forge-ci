@@ -39,11 +39,11 @@ jobs:
       commit-body-config: .chglog/config-minimal.yml
       release-git-url: ${{ vars.RELEASE_GIT_URL }}
       release-git-host-key-fingerprint: ${{ vars.RELEASE_GIT_HOST_KEY_FINGERPRINT }}
-      verify-release-request-signature: 'false'
+      verify-release-request-signature: 'true'
       release-request-allowed-signers: .forgejo/release-allowed-signers
-      # No version-bump: the layer bumps maven projects only, so the release
-      # commit keeps package.json's version and the build job sets the
-      # release's in its checkout before it packs.
+      # This fixture's default request must already match the manifest. For
+      # increments select version-bump: npm and a pinned Node version-bump-image;
+      # the key-free prepare job, never the unsigned build, owns that mutation.
       sign-distro-packages: 'false'
       publish-container-images: 'true'
     secrets:
@@ -93,8 +93,8 @@ jobs:
           # the install needs no GitHub token.
           mise-locked: true
 
-      # The release's version into package.json, then npm ci, the tests, the
-      # build script, the Build SBOM (bom.json) and the packed
+      # The committed release version, then npm ci, the tests, the build script,
+      # the Build SBOM (bom.json) and the packed
       # <name>-<version>.tgz: the sequence GitHub's build-npm workflow and
       # GitLab's build-npm component run.
       - name: Build and test
@@ -105,8 +105,7 @@ jobs:
           CYCLONEDX_VERSION: '6.0.0'
         run: |
           set -euo pipefail
-          forge-ci version bump --project-type npm --version "${RELEASE_TAG#v}"
-          forge-ci build npm run
+          forge-ci build npm run --expect-version "${RELEASE_TAG#v}"
 
       # The image is built from the package unpacked, as GitHub's container
       # job builds it. The build script's dist/ is in the package, and dist/

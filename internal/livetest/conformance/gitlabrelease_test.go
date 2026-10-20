@@ -185,7 +185,7 @@ func gitlabConsumerSettings(t *testing.T, consumerRoot string) (livetest.GitLabR
 		t.Fatal(err)
 	}
 
-	if consumerRoot == "" && (len(settings.Variables) != 0 || settings.VersionBump != "" || settings.Version != "") {
+	if consumerRoot == "" && (len(settings.Variables) != 0 || settings.VersionBump != "" || settings.Version != "" || settings.NextVersion != "") {
 		t.Fatal("consumer settings require a consumer release trial")
 	}
 
@@ -435,6 +435,30 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 	}
 
 	t.Logf("GitLab release %s: parent %d, child %d, %d verified bundles", finalTag, run.ID, child, verified)
+	if settings.VersionBump == "npm" {
+		requireGitLabNPMVersionContract(t, ctx, client, target, repo, finalTag)
+	}
+	if settings.NextVersion != "" {
+		branch, _, err := client.Branches.GetBranch(project, "main", gitlabapi.WithContext(ctx))
+		if err != nil || branch.Commit == nil {
+			t.Fatalf("read first release's main before the second request: %v", err)
+		}
+		parent := branch.Commit.ID
+		requestTag, finalTag := "release-request/v"+settings.NextVersion, "v"+settings.NextVersion
+		livetest.SignGitLabRequest(t, target, repo, parent, requestTag, filepath.Join(requestKeyDir, "lab-ssh"))
+		next := waitGitLabTagPipeline(t, ctx, client, project, requestTag, parent)
+		child := requireGitLabReleaseChild(t, ctx, client, project, next)
+		requireReleaseGit(t, target, repo, keys, parent, requestTag, finalTag)
+		bundles := requireGitLabReleaseBundles(t, target, repo, keys, finalTag)
+		if consumer != nil {
+			requireGitLabPackageSignatures(t, target, repo, keys, finalTag)
+			requireGitLabPublishedImages(t, client, target, repo, publication, child, keys)
+		}
+		t.Logf("second consecutive GitLab release %s: parent commit %s, pipeline %d, child %d, %d verified bundles", finalTag, parent, next.ID, child, bundles)
+		if settings.VersionBump == "npm" {
+			requireGitLabNPMVersionContract(t, ctx, client, target, repo, finalTag)
+		}
+	}
 
 	if bases {
 		requireGitLabBaseReuse(t, client, target, repo, publication, keys, requestKeyDir)
@@ -469,9 +493,9 @@ func requireGitLabPolicyMergeRequest(t *testing.T, client *gitlabapi.Client, pro
 		t.Fatal(waitErr)
 	}
 
-	mr, _, err := client.MergeRequests.CreateMergeRequest(project, &gitlabapi.CreateMergeRequestOptions{
+	mr, err := livetest.CreateGitLabMergeRequest(ctx, client, project, &gitlabapi.CreateMergeRequestOptions{
 		SourceBranch: gitlabapi.Ptr(trialBranch), TargetBranch: gitlabapi.Ptr("main"), Title: gitlabapi.Ptr("test: consumer trial"),
-	}, gitlabapi.WithContext(ctx))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

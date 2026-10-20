@@ -1,0 +1,8 @@
+*.xcodeproj/
+*.xcworkspace/
+build/
+DerivedData/
+*.xcresult/
+*.ipa
+*.p12
+*.mobileprovision

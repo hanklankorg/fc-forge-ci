@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+name: Pull Request Workflow
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    name: "Build and test: Android"
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    container:
+      image: ghcr.io/diggsweden/forge-ci-runtime-android-35:v0.90.0
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - run: ./gradlew --no-daemon app:test assembleDemoDebug assembleDemoRelease bundleDemoRelease
+
+  pr-checks:
+    uses: diggsweden/forge-ci/.github/workflows/pullrequest-orchestrator.yml@v0.90.0
+    permissions:
+      actions: read
+      contents: read
+    with:
+      forge-ci-binary-ref: v0.90.0
+      project-type: gradle-android
+      lint-engine: nanolinter
+      nanolinter-image: codefloe.com/itiquette/nanolinter:kotlin
+      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0
+
+  # The signing-capable leaf remains branch-only; PRs use no signing secrets.
+  build:
+    name: "Build: Android APK and AAB"
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    uses: diggsweden/forge-ci/.github/workflows/build-gradle-android.yml@v0.90.0
+    permissions:
+      contents: read
+      packages: write
+    with:
+      build-module: app
+      product-flavor: demo
+      build-types: debug,release
+      include-aab: true
+      enable-signing: false
+      skip-tests: false
+      artifact-name: hello-android
+      include-date-stamp: false
+      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-android-35:v0.90.0

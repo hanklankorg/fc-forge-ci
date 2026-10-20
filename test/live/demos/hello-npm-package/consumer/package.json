@@ -1,0 +1,14 @@
+{
+  "name": "@hanklankorg/hello-npm-package",
+  "version": "0.1.0",
+  "description": "Disposable Forge CI package publication and installation fixture",
+  "license": "CC0-1.0",
+  "type": "module",
+  "exports": "./src/index.js",
+  "files": ["src/"],
+  "scripts": {
+    "build": "node --check src/index.js",
+    "test": "node --test"
+  },
+  "engines": {"node": ">=24"}
+}

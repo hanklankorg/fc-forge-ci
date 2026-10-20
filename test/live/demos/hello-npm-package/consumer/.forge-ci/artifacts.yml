@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+sign:
+  method: sigstore
+artifacts:
+  - name: hello-npm-package
+    project-type: npm
+    working-directory: .
+    publish-to: [forge-packages]
+    config:
+      node-version: 24
+      npm-tag: release-{version}

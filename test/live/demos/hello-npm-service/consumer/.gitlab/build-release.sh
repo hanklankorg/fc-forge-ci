@@ -6,16 +6,15 @@
 # leaves the unsigned hand-off in dist/: the packed package, its CycloneDX
 # Build SBOM, the ledger of the runtime image it pushed for staging, release
 # notes, checksums and the manifest. Forge CI's signer jobs sign and publish
-# it. The policy's version-bump knows maven only, so the release commit keeps
-# package.json's version and the build sets the release's before it packs.
+# it. The policy's isolated version-bump job must commit the package and lockfile
+# version first; the unsigned build never repairs a stale release commit.
 set -euo pipefail
 umask 077
 
 : "${RELEASE_TAG:?}" "${RELEASE_VERSION:?}" "${RELEASE_SHA:?}"
 test "$(git rev-parse HEAD)" = "${RELEASE_SHA}"
 
-forge-ci version bump --project-type npm --version "${RELEASE_VERSION}"
-NODE_VERSION=24 CYCLONEDX_VERSION=6.0.0 forge-ci build npm run
+NODE_VERSION=24 CYCLONEDX_VERSION=6.0.0 forge-ci build npm run --expect-version "${RELEASE_VERSION}"
 
 package="hello-npm-service-${RELEASE_VERSION}.tgz"
 test -f "${package}"
@@ -45,11 +44,12 @@ CI_OUTPUT="${auth_dir}/image.env" forge-ci container build-push-oci-image \
 	--builds-json '[{"platform":"linux/amd64"}]' --image "${CI_REGISTRY_IMAGE:?}" \
 	--title hello-npm-service --auth-file "${auth_dir}/auth.json" \
 	--scan-output-template 'dist/trivy-results-runtime-{arch}.json'
+# The outputs are GitLab dotenv lines, their keys in upper case.
 image='' digest=''
 while IFS= read -r line || [ -n "${line}" ]; do
 	case "${line}" in
-	image=*) image="${line#image=}" ;;
-	digest=*) digest="${line#digest=}" ;;
+	IMAGE=*) image="${line#IMAGE=}" ;;
+	DIGEST=*) digest="${line#DIGEST=}" ;;
 	esac
 done <"${auth_dir}/image.env"
 forge-ci container ledger add --role runtime --image-name "${image:?}" --digest "${digest:?}" \

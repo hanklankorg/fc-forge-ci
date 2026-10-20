@@ -38,7 +38,7 @@ jobs:
       commit-body-config: .chglog/config-minimal.yml
       release-git-url: ${{ vars.RELEASE_GIT_URL }}
       release-git-host-key-fingerprint: ${{ vars.RELEASE_GIT_HOST_KEY_FINGERPRINT }}
-      verify-release-request-signature: 'false'
+      verify-release-request-signature: 'true'
       release-request-allowed-signers: .forgejo/release-allowed-signers
       # The release commit carries the version: a key-free job runs
       # `mvn versions:set` and the signing job checks and applies its patch.

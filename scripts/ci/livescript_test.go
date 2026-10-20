@@ -325,8 +325,8 @@ const fakePreflightReport = "live preflight: 2 provider(s), generation fake-gene
 	"identity for fci-: run=fake-generation|targets=forgejo@https://forgejo.compose.forgelab:8443/fixture-user#resources=fci-"
 
 // fakeSuiteOutput is what the compiled fixture prints: ordinary verbose output
-// with two credential-shaped lines the log must not keep.
-const fakeSuiteOutput = "=== RUN TestFake\ntoken glpat-ABCDEFGHIJKLMNOPQRSTUVWX\nAuthorization: Bearer abc.def\n--- PASS: TestFake\nok\tfake\t0.01s" // gitleaks:allow -- synthetic redaction canaries.
+// with credential-shaped lines, including a colored GitLab field separator.
+const fakeSuiteOutput = "=== RUN TestFake\ntoken glpat-ABCDEFGHIJKLMNOPQRSTUVWX\nAuthorization: Bearer abc.def\ntoken\x1b[0;m=inert-ansi-secret\n--- PASS: TestFake\nok\tfake\t0.01s" // gitleaks:allow -- synthetic redaction canaries.
 
 // requireGoCalls requires preflight, the runner architecture, four product
 // builds, test compilation, package discovery and direct suite execution, in
@@ -398,17 +398,31 @@ func requireRedactedLog(t *testing.T, run liveRun, stdout string, header ...stri
 		}
 	}
 
-	for _, secret := range []string{"glpat-ABCDEFGHIJKLMNOPQRSTUVWX", "abc.def"} { // gitleaks:allow -- synthetic redaction canaries.
+	for _, secret := range []string{"glpat-ABCDEFGHIJKLMNOPQRSTUVWX", "abc.def", "inert-ansi-secret"} { // gitleaks:allow -- synthetic redaction canaries.
 		if strings.Contains(log, secret) || strings.Contains(stdout, secret) {
 			t.Fatalf("secret %q leaked\nlog:\n%s\nstdout:\n%s", secret, log, stdout)
 		}
 	}
 
-	if !strings.Contains(log, "token [REDACTED]") || !strings.Contains(log, "Authorization: Bearer [REDACTED]") {
+	if !strings.Contains(log, "token [REDACTED]") || !strings.Contains(log, "Authorization: Bearer [REDACTED]") || !strings.Contains(log, "token=[REDACTED]") {
 		t.Fatalf("log lacks the redaction markers:\n%s", log)
 	}
 
 	return logPath
+}
+
+func TestRunLiveTests_RedactsColoredFieldsInSwedishLocale(t *testing.T) {
+	t.Parallel()
+	locales, err := exec.CommandContext(t.Context(), "locale", "-a").Output()
+	if err != nil || !strings.Contains(strings.ToLower(string(locales)), "sv_se.utf8") {
+		t.Skip("Swedish UTF-8 locale is not installed")
+	}
+	run := newLiveRun(t, "LC_ALL=sv_SE.UTF-8", "FAKE_GO_TEST_OUTPUT="+fakeSuiteOutput)
+	stdout, stderr, status := run.exec(t, "full")
+	if status != 0 {
+		t.Fatalf("status %d\nstdout:\n%s\nstderr:\n%s", status, stdout, stderr)
+	}
+	requireRedactedLog(t, run, stdout)
 }
 
 func TestRunLiveTests_PropagatesTheSuiteStatus(t *testing.T) {

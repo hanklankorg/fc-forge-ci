@@ -166,7 +166,7 @@ type GitHubTrialSettings struct {
 	Workflow  string            // the fixture workflow whose run is judged
 	Fixtures  string            // the consumer's fixture directory; "" finds it
 	Version   string            // the release version, vX.Y.Z
-	Image     string            // the released image to verify, or ""
+	Image     string            // comma-separated released image names to verify, or ""
 	Platforms string            // RELEASE_PLATFORMS of the engine and the consumer
 	Overrides map[string]string // input: value lines set in the rendered fixtures
 }
@@ -175,6 +175,10 @@ type GitHubTrialSettings struct {
 // states otherwise, as in the lab trials: each
 // stated platform runs natively on GitHub's runner of that architecture.
 const githubDefaultPlatforms = "linux/amd64"
+
+// TrialDevRelease exercises a branch-dispatched development build without a
+// stable release request, signing secrets, or a mutation of the source branch.
+const TrialDevRelease = "dev-release"
 
 // githubPlatforms reports whether value is a duplicate-free list of the
 // platforms GitHub's hosted runners build natively.
@@ -222,14 +226,19 @@ func ParseGitHubTrialSettings(event string, words []string) (GitHubTrialSettings
 		settings.Workflow = trialPullRequestWorkflow
 	case TrialRelease:
 		settings.Workflow, settings.Version = trialReleaseWorkflow, "v0.1.0"
+	case TrialDevRelease:
+		settings.Workflow = "release-dev.yml"
 	default:
-		return GitHubTrialSettings{}, fmt.Errorf("event must be %s or %s, got %q: %w", TrialPullRequest, TrialRelease, event, errs.ErrValidation)
+		return GitHubTrialSettings{}, fmt.Errorf("event must be %s, %s or %s, got %q: %w", TrialPullRequest, TrialRelease, TrialDevRelease, event, errs.ErrValidation)
 	}
 
 	for _, word := range words {
 		key, value, found := strings.Cut(word, "=")
+		if key == "image" && settings.Image != "" {
+			return GitHubTrialSettings{}, fmt.Errorf("image must be supplied once as image=<name[,name...]>; repeated settings would omit earlier verification targets: %w", errs.ErrValidation)
+		}
 		if !found || value == "" || (!settings.setPlatforms(key, value) && !settings.set(key, value)) {
-			return GitHubTrialSettings{}, fmt.Errorf("setting %q: want workflow=<file>, fixtures=<dir>, version=X.Y.Z or image=<name> (release), "+
+			return GitHubTrialSettings{}, fmt.Errorf("setting %q: want workflow=<file>, fixtures=<dir>, version=X.Y.Z or image=<name[,name...]> (release), "+
 				"RELEASE_PLATFORMS=linux/amd64[,linux/arm64], or nanolinter-image=/megalinter-image=<reference>: %w", word, errs.ErrValidation)
 		}
 	}
@@ -268,8 +277,18 @@ func (settings *GitHubTrialSettings) set(key, value string) bool {
 		return release && valid
 	case key == "image":
 		settings.Image = value
-
-		return release && regexp.MustCompile(`^[a-z0-9][a-z0-9._/-]*$`).MatchString(value)
+		if !release {
+			return false
+		}
+		seen := map[string]bool{}
+		validName := regexp.MustCompile(`^[a-z0-9][a-z0-9._/-]*$`)
+		for image := range strings.SplitSeq(value, ",") {
+			if !validName.MatchString(image) || seen[image] || strings.Contains("/"+image+"/", "/../") {
+				return false
+			}
+			seen[image] = true
+		}
+		return true
 	case githubOverridable[key]:
 		settings.Overrides[key] = value
 

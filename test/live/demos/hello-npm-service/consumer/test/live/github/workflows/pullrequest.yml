@@ -1,8 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
 # SPDX-License-Identifier: CC0-1.0
 
-# The pull-request gate: Nanolinter with its floor, and the npm build and
-# tests, through Forge CI's pull-request orchestrator.
+# Forge CI owns the lint gate; the consumer's independent build job runs tests.
 name: Pull Request Workflow
 
 on:
@@ -18,6 +17,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build:
+    name: "Build and test: npm"
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    container:
+      image: ghcr.io/diggsweden/forge-ci-runtime-node-24:v0.90.0
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
   pr-checks:
     uses: diggsweden/forge-ci/.github/workflows/pullrequest-orchestrator.yml@v0.90.0
     permissions:

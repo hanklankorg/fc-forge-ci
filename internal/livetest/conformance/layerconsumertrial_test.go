@@ -24,7 +24,8 @@ const (
 	consumerEventEnv    = "FORGE_CI_LIVE_CONSUMER_EVENT"
 	consumerSettingsEnv = "FORGE_CI_LIVE_CONSUMER_SETTINGS"
 
-	trialBranch = "consumer-trial"
+	trialBranch         = "consumer-trial"
+	trialRequestSigners = ".forgejo/release-allowed-signers"
 )
 
 // A consumer trial: a real consumer's own workflow, run on the lab against
@@ -108,11 +109,13 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 	facts := livetest.ConsumerFacts{Inputs: map[string]string{}, Secrets: map[string]string{}}
 
 	var keys releaseKeys
+	var requester livetest.RequestSigner
 
 	external := externalRegistry(t, settings)
 
 	if release {
 		keys = trialReleaseFacts(t, target, repoName, &facts)
+		requester = livetest.NewRequestSigner(t, t.TempDir())
 		useExternalRegistry(t, external, &facts)
 	}
 
@@ -132,6 +135,14 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 		scenario.layer.Repository, scenario.layer.Commit, scenario.layer.BinarySHA256, scenario.label)
 
 	main := consumer.Push(t, repo, plan)
+	if release {
+		// Install only the disposable requester's public trust material while
+		// Actions are still disabled. The private key stays on the host.
+		main = livetest.CommitFiles(t, target, repo, livetest.FileCommit{
+			Branch: layerMain, Message: "test: trust the disposable release requester",
+			Files: map[string]string{trialRequestSigners: requester.AllowedSigners},
+		})
+	}
 	requireObjectFormats(t, consumer.ObjectFormat, main, scenario.layer.Commit)
 
 	head := ""
@@ -191,7 +202,7 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 	if release {
 		event = "push"
 
-		livetest.AnnotateTag(t, target, repo, "release-request/v"+settings.Version, layerMain, "Request release v"+settings.Version)
+		requester.PushTag(t, target, repo, "release-request/v"+settings.Version, layerMain, "Request release v"+settings.Version)
 	} else {
 		requirePullRequest(t, livetest.OpenPullRequest(t, target, repo, trialBranch, layerMain, "test: consumer trial"), trialBranch, head, main)
 	}
@@ -387,6 +398,7 @@ func trialReleaseFacts(t *testing.T, target livetest.Target, repo string, facts 
 		"cosign-public-key-sha256":         keys.cosignPublicSHA256,
 		"release-git-url":                  gitURL,
 		"release-git-host-key-fingerprint": fingerprint,
+		"release-request-allowed-signers":  trialRequestSigners,
 	}
 	facts.Secrets = map[string]string{
 		"RELEASE_SSH_SIGNING_KEY":    keys.sshPrivate,

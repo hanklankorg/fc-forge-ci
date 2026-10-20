@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+name: HelloTrial
+options:
+  bundleIdPrefix: org.hanklankorg.trial
+  deploymentTarget:
+    iOS: "18.0"
+configFiles:
+  Debug: versions.xcconfig
+  Release: versions.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    GENERATE_INFOPLIST_FILE: YES
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  HelloTrial:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.hanklankorg.trial.hello-ios
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+  HelloTrialTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: HelloTrial
+schemes:
+  HelloTrial:
+    build:
+      targets:
+        HelloTrial: all
+    test:
+      targets: [HelloTrialTests]

@@ -18,6 +18,17 @@ precedence = "override"
 SPDX-FileCopyrightText = "2026 Digg - Agency for Digital Government"
 SPDX-License-Identifier = "CC0-1.0"
 
+# Generated upstream Gradle wrapper retains its Apache license.
+[[annotations]]
+path = [
+  "test/live/demos/hello-android/consumer/gradlew",
+  "test/live/demos/hello-android/consumer/gradlew.bat",
+  "test/live/demos/hello-android/consumer/gradle/wrapper/gradle-wrapper.jar",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2015 the original authors; Gradle, Inc."
+SPDX-License-Identifier = "Apache-2.0"
+
 # Markdown documentation.
 [[annotations]]
 path = [

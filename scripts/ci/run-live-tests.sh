@@ -68,7 +68,8 @@ flock -n 9 || {
 # scenario runs and cannot know the values: forge token prefixes, credential
 # headers, URL userinfo, credential flags, and credential-named keys.
 sanitize_live_log() {
-	sed -u -E \
+	LC_ALL=C sed -u -E \
+		-e 's/\x1b\[[0-?]*[ -/]*[@-~]//g' \
 		-e 's/(gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,})/[REDACTED]/g' \
 		-e 's/((Authorization|Proxy-Authorization|PRIVATE-TOKEN|JOB-TOKEN|X-Registry-Auth):[[:space:]]*((Basic|Bearer|token)[[:space:]]*)?)[^[:space:]"]+/\1[REDACTED]/Ig' \
 		-e 's/((Set-)?Cookie:[[:space:]]*).*/\1[REDACTED]/Ig' \

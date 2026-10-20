@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"golang.org/x/crypto/nacl/box"
 
@@ -18,6 +19,28 @@ import (
 )
 
 var trialEngine = GitHubEngine{Owner: "HankLankOrg", Repository: "fc-forge-ci", Commit: strings.Repeat("a", 40)} //nolint:gochecknoglobals // read-only fixture.
+
+func TestFailureLogKeepsCauseAfterLargeProgressLine(t *testing.T) {
+	t.Parallel()
+	log := "download " + strings.Repeat("progress ", 20000) + "\nAffected target: usr/bin/pebble\n##[error]three blocking vulnerabilities\npost-job cleanup\n"
+	got := readFailureExcerpt(strings.NewReader(log), 3)
+	for _, want := range []string{"line shortened", "Affected target: usr/bin/pebble", "##[error]three blocking vulnerabilities"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %s", want, got)
+		}
+	}
+	if len(got) > 4096 || strings.Contains(got, "post-job cleanup") {
+		t.Fatalf("failure excerpt is noisy or unbounded: %d bytes", len(got))
+	}
+}
+
+func TestFailureLogReportsIncompleteReadWithoutPrivateError(t *testing.T) {
+	t.Parallel()
+	got := readFailureExcerpt(iotest.ErrReader(errors.New("private signed URL")), 40)
+	if !strings.Contains(got, "job log incomplete") || strings.Contains(got, "private signed URL") {
+		t.Fatalf("unexpected incomplete-log diagnostic: %s", got)
+	}
+}
 
 const fixturePullRequest = `jobs:
   pr-checks:
@@ -230,6 +253,45 @@ func TestParseGitHubTrialSettings(t *testing.T) {
 
 		if _, err := ParseGitHubTrialSettings(bad[0], words); !errors.Is(err, errs.ErrValidation) {
 			t.Errorf("ParseGitHubTrialSettings(%s, %q) err = %v, want a validation error", bad[0], bad[1], err)
+		}
+	}
+}
+
+func TestParseGitHubTrialSettings_MultipleImages(t *testing.T) {
+	t.Parallel()
+	settings, err := ParseGitHubTrialSettings(TrialRelease, []string{"image=worker,keytool,bff"})
+	if err != nil || settings.Image != "worker,keytool,bff" {
+		t.Fatalf("multi-image selection = %+v, %v", settings, err)
+	}
+	for _, value := range []string{"worker,worker", "worker,", ",worker", "worker, keytool", "worker/../other"} {
+		if _, err := ParseGitHubTrialSettings(TrialRelease, []string{"image=" + value}); !errors.Is(err, errs.ErrValidation) {
+			t.Errorf("invalid image selection %q accepted: %v", value, err)
+		}
+	}
+}
+
+func TestParseGitHubTrialSettings_RejectsRepeatedImageSelectors(t *testing.T) {
+	t.Parallel()
+	for _, words := range [][]string{
+		{"image=worker", "image=bff"},
+		{"image=worker", "image=worker"},
+		{"image=worker,bff", "image=load-tests"},
+	} {
+		if _, err := ParseGitHubTrialSettings(TrialRelease, words); !errors.Is(err, errs.ErrValidation) || !strings.Contains(err.Error(), "supplied once") {
+			t.Errorf("repeated selectors %q silently dropped a verification target: %v", words, err)
+		}
+	}
+}
+
+func TestParseGitHubTrialSettings_DevelopmentRelease(t *testing.T) {
+	t.Parallel()
+	settings, err := ParseGitHubTrialSettings(TrialDevRelease, nil)
+	if err != nil || settings.Workflow != "release-dev.yml" || settings.Version != "" || settings.Image != "" {
+		t.Fatalf("development settings = %+v, %v", settings, err)
+	}
+	for _, word := range []string{"version=1.2.3", "image=app"} {
+		if _, err := ParseGitHubTrialSettings(TrialDevRelease, []string{word}); !errors.Is(err, errs.ErrValidation) {
+			t.Errorf("stable-only setting %q accepted for development: %v", word, err)
 		}
 	}
 }

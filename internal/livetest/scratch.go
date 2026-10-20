@@ -419,26 +419,39 @@ func prepareTag(ctx context.Context, target Target, repo, tag string) error {
 		return nil
 
 	case provider.ForgeGitLab:
-		// The module created the project bare on purpose: initialize_with_readme
-		// is an async worker, so a tag issued right after creation can race it.
-		// The first API commit to an empty repo creates the default branch
-		// synchronously, which is the deterministic path.
-		if err = commitFile(ctx, target, repo, "README.md",
-			"livetest: seed a commit to tag", "livetest scratch fixture\n"); err != nil {
-			return err
-		}
-
-		options := &gitlabapi.CreateTagOptions{TagName: new(tag), Ref: new(defaultBranch)}
-		if _, _, err = client.GitLab().Tags.CreateTag(RepoSlug(target, repo), options, gitlabapi.WithContext(ctx)); err != nil {
-			return fmt.Errorf("tag %s/%s: %w", target.Owner, repo, err)
-		}
-
-		return nil
+		return prepareGitLabTag(ctx, client.GitLab(), RepoSlug(target, repo), tag)
 
 	case provider.ForgeGitHub, provider.ForgeLocal:
 	}
 
 	return fmt.Errorf("no tag preparation for platform %q: %w", target.Forge, errs.ErrUnsupported)
+}
+
+func prepareGitLabTag(ctx context.Context, client *gitlabapi.Client, project, tag string) error {
+	// Scratch projects start bare: initialize_with_readme is asynchronous.
+	// Seed synchronously only when main is absent. Later release tags use the
+	// existing branch without recreating README or changing its commit.
+	_, response, err := client.Branches.GetBranch(project, defaultBranch, gitlabapi.WithContext(ctx))
+	if err != nil {
+		if response == nil || response.StatusCode != http.StatusNotFound {
+			return fmt.Errorf("read scratch branch %s/%s: %w", project, defaultBranch, err)
+		}
+
+		_, _, err = client.RepositoryFiles.CreateFile(project, "README.md", &gitlabapi.CreateFileOptions{
+			Branch: new(defaultBranch), Content: new("livetest scratch fixture\n"),
+			CommitMessage: new("livetest: seed a commit to tag"),
+		}, gitlabapi.WithContext(ctx))
+		if err != nil {
+			return fmt.Errorf("seed scratch branch %s/%s: %w", project, defaultBranch, err)
+		}
+	}
+
+	options := &gitlabapi.CreateTagOptions{TagName: new(tag), Ref: new(defaultBranch)}
+	if _, _, err = client.Tags.CreateTag(project, options, gitlabapi.WithContext(ctx)); err != nil {
+		return fmt.Errorf("tag %s: %w", project, err)
+	}
+
+	return nil
 }
 
 func tagCommitSHA(ctx context.Context, target Target, repo, tag string) (string, error) {

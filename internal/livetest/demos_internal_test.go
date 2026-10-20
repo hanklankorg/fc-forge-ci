@@ -5,12 +5,65 @@ package livetest
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/diggsweden/forge-ci/internal/adapters/gitlaboutput"
+	"github.com/diggsweden/forge-ci/internal/domain/config"
 	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
 )
+
+func TestGitLabImageDemosConsumeActualDotenvOutputs(t *testing.T) {
+	t.Parallel()
+	for _, demo := range []string{"hello-maven-service", "hello-cargo-container", "hello-npm-service"} {
+		t.Run(demo, func(t *testing.T) {
+			t.Parallel()
+			body, err := os.ReadFile(filepath.Join(reporoot.Path(t), "test", "live", "demos", demo, "consumer", ".gitlab", "build-release.sh"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, fragment, found := strings.Cut(string(body), "image='' digest=''")
+			if !found {
+				t.Fatal("demo has no image-output consumer")
+			}
+			fragment, _, found = strings.Cut(fragment, "--default-sbom")
+			if !found {
+				t.Fatal("demo has no image-ledger hand-off")
+			}
+			fragment = "image='' digest=''" + fragment + "--default-sbom\n"
+			dir := t.TempDir()
+			image := "registry.example/trial/service"
+			digest := "sha256:" + strings.Repeat("a", 64)
+			sink := gitlaboutput.New(filepath.Join(dir, "image.env"))
+			if err := sink.Set(t.Context(), "image", image); err != nil {
+				t.Fatal(err)
+			}
+			if err := sink.Set(t.Context(), "digest", digest); err != nil {
+				t.Fatal(err)
+			}
+			if err := sink.Close(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			capture := filepath.Join(dir, "ledger-args")
+			command := exec.CommandContext(t.Context(), "bash", "-c", "set -euo pipefail\nforge-ci() { printf '%s\\n' \"$@\" > \"$CAPTURE\"; }\n"+fragment)
+			command.Env = []string{"PATH=/usr/bin:/bin", "auth_dir=" + dir, "CAPTURE=" + capture, "RELEASE_TAG=v1.2.3"}
+			if output, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("demo rejected real GitLab output: %v\n%s", err, output)
+			}
+			args, err := os.ReadFile(capture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := strings.Join([]string{"container", "ledger", "add", "--role", "runtime", "--image-name", image, "--digest", digest,
+				"--final-tag-name", "v1.2.3", "--tag", "v1.2.3", "--default-sbom"}, "\n") + "\n"
+			if string(args) != want {
+				t.Fatalf("ledger arguments=%q; want %q", args, want)
+			}
+		})
+	}
+}
 
 // Every demo in test/live/demos renders for each forge it has workflows for,
 // the way `just demo` would render it, so a demo that drifted from what the
@@ -44,6 +97,16 @@ func TestDemosRenderForEveryForgeTheyServe(t *testing.T) {
 
 			if renderDemo(t, consumer) == 0 {
 				t.Error("the demo has workflows for no forge")
+			}
+
+			// Workflow rendering alone does not catch an obsolete artifacts
+			// schema or a misspelled ecosystem option in a runnable demo.
+			artifacts, err := os.ReadFile(filepath.Join(consumer, ".forge-ci", "artifacts.yml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := config.Parse(artifacts); err != nil {
+				t.Fatalf("artifacts configuration: %v", err)
 			}
 		})
 	}

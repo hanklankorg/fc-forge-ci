@@ -195,6 +195,9 @@ func TestGitLabPolicy_JobTokenCannotWriteThePublicationRegistry(t *testing.T) {
 
 func waitGitLabTagPipeline(t *testing.T, ctx context.Context, client *gitlabapi.Client, project, tag, sha string) *gitlabapi.Pipeline {
 	t.Helper()
+	started := time.Now()
+	lastStatus := ""
+	nextProgress := started
 
 	for {
 		runs, _, err := client.Pipelines.ListProjectPipelines(project, &gitlabapi.ListProjectPipelinesOptions{Ref: gitlabapi.Ptr(tag)}, gitlabapi.WithContext(ctx))
@@ -214,6 +217,10 @@ func waitGitLabTagPipeline(t *testing.T, ctx context.Context, client *gitlabapi.
 
 			if run.SHA != sha || run.Source != "push" {
 				t.Fatal("the release pipeline is not bound to its tag event and exact source")
+			}
+			if run.Status != lastStatus || !time.Now().Before(nextProgress) {
+				t.Logf("GitLab release pipeline %d: %s after %s (%s)", run.ID, run.Status, time.Since(started).Round(time.Second), run.WebURL)
+				lastStatus, nextProgress = run.Status, time.Now().Add(2*time.Minute)
 			}
 
 			switch run.Status {

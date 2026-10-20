@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"golang.org/x/mod/semver"
 	"mvdan.cc/sh/v3/syntax"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
@@ -43,19 +44,21 @@ func ParseTrialVariables(input string) (map[string]string, error) {
 // decides: the release policy's version bump, and literal variables for the
 // consumer's build.
 type GitLabReleaseSettings struct {
-	// VersionBump is the release component's version-bump input: maven, or ""
+	// VersionBump is the release component's version-bump input: maven/npm/cargo, or ""
 	// for none.
 	VersionBump string
 	// Version is the X.Y.Z the release requests, or "" for the trial's default.
-	Version   string
-	Variables map[string]string
+	Version string
+	// NextVersion requests a second release from the signed main left by the first.
+	NextVersion string
+	Variables   map[string]string
 }
 
 // settingVersionBump is a lowercase setting of a GitLab release trial, as
 // version is; every uppercase KEY=value is a consumer variable.
 const settingVersionBump = "version-bump"
 
-// ParseGitLabReleaseSettings reads one setting per line: version-bump=maven,
+// ParseGitLabReleaseSettings reads one setting per line: version-bump=maven|npm|cargo,
 // which the trial writes into the release policy, version=X.Y.Z, the release
 // it requests, or a literal KEY=value consumer variable (ParseTrialVariables).
 func ParseGitLabReleaseSettings(input string) (GitLabReleaseSettings, error) {
@@ -68,8 +71,8 @@ func ParseGitLabReleaseSettings(input string) (GitLabReleaseSettings, error) {
 
 		switch key {
 		case settingVersionBump:
-			if settings.VersionBump != "" || value != "maven" {
-				return GitLabReleaseSettings{}, fmt.Errorf("%s must be given once, as maven: %w", settingVersionBump, errs.ErrValidation)
+			if settings.VersionBump != "" || (value != "maven" && value != "npm" && value != "cargo") {
+				return GitLabReleaseSettings{}, fmt.Errorf("%s must be given once, as maven, npm or cargo: %w", settingVersionBump, errs.ErrValidation)
 			}
 
 			settings.VersionBump = value
@@ -80,6 +83,12 @@ func ParseGitLabReleaseSettings(input string) (GitLabReleaseSettings, error) {
 			}
 
 			settings.Version = version
+		case "next-version":
+			version, valid := trialVersionValue(value)
+			if settings.NextVersion != "" || !valid {
+				return GitLabReleaseSettings{}, fmt.Errorf("next-version must be given once, as X.Y.Z: %w", errs.ErrValidation)
+			}
+			settings.NextVersion = version
 		default:
 			variables = append(variables, word)
 		}
@@ -91,6 +100,9 @@ func ParseGitLabReleaseSettings(input string) (GitLabReleaseSettings, error) {
 	}
 
 	settings.Variables = parsed
+	if settings.NextVersion != "" && (settings.Version == "" || settings.VersionBump == "" || semver.Compare("v"+settings.NextVersion, "v"+settings.Version) <= 0) {
+		return GitLabReleaseSettings{}, fmt.Errorf("next-version requires an increasing explicit version and isolated version-bump mode: %w", errs.ErrValidation)
+	}
 
 	return settings, nil
 }

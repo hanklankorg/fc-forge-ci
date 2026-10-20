@@ -65,11 +65,6 @@ func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 		images.Lint = livetest.PushJobImage(t, target, livetest.NewScratchRepo(t, target, "gitlab-consumer-lint-image"), archive)
 	}
 
-	main := consumer.PushGitLab(t, repo, layer, images)
-	requireObjectFormats(t, consumer.ObjectFormat, main, layer.Commit)
-	head := consumer.PushChange(t, repo, trialBranch, main)
-	t.Logf("consumer %s at %s (%s); layer %s; job image %s", root, consumer.Commit, consumer.ObjectFormat, layer.Commit, image)
-
 	client, err := gitlabapi.NewClient(target.Token, gitlabapi.WithBaseURL(target.BaseURL()+"/api/v4/"),
 		gitlabapi.WithHTTPClient(livetest.HTTPClient(t, target, time.Minute)))
 	if err != nil {
@@ -80,6 +75,30 @@ func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 
 	ctx, cancel := context.WithTimeout(livetest.Context(t), 60*time.Minute)
 	defer cancel()
+
+	if consumer.HasGitLabGate(t) {
+		// The standalone MR trial has no release policy to include this gate.
+		// Select the file we render before source publication: GitLab otherwise
+		// reads .gitlab-ci.yml and silently creates no MR pipeline.
+		if _, _, err := client.Projects.EditProject(project, &gitlabapi.EditProjectOptions{
+			CIConfigPath: gitlabapi.Ptr(livetest.GitLabGateFile),
+		}, gitlabapi.WithContext(ctx)); err != nil {
+			t.Fatal(err)
+		}
+		settings, _, err := client.Projects.GetProject(project, nil, gitlabapi.WithContext(ctx))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if settings.CIConfigPath != livetest.GitLabGateFile {
+			t.Fatalf("GitLab CI config path = %q, want rendered MR gate %q", settings.CIConfigPath, livetest.GitLabGateFile)
+		}
+		t.Logf("standalone MR CI configuration: %s", settings.CIConfigPath)
+	}
+
+	main := consumer.PushGitLab(t, repo, layer, images)
+	requireObjectFormats(t, consumer.ObjectFormat, main, layer.Commit)
+	head := consumer.PushChange(t, repo, trialBranch, main)
+	t.Logf("consumer %s at %s (%s); layer %s; job image %s", root, consumer.Commit, consumer.ObjectFormat, layer.Commit, image)
 
 	const (
 		variable = "RELEASE_COSIGN_PRIVATE_KEY"
@@ -104,9 +123,9 @@ func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 		t.Fatal(waitErr)
 	}
 
-	mr, _, err := client.MergeRequests.CreateMergeRequest(project, &gitlabapi.CreateMergeRequestOptions{
+	mr, err := livetest.CreateGitLabMergeRequest(ctx, client, project, &gitlabapi.CreateMergeRequestOptions{
 		SourceBranch: gitlabapi.Ptr(trialBranch), TargetBranch: gitlabapi.Ptr("main"), Title: gitlabapi.Ptr("test: GitLab consumer trial"),
-	}, gitlabapi.WithContext(ctx))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,6 +190,9 @@ func waitGitLabMRPipeline(t *testing.T, ctx context.Context, client *gitlabapi.C
 	t.Helper()
 
 	discoveryDeadline := time.Now().Add(2 * time.Minute)
+	started := time.Now()
+	lastStatus := ""
+	nextProgress := started
 
 	for {
 		if id == 0 {
@@ -188,6 +210,10 @@ func waitGitLabMRPipeline(t *testing.T, ctx context.Context, client *gitlabapi.C
 
 			if pipeline.SHA != sha || pipeline.Source != "merge_request_event" {
 				t.Fatalf("pipeline %d: source=%q sha=%s; want merge_request_event at %s", id, pipeline.Source, pipeline.SHA, sha)
+			}
+			if pipeline.Status != lastStatus || !time.Now().Before(nextProgress) {
+				t.Logf("GitLab MR !%d pipeline %d: %s after %s (%s)", mr, id, pipeline.Status, time.Since(started).Round(time.Second), pipeline.WebURL)
+				lastStatus, nextProgress = pipeline.Status, time.Now().Add(2*time.Minute)
 			}
 
 			switch pipeline.Status {

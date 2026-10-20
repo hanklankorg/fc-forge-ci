@@ -1,0 +1,79 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+name: Pull Request Workflow
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  pr-checks:
+    uses: diggsweden/forge-ci/.github/workflows/pullrequest-orchestrator.yml@v0.90.0
+    permissions:
+      actions: read
+      contents: read
+    with:
+      forge-ci-binary-ref: v0.90.0
+      project-type: xcode-ios
+      lint-engine: nanolinter
+      nanolinter-image: codefloe.com/itiquette/nanolinter:swift
+      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0
+
+  test:
+    name: "Build and test: iOS (macOS ARM64)"
+    runs-on: macos-26
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - name: "Check: runner architecture and Xcode"
+        run: |
+          test "$(uname -m)" = arm64
+          uname -m
+          xcodebuild -version
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Generate project
+        run: |
+          if ! command -v xcodegen >/dev/null; then
+            brew install xcodegen
+          fi
+          xcodegen generate --spec project.yml
+      - name: "Build and test: simulator"
+        run: |
+          xcodebuild test -quiet -project HelloTrial.xcodeproj -scheme HelloTrial \
+            -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' \
+            -resultBundlePath TestResults.xcresult CODE_SIGNING_ALLOWED=NO
+      - name: Upload test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hello-ios-test-results
+          path: TestResults.xcresult
+          retention-days: 7
+          if-no-files-found: warn
+
+  # The signing-capable leaf deliberately refuses PR context, even for an
+  # unsigned build. Exercise it through a separate branch dispatch instead.
+  archive:
+    name: "Build: unsigned iOS archive"
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    uses: diggsweden/forge-ci/.github/workflows/build-xcode-ios.yml@v0.90.0
+    with:
+      forge-ci-binary-ref: v0.90.0
+      xcode-version: "26.6"
+      macos-version: macos-26
+      project: HelloTrial.xcodeproj
+      scheme: HelloTrial
+      use-xcodegen: true
+      enable-code-signing: false
+      artifact-name: hello-ios-unsigned
+      include-tag: false

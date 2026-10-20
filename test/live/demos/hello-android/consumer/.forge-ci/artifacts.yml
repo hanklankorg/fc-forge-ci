@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+artifacts:
+  - name: hello-android
+    project-type: gradle-android
+    working-directory: .
+    sboms: build
+    publish-to: []
+    config:
+      build-module: app
+      product-flavor: demo
+      build-types: release
+      gradle-version-file: gradle.properties
+      enable-android-signing: false
+      package-name: org.hanklankorg.trial.hello.demo
