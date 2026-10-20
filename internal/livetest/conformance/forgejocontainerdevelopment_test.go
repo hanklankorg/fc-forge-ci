@@ -88,6 +88,7 @@ func TestForgejoLayer_ContainerDevelopment(t *testing.T) {
 				}
 			}()
 			label := livetest.RunnerLabel(t, target)
+			livetest.EnableActions(t, target, repo)
 			for name, value := range plan.Variables {
 				livetest.SetRepoVariable(t, target, repo, name, value)
 			}
@@ -96,7 +97,6 @@ func TestForgejoLayer_ContainerDevelopment(t *testing.T) {
 			// The sole build/publish job consumes the account's package credential.
 			livetest.SetRepoVariable(t, target, repo, "DEVELOPMENT_REGISTRY_USERNAME", target.CredentialUsername)
 			livetest.SetRepoSecret(t, target, repo, "DEVELOPMENT_REGISTRY_TOKEN", target.Token)
-			livetest.EnableActions(t, target, repo)
 			head = consumer.PushChange(t, repo, "development", main)
 			t.Logf("consumer %s at %s; development %s; layer %s; image %s", root, consumer.Commit, head, layer.Commit, image)
 			run := livetest.WaitForConsumerRun(t, target, repo, workflow, "push", "")

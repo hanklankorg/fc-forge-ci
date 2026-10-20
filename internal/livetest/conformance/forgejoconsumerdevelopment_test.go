@@ -83,13 +83,13 @@ func TestForgejoLayer_ConsumerDevelopment(t *testing.T) {
 				}
 			}()
 			label := livetest.RunnerLabel(t, target)
+			livetest.EnableActions(t, target, repo)
 			for name, value := range plan.Variables {
 				livetest.SetRepoVariable(t, target, repo, name, value)
 			}
 			livetest.SetRepoVariable(t, target, repo, layerRunnerVariable, label)
 			livetest.SetRepoVariable(t, target, repo, "FORGE_CI_REPOSITORY", layer.Repository)
 			livetest.SetRepoVariable(t, target, repo, "CI_NODE_JOB_IMAGE", image)
-			livetest.EnableActions(t, target, repo)
 			head := consumer.PushChange(t, repo, "development", main)
 			t.Logf("consumer %s at %s; development %s; layer %s; image %s", root, consumer.Commit, head, layer.Commit, image)
 			run := livetest.WaitForConsumerRun(t, target, repo, workflow, "push", "")
