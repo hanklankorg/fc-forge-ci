@@ -172,8 +172,16 @@ buildah build --isolation chroot --network host --pull=never \
 
 func runGitLabRelease(t *testing.T, consumerRoot string, private bool) {
 	t.Helper()
-	runGitLabReleaseScenario(t, consumerRoot, false, private)
+	runGitLabReleaseScenario(t, consumerRoot, gitlabStandardRelease, private)
 }
+
+type gitlabReleaseCase uint8
+
+const (
+	gitlabStandardRelease gitlabReleaseCase = iota
+	gitlabBaseRelease
+	gitlabInterruptedConsumerRelease
+)
 
 // gitlabConsumerSettings returns the caller's settings and the consumer's build
 // command, with its variables scoped to the build.
@@ -253,10 +261,15 @@ func useGitLabReleasePolicy(ctx context.Context, t *testing.T, client *gitlabapi
 	}
 }
 
-func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private bool) {
+func runGitLabReleaseScenario(t *testing.T, consumerRoot string, scenario gitlabReleaseCase, private bool) {
 	t.Helper()
 
 	settings, buildCommand := gitlabConsumerSettings(t, consumerRoot)
+	bases := scenario == gitlabBaseRelease
+	recovery := scenario == gitlabInterruptedConsumerRelease
+	if recovery && (consumerRoot == "" || settings.Version == "" || settings.Version == "0.0.0" || settings.NextVersion != "") {
+		t.Fatal("consumer recovery requires one explicit nonzero version and no next-version")
+	}
 
 	requestTag, finalTag := releaseRequestTag, releaseFinalTag
 	if settings.Version != "" {
@@ -417,10 +430,24 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 	}
 
 	requireObjectFormats(t, objectFormat, request, layer.Commit)
+	var previousDigest string
+	if recovery {
+		previousDigest = livetest.PushImageTags(t, target, publication, "v0.0.0", "latest").Digest
+		if _, _, err := client.ProjectVariables.CreateVariable(project, &gitlabapi.CreateProjectVariableOptions{
+			Key: gitlabapi.Ptr(gitlabCandidatePauseVariable), Value: gitlabapi.Ptr("true"), Protected: gitlabapi.Ptr(true),
+		}, gitlabapi.WithContext(ctx)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	livetest.SignGitLabRequest(t, target, repo, request, requestTag, filepath.Join(requestKeyDir, "lab-ssh"))
-	run := waitGitLabTagPipeline(t, ctx, client, project, requestTag, request)
-
-	child := requireGitLabReleaseChild(t, ctx, client, project, run)
+	var run *gitlabapi.Pipeline
+	var child int64
+	if recovery {
+		run, child = recoverGitLabConsumerAfterCandidate(t, ctx, client, target, repo, publication, requestTag, request, finalTag, previousDigest)
+	} else {
+		run = waitGitLabTagPipeline(t, ctx, client, project, requestTag, request)
+		child = requireGitLabReleaseChild(t, ctx, client, project, run)
+	}
 	if consumer != nil {
 		logGitLabReleaseInventory(t, ctx, client, project, child)
 	}

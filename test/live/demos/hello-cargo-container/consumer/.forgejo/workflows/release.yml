@@ -8,7 +8,7 @@
 # Push an annotated release-request/vX.Y.Z tag on main. forge-ci's prepare
 # workflow renders the changelog, signs the release commit and creates the
 # final vX.Y.Z tag. The build job runs the tests, builds the image from the
-# Containerfile, which compiles the service, extracts the same binary and
+# Containerfile, which compiles the service, builds its binary export stage and
 # hands dist/ over; signing keys never enter it. sign-and-publish signs and
 # publishes the Forgejo release and the image.
 name: Release
@@ -54,19 +54,22 @@ jobs:
       RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
 
-  # Ours: tests, the image and the binary extracted from it into dist/. No
+  # Ours: tests, the image and the separately built binary export into dist/. No
   # signing key reaches it.
   build:
     name: "Build: release files"
     needs: prepare
-    # On the runner host, not in a job container: Buildah builds the image in
-    # this job, and the Containerfile's builder stage compiles the service.
+    # The label selects the runner's default job image. Buildah builds the image
+    # in this job, and the Containerfile's builder stage compiles the service.
     runs-on: ${{ vars.CI_RUNNER_LABEL }}
     timeout-minutes: 30
     permissions:
       contents: read
     env:
       ARTIFACT_NAME: hello-cargo-container
+      # This runner label uses a job container; the local binary-export build
+      # must use the same chroot isolation as build-release-image.
+      BUILDAH_ISOLATION: chroot
     outputs:
       dist-digest: ${{ steps.dist.outputs.digest }}
     steps:

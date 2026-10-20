@@ -24,7 +24,7 @@ import (
 func TestGitLabRelease_BaseImagesColdAndWarm(t *testing.T) {
 	for _, visibility := range livetest.ConsumerVisibilities(t) {
 		t.Run(visibility.Name, func(t *testing.T) {
-			runGitLabReleaseScenario(t, "", true, visibility.Private)
+			runGitLabReleaseScenario(t, "", gitlabBaseRelease, visibility.Private)
 		})
 	}
 }

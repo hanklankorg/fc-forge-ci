@@ -45,6 +45,17 @@ Full consumer job-boundary identity cases remain open.
 Consecutive Forgejo npm 2.0.1→2.0.2 now passes public `132/133` and private
 `134/135`, reusing the repository and signing authority within each trial.
 Each version's signed manifest/lockfile, downloaded package and Build SBOM agree.
+Consecutive Forgejo Cargo fixture releases 0.1.1→0.1.2 also pass public
+`140/141` and private `142/143`; the fixture checks the locked package version
+and published release bundles. Its binary-export build requires explicit chroot
+isolation in the runner's job container.
+Whole-consumer GitLab cancellation/retry passes public parent/child `433/434`
+and private `439/440`: cancel after candidate push, retain remote state, retry
+the canceled child jobs for the same version, preserve successful preparation
+and the prior image tag, publish the original candidate digest and advance
+`latest`. Release bundles, image attestations and MR gates `437/443` pass.
+This is the container-first Cargo fixture; it does not establish recovery for
+every application or a fresh top-level rerun on every forge.
 The overall migration and cleanup remain incomplete.
 
 ## Bottom line
@@ -75,7 +86,7 @@ named trial flows and revisions, not every capability of each application.
 | Consumer | Native trial evidence | Important boundary |
 | --- | --- | --- |
 | Java service, Java CLI, Java library, API linter, web | Public/private PR or MR gates and stable release flows on GitHub, GitLab and Forgejo; consecutive API-linter npm releases on GitLab and Forgejo | npm registry installation and remaining provider development flows remain open |
-| Container-first Cargo fixture | Public/private consecutive GitLab releases 0.1.1→0.1.2, bundles, image attestations and MR gates | Built-in demo fixture; does not establish the actual Rust application's local-forge acceptance |
+| Container-first Cargo fixture | Public/private consecutive GitLab/Forgejo releases 0.1.1→0.1.2; GitLab cancellation/retry over retained candidates, bundles, image attestations and MR gates | Built-in demo fixture; does not establish the actual Rust application's local-forge acceptance |
 | Android | Full app/camera PR or MR checks on all three forges; GitHub unsigned and test-signed development builds | Local stable/development, real devices, production signing and store delivery are not established |
 | iOS | Public/private GitHub ARM64 simulator PRs and unsigned development archives | No physical device, Secure Enclave or App Store acceptance |
 | Rust services | Public/private GitHub PRs and stable releases; all three images per visibility independently verified; all four downloaded executables match retained runtime images and pass bounded loader/help checks | Local-forge PR/stable/development coverage remains open; no HSM/service-startup claim |
@@ -193,13 +204,14 @@ blanket scanner ignore or renewed approval hold.
 
 ### P1: reusable release behavior and consolidation
 
-- [ ] Interrupt an image-producing consumer after candidate push; retry the same
+- [x] Interrupt an image-producing consumer after candidate push; retry the same
   version with retained remote state; prove final digest/assets and preservation
-  of prior moving tags. Existing rollback primitives do not prove this workflow.
-- [ ] Complete consecutive npm/Cargo local releases and compare version, lockfile,
+  of prior moving tags. Public/private GitLab Cargo-fixture child-pipeline retry
+  now proves this scope; cross-provider fresh top-level retry remains separate.
+- [x] Complete consecutive npm/Cargo local releases and compare version, lockfile,
   tag, SBOM and provenance. Public/private npm 2.0.1→2.0.2 passes on GitLab and
   Forgejo; GitLab container-first Cargo fixture 0.1.1→0.1.2 also passes.
-  Consecutive Forgejo Cargo cases remain open.
+  Forgejo Cargo fixture 0.1.1→0.1.2 also passes in both visibilities.
 - [ ] Add independent GitLab/Forgejo development flows and Rust container-first
   development; preserve unchanged main and absence of stable tags/releases.
 - [ ] Complete Rust local-forge PR/stable coverage and applicable Android local

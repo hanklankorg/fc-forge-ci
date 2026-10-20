@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +25,157 @@ import (
 	"github.com/diggsweden/forge-ci/internal/livetest"
 	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
 )
+
+const gitlabCandidatePauseVariable = "FIXTURE_PAUSE_AFTER_CANDIDATE"
+
+// Unlike the small promotion primitive below, this interrupts a real consumer
+// after its build pushed an image, then retries the canceled child pipeline.
+func TestGitLabRelease_ConsumerInterruptedRecovery(t *testing.T) {
+	root := os.Getenv(consumerCheckoutEnv)
+	if root == "" {
+		livetest.NotCoveredf(t, "consumer recovery requires a reviewed image-producing consumer with the candidate pause checkpoint")
+	}
+	for _, visibility := range livetest.ConsumerVisibilities(t) {
+		t.Run(visibility.Name, func(t *testing.T) {
+			runGitLabReleaseScenario(t, root, gitlabInterruptedConsumerRelease, visibility.Private)
+		})
+	}
+}
+
+func recoverGitLabConsumerAfterCandidate(t *testing.T, ctx context.Context, client *gitlabapi.Client, target livetest.Target, repo, publication, requestTag, requestSHA, finalTag, previousDigest string) (*gitlabapi.Pipeline, int64) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Minute)
+	defer cancel()
+	project := livetest.RepoSlug(target, repo)
+	var parent *gitlabapi.Pipeline
+	var child int64
+	var candidateDigest string
+	preparedJobs := map[string]int64{}
+	awaitGitLabObservation(t, ctx, func() bool {
+		if parent == nil {
+			runs, _, err := client.Pipelines.ListProjectPipelines(project, &gitlabapi.ListProjectPipelinesOptions{Ref: gitlabapi.Ptr(requestTag)}, gitlabapi.WithContext(ctx))
+			if err != nil || len(runs) > 1 {
+				t.Fatalf("locate the recovery request pipeline: %v; count=%d", err, len(runs))
+			}
+			if len(runs) == 0 {
+				return false
+			}
+			parent, _, err = client.Pipelines.GetPipeline(project, runs[0].ID, gitlabapi.WithContext(ctx))
+			if err != nil || parent == nil || parent.SHA != requestSHA || parent.Source != "push" {
+				t.Fatalf("recovery pipeline is not bound to its signed tag event: %v", err)
+			}
+		}
+		if child == 0 {
+			bridges, _, err := client.Jobs.ListPipelineBridges(project, parent.ID, nil, gitlabapi.WithContext(ctx))
+			if err != nil || len(bridges) > 1 {
+				t.Fatalf("locate recovery child pipeline: %v", err)
+			}
+			if len(bridges) == 0 || bridges[0].DownstreamPipeline == nil {
+				return false
+			}
+			child = bridges[0].DownstreamPipeline.ID
+			t.Logf("consumer recovery: parent %d child %d; waiting for the candidate push", parent.ID, child)
+		}
+		jobs, _, err := client.Jobs.ListPipelineJobs(project, child, nil, gitlabapi.WithContext(ctx))
+		if err != nil {
+			t.Fatal(err)
+		}
+		buildRunning := false
+		for _, job := range jobs {
+			if strings.HasPrefix(job.Name, "Prepare:") && job.Status == "success" {
+				preparedJobs[job.Name] = job.ID
+			}
+			if job.Status == "failed" || job.Status == "canceled" {
+				t.Log(gitlabTrialTrace(t, ctx, client, project, child))
+				t.Fatalf("consumer failed before the interruption checkpoint: %s", job.Name)
+			}
+			if job.Name == "Build: release files" {
+				if job.Status == "success" {
+					t.Fatal("consumer did not hold the candidate-push checkpoint")
+				}
+				if job.Status == "running" {
+					buildRunning = true
+				}
+			}
+		}
+		if buildRunning {
+			var found bool
+			candidateDigest, found = livetest.ImageDigest(t, target, repo, finalTag)
+			return found
+		}
+		return false
+	})
+	prepared, _, err := client.Tags.GetTag(project, finalTag, gitlabapi.WithContext(ctx))
+	if err != nil || prepared == nil || prepared.Commit == nil || len(preparedJobs) == 0 {
+		t.Fatalf("candidate push lacks its completed release preparation: %v", err)
+	}
+	preparedSHA := prepared.Commit.ID
+	t.Logf("consumer recovery: candidate %s is present; canceling child %d before build completion", candidateDigest, child)
+	if _, _, err := client.Pipelines.CancelPipelineBuild(project, child, gitlabapi.WithContext(ctx)); err != nil {
+		t.Fatal(err)
+	}
+	awaitGitLabObservation(t, ctx, func() bool {
+		run, _, err := client.Pipelines.GetPipeline(project, child, gitlabapi.WithContext(ctx))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return run.Status == "canceled"
+	})
+	releases, _, err := client.Releases.ListReleases(project, nil, gitlabapi.WithContext(ctx))
+	if err != nil || len(releases) != 0 {
+		t.Fatalf("interrupted consumer published a release: %v", err)
+	}
+	if digest, found := livetest.ImageDigest(t, target, repo, finalTag); !found || digest != candidateDigest {
+		t.Fatal("cancellation did not retain the pushed candidate digest")
+	}
+	for _, tag := range []string{"latest", "v0.0.0"} {
+		if digest, found := livetest.ImageDigest(t, target, publication, tag); !found || digest != previousDigest {
+			t.Fatalf("interrupted consumer changed prior publication tag %s", tag)
+		}
+	}
+	t.Logf("consumer recovery: no release published and prior tags preserved; retrying child %d", child)
+	if _, _, err := client.ProjectVariables.UpdateVariable(project, gitlabCandidatePauseVariable, &gitlabapi.UpdateProjectVariableOptions{Value: gitlabapi.Ptr("false")}, gitlabapi.WithContext(ctx)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := client.Pipelines.RetryPipelineBuild(project, child, gitlabapi.WithContext(ctx)); err != nil {
+		t.Fatal(err)
+	}
+	awaitGitLabObservation(t, ctx, func() bool {
+		run, _, err := client.Pipelines.GetPipeline(project, child, gitlabapi.WithContext(ctx))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.Status == "failed" {
+			t.Log(gitlabTrialTrace(t, ctx, client, project, child))
+			t.Fatal("consumer retry failed")
+		}
+		return run.Status == "success"
+	})
+	after, _, err := client.Tags.GetTag(project, finalTag, gitlabapi.WithContext(ctx))
+	if err != nil || after == nil || after.Commit == nil || after.Commit.ID != preparedSHA {
+		t.Fatalf("retry changed the prepared release tag: %v", err)
+	}
+	jobs, _, err := client.Jobs.ListPipelineJobs(project, child, nil, gitlabapi.WithContext(ctx))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, id := range preparedJobs {
+		found := false
+		for _, job := range jobs {
+			found = found || (job.Name == name && job.ID == id && job.Status == "success")
+		}
+		if !found {
+			t.Fatalf("retry reran or lost successful preparation job %s", name)
+		}
+	}
+	for tag, want := range map[string]string{finalTag: candidateDigest, "latest": candidateDigest, "v0.0.0": previousDigest} {
+		if digest, found := livetest.ImageDigest(t, target, publication, tag); !found || digest != want {
+			t.Fatalf("recovered publication tag %s has digest %s, want %s", tag, digest, want)
+		}
+	}
+	t.Logf("consumer parent %d child %d: canceled after candidate %s; same-version retry preserved preparation and the prior image tag, then published the original digest and advanced latest", parent.ID, child, candidateDigest)
+	return parent, child
+}
 
 // Fail after a real registry write, retain the failed job's native journal,
 // then retry the same CLI promotion in a clean job. This isolates recovery from
