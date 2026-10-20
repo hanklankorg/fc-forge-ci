@@ -117,6 +117,32 @@ Use the documented consumer-release recipe and prepared image archives; its
 account lock and cleanup remain unchanged. Native sequence acceptance is pending
 until its actual runs pass.
 
+### Native GitLab development consumer
+
+`TestGitLabLayer_ConsumerDevelopment` uses the same clean consumer snapshot and
+prepared job-image archive as the MR trial. The consumer's `.gitlab-ci.yml` must
+admit a `push` to `development` and include `.gitlab/merge-request.yml`, whose
+pinned components/images are rebound by the existing renderer. The root workflow
+must exclude main and tags. No MR or release policy is installed.
+
+Run through the existing account-locked launcher, with absolute paths:
+
+```sh
+FORGE_CI_LIVE_CONSUMER=/absolute/consumer-checkout \
+FORGE_CI_LIVE_CONSUMER_IMAGE_ARCHIVE=/absolute/prepared-job-image.tar \
+bash /absolute/forge-ci/scripts/ci/run-live-tests.sh focused '^TestGitLabLayer_ConsumerDevelopment$'
+```
+
+The npm fixture's `Check: development package` job must run its existing installed
+package smoke and print `development package smoke passed at $CI_COMMIT_SHA` only
+after it passes. Acceptance requires a successful native push pipeline and job
+at the pushed SHA, downloads that job's artifact archive, and compares its single
+`.tgz` package version with `bom.json`'s Build SBOM version. Main must stay at its
+captured commit and the scratch repository must have no tags or releases. Public
+and private visibility use the existing consumer selector. Provider-free checks
+do not establish native acceptance; clean committed engine/consumer snapshots,
+the prepared image and a successful runner execution are still required.
+
 ### Skipped evidence is accounted for
 
 A tier that skipped half of itself and one that ran all of it both end in

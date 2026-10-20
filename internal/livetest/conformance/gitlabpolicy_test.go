@@ -195,18 +195,24 @@ func TestGitLabPolicy_JobTokenCannotWriteThePublicationRegistry(t *testing.T) {
 
 func waitGitLabTagPipeline(t *testing.T, ctx context.Context, client *gitlabapi.Client, project, tag, sha string) *gitlabapi.Pipeline {
 	t.Helper()
+	return waitGitLabPushPipeline(t, ctx, client, project, tag, sha)
+}
+
+// Both tag requests and development branches must originate in a native push.
+func waitGitLabPushPipeline(t *testing.T, ctx context.Context, client *gitlabapi.Client, project, ref, sha string) *gitlabapi.Pipeline {
+	t.Helper()
 	started := time.Now()
 	lastStatus := ""
 	nextProgress := started
 
 	for {
-		runs, _, err := client.Pipelines.ListProjectPipelines(project, &gitlabapi.ListProjectPipelinesOptions{Ref: gitlabapi.Ptr(tag)}, gitlabapi.WithContext(ctx))
+		runs, _, err := client.Pipelines.ListProjectPipelines(project, &gitlabapi.ListProjectPipelinesOptions{Ref: gitlabapi.Ptr(ref)}, gitlabapi.WithContext(ctx))
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		if len(runs) > 1 {
-			t.Fatal("the release request unexpectedly created more than one pipeline")
+			t.Fatalf("push of %s unexpectedly created more than one pipeline", ref)
 		}
 
 		if len(runs) == 1 {
@@ -215,11 +221,11 @@ func waitGitLabTagPipeline(t *testing.T, ctx context.Context, client *gitlabapi.
 				t.Fatal(readErr)
 			}
 
-			if run.SHA != sha || run.Source != "push" {
-				t.Fatal("the release pipeline is not bound to its tag event and exact source")
+			if run.SHA != sha || run.Source != "push" || run.Ref != ref {
+				t.Fatal("the pipeline is not bound to its push event, ref and exact source")
 			}
 			if run.Status != lastStatus || !time.Now().Before(nextProgress) {
-				t.Logf("GitLab release pipeline %d: %s after %s (%s)", run.ID, run.Status, time.Since(started).Round(time.Second), run.WebURL)
+				t.Logf("GitLab push %s pipeline %d: %s after %s (%s)", ref, run.ID, run.Status, time.Since(started).Round(time.Second), run.WebURL)
 				lastStatus, nextProgress = run.Status, time.Now().Add(2*time.Minute)
 			}
 
@@ -229,9 +235,13 @@ func waitGitLabTagPipeline(t *testing.T, ctx context.Context, client *gitlabapi.
 			}
 		}
 
+		if len(runs) == 0 && time.Since(started) > 2*time.Minute {
+			t.Fatalf("GitLab created no push pipeline for %s within two minutes", ref)
+		}
+
 		select {
 		case <-ctx.Done():
-			t.Fatal("the release policy pipeline did not finish within its bounded wait")
+			t.Fatal("the push pipeline did not finish within its bounded wait")
 		case <-time.After(2 * time.Second):
 		}
 	}
