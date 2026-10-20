@@ -65,6 +65,11 @@ The command is `cargo test --workspace --locked -- --test-threads=1`; it does
 not enable Kafka/Valkey testcontainers features or establish production HSM
 coverage. This run claims default-workspace success, not a fresh executed-test
 count or a full lint/security gate.
+The same default-workspace command also passes public/private Forgejo PR runs
+`144/145` at consumer `5bc7969`, using the identical Rust1.95.0 job image digest
+`e922dbd9ef811d35be2fc0fea93bdae662be3020acab814d8c415541c38e25d2`.
+The private run completed successfully during the operator's network-change
+pause; no retry or application-source change was required.
 
 ## Bottom line
 
@@ -97,7 +102,7 @@ named trial flows and revisions, not every capability of each application.
 | Container-first Cargo fixture | Public/private consecutive GitLab/Forgejo releases 0.1.1→0.1.2; GitLab cancellation/retry over retained candidates, bundles, image attestations and MR gates | Built-in demo fixture; does not establish the actual Rust application's local-forge acceptance |
 | Android | Full app/camera PR or MR checks on all three forges; GitHub unsigned and test-signed development builds | Local stable/development, real devices, production signing and store delivery are not established |
 | iOS | Public/private GitHub ARM64 simulator PRs and unsigned development archives | No physical device, Secure Enclave or App Store acceptance |
-| Rust services | Public/private GitHub PRs and stable releases; all three images per visibility independently verified; all four downloaded executables match retained runtime images; actual default-workspace GitLab MR gates pass | Forgejo application PR, local stable/development and local testcontainers coverage remain open; no HSM/service-startup claim |
+| Rust services | Public/private GitHub PRs and stable releases; all three images per visibility independently verified; all four downloaded executables match retained runtime images; actual default-workspace GitLab MR and Forgejo PR gates pass | Local stable/development and local testcontainers coverage remain open; no HSM/service-startup claim |
 | Maven artifact-first publication | GitLab/Forgejo fixture four-file readback, plus real GitHub public/private library original-build identity, fresh-cache classifiers, MAC0 smoke and private denial | Hosted2.7.6 closes the named forge-package contract; Sonatype production and every custom reactor/profile remain separate |
 
 Useful immutable checkpoints:
