@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/mod/semver"
+
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
 
@@ -73,6 +75,8 @@ type TrialSettings struct {
 	Workflow string
 	// Version is what a release trial requests, as release-request/v<Version>.
 	Version string
+	// NextVersion requests a second release in the same repository.
+	NextVersion string
 	// Variables are repository variables to set, by name.
 	Variables map[string]string
 	// TokenSecrets are repository secrets that receive the lab account's token.
@@ -98,11 +102,12 @@ var (
 
 // The trial's own settings, and the workflow each event judges by default.
 const (
-	settingWorkflow  = "workflow"
-	settingVersion   = "version"
-	settingToken     = "token"
-	settingImage     = "image"
-	settingInterrupt = "interrupt-after"
+	settingWorkflow    = "workflow"
+	settingVersion     = "version"
+	settingNextVersion = "next-version"
+	settingToken       = "token"
+	settingImage       = "image"
+	settingInterrupt   = "interrupt-after"
 
 	trialPullRequestWorkflow = "pullrequest.yml"
 	trialReleaseWorkflow     = "release.yml"
@@ -110,7 +115,7 @@ const (
 
 // ParseTrialSettings reads the words after the checkout and the event. Each
 // is key=value. A lowercase key is one of the trial's own settings, workflow,
-// version, token, image and interrupt-after; any other key is the name of a repository
+// version, next-version, token, image and interrupt-after; any other key is the name of a repository
 // variable, in capitals as Forgejo stores it.
 //
 // No word carries a secret. The one secret a caller can ask for is the lab
@@ -131,13 +136,16 @@ func ParseTrialSettings(event string, words []string) (TrialSettings, error) {
 
 	for _, word := range words {
 		if key, value, _ := strings.Cut(word, "="); value == "" || !settings.set(key, value) {
-			return TrialSettings{}, fmt.Errorf("setting %q is none of %s=<file>.yml, %s=<X.Y.Z> (release only), %s=<SECRET_NAME>, "+
+			return TrialSettings{}, fmt.Errorf("setting %q is none of %s=<file>.yml, %s=<X.Y.Z> (release only), %s=<X.Y.Z> (second release), %s=<SECRET_NAME>, "+
 				"%s=<registry>/<repository>[:<tag>] (release only), %s=<job name> (release only) or <VARIABLE_NAME>=<value>, "+
 				"each name once, where a value starting with @ is %s or %s: %w",
-				word, settingWorkflow, settingVersion, settingToken, settingImage, settingInterrupt, trialLayerCommit, trialRequestCommit, errs.ErrValidation)
+				word, settingWorkflow, settingVersion, settingNextVersion, settingToken, settingImage, settingInterrupt, trialLayerCommit, trialRequestCommit, errs.ErrValidation)
 		}
 	}
 
+	if settings.NextVersion != "" && (settings.InterruptAfter != "" || semver.Compare("v"+settings.NextVersion, "v"+settings.Version) <= 0) {
+		return TrialSettings{}, fmt.Errorf("next-version requires an increasing release version and cannot accompany interrupt-after: %w", errs.ErrValidation)
+	}
 	return settings, nil
 }
 
@@ -170,7 +178,7 @@ func (settings *TrialSettings) set(key, value string) bool {
 		return trialWorkflow.MatchString(value)
 	case settingToken:
 		return appendOnce(&settings.TokenSecrets, value) && trialName.MatchString(value)
-	case settingVersion, settingImage, settingInterrupt:
+	case settingVersion, settingNextVersion, settingImage, settingInterrupt:
 		return settings.Event == TrialRelease && settings.setReleaseOnly(key, value)
 	}
 
@@ -185,6 +193,13 @@ func (settings *TrialSettings) setReleaseOnly(key, value string) bool {
 		settings.Version = version
 
 		return valid
+	case settingNextVersion:
+		version, valid := trialVersionValue(value)
+		if settings.NextVersion != "" || !valid {
+			return false
+		}
+		settings.NextVersion = version
+		return true
 	case settingImage:
 		return appendOnce(&settings.Images, value) && trialImage.MatchString(value)
 	default:

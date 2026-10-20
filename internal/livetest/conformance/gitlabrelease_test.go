@@ -436,7 +436,7 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 
 	t.Logf("GitLab release %s: parent %d, child %d, %d verified bundles", finalTag, run.ID, child, verified)
 	if settings.VersionBump == "npm" {
-		requireGitLabNPMVersionContract(t, ctx, client, target, repo, finalTag)
+		requireNPMVersionContract(t, target, repo, finalTag)
 	}
 	if settings.NextVersion != "" {
 		parent := mergeGitLabNextCandidate(t, client, target, repo)
@@ -452,7 +452,7 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, bases, private 
 		}
 		t.Logf("second consecutive GitLab release %s: parent commit %s, pipeline %d, child %d, %d verified bundles", finalTag, parent, next.ID, child, bundles)
 		if settings.VersionBump == "npm" {
-			requireGitLabNPMVersionContract(t, ctx, client, target, repo, finalTag)
+			requireNPMVersionContract(t, target, repo, finalTag)
 		}
 	}
 
@@ -813,13 +813,16 @@ func requireGitLabReleaseBundles(t *testing.T, target livetest.Target, repo stri
 			t.Fatalf("signature %s has no published subject", assetName)
 		}
 
-		if verifyErr := livetest.VerifyBlob(t, target, keys.cosignPublicPath,
-			livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, tag, plain), maxReleaseFile),
-			livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, tag, assetName), maxReleaseFile)); verifyErr != nil {
+		blob := livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, tag, plain), maxReleaseFile)
+		bundleBytes := livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, tag, assetName), maxReleaseFile)
+		if verifyErr := livetest.VerifyBlob(t, target, keys.cosignPublicPath, blob, bundleBytes); verifyErr != nil {
 			t.Fatalf("published signature failed verification: %v", verifyErr)
 		}
 
 		verified++
+		if plain == "checksums.txt" {
+			requireReleaseBundleRejections(t, target, keys.cosignPublicPath, blob, bundleBytes)
+		}
 	}
 
 	// Container-first releases can carry their SBOM in image attestations,

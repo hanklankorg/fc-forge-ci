@@ -124,10 +124,11 @@ func TestSelectRun_JudgesOnlyTheRunTheAwaitedEventStarted(t *testing.T) {
 	)
 
 	for name, test := range map[string]struct {
-		runs   []WorkflowRun
-		event  string
-		wantID int64
-		refuse bool
+		runs    []WorkflowRun
+		event   string
+		wantID  int64
+		afterID int64
+		refuse  bool
 	}{
 		"none yet":                         {event: pullRequest},
 		"the awaited run":                  {runs: []WorkflowRun{run(3, file, pullRequest, pullRequest)}, event: pullRequest, wantID: 3},
@@ -144,8 +145,11 @@ func TestSelectRun_JudgesOnlyTheRunTheAwaitedEventStarted(t *testing.T) {
 		"an empty event":                          {runs: []WorkflowRun{run(14, file, "", "")}, event: pullRequest, refuse: true},
 		"a push event another event triggered":    {runs: []WorkflowRun{run(15, file, eventPush, "schedule")}, event: pullRequest, refuse: true},
 		"the awaited event, another trigger":      {runs: []WorkflowRun{run(16, file, pullRequest, eventPush)}, event: pullRequest, refuse: true},
+		"second release excludes the first":       {runs: []WorkflowRun{run(20, file, eventPush, eventPush), run(21, file, eventPush, eventPush)}, event: eventPush, afterID: 20, wantID: 21},
+		"old release is not a new result":         {runs: []WorkflowRun{run(20, file, eventPush, eventPush)}, event: eventPush, afterID: 20},
+		"two newer releases remain ambiguous":     {runs: []WorkflowRun{run(21, file, eventPush, eventPush), run(22, file, eventPush, eventPush)}, event: eventPush, afterID: 20, refuse: true},
 	} {
-		got, passedOver, err := selectRun(test.runs, file, test.event)
+		got, passedOver, err := selectRun(test.runs, file, test.event, test.afterID)
 
 		switch {
 		case test.refuse:
@@ -161,7 +165,7 @@ func TestSelectRun_JudgesOnlyTheRunTheAwaitedEventStarted(t *testing.T) {
 
 		if !test.refuse && test.event != eventPush {
 			for _, run := range test.runs {
-				if run.WorkflowID == file && run.Event == eventPush {
+				if run.WorkflowID == file && run.Event == eventPush && run.ID > test.afterID {
 					wantPassed++
 				}
 			}

@@ -37,8 +37,14 @@ Signed-image registry checks now also pass on GitLab and Forgejo: matching
 evidence is accepted; wrong source, commit, workflow, trust key and subject are
 rejected for their intended reasons. The wrong-subject envelope is independently
 verified as cryptographically valid before subject enforcement rejects it.
-These are registry-verifier checks; full consumer job-boundary identity and
-cryptographic release-file bundle rejection remain open.
+Release-file cryptographic rejection also passes public/private on Forgejo
+(runs `128/129`, SHA-1/SHA-256 consumers) and GitLab (parent/child `421/422`
+and `427/428`): changed downloaded content/signatures and wrong public keys fail
+signature verification after the original bytes verify successfully.
+Full consumer job-boundary identity cases remain open.
+Consecutive Forgejo npm 2.0.1→2.0.2 now passes public `132/133` and private
+`134/135`, reusing the repository and signing authority within each trial.
+Each version's signed manifest/lockfile, downloaded package and Build SBOM agree.
 The overall migration and cleanup remain incomplete.
 
 ## Bottom line
@@ -68,7 +74,7 @@ named trial flows and revisions, not every capability of each application.
 
 | Consumer | Native trial evidence | Important boundary |
 | --- | --- | --- |
-| Java service, Java CLI, Java library, API linter, web | Public/private PR or MR gates and stable release flows on GitHub, GitLab and Forgejo; consecutive API-linter npm releases on GitLab | Consecutive Forgejo releases and npm registry installation remain open |
+| Java service, Java CLI, Java library, API linter, web | Public/private PR or MR gates and stable release flows on GitHub, GitLab and Forgejo; consecutive API-linter npm releases on GitLab and Forgejo | npm registry installation and remaining provider development flows remain open |
 | Container-first Cargo fixture | Public/private consecutive GitLab releases 0.1.1→0.1.2, bundles, image attestations and MR gates | Built-in demo fixture; does not establish the actual Rust application's local-forge acceptance |
 | Android | Full app/camera PR or MR checks on all three forges; GitHub unsigned and test-signed development builds | Local stable/development, real devices, production signing and store delivery are not established |
 | iOS | Public/private GitHub ARM64 simulator PRs and unsigned development archives | No physical device, Secure Enclave or App Store acceptance |
@@ -133,12 +139,19 @@ Each trial retains its own `test/live/MIGRATION.md` and, where applicable,
 package/reproducibility/output-compatibility notes. The table separates code
 changes worth reviewing upstream from lab-specific adaptations.
 
+The project ledger now estimates the **CI-only GitHub adoption patch** at roughly
+2–4 caller/config files per project, or 3–5 for iOS. Adding GitLab or Forgejo is
+roughly 3–6 small caller/config/build-entry files per provider. These are planning
+ranges, excluding lab fixtures and separately reviewed application fixes below;
+they are not measured final patch counts. GitHub keeps the reusable-workflow
+model, with bounded ref/input/trigger/config adjustments.
+
 | Original project | Changes to review upstream | Evidence and remaining decisions |
 | --- | --- | --- |
 | `wallet-provider` | Migrate obsolete artifact/publisher configuration; align a supported non-root Java runtime; use fixed, aligned Jackson BOM versions until the platform manages them | 99 tests and native service matrices; revalidate chosen runtime/dependency pins at adoption time |
 | `wallet-dss-cli` | Produce an executable versioned JAR and preserve its unversioned executable alias using the existing assembly setup | Alias changes `78b6477` / private `dd6a62e`; actual downloads, runnable/byte-identical JARs and all three public/private stable matrices pass |
 | `cose-lib` | Preserve Java 21 API bytecode; add a versioned reproducible output timestamp; reconcile README coordinates and duplicate compiler properties; retain main/source/Javadoc publication | Java 21/25 tests, installed MAC0/wrong-key consumer, hosted classifiers and actual-library publication identity pass; Sonatype production publication is not proved |
-| `rest-api-profil-lint-processor` | Read installed package metadata for CLI version; include API resources; resolve paths relative to the package; restrict local reference traversal to own data properties | 308 tests/23 suites, clean packed installation and consecutive public/private GitLab releases pass; published npm install/dist-tag and consecutive Forgejo releases remain open |
+| `rest-api-profil-lint-processor` | Read installed package metadata for CLI version; include API resources; resolve paths relative to the package; restrict local reference traversal to own data properties | 308 tests/23 suites, clean packed installation and consecutive public/private GitLab/Forgejo releases pass; published npm install/dist-tag remains open |
 | `wallet-verifier-test-web` | Use noninteractive tests; package complete Nitro output; run the packed output and reuse it in images; update the pinned runtime and remove unused package managers | 32 tests, deployed HTML/client assets and native matrices pass; configured Node26 selection and runtime fix now pass public/private stable0.2.4 |
 | `wallet-r2ps` | Align exact Rust builder/toolchain intent; use `--locked` and shared workspace versions; preserve all three image/four binary outputs; update vulnerable Debian runtimes | Public/private GitHub PR/stable, six image checks and downloaded executable/image-byte checks pass; local-forge flows and development remain open |
 | `wallet-app-android` | Correct backup-rule domains while retaining blocking lint; validate OAuth callback destination/state/code before exchanging tokens; explicitly execute camera-module tests | 42 focused callback checks, full native PR/MR matrix, APK/AAB/SBOM inspection; AAB streaming-verifier warning still requires investigation |
@@ -173,9 +186,10 @@ blanket scanner ignore or renewed approval hold.
 - [ ] Finish real cross-job rejection: native artifact/bundle byte mutations and
   stale handoff digests now reject for the expected digest-mismatch reason.
   GitLab/Forgejo signed-image verification also rejects wrong keys and provenance
-  subject/source/commit/workflow. Cryptographic release-file bundle rejection and
-  full consumer job-boundary identity cases remain open; unrelated setup failures
-  do not satisfy them.
+  subject/source/commit/workflow, and published release-file bundles reject changed
+  content, changed signatures and wrong keys on both local forges. Full consumer
+  job-boundary identity cases remain open; unrelated setup failures do not satisfy
+  them.
 
 ### P1: reusable release behavior and consolidation
 
@@ -183,8 +197,9 @@ blanket scanner ignore or renewed approval hold.
   version with retained remote state; prove final digest/assets and preservation
   of prior moving tags. Existing rollback primitives do not prove this workflow.
 - [ ] Complete consecutive npm/Cargo local releases and compare version, lockfile,
-  tag, SBOM and provenance. Public/private GitLab npm 2.0.1→2.0.2 and container-first
-  Cargo fixture 0.1.1→0.1.2 now pass; consecutive Forgejo cases remain open.
+  tag, SBOM and provenance. Public/private npm 2.0.1→2.0.2 passes on GitLab and
+  Forgejo; GitLab container-first Cargo fixture 0.1.1→0.1.2 also passes.
+  Consecutive Forgejo Cargo cases remain open.
 - [ ] Add independent GitLab/Forgejo development flows and Rust container-first
   development; preserve unchanged main and absence of stable tags/releases.
 - [ ] Complete Rust local-forge PR/stable coverage and applicable Android local

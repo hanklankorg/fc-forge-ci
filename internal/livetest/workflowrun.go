@@ -108,7 +108,7 @@ const eventPush = "push"
 func WaitForLayerRun(tb TB, target Target, repo, name, event string) WorkflowRun {
 	tb.Helper()
 
-	return waitForRunOf(tb, target, repo, name+".yml", event, timeoutLayerRun, "")
+	return waitForRunOf(tb, target, repo, name+".yml", event, timeoutLayerRun, "", 0)
 }
 
 // WaitForConsumerRun is WaitForLayerRun for a workflow of a real consumer,
@@ -118,10 +118,17 @@ func WaitForLayerRun(tb TB, target Target, repo, name, event string) WorkflowRun
 func WaitForConsumerRun(tb TB, target Target, repo, file, event, interruptAfter string) WorkflowRun {
 	tb.Helper()
 
-	return waitForRunOf(tb, target, repo, file, event, timeoutConsumerRun, interruptAfter)
+	return waitForRunOf(tb, target, repo, file, event, timeoutConsumerRun, interruptAfter, 0)
 }
 
-func waitForRunOf(tb TB, target Target, repo, file, event string, timeout time.Duration, interruptAfter string) WorkflowRun {
+// WaitForConsumerRunAfter excludes the completed first release when a trial
+// requests another version in the same repository.
+func WaitForConsumerRunAfter(tb TB, target Target, repo, file, event string, afterID int64) WorkflowRun {
+	tb.Helper()
+	return waitForRunOf(tb, target, repo, file, event, timeoutConsumerRun, "", afterID)
+}
+
+func waitForRunOf(tb TB, target Target, repo, file, event string, timeout time.Duration, interruptAfter string, afterID int64) WorkflowRun {
 	tb.Helper()
 	requireForgejoActions(tb, target)
 
@@ -138,7 +145,7 @@ func waitForRunOf(tb TB, target Target, repo, file, event string, timeout time.D
 		// A failed read is "not yet", as in waitForRun: a run is often not
 		// listed in the moment after the event that creates it.
 		if _, err := decodeQuiet(ctx, target, actionsURL(target, repo, "/actions/runs"), &payload); err == nil {
-			run, passedOver, err := selectRun(payload.Runs, file, event)
+			run, passedOver, err := selectRun(payload.Runs, file, event, afterID)
 			if err != nil {
 				tb.Fatalf("livetest: %v", err)
 			}
@@ -244,14 +251,15 @@ func (progress *runProgress) report(tb TB, run WorkflowRun, file string) {
 // else is: a run of the workflow with
 // any other event, an empty one included, is a run nobody can account for,
 // and two runs of the awaited event leave no way to say which is judged.
-func selectRun(runs []WorkflowRun, file, event string) (WorkflowRun, []WorkflowRun, error) {
+// A nonzero afterID limits this judgment to newer runs of a consecutive trial.
+func selectRun(runs []WorkflowRun, file, event string, afterID int64) (WorkflowRun, []WorkflowRun, error) {
 	var (
 		selected   WorkflowRun
 		passedOver []WorkflowRun
 	)
 
 	for _, run := range runs {
-		if run.WorkflowID != file {
+		if run.WorkflowID != file || (afterID > 0 && run.ID <= afterID) {
 			continue
 		}
 

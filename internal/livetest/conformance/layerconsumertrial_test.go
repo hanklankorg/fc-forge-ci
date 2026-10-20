@@ -9,6 +9,7 @@ package conformance_test
 import (
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -226,6 +227,42 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 		requireReleaseGit(t, target, repo, keys, main, "release-request/v"+settings.Version, "v"+settings.Version)
 		requireSignedRelease(t, target, repo, keys, "v"+settings.Version)
 		requireExternalImages(t, external, keys, settings)
+		if settings.NextVersion != "" {
+			_, npmErr := os.Stat(filepath.Join(root, "package.json"))
+			if npmErr != nil && !os.IsNotExist(npmErr) {
+				t.Fatal(npmErr)
+			}
+			if npmErr == nil {
+				requireNPMVersionContract(t, target, repo, "v"+settings.Version)
+			}
+			// The generated release commit carries [skip ci]. Admit a fresh
+			// ordinary candidate without rewriting the first release or tags.
+			parent := livetest.CommitFiles(t, target, repo, livetest.FileCommit{
+				Branch: layerMain, Message: "test: prepare next release candidate",
+				Files: map[string]string{"next-release-request.txt": "request the next release\n"},
+			})
+			previous := settings.ResolvedVariables(scenario.layer.Commit, main)
+			for variable, value := range settings.ResolvedVariables(scenario.layer.Commit, parent) {
+				if value != previous[variable] {
+					livetest.SetRepoVariable(t, target, repo, variable, value)
+				}
+			}
+			requestTag, finalTag := "release-request/v"+settings.NextVersion, "v"+settings.NextVersion
+			requester.PushTag(t, target, repo, requestTag, layerMain, "Request release "+finalTag)
+			next := livetest.WaitForConsumerRunAfter(t, target, repo, settings.Workflow, event, run.ID)
+			scenario.logJobs(t, livetest.RunJobs(t, target, repo, next.ID))
+			if next.Status != jobSuccess {
+				t.Fatalf("second release run %d ended %q", next.ID, next.Status)
+			}
+			requireReleaseGit(t, target, repo, keys, parent, requestTag, finalTag)
+			requireSignedRelease(t, target, repo, keys, finalTag)
+			settings.Version = settings.NextVersion
+			requireExternalImages(t, external, keys, settings)
+			if npmErr == nil {
+				requireNPMVersionContract(t, target, repo, finalTag)
+			}
+			t.Logf("second consecutive Forgejo release %s: run %d, same repository and signing authority", finalTag, next.ID)
+		}
 	}
 
 	if demo != "" {

@@ -9,30 +9,24 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"context"
-	"encoding/base64"
 	"encoding/json"
 	"io"
 	"strings"
 	"testing"
 
 	"github.com/diggsweden/forge-ci/internal/livetest"
-	gitlabapi "gitlab.com/gitlab-org/api/client-go"
 )
 
 // Read the signed tag, actual published package and Build SBOM independently of
 // the builder's success message. This is repeated for both consecutive releases.
-func requireGitLabNPMVersionContract(t *testing.T, ctx context.Context, client *gitlabapi.Client, target livetest.Target, repo, tag string) {
+func requireNPMVersionContract(t *testing.T, target livetest.Target, repo, tag string) {
 	t.Helper()
 	version := strings.TrimPrefix(tag, "v")
+	mirror := livetest.MirrorRepo(t, target, repo)
 	for _, filename := range []string{"package.json", "package-lock.json"} {
-		file, _, err := client.RepositoryFiles.GetFile(livetest.RepoSlug(target, repo), filename, &gitlabapi.GetFileOptions{Ref: gitlabapi.Ptr(tag)}, gitlabapi.WithContext(ctx))
+		body, err := mirror.Git(t, "show", tag+":"+filename)
 		if err != nil {
 			t.Fatalf("read signed npm release manifest %s: %v", filename, err)
-		}
-		body, err := base64.StdEncoding.DecodeString(file.Content)
-		if err != nil {
-			t.Fatal(err)
 		}
 		var manifest struct {
 			Version  string `json:"version"`
@@ -40,7 +34,7 @@ func requireGitLabNPMVersionContract(t *testing.T, ctx context.Context, client *
 				Version string `json:"version"`
 			} `json:"packages"`
 		}
-		if err := json.Unmarshal(body, &manifest); err != nil || manifest.Version != version {
+		if err := json.Unmarshal([]byte(body), &manifest); err != nil || manifest.Version != version {
 			t.Fatalf("signed %s does not carry %s: %v", filename, version, err)
 		}
 		if filename == "package-lock.json" && manifest.Packages[""].Version != version {

@@ -13,12 +13,14 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	_ "embed"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -491,9 +493,57 @@ func requireReleaseAssets(t *testing.T, scenario layerScenario, keys releaseKeys
 			t.Errorf("the bundle of %s does not verify against the release's public key: %v", name, err)
 		}
 	}
+	requireReleaseBundleRejections(t, target, keys.cosignPublicPath, published[releaseChecksums], published[releaseChecksums+bundleSuffix])
 
 	if err := archiveHoldsBinary(published[releaseArchive], "layer-release-canary_0.0.1_linux_amd64/layer-release-canary"); err != nil {
 		t.Errorf("the release archive: %v", err)
+	}
+}
+
+// The positive verification uses the actual downloaded release bytes. Keep the
+// bundle well-formed when changing its signature so a parser refusal cannot pass.
+func requireReleaseBundleRejections(t *testing.T, target livetest.Target, publicKey string, blob, bundle []byte) {
+	t.Helper()
+	var document map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(bundle))
+	decoder.UseNumber()
+	if err := decoder.Decode(&document); err != nil {
+		t.Fatal(err)
+	}
+	message, ok := document["messageSignature"].(map[string]any)
+	if !ok {
+		t.Fatal("published bundle has no message signature")
+	}
+	encoded, ok := message["signature"].(string)
+	if !ok {
+		t.Fatal("published bundle signature is not a string")
+	}
+	signature, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(signature) == 0 {
+		t.Fatalf("published bundle has no decodable signature: %v", err)
+	}
+	signature[len(signature)-1] ^= 1
+	message["signature"] = base64.StdEncoding.EncodeToString(signature)
+	changedBundle, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, wrongKey := livetest.CosignKey(t, t.TempDir())
+	for _, tc := range []struct {
+		name, key    string
+		blob, bundle []byte
+	}{
+		{"changed content", publicKey, append(bytes.Clone(blob), '\n'), bundle},
+		{"changed signature", publicKey, blob, changedBundle},
+		{"wrong key", wrongKey, blob, bundle},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := livetest.VerifyBlob(t, target, tc.key, tc.blob, tc.bundle)
+			var exit *exec.ExitError
+			if !errors.As(err, &exit) || exit.ExitCode() != 1 || !strings.Contains(err.Error(), "failed to verify signature") {
+				t.Fatalf("release bundle was not rejected for %s: %v", tc.name, err)
+			}
+		})
 	}
 }
 
