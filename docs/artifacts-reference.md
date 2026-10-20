@@ -836,9 +836,16 @@ Once `expired_at` passes, the finding blocks again.
 
 #### `extract.binary`
 
-Opt-in extraction of compiled binaries as CI artifacts. Used by container-first ecosystems (`cargo`, `go`) where the binary is a byproduct of the container build. The same Containerfile is built a second time with `--target` set to the extraction stage; each platform leg uploads `${container.name}-binaries-${arch}`.
+Opt-in extraction of compiled binaries as CI artifacts. Used by container-first
+ecosystems (`cargo`, `go`) where the binary is a byproduct of the container build.
+Each platform leg uploads `${container.name}-binaries-${arch}`. Select one source:
 
-Extraction is a separate local-target build. It does not receive the main
+- `paths`: copy regular executables from the retained runtime image filesystem,
+  with no second build. Use this when release assets must be the exact bytes in
+  the scanned and published image.
+- `target`, optionally with `names`: run the separate Containerfile export stage.
+
+With `target`, extraction is a separate local-target build. It does not receive the main
 build's registry-cache settings; any reuse depends on the builder and
 Containerfile. Do not assume it avoids another compile or yields bytes
 identical to those in the runtime image.
@@ -847,7 +854,7 @@ identical to those in the runtime image.
 
 - **Type:** `string`
 - **Description:** Containerfile stage that exposes the binaries. Typically `FROM scratch AS export-binary` with `COPY --from=builder ...` lines.
-- **Required when** `extract.binary` is set.
+- **Required when** selecting export-stage extraction instead of `paths`.
 - **Example:** `target: export-binary`
 
 ##### `extract.binary.names`
@@ -857,7 +864,41 @@ identical to those in the runtime image.
 - **Default:** When omitted, suffix every top-level file in the extracted output
 - **Example:** `names: [my-service, my-service-cli]`
 
+##### `extract.binary.paths`
+
+- **Type:** list of image filesystem paths (1–128).
+- **Description:** Copy selected nonempty regular files from the verified,
+  retained per-architecture OCI layout. Output names are the unique basenames;
+  they receive the same `-linux-<arch>` suffix as export-stage binaries.
+- **Cannot combine with:** `target` or `names`.
+- Paths must be clean, with no parent traversal, whitespace, comma or backslash.
+  Symlinks and hardlinks are not followed; select the actual regular executable.
+- The current GitHub delivery path requires `push-image: true`, which retains
+  the scanned OCI layout. The underlying
+  `forge-ci container layout extract-files` command is provider-independent and
+  reads a local layout without a container engine, image pull or rebuild.
+- The existing blob verifier and go-containerregistry's effective filesystem
+  reader preserve layer ordering and whiteouts. Files are bounded to 512 MiB
+  each and 2 GiB selected output; existing output files are never overwritten.
+- **Example:** `paths: [/my-service, /usr/local/bin/my-service-cli]`.
+
 ##### Full example
+
+Exact runtime-image bytes:
+
+```yaml
+containers:
+  - name: my-service
+    from: [my-service]
+    container-file: my-service/Containerfile
+    target: runtime
+    platforms: linux/amd64,linux/arm64
+    extract:
+      binary:
+        paths: [/my-service, /usr/local/bin/my-service-cli]
+```
+
+Separate export-stage build:
 
 ```yaml
 containers:

@@ -275,7 +275,7 @@ honoured, differs from 3.8 and earlier.
 |---|---|---|---|
 | Build (standalone deliverable) | ✅ | `build-npm.yml` (`npm ci`, application build, SBOM, `npm pack`) | Produces a tarball under `<name>-<version>.tgz`; uploaded as the build artifact. Library shape (no build script) and app shape (with build script writing `dist/`) are both supported. |
 | Lint | external | caller's `test.yml` | ESLint / Prettier belong in the consumer repo. |
-| Test | soft release check + external PR gate | `build-npm.yml` + caller's `test.yml` | The release build runs `npm test` unless `skip-tests` is enabled. A missing or failing test script warns and continues; the caller's PR workflow remains the hard gate. |
+| Test | blocking release check + external PR gate | `build-npm.yml` + caller's test job | The release build runs a configured `npm test` unless `skip-tests` is enabled. Failure stops before build, SBOM and packaging. An absent script is explicitly reported as skipped, never executed. |
 | SBOM: build layer | ✅ | `@cyclonedx/cyclonedx-npm` via `npx` | Runs after the application build and before pack. See [Build tools](sbom.md#per-language-build-tools). |
 | SBOM: analyzed-artifact | ✅ | syft scan of the packed `.tgz` | Reports dependencies detectable in the shipped tarball. |
 | SBOM: analyzed-container | ✅ | `publish-container.yml` (syft) | Standard for containers wrapping NPM artifacts. |
@@ -306,7 +306,7 @@ honoured, differs from 3.8 and earlier.
 - **Prebuilt publication**: the publisher disables npm lifecycle scripts with `--ignore-scripts`.
   Run package preparation during the build, before publication credentials are available.
 - **Early checks**: configuration validation rejects a missing or invalid npm tag before building. Direct callers can run `forge-ci publish npm validate-tag --npm-tag 'release-{version}'` without a package, token, or network. The deploy command also checks the packed identity and existing registry tag before its publishing request. Packed `publishConfig` must not override the selected tag or registry.
-- **Tests in a caller-owned PR workflow**: forge-ci runs `npm test` as a soft release check unless `skip-tests` is enabled, but failures only warn. The consumer-owned PR workflow remains the test gate.
+- **Tests in a caller-owned PR workflow**: keep a real test job beside the lint gate. The release build also runs configured tests unless `skip-tests` is enabled, and test failures block packaging. A package without a test script is supported, but its summary records tests as skipped.
 
 #### See also
 

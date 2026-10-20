@@ -93,7 +93,7 @@ release lines, not a request to install the latest version on each rebuild.
 | JDK | Eclipse Temurin 25 LTS | Use a compatible `runtime-image:` override |
 | Maven | Pinned 3.9.x | The shipped adapter runs system `mvn`, not an automatically discovered `mvnw`; override the image to change it |
 | Gradle | Pinned 8.x installed | The shipped adapter runs the project's `./gradlew` wrapper |
-| Node | Node 24 LTS with bundled npm and Corepack | The shipped builder runs `npm`/`npx`; `engines` or `packageManager` metadata does not select a different runtime for it |
+| Node | Node 24 LTS with bundled npm and Corepack by default | GitHub `build-npm` selects an explicit `node-version` before `npm`/`npx`; stable/snapshot stages forward `config.node-version`. Empty retains the runtime image's Node. `engines` or `packageManager` metadata alone does not select a different toolchain |
 | Android cmdline-tools | Pinned archive version | Extend/override the image for additional SDK requirements |
 | Android build-tools | 35.0.0 | Extend/override the image for additional SDK requirements |
 | Android SDK platform | android-35 | Extend/override the image for additional SDK requirements |

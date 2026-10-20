@@ -73,6 +73,50 @@ contract. It creates and cleans only its scratch resources. These results do not
 prove GitHub or Sonatype production behavior; Central lifecycle tests use local
 HTTP collaborators rather than publishing public test releases.
 
+`TestInRunner_ForgePackages_MavenDeployReachesTheRegistry` covers the native
+Maven build-to-registry path, including a project-owned build profile. It builds
+real main, source and Javadoc JARs, freezes a four-file checksum receipt **before**
+publication, retains it as a GitLab job artifact or Forgejo release asset, then
+independently downloads the registry POM and all three JARs. The
+oracle requires exact pre-deploy SHA-256 identity and compiled/source/documented
+class entries. Existing files in `target` and a successful deploy alone cannot
+satisfy it. Run through the same guarded launcher:
+
+```sh
+just test-live '^TestInRunner_ForgePackages_MavenDeployReachesTheRegistry$'
+```
+
+This exercises local GitLab/Forgejo registry transport and lifecycle attachment,
+not GitHub Packages, a separate consumer's reproducibility, fresh-cache Maven
+resolution, or private anonymous denial. Those require their own acceptance.
+
+### Isolated npm/Cargo release-version evidence
+
+The existing key-free bump-job/text-and-digest handoff also supports `npm` and
+`cargo`. The signer invokes no package/build tool. npm root manifest and active
+lockfile versions, or Cargo's root/shared-workspace version and local workspace
+lock entries, must agree. Decoded document comparison refuses script,
+dependency, workspace membership and unrelated metadata changes even when they
+can be written as a version-shaped string substitution. Existing lockfiles must
+participate; the Maven handoff retains its existing behavior.
+
+`TestIsolatedVersionBump_TwoNativeNPMCargoRounds` uses real npm/Cargo and Git in
+owned repositories for two consecutive bumps/applies/commits. It runs with
+`-tags=integration`, controlled empty npm configs, an isolated Cargo cache and
+offline dependency-free fixtures. A separate real-Git negative case disguises a
+script change as a version replacement and requires refusal without publishing
+release paths or advancing HEAD. These checks are not whole-forge releases.
+
+The existing GitLab consumer-release trial accepts
+`version=X.Y.Z next-version=X.Y.Z version-bump=npm|cargo`. `next-version` must be
+greater than the first explicit version. The same protected repository/policy
+is retained; the second request is signed at the main left by the first release.
+For npm, the oracle checks each signed tag's manifest/lockfile, actual published
+tarball and Build SBOM version in addition to existing bundle/image checks.
+Use the documented consumer-release recipe and prepared image archives; its
+account lock and cleanup remain unchanged. Native sequence acceptance is pending
+until its actual runs pass.
+
 ### Skipped evidence is accounted for
 
 A tier that skipped half of itself and one that ran all of it both end in
@@ -280,7 +324,7 @@ setup, evidence and cleanup.
 | Forgejo PR or release | `just test-live-forgejo-consumer <checkout> <pull-request\|release> [setting ...]` | Local `forgeci` contract and runner; consumer job image; signer image for releases |
 | GitLab MR | `just test-live-gitlab-consumer <checkout> <image-archive>` | Local `forgeci` contract and runner; prepared MR job image archive |
 | GitLab release | `just test-live-gitlab-consumer-release <checkout> <job-archive> <build-archive> <signer-archive> [setting ...]` | Local contract, prepared image archives and guarded full-release runner profile |
-| GitHub PR or release | `just test-live-github-consumer <org-id> <checkout> <pull-request\|release> [setting ...]` | Forge Lab's hosted `github run` session, consumer workflow fixtures and public engine images |
+| GitHub PR, development build or release | `just test-live-github-consumer <org-id> <checkout> <pull-request\|dev-release\|release> [setting ...]` | Forge Lab's hosted `github run` session, consumer workflow fixtures and public engine images |
 
 See [Forgejo trials](#trying-a-consumer), [GitLab acceptance](#gitlab-live-acceptance)
 and [GitHub trials](#trying-a-consumer-on-github). `just test-live` is the local
@@ -780,8 +824,11 @@ The ordinary live-tier contract and scratch cleanup apply.
 That commit adds one file, has a Conventional subject, a sign-off and no line
 over 72 characters, and is signed with an SSH key made for it, because a
 consumer may lint its commits and require a signature on each. Or, for a
-release, the annotated tag `release-request/v<version>` at the head of
-`main`. Actions are off in the repository until everything is in place, so a
+release, an SSH-signed annotated tag `release-request/v<version>` at the head of
+`main`. The trial commits the disposable requester's public allowed-signers
+entry and maps the workflow's allowed-signers path to that trial file; its
+private key stays on the host. The hello fixtures enable request-signature
+verification. Actions are off in the repository until everything is in place, so a
 workflow the consumer starts on a push to `main` does not run.
 
 **The verdict** is generic. The run of the named workflow succeeded; every
@@ -983,12 +1030,18 @@ its token is the session's personal access token, which the owner revokes.
 
 #### Trying a consumer on GitHub
 
-This hosted trial supports both pull requests and releases. It checks the
+See [Reusable lessons from native consumer validation](consumer-validation-lessons.md)
+for the invariants behind source preservation, parallel isolation, revision
+forwarding, toolchain diagnosis and artifact/package acceptance.
+
+This hosted trial supports pull requests, independent development builds and stable releases. It checks the
 selected consumer workflow and the release postconditions below, including
 keyless or key-based artifact verification. It is separate from the local
 `PAR-*` conformance suite and does not run every Forgejo/GitLab failure or
-recovery scenario. Private-consumer container signature verification is not
-performed, and GHCR packages remain for separate cleanup. Availability of this
+recovery scenario. With `image=<name>`, private-consumer container signature
+verification requires authenticated GHCR pulls on the controller, preferably
+through an isolated `DOCKER_CONFIG`; it must pass rather than silently skip.
+GHCR packages remain for separate cleanup. Availability of this
 route is not evidence that a particular consumer or signing backend passed it.
 
 The GitHub layer has no local lab, so its consumer trial runs in a disposable
@@ -999,7 +1052,9 @@ none), which writes the private context `FORGE_LAB_GITHUB_CONTEXT` names:
 
 ```text
 just test-live-github-consumer <org-id> /absolute/gommitlint pull-request
+just test-live-github-consumer <org-id> /absolute/gommitlint dev-release
 just test-live-github-consumer <org-id> /absolute/gommitlint release version=0.1.0 image=gommitlint
+just test-live-github-consumer <org-id> /absolute/workspace release version=0.1.0 image=worker,keytool,bff
 just test-live-github-consumer <org-id> /absolute/gommitlint release RELEASE_PLATFORMS=linux/amd64,linux/arm64
 ```
 
@@ -1011,6 +1066,20 @@ that list as
 runners in its runtime images. Every platform builds natively on GitHub's runner
 of that architecture (`ubuntu-26.04` or `ubuntu-26.04-arm`). When the trial
 ends, the engine repository is set back to `linux/amd64`.
+
+`dev-release` dispatches `release-dev.yml` (or `workflow=<file>`) once on `main`,
+without creating stable-release signing secrets. Its workflow must succeed and
+produce downloadable artifacts. The trial downloads each artifact without
+forwarding its API credential to the signed download URL, checks available
+SHA256 metadata and ZIP contents within a 1 GiB compressed/expanded budget per
+artifact, and requires unchanged `main`, no tags and no releases. This proves
+artifact transport, not application-specific versions, package installation or
+container publication. `version=` and `image=` are stable-release-only settings.
+
+By default the controller checkout's `HEAD` is also the engine under test.
+`FORGE_CI_LIVE_ENGINE_CHECKOUT=/absolute/committed-engine` selects a separate
+committed engine checkout so controller-only fixes can be tried against an
+existing engine snapshot. The trial logs both checkout identities.
 
 What it does, in order:
 
@@ -1052,8 +1121,10 @@ What it does, in order:
    `COSIGN_PUBLIC_KEY` variable, writes the key's digest into the workflow,
    and verifies against the public key. With `image=<name>`, `ghcr.io/<org>/<repo>/<name>` at the version, with or
    without its `v`, must verify with `cosign verify` too; for a private
-   consumer that check is logged as not run, since the package needs registry
-   credentials.
+   consumer, provide host-side registry credentials through an isolated
+   `DOCKER_CONFIG`. Use `cosign login ghcr.io --username <actor> --password-stdin`
+   with a locally stored Packages token; never put the token in command
+   arguments. This host credential is not forwarded to consumer workflows.
 4. **Cleanup.** The consumer repository is deleted by its ID. Its GHCR
    packages stay: a fine-grained token cannot reach GitHub's packages API, so
    they are left for the organization's sweep, such as Forge Tidy's. The
@@ -1120,6 +1191,14 @@ the selected visibility, verified before
 source publication, and private trials must refuse anonymous repository reads.
 
 The consumer must be a clean committed checkout with its own `.gitlab-ci.yml`.
+If it keeps the gate in `.gitlab/merge-request.yml`, the standalone MR trial
+selects that rendered file as the scratch project's CI configuration path and
+verifies the setting before pushing source. Release trials instead retain the
+separate release policy, which includes the gate for MR pipelines.
+Both paths wait for the native-pushed source branch. GitLab can still briefly
+reject MR creation after its branch-read API sees the commit; the harness retries
+only the definite HTTP 400 `source_branch: does not exist` rejection. Transport
+errors and other uncertain POST outcomes are not replayed.
 The focused trial accepts one full-SHA-pinned `check` component and, beside
 it, at most one `nanolinter` component, each matching `forge-ci-repository` and
 leaving its image to the trial: `job-image: $CI_JOB_IMAGE` and
@@ -1159,9 +1238,21 @@ For a clean committed consumer with `.gitlab/check-release.sh` and
 ```sh
 just test-live-gitlab-consumer-release /absolute/clean-consumer \
   /absolute/check-image.tar /absolute/build-image.tar /absolute/signer-image.tar
+
+# Maven consumer: put the requested version in the prepared release commit.
+just test-live-gitlab-consumer-release /absolute/maven-consumer \
+  /absolute/check-image.tar /absolute/build-image.tar /absolute/signer-image.tar \
+  version=0.2.0 version-bump=maven
 ```
 
-Optional trailing `KEY=value` arguments set literal environment variables only
+`version=X.Y.Z` selects the requested stable version (the default is `0.0.1`).
+`version-bump=maven` enables the policy's Maven version bump; without it the
+consumer must already declare the requested version. A build using
+`--expect-version` correctly refuses a stale POM rather than silently packing
+the wrong version. These lowercase settings configure the policy and are not
+build environment variables.
+
+Optional trailing uppercase `KEY=value` arguments set literal environment variables only
 for the key-free consumer build command. Their meaning belongs
 to the consumer, except `RELEASE_PLATFORMS`: a consumer trial on Forgejo or
 GitLab sets it to `linux/<runner_arch>` when it is not given, and refuses a
@@ -1255,12 +1346,14 @@ For release acceptance, retain the exact source/binary identities, target
 generation, selected scenarios, result and cleanup outcome. Evidence from one
 road or provider does not establish another road or provider.
 
-**The standing gap: GitHub is not in the lab.** There is no GitHub target, so
-every scenario above is two-forge. GitHub's *exclusive* positive paths, SARIF
-upload and the attestation API, are verified only against fakes written from
-the same assumptions as the adapter, which is precisely the tie this tier exists
-to break. It is the largest asymmetry in the suite and it does not close without
-a real GitHub organisation.
+**GitHub coverage is a separate hosted tier.** The local conformance scenarios
+above select GitLab and Forgejo. The [GitHub consumer trial](#trying-a-consumer-on-github)
+runs real PR/release workflows in an authorized disposable organization and
+verifies its documented postconditions. A passing hosted consumer is evidence
+for that consumer, event, visibility and engine revision; it is not a run of
+every local conformance or recovery scenario. SARIF upload and the GitHub
+attestation API need their own positive-path evidence: successful release
+publication or Cosign verification alone does not prove either integration.
 
 Keyless verification needs the selected issuer's trust root: Cosign cannot
 infer a private CA root from the certificate it has just received. Supply that
