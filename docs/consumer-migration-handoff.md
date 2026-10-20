@@ -96,11 +96,18 @@ named trial flows and revisions, not every capability of each application.
 
 ## What has passed
 
+Latest Android addition (2026-10-21): public GitLab stable0.0.20 passes on
+`2c6e7d3`, parent/child `468/469` and follow-up MR `472`. The actual app/camera
+checks, APK/AAB/SBOM inspection, published Cosign bundles, detached GPG APK
+sidecar and cryptographic negatives pass. Mobile payloads are unsigned;
+detached release signatures do not imply Android install signing or store
+acceptance. Private GitLab and public/private Forgejo stable cases are queued.
+
 | Consumer | Native trial evidence | Important boundary |
 | --- | --- | --- |
 | Java service, Java CLI, Java library, API linter, web | Public/private PR or MR gates and stable release flows on GitHub, GitLab and Forgejo; consecutive API-linter npm releases on GitLab and Forgejo | npm registry installation and remaining provider development flows remain open |
 | Container-first Cargo fixture | Public/private consecutive GitLab/Forgejo releases 0.1.1→0.1.2; GitLab cancellation/retry over retained candidates, bundles, image attestations and MR gates | Built-in demo fixture; does not establish the actual Rust application's local-forge acceptance |
-| Android | Full app/camera PR or MR checks on all three forges; GitHub unsigned and test-signed development builds | Local stable/development, real devices, production signing and store delivery are not established |
+| Android | Full app/camera PR or MR checks on all three forges; GitHub unsigned and test-signed development builds; public GitLab unsigned-mobile stable artifacts with signed release evidence | Remaining local stable/development, real devices, production signing and store delivery are not established |
 | iOS | Public/private GitHub ARM64 simulator PRs and unsigned development archives | No physical device, Secure Enclave or App Store acceptance |
 | Rust services | Public/private GitHub PRs and stable releases; all three images per visibility independently verified; all four downloaded executables match retained runtime images; actual default-workspace GitLab MR and Forgejo PR gates pass | Local stable/development and local testcontainers coverage remain open; no HSM/service-startup claim |
 | Maven artifact-first publication | GitLab/Forgejo fixture four-file readback, plus real GitHub public/private library original-build identity, fresh-cache classifiers, MAC0 smoke and private denial | Hosted2.7.6 closes the named forge-package contract; Sonatype production and every custom reactor/profile remain separate |
