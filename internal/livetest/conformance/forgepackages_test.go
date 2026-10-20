@@ -40,6 +40,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/url"
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -130,6 +131,12 @@ func TestInRunner_ForgePackages_NPMPublishReachesTheRegistry(t *testing.T) {
 // ecosystem; that is the product's design, not the scenario's choice. The job
 // checks registry consumption; Go independently checks package presence afterward.
 func npmPublishProbe(target livetest.Target, assetURL, name, version string) string {
+	return npmPublishWorkflow(target, livetest.ProbePrelude(target, assetURL), name, version)
+}
+
+// Keep rendering separate from the accepted target's CA/binary setup so the
+// exact workflow sent to a forge can also be checked without a lab contract.
+func npmPublishWorkflow(target livetest.Target, prelude, name, version string) string {
 	// Single-quoted heredoc: the package manifest must reach disk verbatim,
 	// without the shell touching anything inside it.
 	//
@@ -191,9 +198,9 @@ VERIFY
   image: node:24
   script:
     - |
-      ` + indent(livetest.ProbePrelude(target, assetURL), 6) + `
+      ` + indent(prelude, 6) + `
       ` + indent(manifest, 6) + `
-			` + indent(`run_product publish forge-packages deploy --project-type npm --working-dir pkg --npm-tag 'release-{version}'`, 6) + `
+      ` + indent(`run_product publish forge-packages deploy --project-type npm --working-dir pkg --npm-tag 'release-{version}'`, 6) + `
       ` + indent(consume, 6) + `
 `
 	}
@@ -210,11 +217,70 @@ jobs:
           # Overrides the automatic token, which the package registry refuses.
           FORGEJO_TOKEN: ${{ secrets.RC_PACKAGE_TOKEN }}
         run: |
-          ` + indent(livetest.ProbePrelude(target, assetURL), 10) + `
+          ` + indent(prelude, 10) + `
           ` + indent(manifest, 10) + `
-			` + indent(`run_product publish forge-packages deploy --project-type npm --working-dir pkg --npm-tag 'release-{version}'`, 10) + `
+          ` + indent(`run_product publish forge-packages deploy --project-type npm --working-dir pkg --npm-tag 'release-{version}'`, 10) + `
           ` + indent(consume, 10) + `
 `
+}
+
+func TestNPMPublishWorkflow_RenderedShell(t *testing.T) {
+	t.Parallel()
+
+	for _, forge := range []provider.ForgeAPI{provider.ForgeGitLab, provider.ForgeForgejo} {
+		t.Run(string(forge), func(t *testing.T) {
+			target := livetest.Target{Forge: forge, Host: "fixture.invalid", Owner: "fixture"}
+			body := npmPublishWorkflow(target, "set -eu", "@fixture/package", "1.2.3")
+			script := publicationProbeScript(t, forge, body)
+			for _, shell := range []string{"sh", "bash"} {
+				command := exec.CommandContext(t.Context(), shell, "-n")
+				command.Stdin = strings.NewReader(script)
+				if output, err := command.CombinedOutput(); err != nil {
+					t.Fatalf("%s syntax: %v: %s", shell, err, output)
+				}
+			}
+			if !strings.Contains(script, "run_product publish forge-packages deploy --project-type npm --working-dir pkg --npm-tag 'release-{version}'") {
+				t.Fatal("deployment escaped the YAML script")
+			}
+
+			// Execute the generated consumer shell with inert transports. The
+			// product wrapper deliberately requires the original directory, like
+			// ProbePrelude's ./forge-ci. npm and node must run in the fresh one.
+			_, consume, ok := strings.Cut(script, "set +x\n")
+			if !ok {
+				t.Fatal("missing consumption script")
+			}
+			stub := `set -eu
+origin="$PWD"
+run_product() {
+  test "$PWD" = "$origin"
+  test "$1 $2 $3" = 'publish npm write-npmrc'
+  test "$4" = --registry
+  test "$5" = "$EXPECTED_REGISTRY"
+  test "$6" = --output
+  : > "$7"
+}
+npm() {
+  test "$PWD" != "$origin"
+  test -f "$npm_config_userconfig"
+  test "$npm_config_cache" = "$PWD/cache"
+}
+node() {
+  test "$PWD" != "$origin"
+  cat > /dev/null
+}
+`
+			registry := "https://fixture.invalid/api/packages/fixture/npm/"
+			if forge == provider.ForgeGitLab {
+				registry = "https://fixture.invalid/api/v4/projects/123/packages/npm/"
+			}
+			if err := runProbeShell(t, stub+consume,
+				"EXPECTED_REGISTRY="+registry, "CI_API_V4_URL=https://fixture.invalid/api/v4",
+				"CI_PROJECT_ID=123", "CI_JOB_TOKEN=inert", "FORGEJO_TOKEN=inert"); err != nil {
+				t.Fatalf("consumer working-directory/config boundary: %v", err)
+			}
+		})
+	}
 }
 
 // PAR-PKG-2: a Maven artifact published through the product appears in the
