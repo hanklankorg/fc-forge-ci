@@ -85,7 +85,10 @@ func runGitLabConsumerDevelopment(t *testing.T, root string, private bool) {
 		} else if len(tags) != 0 {
 			t.Errorf("development created %d tags", len(tags))
 		}
-		if releases := livetest.Releases(t, target, repo); len(releases) != 0 {
+		releases, _, err := client.Releases.ListReleases(project, nil, gitlabapi.WithContext(ctx))
+		if err != nil {
+			t.Error(err)
+		} else if len(releases) != 0 {
 			t.Errorf("development created %d releases", len(releases))
 		}
 	}()

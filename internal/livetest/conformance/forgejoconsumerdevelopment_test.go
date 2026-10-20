@@ -6,13 +6,17 @@
 package conformance_test
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
 	"github.com/diggsweden/forge-ci/internal/livetest"
+	"github.com/diggsweden/forge-ci/internal/retry"
 )
 
 // Independent of the PR/release trial: only a native development push is judged.
@@ -49,6 +53,20 @@ func TestForgejoLayer_ConsumerDevelopment(t *testing.T) {
 			}
 			main := consumer.Push(t, repo, plan)
 			requireObjectFormats(t, consumer.ObjectFormat, main, layer.Commit)
+			// The branch listing can lag a successful push. Retry only absence;
+			// API failures and a visible branch at the wrong commit must fail.
+			if err := retry.Run(livetest.Context(t), nil, 30, 2*time.Second, func() error {
+				before, found := livetest.Branches(t, target, repo)["main"]
+				if !found {
+					return fmt.Errorf("main is not visible after push: %w", errs.ErrDependencyUnavailable)
+				}
+				if before != main {
+					return retry.Permanent(fmt.Errorf("main before development = %s, want %s: %w", before, main, errs.ErrValidation))
+				}
+				return nil
+			}, retry.WithBackoff(retry.Constant)); err != nil {
+				t.Fatal(err)
+			}
 			if before := livetest.BranchCommitSHA(t, target, repo, "main"); before != main {
 				t.Fatalf("main before development = %s, want %s", before, main)
 			}
