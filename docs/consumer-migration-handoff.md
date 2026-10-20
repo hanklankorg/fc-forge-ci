@@ -58,6 +58,14 @@ This is the container-first Cargo fixture; it does not establish recovery for
 every application or a fresh top-level rerun on every forge.
 The overall migration and cleanup remain incomplete.
 
+Actual Rust workspace GitLab MR gates now pass public `446` and private `449`
+at isolated consumer `016f774`, using Rust1.95.0 and the shared check component.
+Deliberate misplaced-signing-variable pipelines `445/448` refuse and block merge.
+The command is `cargo test --workspace --locked -- --test-threads=1`; it does
+not enable Kafka/Valkey testcontainers features or establish production HSM
+coverage. This run claims default-workspace success, not a fresh executed-test
+count or a full lint/security gate.
+
 ## Bottom line
 
 **Substantial implementation and native acceptance are complete; the migration
@@ -89,7 +97,7 @@ named trial flows and revisions, not every capability of each application.
 | Container-first Cargo fixture | Public/private consecutive GitLab/Forgejo releases 0.1.1→0.1.2; GitLab cancellation/retry over retained candidates, bundles, image attestations and MR gates | Built-in demo fixture; does not establish the actual Rust application's local-forge acceptance |
 | Android | Full app/camera PR or MR checks on all three forges; GitHub unsigned and test-signed development builds | Local stable/development, real devices, production signing and store delivery are not established |
 | iOS | Public/private GitHub ARM64 simulator PRs and unsigned development archives | No physical device, Secure Enclave or App Store acceptance |
-| Rust services | Public/private GitHub PRs and stable releases; all three images per visibility independently verified; all four downloaded executables match retained runtime images and pass bounded loader/help checks | Local-forge PR/stable/development coverage remains open; no HSM/service-startup claim |
+| Rust services | Public/private GitHub PRs and stable releases; all three images per visibility independently verified; all four downloaded executables match retained runtime images; actual default-workspace GitLab MR gates pass | Forgejo application PR, local stable/development and local testcontainers coverage remain open; no HSM/service-startup claim |
 | Maven artifact-first publication | GitLab/Forgejo fixture four-file readback, plus real GitHub public/private library original-build identity, fresh-cache classifiers, MAC0 smoke and private denial | Hosted2.7.6 closes the named forge-package contract; Sonatype production and every custom reactor/profile remain separate |
 
 Useful immutable checkpoints:
