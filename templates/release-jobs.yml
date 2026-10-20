@@ -107,7 +107,7 @@ stages: [check, prepare, build, sign, publish]
       readonly RC_WORK
       trap 'rm -rf -- "${RC_WORK}"' EXIT
       case "${CI_JOB_NAME}" in
-        "Check: release request" | "Prepare: changelog" | "Build: release files") ;;
+        "Check: release request" | "Prepare: changelog" | "Prepare: version" | "Build: release files") ;;
         *)
           export HOME="${RC_WORK}/home"
           mkdir -m 0700 "${HOME}"

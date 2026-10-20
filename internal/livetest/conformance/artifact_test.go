@@ -28,6 +28,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
 	"github.com/diggsweden/forge-ci/internal/livetest"
@@ -230,5 +232,60 @@ func TestInRunner_GitLabNativeArtifactsReachTheNextJob(t *testing.T) {
 				t.Fatalf("GitLab native artifact handoff concluded %q; the downstream job did not verify the payload", conclusion)
 			}
 		})
+	}
+}
+
+// Exercise the actual build-to-sign digest verifier after native job transport.
+// Bundle mutation here tests byte integrity, not signature verification.
+func TestInRunner_GitLabReleaseHandoffRejectsTamperedBytes(t *testing.T) {
+	if !livetest.Requires(t, provider.ForgeGitLab, livetest.NeedsInRunner) {
+		livetest.NotCoveredf(t, "release handoff rejection requires a GitLab runner")
+	}
+	target := livetest.Accept(t, provider.ForgeGitLab)
+	repo := livetest.NewScratchRepo(t, target, "release-handoff-rejection")
+	const tag = "v0.0.9-probe"
+	livetest.PrepareTag(t, target, repo, tag)
+	livetest.PublishBinaryAsset(t, target, repo, tag, t.TempDir())
+	prelude := livetest.ProbePrelude(target, livetest.ReleaseAssetURL(t, target, repo, tag, "forge-ci"))
+	body, err := yaml.Marshal(map[string]any{
+		"stages":    []string{"produce", "verify"},
+		"variables": map[string]string{"GIT_STRATEGY": "empty"},
+		"produce": map[string]any{
+			"stage": "produce", "script": []string{prelude, `set -eu
+mkdir dist stale
+printf 'release artifact:%s:%s\000\377\n' "$CI_PIPELINE_ID" "$CI_COMMIT_SHA" > dist/payload.bin
+printf 'inert bundle bytes\n' > dist/payload.bin.bundle
+./forge-ci release dist-digest --dist-dir dist > current.digest
+printf 'previous build bytes\n' > stale/payload.bin
+./forge-ci release dist-digest --dist-dir stale --manifest-root dist > stale.digest`},
+			"artifacts": map[string]any{"paths": []string{"dist/", "current.digest", "stale.digest"}, "expire_in": "1 hour"},
+		},
+		"verify": map[string]any{
+			"stage": "verify", "needs": []map[string]any{{"job": "produce", "artifacts": true}},
+			"script": []string{prelude, `set -eu
+expected=$(cat current.digest)
+./forge-ci release validate-dist --dist-dir dist --expected-digest "$expected"
+reject_digest() {
+  if ./forge-ci release validate-dist --dist-dir dist --expected-digest "$1" > refusal.log 2>&1; then
+    printf 'modified or stale handoff was accepted\n' >&2
+    exit 1
+  fi
+  grep -F 'digest mismatch across job boundary' refusal.log
+}
+reject_digest "$(cat stale.digest)"
+cp dist/payload.bin original.bin
+printf x >> dist/payload.bin
+reject_digest "$expected"
+cp original.bin dist/payload.bin
+./forge-ci release validate-dist --dist-dir dist --expected-digest "$expected"
+printf x >> dist/payload.bin.bundle
+reject_digest "$expected"`},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conclusion := livetest.RunWorkflow(t, target, repo, "release-handoff-rejection", string(body)); conclusion != "success" {
+		t.Fatalf("native release handoff rejection concluded %q", conclusion)
 	}
 }
