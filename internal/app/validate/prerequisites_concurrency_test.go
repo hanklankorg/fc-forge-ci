@@ -99,7 +99,7 @@ func TestPrerequisites_ConcurrentAnnotationsAreSerialisedAndComplete(t *testing.
 	want := []string{
 		"::error::Missing MAVEN_CENTRAL_USERNAME secret",
 		"::notice::Cargo.lock present in crates/api",
-		"::notice::Maven reproducibility configured in services/api (outputTimestamp=2026-01-01T00:00:00Z)",
+		"::notice::Maven reproducibility configured in services/api (outputTimestamp=2026-01-01T00:00:00Z); declaration only, rebuild not checked",
 		"::notice::Toolchain pin present in crates/api",
 		"::warning title=No release signer allowlist::GPG release ran with NO signer allowlist — any valid signature was accepted. Commit .forge-ci/allowed_gpg_keys.asc to authorise specific signers.",
 	}
