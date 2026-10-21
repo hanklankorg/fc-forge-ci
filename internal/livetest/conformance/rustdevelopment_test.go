@@ -202,7 +202,7 @@ func rustDevelopmentArchive(t *testing.T, body []byte) map[string][]byte {
 		}
 		name := strings.TrimPrefix(file.Name, "development-artifacts/")
 		limit, ok := want[name]
-		if !strings.HasPrefix(file.Name, "development-artifacts/") || !ok || files[name] != nil || !file.Mode().IsRegular() {
+		if !ok || files[name] != nil || !file.Mode().IsRegular() || (file.Name != name && file.Name != "development-artifacts/"+name) {
 			t.Fatalf("unexpected native artifact %s", file.Name)
 		}
 		limit = min(limit, remaining)
