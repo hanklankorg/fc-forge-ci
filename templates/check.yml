@@ -72,10 +72,18 @@ spec:
       readonly RC_HELPERS_DIR
       trap 'rm -rf -- "${RC_HELPERS_DIR}"' EXIT
       git_options=(-c core.hooksPath=/dev/null -c credential.helper=)
-      checkout_environment=(env)
       if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
-        git_options+=(-c "http.sslCAInfo=${CI_SERVER_TLS_CA_FILE}")
-        checkout_environment+=("GIT_SSL_CAINFO=${CI_SERVER_TLS_CA_FILE}" "SSL_CERT_FILE=${CI_SERVER_TLS_CA_FILE}")
+        # Consumer commands may access this forge's registry too. Preserve
+        # public roots while adding the runner-provided private CA, as release
+        # jobs do; never disable TLS verification or modify system trust.
+        for bundle in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; do
+          if [ -f "${bundle}" ]; then break; fi
+        done
+        test -f "${bundle}"
+        cat -- "${bundle}" "${CI_SERVER_TLS_CA_FILE}" > "${RC_HELPERS_DIR}/ca-bundle.crt"
+        export CURL_CA_BUNDLE="${RC_HELPERS_DIR}/ca-bundle.crt"
+        export SSL_CERT_FILE="${CURL_CA_BUNDLE}" GIT_SSL_CAINFO="${CURL_CA_BUNDLE}"
+        git_options+=(-c "http.sslCAInfo=${GIT_SSL_CAINFO}")
       fi
       # The consumer may default Git to SHA-256. The helper repository has
       # its own object format, independent of that consumer setting.
@@ -89,19 +97,14 @@ spec:
       test "$(git -C "${RC_HELPERS_DIR}" rev-parse HEAD)" = "${expected}"
       # shellcheck source=.forgejo/bin/lib-forge-ci.sh
       source "${RC_HELPERS_DIR}/.forgejo/bin/lib-forge-ci.sh"
-      if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
-        CURL_CA_BUNDLE="${CI_SERVER_TLS_CA_FILE}" fetch_forge_ci
-      else
-        fetch_forge_ci
-      fi
+      fetch_forge_ci
       SIGNER_STRICT=1 verify_forge_ci
       export FORGE_CI_BIN="${HELPERS_ENGINE_VERIFIED}"
       export PATH="${HELPERS_ROOT}/bin:${PATH}"
       export FORGE_CI_PROVIDER=gitlab
       export CI_OUTPUT="${RC_HELPERS_DIR}/outputs.env"
-      # Limit custom trust to checkout; consumer tools retain their normal
-      # public roots for module downloads, links and vulnerability databases.
-      "${checkout_environment[@]}" "${FORGE_CI_BIN}" platform checkout --workspace "${CI_PROJECT_DIR:?}" \
+      # The combined bundle keeps both self-hosted forge and public tool access.
+      "${FORGE_CI_BIN}" platform checkout --workspace "${CI_PROJECT_DIR:?}" \
         --server-url "${CI_SERVER_URL:?}" --repository "${CI_PROJECT_PATH:?}" \
         --ref "${CI_COMMIT_SHA}" --object-format "${consumer_object_format}" \
         --fetch-base "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-${CI_DEFAULT_BRANCH:?}}"

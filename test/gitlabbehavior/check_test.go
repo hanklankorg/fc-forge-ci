@@ -33,38 +33,14 @@ func componentTools(t *testing.T) string {
 // checkout; all files stay in the test directory and no network tool is called.
 func TestCheckRefusesSigningMaterialAndMutablePinsBeforeCheckout(t *testing.T) {
 	t.Parallel()
-
-	content, err := os.ReadFile(filepath.Join(reporoot.Path(t), "templates", "check.yml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	decoder := yaml.NewDecoder(bytes.NewReader(content))
-
-	var header map[string]any
-
-	if err := decoder.Decode(&header); err != nil {
-		t.Fatal(err)
-	}
-
-	var jobs map[string]struct {
-		Before []string `yaml:"before_script"`
-	}
-
-	if err := decoder.Decode(&jobs); err != nil {
-		t.Fatal(err)
-	}
-
-	job := jobs["$[[ inputs.job-name ]]"]
-	if len(job.Before) != 1 {
-		t.Fatal("check component must have its bootstrap guard")
-	}
+	bootstrap := checkBootstrapScript(t)
 
 	const canary = "fixture-value-must-not-appear-in-output"
 
 	for _, tc := range []struct {
 		name, variable, reference, want string
 	}{
+
 		{"SSH key", "RELEASE_SSH_SIGNING_KEY", strings.Repeat("a", 40), "RELEASE_SSH_SIGNING_KEY must not be available"},
 		{"Cosign key", "RELEASE_COSIGN_PRIVATE_KEY", strings.Repeat("a", 40), "RELEASE_COSIGN_PRIVATE_KEY must not be available"},
 		{"GPG key", "RELEASE_GPG_PRIVATE_KEY", strings.Repeat("a", 40), "RELEASE_GPG_PRIVATE_KEY must not be available"},
@@ -87,7 +63,7 @@ func TestCheckRefusesSigningMaterialAndMutablePinsBeforeCheckout(t *testing.T) {
 				"$[[ component.sha ]]", strings.Repeat("a", 40),
 				"$[[ component.reference ]]", tc.reference,
 				"/tmp/forge-ci-helpers.XXXXXXXX", filepath.Join(dir, "helpers.XXXXXXXX"),
-			).Replace(job.Before[0])
+			).Replace(bootstrap)
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 
 			defer cancel()
@@ -108,6 +84,76 @@ func TestCheckRefusesSigningMaterialAndMutablePinsBeforeCheckout(t *testing.T) {
 
 			if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 				t.Fatal("a refused check attempted checkout")
+			}
+		})
+	}
+}
+
+func checkBootstrapScript(t *testing.T) string {
+	t.Helper()
+	decoder := yaml.NewDecoder(bytes.NewReader(reporoot.ReadFile(t, "templates/check.yml")))
+	var header any
+	if err := decoder.Decode(&header); err != nil {
+		t.Fatal(err)
+	}
+	var jobs map[string]struct {
+		Before []string `yaml:"before_script"`
+	}
+	if err := decoder.Decode(&jobs); err != nil {
+		t.Fatal(err)
+	}
+	job := jobs["$[[ inputs.job-name ]]"]
+	if len(job.Before) != 1 {
+		t.Fatal("check component must have its bootstrap guard")
+	}
+	return job.Before[0]
+}
+
+func TestCheckPreservesPublicRootsAndExportsPrivateRegistryTrust(t *testing.T) {
+	bootstrap := checkBootstrapScript(t)
+	_, trust, found := strings.Cut(bootstrap, "git_options=")
+	if !found {
+		t.Fatal("missing trust setup")
+	}
+	trust, _, found = strings.Cut(trust, "# The consumer may default Git")
+	if !found {
+		t.Fatal("missing end of trust setup")
+	}
+	for _, privateCA := range []bool{false, true} {
+		t.Run(map[bool]string{false: "public roots unchanged", true: "private registry plus public roots"}[privateCA], func(t *testing.T) {
+			dir := t.TempDir()
+			public, private := filepath.Join(dir, "public.pem"), filepath.Join(dir, "private.pem")
+			if err := os.WriteFile(public, []byte("public-root\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(private, []byte("lab-root\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			script := strings.NewReplacer("/etc/ssl/certs/ca-certificates.crt", public,
+				"/etc/pki/tls/certs/ca-bundle.crt", filepath.Join(dir, "absent.pem")).Replace("git_options=" + trust)
+			command := exec.CommandContext(t.Context(), "/bin/bash", "--noprofile", "--norc", "-c",
+				"set -eu\n"+script+"\nprintf '%s\\n' \"${SSL_CERT_FILE:-}\" \"${CURL_CA_BUNDLE:-}\" \"${GIT_SSL_CAINFO:-}\"")
+			command.Env = []string{"PATH=/usr/bin:/bin", "RC_HELPERS_DIR=" + dir}
+			if privateCA {
+				command.Env = append(command.Env, "CI_SERVER_TLS_CA_FILE="+private)
+			}
+			output, err := command.CombinedOutput()
+			if err != nil {
+				t.Fatalf("trust setup: %v\n%s", err, output)
+			}
+			if !privateCA {
+				if strings.TrimSpace(string(output)) != "" {
+					t.Fatalf("public roots overridden: %s", output)
+				}
+				return
+			}
+			bundle := filepath.Join(dir, "ca-bundle.crt")
+			if string(output) != strings.Repeat(bundle+"\n", 3) {
+				t.Fatalf("trust not exported for consumer commands: %s", output)
+			}
+			body, err := os.ReadFile(bundle)
+			if err != nil || string(body) != "public-root\nlab-root\n" {
+				t.Fatalf("combined trust=%q: %v", body, err)
 			}
 		})
 	}
