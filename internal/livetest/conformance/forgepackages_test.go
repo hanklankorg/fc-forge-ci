@@ -137,6 +137,10 @@ func npmPublishProbe(target livetest.Target, assetURL, name, version string) str
 // Keep rendering separate from the accepted target's CA/binary setup so the
 // exact workflow sent to a forge can also be checked without a lab contract.
 func npmPublishWorkflow(target livetest.Target, prelude, name, version string) string {
+	tagPrefix := "release-"
+	if target.Forge == provider.ForgeForgejo {
+		tagPrefix = "release."
+	}
 	// Single-quoted heredoc: the package manifest must reach disk verbatim,
 	// without the shell touching anything inside it.
 	//
@@ -189,7 +193,7 @@ VERIFY
   npm view '` + name + `' dist-tags --json --registry "$registry" > dist-tags.json
   node <<'VERIFY'
 const assert = require('node:assert/strict');
-assert.equal(require('./dist-tags.json')['release-` + version + `'], '` + version + `');
+assert.equal(require('./dist-tags.json')['` + tagPrefix + version + `'], '` + version + `');
 VERIFY
 )`
 
@@ -219,7 +223,7 @@ jobs:
         run: |
           ` + indent(prelude, 10) + `
           ` + indent(manifest, 10) + `
-          ` + indent(`run_product publish forge-packages deploy --project-type npm --working-dir pkg --npm-tag 'release-{version}'`, 10) + `
+          ` + indent(`run_product publish forge-packages deploy --project-type npm --working-dir pkg --npm-tag 'release.{version}'`, 10) + `
           ` + indent(consume, 10) + `
 `
 }
@@ -239,8 +243,15 @@ func TestNPMPublishWorkflow_RenderedShell(t *testing.T) {
 					t.Fatalf("%s syntax: %v: %s", shell, err, output)
 				}
 			}
-			if !strings.Contains(script, "run_product publish forge-packages deploy --project-type npm --working-dir pkg --npm-tag 'release-{version}'") {
+			tagPrefix := "release-"
+			if forge == provider.ForgeForgejo {
+				tagPrefix = "release."
+			}
+			if !strings.Contains(script, "run_product publish forge-packages deploy --project-type npm --working-dir pkg --npm-tag '"+tagPrefix+"{version}'") {
 				t.Fatal("deployment escaped the YAML script")
+			}
+			if !strings.Contains(script, "assert.equal(require('./dist-tags.json')['"+tagPrefix+"1.2.3'], '1.2.3');") {
+				t.Fatal("dist-tag assertion does not match the selected publication tag")
 			}
 
 			// Execute the generated consumer shell with inert transports. The

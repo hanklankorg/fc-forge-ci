@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -59,6 +60,11 @@ func TestNPMPublishChecksTagBeforeMutation(t *testing.T) {
 		{"invalid response", "release-{version}", `not JSON`, 1, errs.ErrMalformedInput},
 		{"new binding", "release-{version}", `{}`, 2, nil},
 		{"same binding", "release-1.2.3-rc.1", `{"release-1.2.3-rc.1":"1.2.3-rc.1"}`, 2, nil},
+		{"dotted wrong version", "release.9.0.0", "{}", 0, errs.ErrInvalidConfig},
+		{"dotted conflict", "release.{version}", `{"release.1.2.3-rc.1":"0.1.0"}`, 1, errs.ErrValidation},
+		{"dotted literal conflict", "release.1.2.3-rc.1", `{"release.1.2.3-rc.1":"0.1.0"}`, 1, errs.ErrValidation},
+		{"dotted new binding", "release.{version}", `{}`, 2, nil},
+		{"dotted same binding", "release.1.2.3-rc.1", `{"release.1.2.3-rc.1":"1.2.3-rc.1"}`, 2, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -72,7 +78,8 @@ func TestNPMPublishChecksTagBeforeMutation(t *testing.T) {
 			require.Len(t, probe.calls, tc.wantCalls)
 
 			if tc.wantCalls == 2 {
-				require.Equal(t, []string{"publish", "./misleading-9.0.0.tgz", "--userconfig", probe.credential, "--registry", "https://registry.example/", "--tag", "release-1.2.3-rc.1", "--ignore-scripts"}, probe.calls[1])
+				wantTag := strings.ReplaceAll(tc.setting, "{version}", "1.2.3-rc.1")
+				require.Equal(t, []string{"publish", "./misleading-9.0.0.tgz", "--userconfig", probe.credential, "--registry", "https://registry.example/", "--tag", wantTag, "--ignore-scripts"}, probe.calls[1])
 			}
 
 			if probe.credential != "" {

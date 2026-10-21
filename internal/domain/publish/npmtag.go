@@ -15,18 +15,24 @@ import (
 // NPMVersionTagTemplate explicitly selects a tag bound to the packed version.
 const NPMVersionTagTemplate = "release-{version}"
 
+// NPMDottedVersionTagTemplate selects the Forgejo-compatible immutable alias.
+const NPMDottedVersionTagTemplate = "release.{version}"
+
 // ValidateNPMTag checks a publication setting before package or registry access.
 // No channel is implicit: latest, next, snapshot and other movable names refuse.
 func ValidateNPMTag(tag string) error {
-	if tag == NPMVersionTagTemplate {
+	if tag == NPMVersionTagTemplate || tag == NPMDottedVersionTagTemplate {
 		return nil
 	}
 
 	version, ok := strings.CutPrefix(tag, "release-")
+	if !ok {
+		version, ok = strings.CutPrefix(tag, "release.")
+	}
 
 	canonical, err := NPMRegistryVersion(version)
 	if !ok || err != nil || canonical != version {
-		return fmt.Errorf("npm-tag must be explicitly set to release-{version} or release-<package-version>; movable tags such as latest and next are forbidden: %w", errs.ErrInvalidConfig)
+		return fmt.Errorf("npm-tag must be explicitly set to release-{version}, release.{version}, release-<package-version> or release.<package-version>; movable tags such as latest and next are forbidden: %w", errs.ErrInvalidConfig)
 	}
 
 	return nil
@@ -45,9 +51,14 @@ func NPMVersionTag(version, tag string) (string, error) {
 		return "", err
 	}
 
-	want := "release-" + canonical
-	if tag != NPMVersionTagTemplate && tag != want {
-		return "", fmt.Errorf("npm-tag %q does not match packed version %q; use %q or release-{version}: %w", tag, version, want, errs.ErrInvalidConfig)
+	prefix, template := "release-", NPMVersionTagTemplate
+	if strings.HasPrefix(tag, "release.") {
+		prefix, template = "release.", NPMDottedVersionTagTemplate
+	}
+
+	want := prefix + canonical
+	if tag != template && tag != want {
+		return "", fmt.Errorf("npm-tag %q does not match packed version %q; use %q or %s: %w", tag, version, want, template, errs.ErrInvalidConfig)
 	}
 
 	return want, nil

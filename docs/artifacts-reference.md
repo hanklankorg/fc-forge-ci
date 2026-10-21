@@ -288,7 +288,7 @@ requirements and incompatible fields.
 
 - **Type:** `string`; no default.
 - **Required:** When publishing npm through `forge-packages`.
-- **Values:** Explicit `release-{version}` or `release-<packed-version>`. The publisher reads the packed manifest; a literal tag must match npm's normalized registry version.
+- **Values:** Explicit `release-{version}` or `release-<packed-version>`, with backward-compatible aliases `release.{version}` and `release.<packed-version>` for Forgejo compatibility. The publisher reads the packed manifest; a literal tag must match npm's normalized registry version. The selected separator is preserved; tags are never silently switched between aliases.
 - **Policy:** Movable tags such as `latest`, `next` and `snapshot` are refused. An existing tag bound to a different version is refused before publication. See [npm caller responsibilities](ecosystems.md#npm-artifact-first).
 
 #### `config.dependency-registry`

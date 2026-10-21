@@ -50,7 +50,7 @@ func npmDeployCmd() *cli.Command {
 		Flags: []cli.Flag{
 			commonflags.WorkingDir("directory containing exactly one packed .tgz"),
 			&cli.StringFlag{Name: flagRegistry, Required: true, Sources: cli.EnvVars("NPM_REGISTRY"), Usage: "destination npm registry URL"},
-			&cli.StringFlag{Name: flagNPMTag, Sources: cli.EnvVars("NPM_TAG"), Usage: "required release-{version} or release-<packed-version>"},
+			&cli.StringFlag{Name: flagNPMTag, Sources: cli.EnvVars("NPM_TAG"), Usage: "required release-{version}, release.{version}, release-<packed-version> or release.<packed-version>"},
 			&cli.StringFlag{Name: "token-file", Usage: "registry token file; defaults to $NODE_AUTH_TOKEN"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -81,7 +81,7 @@ func npmValidateTagCmd() *cli.Command {
 		Name:  "validate-tag",
 		Usage: "validate a required version-specific npm tag before build or authentication; with --version, print the resolved tag",
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: flagNPMTag, Sources: cli.EnvVars("NPM_TAG"), Usage: "release-{version} or release-<package-version>; movable channels are forbidden"},
+			&cli.StringFlag{Name: flagNPMTag, Sources: cli.EnvVars("NPM_TAG"), Usage: "release-{version}, release.{version}, release-<package-version> or release.<package-version>; movable channels are forbidden"},
 			&cli.StringFlag{Name: flagVersion, Usage: "package version to bind the tag to"},
 		},
 		Action: func(_ context.Context, cmd *cli.Command) error {
