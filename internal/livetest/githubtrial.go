@@ -451,11 +451,43 @@ func (trial *GitHubTrial) ReportRun(repo string, run *github.WorkflowRun) {
 		location, _, logErr := trial.api.Actions.GetWorkflowJobLogs(ctx, trial.org, repo, job.GetID(), 0)
 		if logErr != nil {
 			trial.tb.Logf("    (no log: %v)", logErr)
+			trial.reportJobAnnotations(ctx, repo, job)
 
 			continue
 		}
 
-		trial.tb.Logf("    log at the failure:\n%s", failureOf(ctx, location.String(), 40))
+		excerpt := failureOf(ctx, location.String(), 40)
+		trial.tb.Logf("    log at the failure:\n%s", excerpt)
+		if strings.HasPrefix(excerpt, "could not fetch the job log") {
+			trial.reportJobAnnotations(ctx, repo, job)
+		}
+	}
+}
+
+// Jobs rejected before a runner starts may have no log archive. GitHub records
+// the cause in check annotations; query that exact check through the SDK rather
+// than following a response-provided URL with credentials.
+func (trial *GitHubTrial) reportJobAnnotations(ctx context.Context, repo string, job *github.WorkflowJob) {
+	prefix := "https://api.github.com/repos/" + trial.org + "/" + repo + "/check-runs/"
+	value, found := strings.CutPrefix(job.GetCheckRunURL(), prefix)
+	if !found {
+		return
+	}
+	id, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || id <= 0 {
+		return
+	}
+	annotations, _, err := trial.api.Checks.ListCheckRunAnnotations(ctx, trial.org, repo, id, &github.ListOptions{PerPage: 10})
+	if err != nil {
+		trial.tb.Logf("    check annotations unavailable: %v", err)
+		return
+	}
+	for _, annotation := range annotations {
+		message := annotation.GetMessage()
+		if len(message) > 2048 {
+			message = strings.ToValidUTF8(message[:2048], "�") + " [truncated]"
+		}
+		trial.tb.Logf("    check annotation: %s", message)
 	}
 }
 

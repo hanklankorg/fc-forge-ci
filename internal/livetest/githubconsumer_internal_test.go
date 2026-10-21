@@ -6,19 +6,50 @@ package livetest
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
 	"testing/iotest"
 
+	"github.com/google/go-github/v91/github"
 	"golang.org/x/crypto/nacl/box"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
 
 var trialEngine = GitHubEngine{Owner: "HankLankOrg", Repository: "fc-forge-ci", Commit: strings.Repeat("a", 40)} //nolint:gochecknoglobals // read-only fixture.
+
+func TestFailedJobAnnotationsUseExactRepositoryAndBoundOutput(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path != "/repos/fixture/fc-app/check-runs/42/annotations" || r.URL.Query().Get("per_page") != "10" {
+			t.Errorf("unexpected check annotation request: %s", r.URL)
+		}
+		_ = json.NewEncoder(w).Encode([]map[string]string{{"message": "Runner unavailable: " + strings.Repeat("x", 3000)}})
+	}))
+	defer server.Close()
+	api, err := github.NewClient(github.WithHTTPClient(server.Client()), github.WithURLs(github.Ptr(server.URL+"/"), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tb := &recordingTB{}
+	trial := GitHubTrial{tb: tb, api: api, org: "fixture"}
+	trial.reportJobAnnotations(t.Context(), "fc-app", &github.WorkflowJob{CheckRunURL: github.Ptr("https://api.github.com/repos/fixture/fc-app/check-runs/42")})
+	if calls != 1 || len(tb.logs) != 1 || !strings.Contains(tb.logs[0], "Runner unavailable:") || !strings.HasSuffix(tb.logs[0], "[truncated]") || len(tb.logs[0]) > 2200 {
+		t.Fatalf("missing bounded annotation: calls=%d logs=%v", calls, tb.logs)
+	}
+	trial.reportJobAnnotations(t.Context(), "fc-app", &github.WorkflowJob{CheckRunURL: github.Ptr("https://other.invalid/repos/fixture/fc-app/check-runs/42")})
+	trial.reportJobAnnotations(t.Context(), "fc-app", &github.WorkflowJob{CheckRunURL: github.Ptr("https://api.github.com/repos/fixture/another/check-runs/42")})
+	if calls != 1 {
+		t.Fatal("unexpected check URL changed the scoped API request")
+	}
+}
 
 func TestFailureLogKeepsCauseAfterLargeProgressLine(t *testing.T) {
 	t.Parallel()
