@@ -5,7 +5,9 @@
 package livetest
 
 import (
+	"archive/tar"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -19,11 +21,13 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/random"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 
+	"github.com/diggsweden/forge-ci/internal/domain/container"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
 
@@ -137,6 +141,62 @@ func RegistryHost(target Target) (string, error) {
 // what the registry then serves for it.
 func PushImage(tb TB, target Target, repo, tag string) Image {
 	return PushImageTags(tb, target, repo, tag)
+}
+
+// ImageFileSHA256 reads selected regular files from the effective filesystem of
+// a published amd64 image. It uses the existing constrained registry transport;
+// it neither executes the image nor writes archive paths to the host filesystem.
+func ImageFileSHA256(tb TB, target Target, repo, digest string, paths []string) map[string]string {
+	tb.Helper()
+	requireAccepted(tb, target)
+	if !inRunNamespace(target, repo) || !container.ValidDigest(digest) {
+		tb.Fatalf("image-file verification requires an owned repository and exact digest")
+	}
+	host, err := RegistryHost(target)
+	if err != nil {
+		tb.Fatalf("registry host: %v", err)
+	}
+	ref, err := name.NewDigest(host + "/" + RepoSlug(target, repo) + "@" + digest)
+	if err != nil {
+		tb.Fatalf("registry digest: %v", err)
+	}
+	options, err := registryRemoteOptions(target)
+	if err != nil {
+		tb.Fatalf("registry transport: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(Context(tb), timeoutScratch)
+	defer cancel()
+	image, err := remote.Image(ref, append(options, remote.WithContext(ctx), remote.WithPlatform(v1.Platform{OS: "linux", Architecture: "amd64"}))...)
+	if err != nil {
+		tb.Fatalf("read exact registry image: %v", err)
+	}
+	stream := mutate.Extract(image)
+	defer stream.Close()
+	archive := tar.NewReader(io.LimitReader(stream, 10<<30))
+	wanted := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		wanted[strings.TrimPrefix(path, "/")] = true
+	}
+	hashes := make(map[string]string, len(wanted))
+	for len(hashes) < len(wanted) {
+		entry, err := archive.Next()
+		if err != nil {
+			tb.Fatalf("published image lacks selected files: %v", err)
+		}
+		path := strings.TrimPrefix(strings.TrimPrefix(entry.Name, "./"), "/")
+		if !wanted[path] {
+			continue
+		}
+		if entry.Typeflag != tar.TypeReg || entry.Size <= 0 || entry.Size > 512<<20 {
+			tb.Fatalf("published image file %s is not a bounded nonempty regular file", path)
+		}
+		hash := sha256.New()
+		if _, err := io.Copy(hash, archive); err != nil {
+			tb.Fatalf("read published file: %v", err)
+		}
+		hashes[path] = fmt.Sprintf("%x", hash.Sum(nil))
+	}
+	return hashes
 }
 
 // PushImageTags puts ONE synthetic image at several tags, which is how a build

@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path"
 	"strings"
 	"testing"
 
@@ -111,6 +112,17 @@ func requireRustDevelopmentPublication(t *testing.T, body []byte, commit string,
 			"--require-label", "org.opencontainers.image.version="+version)
 		if readback.ExitCode != 0 || strings.TrimSpace(readback.Stdout) != record.Digest {
 			t.Fatalf("%s registry readback failed: exit=%d stdout=%s stderr=%s", role, readback.ExitCode, readback.Stdout, readback.Stderr)
+		}
+		paths := map[string][]string{
+			"hsm-worker":             {"hsm-worker", "usr/local/bin/digg-hsm-keytool"},
+			"wallet-bff":             {"wallet-bff"},
+			"integration-load-tests": {"usr/local/bin/integration-load-tests"},
+		}[role]
+		for imagePath, hash := range livetest.ImageFileSHA256(t, target, repo, record.Digest, paths) {
+			binary := path.Base(imagePath)
+			if receipt.Files["linux-amd64/"+binary+"-linux-amd64"] != hash {
+				t.Fatalf("downloaded %s differs from published image %s", binary, record.Digest)
+			}
 		}
 	}
 	if tags := livetest.RegistrySnapshot(t, target, repo); len(tags) != 0 {

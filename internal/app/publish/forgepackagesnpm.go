@@ -196,7 +196,8 @@ func checkNPMTagBinding(ctx context.Context, ops NPMPublishOps, dir string, conf
 // npm reports that specific successful registry response as a command error.
 func npmHasNoDistTags(stderr, name string) bool {
 	for _, line := range strings.Split(stderr, "\n") {
-		if strings.TrimSpace(line) == "npm error No dist-tags found for "+name {
+		line = strings.TrimSpace(line)
+		if line == "npm error No dist-tags found for "+name || line == "npm ERR! No dist-tags found for "+name {
 			return true
 		}
 	}

@@ -133,6 +133,15 @@ func TestForgejoLayer_ContainerDevelopment(t *testing.T) {
 			if !found || !container.ValidDigest(digest) {
 				t.Fatalf("registry did not serve a development digest: %q", digest)
 			}
+			work := t.TempDir()
+			auth := livetest.RegistryAuthFile(t, target, work)
+			readback := livetest.CLIIn(t, target, repo, livetest.RunOptions{Dir: work},
+				"container", "image", "usable-digest", "--ref", image+"@"+digest,
+				"--arch", "amd64", "--auth-file", auth,
+				"--require-label", "org.opencontainers.image.revision="+head)
+			if readback.ExitCode != 0 || strings.TrimSpace(readback.Stdout) != digest {
+				t.Fatalf("development image does not match its source: exit=%d\n%s", readback.ExitCode, readback.Stderr)
+			}
 			want := map[string]string{
 				"commit.txt": head, "image-digest.txt": digest,
 				"image-ref.txt": image + "@" + digest, "image-tag.txt": image + ":dev-" + head,

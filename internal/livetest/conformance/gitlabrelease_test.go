@@ -496,7 +496,7 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, scenario gitlab
 		requireGitLabBaseReuse(t, client, target, repo, publication, keys, requestKeyDir)
 	}
 
-	if gate {
+	if gate && !recovery {
 		requireGitLabPolicyMergeRequest(t, client, project, repo, *consumer, request)
 	}
 }

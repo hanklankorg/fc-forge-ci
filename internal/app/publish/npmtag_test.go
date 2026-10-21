@@ -188,7 +188,7 @@ func TestNPMPublishChecksTagBeforeMutation(t *testing.T) {
 
 func TestNPMPublishDoesNotMistakeRegistryFailureForAbsence(t *testing.T) {
 	t.Parallel()
-	for _, code := range []string{"E503", "E401", "E403", "ECONNRESET", "E404", "No dist-tags found for other", "No dist-tags found for pkg"} {
+	for _, code := range []string{"E503", "E401", "E403", "ECONNRESET", "E404", "No dist-tags found for other", "No dist-tags found for pkg", "npm ERR! No dist-tags found for other", "npm ERR! No dist-tags found for pkg"} {
 		t.Run(code, func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
@@ -197,10 +197,13 @@ func TestNPMPublishDoesNotMistakeRegistryFailureForAbsence(t *testing.T) {
 			if strings.HasPrefix(code, "No dist-tags") {
 				stderr = "npm error " + code
 			}
+			if strings.HasPrefix(code, "npm ERR!") {
+				stderr = code
+			}
 			probe := &npmTagProbe{viewErr: errs.ErrDependencyUnavailable, viewStderr: stderr}
 			resolver := fakeNPMRegistryResolver{reg: provider.ForgeNPMRegistry{Registry: "https://registry.example/", Token: "synthetic"}}
 			err := apppublish.ForgePackagesNPMPublish(t.Context(), probe, resolver, io.Discard, io.Discard, apppublish.ForgePackagesNPMPublishInput{WorkingDir: dir, Tag: "release-{version}"})
-			if code == "E404" || code == "No dist-tags found for pkg" {
+			if code == "E404" || code == "No dist-tags found for pkg" || code == "npm ERR! No dist-tags found for pkg" {
 				require.NoError(t, err)
 				require.Len(t, probe.calls, 2)
 			} else {
