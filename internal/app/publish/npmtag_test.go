@@ -55,6 +55,7 @@ func TestNPMPublishNativeQueryWithoutLatest(t *testing.T) {
 		versions []string
 		conflict bool
 	}{
+		{"empty tag map", nil, false},
 		{"single version", []string{"0.1.0"}, false},
 		{"multiple versions", []string{"0.1.0", "1.0.0"}, false},
 		{"conflicting desired tag", []string{"0.1.0", "1.0.0"}, true},
@@ -187,15 +188,19 @@ func TestNPMPublishChecksTagBeforeMutation(t *testing.T) {
 
 func TestNPMPublishDoesNotMistakeRegistryFailureForAbsence(t *testing.T) {
 	t.Parallel()
-	for _, code := range []string{"E503", "E401", "E403", "ECONNRESET", "E404"} {
+	for _, code := range []string{"E503", "E401", "E403", "ECONNRESET", "E404", "No dist-tags found for other", "No dist-tags found for pkg"} {
 		t.Run(code, func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
 			writeNPMPackage(t, filepath.Join(dir, "pkg.tgz"), "pkg", "1.2.3")
-			probe := &npmTagProbe{viewErr: errs.ErrDependencyUnavailable, viewStderr: "npm error code " + code}
+			stderr := "npm error code " + code
+			if strings.HasPrefix(code, "No dist-tags") {
+				stderr = "npm error " + code
+			}
+			probe := &npmTagProbe{viewErr: errs.ErrDependencyUnavailable, viewStderr: stderr}
 			resolver := fakeNPMRegistryResolver{reg: provider.ForgeNPMRegistry{Registry: "https://registry.example/", Token: "synthetic"}}
 			err := apppublish.ForgePackagesNPMPublish(t.Context(), probe, resolver, io.Discard, io.Discard, apppublish.ForgePackagesNPMPublishInput{WorkingDir: dir, Tag: "release-{version}"})
-			if code == "E404" {
+			if code == "E404" || code == "No dist-tags found for pkg" {
 				require.NoError(t, err)
 				require.Len(t, probe.calls, 2)
 			} else {

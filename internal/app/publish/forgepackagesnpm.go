@@ -167,7 +167,7 @@ func checkNPMTagBinding(ctx context.Context, ops NPMPublishOps, dir string, conf
 	// exist. Selecting the proposed version could hide a conflicting tag on 404.
 	err := ops.RunInherit(ctx, dir, &stdout, &stderr, "dist-tag", "ls", meta.Name, "--userconfig", config.path, "--registry", config.registry)
 	if err != nil {
-		if isNPMNotFound(stderr.String()) {
+		if isNPMNotFound(stderr.String()) || npmHasNoDistTags(stderr.String(), meta.Name) {
 			return nil
 		}
 
@@ -190,6 +190,17 @@ func checkNPMTagBinding(ctx context.Context, ops NPMPublishOps, dir string, conf
 	}
 
 	return nil
+}
+
+// Some registries return an empty tag map for a new package rather than 404.
+// npm reports that specific successful registry response as a command error.
+func npmHasNoDistTags(stderr, name string) bool {
+	for _, line := range strings.Split(stderr, "\n") {
+		if strings.TrimSpace(line) == "npm error No dist-tags found for "+name {
+			return true
+		}
+	}
+	return false
 }
 
 type npmRegistryOutput struct{ buffer bytes.Buffer }
