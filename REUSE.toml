@@ -44,6 +44,8 @@ path = [
   "docs/reference.md",
   "docs/sbom.md",
   "docs/verification.md",
+  "docs/consumer-migration-handoff.md",
+  "docs/consumer-validation-lessons.md",
   "docs/workflow-design-policy.md",
   "docs/workflows.md",
   "examples/README.md",
