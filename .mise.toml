@@ -33,7 +33,7 @@ PIP_INDEX_URL = "{{ get_env(name='PIP_INDEX_URL', default='') }}"
 
 [tools]
 # Pin the compiler patch because release binaries include its standard library.
-go = "1.27.2"
+go = "1.27.3"
 
 # Lint/security orchestrator — derives a verify plan from the repo and
 # runs the configured checks. See nanolinter.toml for the plan.
