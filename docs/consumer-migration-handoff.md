@@ -19,8 +19,10 @@ Latest acceptance checkpoint:
   started because recent account payments have failed or your spending limit
   needs to be increased.” Build and publish were skipped. Earlier private stable
   failures have similar symptoms but no independently confirmed billing reason.
-  These final private cases remain incomplete; suspend retries until billing is
-  resolved. Earlier successful private cases do not replace this checkpoint.
+  Operator decision: GitHub private web development/stable are **excluded from
+  the remaining 100% scope** because billing will not be fixed for this lab. They
+  are not passes and are not counted as done; earlier successful private cases
+  remain historical evidence only.
 - Fine-grained PATs cannot call the Checks API; there is no Checks permission to
   add. Missing logs alone do not establish billing failure. The reporter surfaces
   accessible billing annotations, or gives the manual run URL and qualified
