@@ -43,6 +43,7 @@ type developmentAcceptance struct {
 	jobName, smokeMarker, imageVariable, artifactPrefix string
 	maxArchive                                          int64
 	checkArchive                                        func(*testing.T, []byte, string)
+	checkPublication                                    func(*testing.T, []byte, string, livetest.Target, string)
 }
 
 func packageDevelopmentAcceptance() developmentAcceptance {
@@ -142,7 +143,16 @@ func runGitLabDevelopment(t *testing.T, root string, private bool, acceptance de
 			t.Fatal("development job lacks successful exact-source native artifacts")
 		}
 		url := fmt.Sprintf("%s/api/v4/projects/%s/jobs/%d/artifacts", target.BaseURL(), gitlabapi.PathEscape(project), job.ID)
-		acceptance.checkArchive(t, livetest.Download(t, target, url, acceptance.maxArchive), head)
+		if int64(job.ArtifactsFile.Size) > acceptance.maxArchive {
+			t.Fatal("development native artifact exceeds acceptance bound")
+		}
+		body := livetest.Download(t, target, url, acceptance.maxArchive)
+		if acceptance.checkArchive != nil {
+			acceptance.checkArchive(t, body, head)
+		}
+		if acceptance.checkPublication != nil {
+			acceptance.checkPublication(t, body, head, target, repo)
+		}
 	}
 	if found != 1 {
 		t.Fatalf("found %d development jobs, want one", found)
