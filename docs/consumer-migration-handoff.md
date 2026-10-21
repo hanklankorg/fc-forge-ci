@@ -10,6 +10,13 @@ Latest acceptance checkpoint:
   disabling TLS. The oracle checks three published runtime images, four ELF
   binaries against those image files, source/version identity and unchanged main
   with no stable tags/releases.
+- Actual Rust Forgejo independent development passes public run `164` and
+  private `165`, consumer `dec8492`, controller source `ba51de0` (live snapshot
+  `64cc854`). The same oracle binds four ELF binaries and three tagless runtime
+  digests to the development commit, reads the published image files back, and
+  checks unchanged main with no tags/releases. The first attempt failed only
+  because Forgejo's artifact ZIP stores the directory contents at the archive
+  root; `ba51de0` accepts that layout.
 - Reviewed GitHub engine `8fe5f63` passes web PRs public/private
   (`39572287400` / `39572285714`), Maven public/private
   (`39572294049` / `39572299264`), public web development `39573860264`
