@@ -44,6 +44,9 @@ func runForgejoConsumerDevelopment(t *testing.T, acceptance developmentAcceptanc
 				livetest.NotCoveredf(t, "the development consumer needs a Forgejo runner")
 			}
 			target := livetest.Accept(t, provider.ForgeForgejo)
+			if acceptance.checkPublication != nil && livetest.RunnerArch(t, target) != "amd64" {
+				t.Fatal("the publishing development consumer requires a native linux/amd64 runner")
+			}
 			consumer := livetest.OpenConsumer(t, target, root)
 			const workflow = "development.yml"
 			workflows := consumer.Workflows(t)
@@ -96,6 +99,10 @@ func runForgejoConsumerDevelopment(t *testing.T, acceptance developmentAcceptanc
 			livetest.SetRepoVariable(t, target, repo, layerRunnerVariable, label)
 			livetest.SetRepoVariable(t, target, repo, "FORGE_CI_REPOSITORY", layer.Repository)
 			livetest.SetRepoVariable(t, target, repo, acceptance.imageVariable, image)
+			if acceptance.checkPublication != nil {
+				livetest.SetRepoVariable(t, target, repo, "DEVELOPMENT_REGISTRY_USERNAME", target.CredentialUsername)
+				livetest.SetRepoSecret(t, target, repo, "DEVELOPMENT_REGISTRY_TOKEN", target.Token)
+			}
 			head := consumer.PushChange(t, repo, "development", main)
 			t.Logf("consumer %s at %s; development %s; layer %s; image %s", root, consumer.Commit, head, layer.Commit, image)
 			run := livetest.WaitForConsumerRun(t, target, repo, workflow, "push", "")
@@ -117,7 +124,13 @@ func runForgejoConsumerDevelopment(t *testing.T, acceptance developmentAcceptanc
 				t.Fatalf("want one bounded exact-source development artifact, got %+v", artifacts)
 			}
 			address := fmt.Sprintf("%s/api/v1/repos/%s/%s/actions/artifacts/%d/zip", target.BaseURL(), url.PathEscape(target.Owner), url.PathEscape(repo), artifacts[0].ID)
-			acceptance.checkArchive(t, livetest.Download(t, target, address, acceptance.maxArchive), head)
+			body := livetest.Download(t, target, address, acceptance.maxArchive)
+			if acceptance.checkArchive != nil {
+				acceptance.checkArchive(t, body, head)
+			}
+			if acceptance.checkPublication != nil {
+				acceptance.checkPublication(t, body, head, target, repo)
+			}
 		})
 	}
 }

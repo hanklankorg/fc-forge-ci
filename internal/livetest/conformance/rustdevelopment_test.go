@@ -47,12 +47,49 @@ func TestGitLabLayer_RustDevelopment(t *testing.T) {
 	}
 }
 
-func requireRustDevelopmentPublication(t *testing.T, body []byte, commit string, target livetest.Target, repo string) {
+func TestForgejoLayer_RustDevelopment(t *testing.T) {
+	root := os.Getenv(consumerCheckoutEnv)
+	if root == "" {
+		t.Skip("set FORGE_CI_LIVE_CONSUMER to the clean wallet-r2ps development fixture and CI_RUST_BUILD_IMAGE to RustBuild")
+	}
+	if livetest.DemoName() != "" {
+		t.Fatal("Rust development requires disposable scratch repositories")
+	}
+	if !livetest.ImageBuilds(t) {
+		t.Skip("this runner may not build images")
+	}
+	runForgejoConsumerDevelopment(t, developmentAcceptance{
+		jobName: "Check: Rust development", smokeMarker: "Rust development smoke passed at ",
+		imageVariable: "CI_RUST_BUILD_IMAGE", artifactPrefix: "fc-rust-dev-", maxArchive: 256 << 20,
+		checkArchive: requireRustDevelopmentArchive, checkPublication: requireRustDevelopmentRegistryPublication,
+	})
+}
+
+func requireRustDevelopmentArchive(t *testing.T, body []byte, commit string) {
+	t.Helper()
+	requireRustDevelopmentArtifacts(t, rustDevelopmentArchive(t, body), commit)
+}
+
+func requireRustDevelopmentRegistryPublication(t *testing.T, body []byte, commit string, target livetest.Target, repo string) {
 	t.Helper()
 	if livetest.RunnerArch(t, target) != "amd64" {
 		t.Fatal("wallet-r2ps requires a native linux/amd64 runner")
 	}
+	requireRustDevelopmentRegistry(t, rustDevelopmentArchive(t, body), commit, target, repo)
+}
+
+func requireRustDevelopmentPublication(t *testing.T, body []byte, commit string, target livetest.Target, repo string) {
+	t.Helper()
 	files := rustDevelopmentArchive(t, body)
+	requireRustDevelopmentArtifacts(t, files, commit)
+	if livetest.RunnerArch(t, target) != "amd64" {
+		t.Fatal("wallet-r2ps requires a native linux/amd64 runner")
+	}
+	requireRustDevelopmentRegistry(t, files, commit, target, repo)
+}
+
+func requireRustDevelopmentArtifacts(t *testing.T, files map[string][]byte, commit string) {
+	t.Helper()
 	var receipt struct {
 		SourceSHA string            `json:"sourceSHA"`
 		Version   string            `json:"version"`
@@ -85,6 +122,11 @@ func requireRustDevelopmentPublication(t *testing.T, body []byte, commit string,
 		}
 		_ = image.Close()
 	}
+}
+
+func requireRustDevelopmentRegistry(t *testing.T, files map[string][]byte, commit string, target livetest.Target, repo string) {
+	t.Helper()
+	version := "0.1.0-dev." + commit[:12]
 	host, err := livetest.RegistryHost(target)
 	if err != nil {
 		t.Fatal(err)
@@ -92,6 +134,12 @@ func requireRustDevelopmentPublication(t *testing.T, body []byte, commit string,
 	imageRef := host + "/" + livetest.RepoSlug(target, repo)
 	work := t.TempDir()
 	auth := livetest.RegistryAuthFile(t, target, work)
+	var receipt struct {
+		Files map[string]string `json:"files"`
+	}
+	if err := json.Unmarshal(files["receipt.json"], &receipt); err != nil {
+		t.Fatal(err)
+	}
 	seen := map[string]bool{}
 	for _, role := range []string{"hsm-worker", "wallet-bff", "integration-load-tests"} {
 		var record appcontainer.ImageLayoutRecord
