@@ -84,10 +84,8 @@ func TestJVMReproducibility_MavenWithTimestampPasses(t *testing.T) {
 }
 
 // TestJVMReproducibility_MavenMissingTimestampFails pins the
-// deterministic-pipeline guarantee: a pom.xml without
-// <project.build.outputTimestamp> can't produce byte-identical jars,
-// so the release pipeline rejects it. Adopters get an actionable fix
-// snippet in the step summary.
+// explicit-declaration policy: it does not resolve effective POMs or infer
+// byte reproducibility. Adopters get the declaration needed by this gate.
 func TestJVMReproducibility_MavenMissingTimestampFails(t *testing.T) {
 	fsys := testfs.NewReal(t)
 	fsys.WriteFile("pom.xml", []byte(`<?xml version="1.0"?>
@@ -107,6 +105,9 @@ func TestJVMReproducibility_MavenMissingTimestampFails(t *testing.T) {
 
 	if !strings.Contains(out, "<project.build.outputTimestamp>") {
 		t.Errorf("expected actionable fix snippet in stdout, got:\n%s", out)
+	}
+	if strings.Contains(stderr, "will not be byte-identical") || !strings.Contains(out, "parent POM") || !strings.Contains(out, "Maven 3.10+") {
+		t.Errorf("missing declarations must not be reported as byte-reproducibility proof:\n%s\n%s", out, stderr)
 	}
 }
 
@@ -197,13 +198,16 @@ func TestJVMReproducibility_GradleNoSettingsFails(t *testing.T) {
 	fsys.WriteFile("build.gradle", []byte(`plugins { id 'java' }`))
 	fsys.Chdir()
 
-	_, stderr, err := runJVMRepro(t, configPlanJSON(t, projecttype.Gradle, "app", "."))
+	out, stderr, err := runJVMRepro(t, configPlanJSON(t, projecttype.Gradle, "app", "."))
 	if !errors.Is(err, errs.ErrValidation) {
 		t.Fatalf("err = %v, want ErrValidation when both gradle settings are missing", err)
 	}
 
 	if !strings.Contains(stderr, "neither preserveFileTimestamps") {
 		t.Errorf("expected 'neither …' error, got:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "will not be byte-identical") || !strings.Contains(out, "Gradle 9+") || !strings.Contains(out, "convention plugins") {
+		t.Errorf("missing text must distinguish Gradle defaults/inheritance from this policy:\n%s\n%s", out, stderr)
 	}
 }
 

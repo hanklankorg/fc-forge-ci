@@ -329,6 +329,7 @@ test-coverage: (_job "test-coverage" ("suites=unit + integration; outputs=" + bi
 [group('lint')]
 lint *args: (_require-tool "nanolinter" nanolinter_hint) _lint-linux-platform
     @"{{ just_executable() }}" --justfile "{{ justfile() }}" --fmt --check
+    @go mod tidy -diff
     @nanolinter verify "$@"
 
 # The Go umbrella: vet, staticcheck, vulncheck, golangci, wsl and format.
@@ -636,6 +637,12 @@ check-artifacts-schema:
 # ==================================================================================== #
 # RELEASE - Pre-tag validation
 # ==================================================================================== #
+
+# Compares unsigned snapshot archives from two clean copies of committed HEAD.
+[doc('Compare two clean release builds; offline')]
+[group('release')]
+verify-reproducible:
+    @bash scripts/ci/verify-reproducible.sh
 
 # Unsigned snapshot via goreleaser; validates .goreleaser.yml without tagging.
 [doc('▪ Build a local release snapshot')]

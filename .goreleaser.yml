@@ -13,7 +13,7 @@ project_name: forge-ci
 
 before:
   hooks:
-    - go mod tidy
+    - go mod verify
 
 builds:
   - id: forge-ci
@@ -25,6 +25,8 @@ builds:
     goarch: [amd64, arm64]
     flags:
       - -trimpath
+      - -buildvcs=false
+      - -mod=readonly
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
@@ -33,9 +35,7 @@ builds:
       # from the git commit, not the build wall-clock — required for
       # byte-identical rebuilds (SOURCE_DATE_EPOCH semantics).
       - -X main.date={{.CommitDate}}
-    # mod_timestamp pins the binary's mtime to the commit time, the
-    # last remaining wall-clock source in the standard go build. The
-    # archive's mtime: below propagates this to the tarball entries.
+    # Pin the binary's filesystem mtime as well as archive entry metadata below.
     mod_timestamp: '{{ .CommitTimestamp }}'
 
 archives:
@@ -43,14 +43,29 @@ archives:
     formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    # Normalize both the executable and bundled source files. Binary mtime alone
+    # does not remove checkout timestamps from README/license/schema entries.
+    builds_info:
+      owner: root
+      group: root
+      mode: 0755
+      mtime: '{{ .CommitDate }}'
     files:
-      - LICENSE
+      - src: LICENSE
+        info: &archive_file_info
+          owner: root
+          group: root
+          mode: 0644
+          mtime: '{{ .CommitDate }}'
       # Flat dir — LICENSES/**/* matches nothing here; LICENSES/* ships the
       # EUPL-1.2 / GPL-3.0-or-later / CC0-1.0 texts (GPL-3 requires conveying
       # the license with the binary).
-      - LICENSES/*
-      - README.md
-      - docs/schemas/release-images.schema.json
+      - src: LICENSES/*
+        info: *archive_file_info
+      - src: README.md
+        info: *archive_file_info
+      - src: docs/schemas/release-images.schema.json
+        info: *archive_file_info
 
 checksum:
   name_template: 'checksums.txt'
@@ -87,16 +102,20 @@ sboms:
 #
 # The source-built forge-ci CLI routes signing through its cosign adapter,
 # including the bounded retry for transient Sigstore failures.
+# The signing wrapper first compares all four actual release archives against
+# the independently rebuilt final-tag reference and checks the checksum manifest.
 # Requires:
+#   - FORGE_CI_RELEASE_REFERENCE: separate unsigned final-tag rebuild directory
 #   - forge-ci and cosign on PATH (the build/release workflows install them)
 #   - id-token: write permission on the calling workflow (granted in
 #     release-binary.yml so cosign can mint the GHA OIDC token)
 signs:
   - id: checksums
-    cmd: forge-ci
+    cmd: bash
     signature: '${artifact}.bundle'
     artifacts: checksum
     args:
+      - 'scripts/ci/sign-reproducible-release.sh'
       - 'release'
       - 'sign'
       - '--method=sigstore'

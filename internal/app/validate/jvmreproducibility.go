@@ -177,7 +177,7 @@ func mavenOutputTimestamp(pom mavenPOM) (string, bool) {
 }
 
 // checkMavenReproducibility returns true when the Maven artifact at dir
-// satisfies the reproducibility invariant. False = a hard violation
+// satisfies the explicit-settings policy. False = a policy violation
 // that JVMReproducibility surfaces as ErrValidation.
 func checkMavenReproducibility(dir string, out io.Writer, annot output.Annotator) bool {
 	pomPath := filepath.Join(dir, "pom.xml")
@@ -208,7 +208,7 @@ func checkMavenReproducibility(dir string, out io.Writer, annot output.Annotator
 
 		return false
 	default:
-		annot.Noticef("Maven reproducibility configured in %s (outputTimestamp=%s)", displayDir(dir), value)
+		annot.Noticef("Maven reproducibility configured in %s (outputTimestamp=%s); declaration only, rebuild not checked", displayDir(dir), value)
 		_, _ = fmt.Fprintf(out, "%s %s: project.build.outputTimestamp=%s\n", clicolor.Check(out), displayDir(dir), value)
 
 		return true
@@ -216,11 +216,13 @@ func checkMavenReproducibility(dir string, out io.Writer, annot output.Annotator
 }
 
 func failMavenMissing(dir, reason string, out io.Writer, annot output.Annotator) {
-	annot.Errorf("%s in %s — JAR builds will not be byte-identical across rebuilds", reason, displayDir(dir))
+	annot.Errorf("%s in %s — explicit-settings policy failed; effective build behavior was not evaluated", reason, displayDir(dir))
 
 	_, _ = fmt.Fprintf(out, "%s %s: %s\n", clicolor.Cross(out), displayDir(dir), reason)
 	_, _ = fmt.Fprintf(out, "  Fix: add to pom.xml <properties>:\n")
 	_, _ = fmt.Fprintf(out, "    <project.build.outputTimestamp>2026-01-01T00:00:00Z</project.build.outputTimestamp>\n")
+	_, _ = fmt.Fprintln(out, "  Maven 3.10+/4.0.0-beta-5+ defaults or a parent POM may already provide reproducible settings.")
+	_, _ = fmt.Fprintln(out, "  This policy reads this POM only; missing text is not proof of differing bytes. Compare clean rebuilds.")
 	_, _ = fmt.Fprintf(out, "  Reference: https://maven.apache.org/guides/mini/guide-reproducible-builds.html\n")
 }
 
@@ -236,7 +238,7 @@ var gradleBuildScripts = []string{
 }
 
 // checkGradleReproducibility returns true when the Gradle artifact at
-// dir satisfies the reproducibility invariant. False = a hard violation
+// dir satisfies the explicit-settings policy. False = a policy violation
 // that JVMReproducibility surfaces as ErrValidation.
 func checkGradleReproducibility(dir string, out io.Writer, annot output.Annotator) bool {
 	var (
@@ -267,7 +269,7 @@ func checkGradleReproducibility(dir string, out io.Writer, annot output.Annotato
 
 	switch {
 	case preserve && order:
-		annot.Noticef("Gradle reproducibility configured in %s", displayDir(dir))
+		annot.Noticef("Gradle reproducibility configured in %s; recognized text only, rebuild not checked", displayDir(dir))
 		_, _ = fmt.Fprintf(out, "%s %s: preserveFileTimestamps=false + reproducibleFileOrder=true\n", clicolor.Check(out), displayDir(dir))
 
 		return true
@@ -356,7 +358,7 @@ func isIdentChar(b byte) bool {
 }
 
 func failGradleMissing(dir, reason string, out io.Writer, annot output.Annotator) {
-	annot.Errorf("Gradle reproducibility not configured in %s — JAR builds will not be byte-identical across rebuilds (%s)", displayDir(dir), reason)
+	annot.Errorf("Gradle reproducibility not configured in %s — explicit-settings policy failed; effective build behavior was not evaluated (%s)", displayDir(dir), reason)
 
 	_, _ = fmt.Fprintf(out, "%s %s: %s\n", clicolor.Cross(out), displayDir(dir), reason)
 	_, _ = fmt.Fprintf(out, "  Fix: add to build.gradle{,.kts}:\n")
@@ -365,5 +367,7 @@ func failGradleMissing(dir, reason string, out io.Writer, annot output.Annotator
 	_, _ = fmt.Fprintf(out, "        reproducibleFileOrder = true\n")
 	_, _ = fmt.Fprintf(out, "    }\n")
 	_, _ = fmt.Fprintf(out, "  (Kotlin DSL: isPreserveFileTimestamps = false / isReproducibleFileOrder = true)\n")
+	_, _ = fmt.Fprintln(out, "  Gradle 9+ standard archive tasks default to reproducible output; convention plugins may also configure it.")
+	_, _ = fmt.Fprintln(out, "  This policy reads this script only. APK/AAB packaging and byte reproducibility require separate rebuild checks.")
 	_, _ = fmt.Fprintf(out, "  Reference: https://docs.gradle.org/current/userguide/working_with_files.html#sec:reproducible_archives\n")
 }

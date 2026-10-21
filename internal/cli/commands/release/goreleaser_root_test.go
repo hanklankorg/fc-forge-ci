@@ -34,7 +34,9 @@ func TestGoReleaserChecksumSigning(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal(body, &config))
 	require.Len(t, config.Signs, 1)
 	sign := config.Signs[0]
-	require.Equal(t, "forge-ci", sign.Cmd)
+	require.Equal(t, "bash", sign.Cmd)
+	require.NotEmpty(t, sign.Args)
+	require.Equal(t, "scripts/ci/sign-reproducible-release.sh", sign.Args[0])
 	require.Equal(t, "checksum", sign.Artifacts)
 
 	const artifact = "dist/checksums.txt"
@@ -84,10 +86,10 @@ printf 'fixture bundle\n' >"$4"
 			require.NoError(t, os.WriteFile(env.Path("empty-path", "cosign"), []byte(signer), 0o700)) //nolint:gosec // executable fixture in the isolated test directory.
 
 			args := make([]string, 1, 1+len(sign.Args))
-			args[0] = sign.Cmd
+			args[0] = "forge-ci"
 
 			expand := strings.NewReplacer("${artifact}", artifact, "${signature}", signature)
-			for _, arg := range sign.Args {
+			for _, arg := range sign.Args[1:] {
 				args = append(args, expand.Replace(arg))
 			}
 

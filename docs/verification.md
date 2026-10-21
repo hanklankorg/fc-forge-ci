@@ -4,10 +4,11 @@ How to verify the artifacts these workflows produce (checksums,
 signatures, SBOM attestations, and SLSA provenance), and how the
 matching guarantees are generated on the producing side.
 
-> **Unpublished 0.90.0:** `@v0.90.0` references below are prospective. Until the tag
-> and matching runtime images exist, use the reviewed-branch procedure in
-> [Runtime Images](runtime-images.md); do not substitute an unreviewed moving
-> ref in production.
+> **Published tag versus current source:** Historical `v0.90.0` is published;
+> it does not contain the current working-tree changes. Verify the intended
+> source revision and matching runtime images before adopting a release pin.
+> For current changes, use the reviewed-branch procedure in
+> [Runtime Images](runtime-images.md), not an unreviewed moving production ref.
 
 ## Code Quality Verification
 
@@ -1060,6 +1061,31 @@ who need a non-default policy set it explicitly.
 
 ## Reproducible Builds
 
+The engine's own GoReleaser build consumes committed dependencies with
+`-mod=readonly` and verifies the module cache with `go mod verify`. Dependency
+drift is checked by `go mod tidy -diff` in `just lint`, rather than repaired
+during release construction. Its release tarballs normalize executable and
+bundled-file timestamps and ownership to remove checkout metadata differences.
+These controls still require comparison of independently built archives for
+reproducibility evidence.
+
+Run `just verify-reproducible` from a clean committed checkout with the pinned
+Go and GoReleaser tools already on PATH and modules already cached. It builds
+committed HEAD twice as unsigned snapshots in temporary clones with separate
+Go build caches, then compares all four Linux/macOS amd64/arm64 tarballs.
+The caller's `dist/` is untouched. Missing artifacts, wrong targets and differing
+bytes fail; failures retain both clones and print their location for diffoscope.
+Successful temporary builds are removed. The command prints the source and tool
+versions, disables Go module downloads, and skips signing, publishing and SBOMs.
+This is a local clean-build check, not published-release or container evidence.
+The Forgejo bootstrap binary retains its separate recorded-checksum procedure.
+
+To compare two retained builds without rebuilding:
+
+```bash
+bash scripts/ci/verify-reproducible.sh --compare /absolute/first/dist /absolute/second/dist
+```
+
 A reproducible build produces byte-identical artifacts when repeated with the
 same relevant inputs: source, toolchain, dependencies, base images, platform,
 build options and environment. Build scripts and generated content must also
@@ -1067,6 +1093,89 @@ be deterministic. The controls below address common sources of variation;
 enabling them is not proof of reproducibility. Establish that by controlled
 rebuilds and comparison of artifact bytes. Signatures and SBOM attestations
 authenticate release evidence; they do not prove that a rebuild will match.
+
+### Engine binary release gate
+
+The engine's `release-binary.yml` prepares an unsigned rebuild of the **final
+release tag**, using a separate checkout and fresh Go compiler cache. It uses
+the same pinned GoReleaser version as the publishing build and cached, verified
+modules with downloads disabled. This is a release-version build, not a snapshot.
+
+After the publishing build creates its archives, SBOMs and checksum manifest,
+GoReleaser invokes `scripts/ci/sign-reproducible-release.sh`. The wrapper requires
+`FORGE_CI_RELEASE_REFERENCE`, compares all four nonempty release tarballs against
+that separate reference, and verifies the generated manifest against the files
+on disk before calling the existing checksum-only signer. Missing, mismatched
+or incomplete archives stop signing and upload. Every expected archive must have
+exactly one valid checksum row; missing or duplicate rows stop signing even if all listed
+hashes are correct. SBOMs and signature bundles are
+not compared for reproducibility; the signed manifest still covers the SBOMs.
+
+For an authorized manual release build, prepare the reference from the clean
+final-tag checkout with the same tools that will build the release:
+
+```bash
+go mod download
+bash scripts/ci/verify-reproducible.sh --release-reference vX.Y.Z /absolute/new-reference
+```
+
+The output directory must not exist. Configure `FORGE_CI_RELEASE_REFERENCE` to
+that path for the subsequent release invocation and use a fresh `GOCACHE`.
+This gate covers this repository's binary attachments. The orchestrator creates
+the release/tag earlier; it is not a gate on all reusable consumer release flows
+or a statement of independent third-party reproduction.
+
+### Published v0.90.0 rebuild result (2026-10-20)
+
+The four published Linux/macOS amd64/arm64 archives were checked against
+`checksums.txt` after Cosign 3.1.3 verified its bundle using this exact identity:
+
+```text
+https://github.com/diggsweden/forge-ci/.github/workflows/release-binary.yml@refs/tags/release-request/v0.90.0
+```
+
+The required issuer was `https://token.actions.githubusercontent.com`.
+The separate provenance statement and its bundle also verified against that
+identity. This authenticated the downloaded evidence before inspecting binaries.
+
+An untouched checkout of final-tag commit
+`5f5bb1ee7ad706d7bca89695e485898204ef730c` was rebuilt with Go 1.27.2,
+GoReleaser 2.18.2, a fresh compiler cache and offline modules. The historical
+configuration ran unchanged, including its `go mod tidy` hook; the checkout
+remained clean. The invocation used `release --clean
+--skip=publish,sign,sbom,announce --parallelism=2`,
+`GORELEASER_CURRENT_TAG=v0.90.0`, and `SOURCE_DATE_EPOCH=1792122990`.
+
+**All four executable files matched the authenticated published bytes exactly.**
+All seven regular-file members in each archive matched in content and order.
+Executable SHA-256 values were:
+
+| Target | SHA-256 |
+|---|---|
+| linux/amd64 | `776367ac528b55d1b3706b0c34ebc5187a81af3667b929f4867d202e6259628c` |
+| linux/arm64 | `4cee22585501b5cb98eefff10090439f25511d609b173bfc54ee40ec6473001a` |
+| darwin/amd64 | `0bba2f2fe35fc850940764b949fe0a111993593860751215383808403f68c9b3` |
+| darwin/arm64 | `e89c3e0d14045e952c947fc314f8457e60828a5145fae0966bd8af725e5bfb45` |
+
+**None of the four enclosing tarballs matched.** Their historical headers carry
+runner-specific UID/GID/names, checkout timestamps and bundled-file permissions.
+The published files use `0644`; this checkout's umask produced `0664`.
+This is authenticated binary/content parity, not whole-archive parity and not
+an external third-party audit. No downloaded executable was run.
+
+The current configuration now pins executables to `0755` and bundled files to
+`0644`, in addition to normalized ownership/timestamps. Two snapshot packaging
+runs with checkout umasks `0022` and `0002` produced identical four-archive sets.
+Those packaging checks shared a compiler cache; the historical rebuild above
+used a fresh one. These fixes do not retroactively change the published release.
+
+The historical authenticated provenance names request commit
+`f380912a6adc2b3506440136c343b48d5831b77b`, while the authenticated binary's
+VCS metadata and the matching rebuild identify final commit `5f5bb1e…`.
+The current binary workflow now passes the final tag and checked-out HEAD through
+`--ref-name` and `--source-sha` when generating provenance. Its signing identity
+still names the release-request workflow ref; source identity and builder identity
+are distinct. A future authorized release is needed to validate this hosted fix.
 
 ### Per-ecosystem status
 
@@ -1135,6 +1244,14 @@ forge-ci validate jvm-reproducibility
 ```
 
 #### Scope: each registered artifact's manifest is checked standalone
+
+This remains an **explicit-declaration policy**, including its existing failure
+exit code. Gradle 9+ standard archives and Maven 3.10+/4.0.0-beta-5+ can use
+reproducible defaults without these declarations; parent POMs and convention
+plugins can supply them too. The validator deliberately does not evaluate those
+sources. A policy failure therefore does not mean the resulting bytes must
+differ, and a text match does not prove that bytes will match. APK/AAB outputs
+need their own unsigned-payload comparisons beyond ordinary archive settings.
 
 The validator iterates `artifacts.all[]` from the config plan and reads
 `pom.xml` (or `build.gradle{,.kts}`) under each artifact's
