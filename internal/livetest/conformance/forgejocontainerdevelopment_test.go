@@ -111,8 +111,8 @@ func TestForgejoLayer_ContainerDevelopment(t *testing.T) {
 			}
 			assertLayerJobs(t, jobs, run.ID, label, "Check: development container")
 			var source struct {
-				Branch string `json:"head_branch"`
-				SHA    string `json:"head_sha"`
+				Branch string `json:"prettyref"`
+				SHA    string `json:"commit_sha"`
 			}
 			url := fmt.Sprintf("%s/api/v1/repos/%s/actions/runs/%d", target.BaseURL(), livetest.RepoSlug(target, repo), run.ID)
 			if err := json.Unmarshal(livetest.Download(t, target, url, 1<<20), &source); err != nil {
