@@ -2,6 +2,32 @@
 
 Status reconciled on **2026-10-21**, during combined-engine contract acceptance.
 
+Latest acceptance checkpoint:
+
+- Actual Rust GitLab independent development passes public pipeline `517` and
+  private `519`, using consumer `a7f5932` and controller source `bc8847d`.
+  The combined public/private CA bundle fixes registry TLS verification without
+  disabling TLS. The oracle checks three published runtime images, four ELF
+  binaries against those image files, source/version identity and unchanged main
+  with no stable tags/releases.
+- Reviewed GitHub engine `8fe5f63` passes web PRs public/private
+  (`39572287400` / `39572285714`), Maven public/private
+  (`39572294049` / `39572299264`), public web development `39573860264`
+  and public web stable `39573880064`.
+- Private web development rerun `39581332077` was **blocked before execution by
+  GitHub billing**. The operator read the native annotation: “The job was not
+  started because recent account payments have failed or your spending limit
+  needs to be increased.” Build and publish were skipped. Earlier private stable
+  failures have similar symptoms but no independently confirmed billing reason.
+  These final private cases remain incomplete; suspend retries until billing is
+  resolved. Earlier successful private cases do not replace this checkpoint.
+- Fine-grained PATs cannot call the Checks API; there is no Checks permission to
+  add. Missing logs alone do not establish billing failure. The reporter surfaces
+  accessible billing annotations, or gives the manual run URL and qualified
+  billing guidance when GitHub reports no runner/steps. Disposable links expire
+  after cleanup. The temporary 30-minute manual inspection pause ended at
+  12:30 CEST and was removed from the isolated controller.
+
 Latest local additions: independent npm development builds pass public/private
 GitLab `480/482` and Forgejo `149/150`, with downloaded version agreement and
 unchanged main/no tags/releases. Forgejo container-first Cargo development passes
@@ -13,7 +39,7 @@ installed package and verifies version-specific dist-tags on GitLab and Forgejo
 (`20261021T041800Z-1115730`). This is registry-fixture coverage, not production
 publication of the API-linter package.
 
-Latest frozen engine/controller: `77a9c3403542c46a75c4665ecd22bc65f3c47f08`.
+Earlier frozen engine/controller: `77a9c3403542c46a75c4665ecd22bc65f3c47f08`.
 Public/private Node26 web stable0.2.4 passes (`39403245605` / `39403250036`),
 including image verification and private exact-coordinate anonymous denial.
 Private Maven2.7.8 passes (`39403249538`); positive SARIF processing, category,
@@ -267,9 +293,18 @@ blanket scanner ignore or renewed approval hold.
 
 ### P2: compatibility and explicitly deferred scope
 
-- [ ] Resolve required legacy SBOM ZIP/layout and GPG sidecar expectations.
-- [ ] Investigate Android AAB manifest/JarInputStream ordering warnings without
-  treating a JarFile verification success as universal compatibility.
+- [x] Identify legacy output expectations and verify ZIP packaging preservation:
+  replaying five captured releases through explicit assembly preserves ZIP and
+  member names/bytes. Use explicit assembly for old `.sbom` names and differently
+  prefixed npm/web artifacts; discovery is intentionally narrower. GPG `.asc`
+  support remains available/default when unspecified, with existing sidecar
+  regressions. Adopters must retain their chosen filenames and trust configuration;
+  Cosign lab fixtures do not imply a production signing-policy migration.
+- [x] Investigate Android AAB manifest/JarInputStream warnings: recorded jarsigner
+  verification succeeds, but streaming manifest/signature recognition differs.
+  The retained unsigned AAB passes bundletool1.18.3 structural validation. The
+  historical signed bytes were replaced locally, so no claim of repaired streaming
+  verification, historical byte revalidation or production store acceptance is made.
 - Physical devices, real stores and mixed Linux architectures are outside the
   agreed initial amd64/simulator/test-signing scope, not accidental omissions.
 

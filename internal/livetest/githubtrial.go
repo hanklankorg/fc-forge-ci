@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -480,6 +481,14 @@ func (trial *GitHubTrial) reportJobAnnotations(ctx context.Context, repo string,
 	annotations, _, err := trial.api.Checks.ListCheckRunAnnotations(ctx, trial.org, repo, id, &github.ListOptions{PerPage: 10})
 	if err != nil {
 		trial.tb.Logf("    check annotations unavailable: %v", err)
+		var responseError *github.ErrorResponse
+		if errors.As(err, &responseError) && responseError.Response != nil && responseError.Response.StatusCode == http.StatusForbidden {
+			trial.tb.Logf("    fine-grained PATs cannot read the Checks API; adding PAT permissions will not enable annotations")
+		}
+		trial.tb.Logf("    inspect Summary > Annotations at https://github.com/%s/%s/actions/runs/%d (disposable trial repositories are removed during cleanup)", trial.org, repo, job.GetRunID())
+		if job.GetRunnerID() == 0 && len(job.Steps) == 0 {
+			trial.tb.Logf("    GitHub reported no runner or steps: the job may have been rejected before execution. Check account payments and Actions spending limits in Billing & plans; billing is a possible cause, not confirmed by missing logs")
+		}
 		return
 	}
 	for _, annotation := range annotations {
@@ -488,6 +497,9 @@ func (trial *GitHubTrial) reportJobAnnotations(ctx context.Context, repo string,
 			message = strings.ToValidUTF8(message[:2048], "�") + " [truncated]"
 		}
 		trial.tb.Logf("    check annotation: %s", message)
+		if strings.Contains(message, "The job was not started because recent account payments have failed or your spending limit needs to be increased") {
+			trial.tb.Logf("    GitHub billing blocked job execution: check failed payments and Actions spending limits in Billing & plans before retrying; consumer code did not run in this job")
+		}
 	}
 }
 

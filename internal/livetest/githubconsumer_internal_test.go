@@ -51,6 +51,48 @@ func TestFailedJobAnnotationsUseExactRepositoryAndBoundOutput(t *testing.T) {
 	}
 }
 
+func TestFailedJobBillingDiagnostics(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		status  int
+		message string
+		runner  int64
+		want    string
+		absent  string
+	}{
+		{"confirmed billing", 200, "The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings", 0, "GitHub billing blocked job execution", "possible cause"},
+		{"unavailable annotations", 403, "Resource not accessible by personal access token", 0, "billing is a possible cause, not confirmed", "GitHub billing blocked"},
+		{"started job", 403, "Resource not accessible by personal access token", 123, "adding PAT permissions will not enable annotations", "Check account payments"},
+		{"different rejection", 200, "Runner unavailable", 0, "Runner unavailable", "GitHub billing blocked"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				if tc.status == http.StatusOK {
+					_ = json.NewEncoder(w).Encode([]map[string]string{{"message": tc.message}})
+				} else {
+					_ = json.NewEncoder(w).Encode(map[string]string{"message": tc.message})
+				}
+			}))
+			defer server.Close()
+			api, err := github.NewClient(github.WithHTTPClient(server.Client()), github.WithURLs(github.Ptr(server.URL+"/"), nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			tb := &recordingTB{}
+			trial := GitHubTrial{tb: tb, api: api, org: "fixture"}
+			trial.reportJobAnnotations(t.Context(), "fc-app", &github.WorkflowJob{RunID: github.Ptr(int64(99)), RunnerID: github.Ptr(tc.runner), CheckRunURL: github.Ptr("https://api.github.com/repos/fixture/fc-app/check-runs/42")})
+			got := strings.Join(tb.logs, "\n")
+			if !strings.Contains(got, tc.want) || strings.Contains(got, tc.absent) {
+				t.Fatalf("unexpected diagnostic: %s", got)
+			}
+			if tc.status == http.StatusForbidden && !strings.Contains(got, "https://github.com/fixture/fc-app/actions/runs/99") {
+				t.Fatalf("missing manual inspection URL: %s", got)
+			}
+		})
+	}
+}
+
 func TestFailureLogKeepsCauseAfterLargeProgressLine(t *testing.T) {
 	t.Parallel()
 	log := "download " + strings.Repeat("progress ", 20000) + "\nAffected target: usr/bin/pebble\n##[error]three blocking vulnerabilities\npost-job cleanup\n"
