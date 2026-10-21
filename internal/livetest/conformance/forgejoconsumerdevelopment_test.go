@@ -7,6 +7,7 @@ package conformance_test
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -21,16 +22,21 @@ import (
 
 // Independent of the PR/release trial: only a native development push is judged.
 func TestForgejoLayer_ConsumerDevelopment(t *testing.T) {
+	runForgejoConsumerDevelopment(t, packageDevelopmentAcceptance())
+}
+
+func runForgejoConsumerDevelopment(t *testing.T, acceptance developmentAcceptance) {
+	t.Helper()
 	root := os.Getenv(consumerCheckoutEnv)
 	if root == "" {
-		t.Skip("name a clean development consumer with FORGE_CI_LIVE_CONSUMER and a pinned CI_NODE_JOB_IMAGE")
+		t.Skipf("name a clean development consumer with FORGE_CI_LIVE_CONSUMER and a pinned %s", acceptance.imageVariable)
 	}
 	if livetest.DemoName() != "" {
 		t.Fatal("the development trial requires disposable scratch repositories")
 	}
-	image := os.Getenv("CI_NODE_JOB_IMAGE")
+	image := os.Getenv(acceptance.imageVariable)
 	if !regexp.MustCompile(`^\S+@sha256:[0-9a-f]{64}$`).MatchString(image) {
-		t.Fatal("CI_NODE_JOB_IMAGE must name the Node 24.17.0 job image by SHA-256 digest")
+		t.Fatalf("%s must name the job image by SHA-256 digest", acceptance.imageVariable)
 	}
 	for _, visibility := range livetest.ConsumerVisibilities(t) {
 		t.Run(visibility.Name, func(t *testing.T) {
@@ -89,7 +95,7 @@ func TestForgejoLayer_ConsumerDevelopment(t *testing.T) {
 			}
 			livetest.SetRepoVariable(t, target, repo, layerRunnerVariable, label)
 			livetest.SetRepoVariable(t, target, repo, "FORGE_CI_REPOSITORY", layer.Repository)
-			livetest.SetRepoVariable(t, target, repo, "CI_NODE_JOB_IMAGE", image)
+			livetest.SetRepoVariable(t, target, repo, acceptance.imageVariable, image)
 			head := consumer.PushChange(t, repo, "development", main)
 			t.Logf("consumer %s at %s; development %s; layer %s; image %s", root, consumer.Commit, head, layer.Commit, image)
 			run := livetest.WaitForConsumerRun(t, target, repo, workflow, "push", "")
@@ -102,15 +108,16 @@ func TestForgejoLayer_ConsumerDevelopment(t *testing.T) {
 			if runs := livetest.WorkflowRuns(t, target, repo); len(runs) != 1 || runs[0].ID != run.ID {
 				t.Fatalf("want only the development run, got %+v", runs)
 			}
-			assertLayerJobs(t, jobs, run.ID, label, "Check: development package")
-			if !strings.Contains(livetest.JobLog(t, target, repo, jobs[0]), "development package smoke passed at "+head) {
-				t.Fatal("development job did not confirm package smoke at the expected source commit")
+			assertLayerJobs(t, jobs, run.ID, label, acceptance.jobName)
+			if !strings.Contains(livetest.JobLog(t, target, repo, jobs[0]), acceptance.smokeMarker+head) {
+				t.Fatal("development job did not confirm smoke at the expected source commit")
 			}
 			artifacts := livetest.RunArtifacts(t, target, repo, run.ID)
-			if len(artifacts) != 1 || artifacts[0].Name != "fc-api-dev-"+head || artifacts[0].Expired || artifacts[0].SizeInBytes <= 0 || artifacts[0].SizeInBytes > 32<<20 {
+			if len(artifacts) != 1 || artifacts[0].Name != acceptance.artifactPrefix+head || artifacts[0].Expired || artifacts[0].SizeInBytes <= 0 || artifacts[0].SizeInBytes > acceptance.maxArchive {
 				t.Fatalf("want one bounded exact-source development artifact, got %+v", artifacts)
 			}
-			requireDevelopmentArchive(t, livetest.ArtifactZIP(t, target, repo, artifacts[0].ID), head)
+			address := fmt.Sprintf("%s/api/v1/repos/%s/%s/actions/artifacts/%d/zip", target.BaseURL(), url.PathEscape(target.Owner), url.PathEscape(repo), artifacts[0].ID)
+			acceptance.checkArchive(t, livetest.Download(t, target, address, acceptance.maxArchive), head)
 		})
 	}
 }

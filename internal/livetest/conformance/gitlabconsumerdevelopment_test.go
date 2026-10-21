@@ -39,7 +39,28 @@ func TestGitLabLayer_ConsumerDevelopment(t *testing.T) {
 	}
 }
 
+type developmentAcceptance struct {
+	jobName, smokeMarker, imageVariable, artifactPrefix string
+	maxArchive                                          int64
+	checkArchive                                        func(*testing.T, []byte, string)
+}
+
+func packageDevelopmentAcceptance() developmentAcceptance {
+	return developmentAcceptance{
+		jobName: "Check: development package", smokeMarker: "development package smoke passed at ",
+		imageVariable: "CI_NODE_JOB_IMAGE", artifactPrefix: "fc-api-dev-",
+		maxArchive: 32 << 20, checkArchive: requireDevelopmentArchive,
+	}
+}
+
 func runGitLabConsumerDevelopment(t *testing.T, root string, private bool) {
+	t.Helper()
+	acceptance := packageDevelopmentAcceptance()
+	acceptance.maxArchive = maxReleaseFile
+	runGitLabDevelopment(t, root, private, acceptance)
+}
+
+func runGitLabDevelopment(t *testing.T, root string, private bool, acceptance developmentAcceptance) {
 	t.Helper()
 	if !livetest.Requires(t, provider.ForgeGitLab, livetest.NeedsInRunner) {
 		livetest.NotCoveredf(t, "the development consumer needs a GitLab runner")
@@ -96,14 +117,14 @@ func runGitLabConsumerDevelopment(t *testing.T, root string, private bool) {
 	head := consumer.PushChange(t, repo, "development", main)
 	t.Logf("consumer %s at %s; development %s; layer %s; job image %s", root, consumer.Commit, head, layer.Commit, images.Job)
 	run := waitGitLabPushPipeline(t, ctx, client, project, "development", head)
-	const jobName = "Check: development package"
+	jobName := acceptance.jobName
 	trace := gitlabTrialTrace(t, ctx, client, project, run.ID, jobName)
 	if run.Status != "success" {
 		logGitLabTrace(t, trace)
 		t.Fatalf("native development push pipeline %d ended %s", run.ID, run.Status)
 	}
-	if !strings.Contains(trace, "development package smoke passed at "+head) {
-		t.Fatal("development job did not confirm the existing package smoke at the expected source commit")
+	if !strings.Contains(trace, acceptance.smokeMarker+head) {
+		t.Fatal("development job did not confirm smoke at the expected source commit")
 	}
 	jobs, _, err := client.Jobs.ListPipelineJobs(project, run.ID, &gitlabapi.ListJobsOptions{
 		ListOptions: gitlabapi.ListOptions{PerPage: 100},
@@ -121,10 +142,10 @@ func runGitLabConsumerDevelopment(t *testing.T, root string, private bool) {
 			t.Fatal("development job lacks successful exact-source native artifacts")
 		}
 		url := fmt.Sprintf("%s/api/v4/projects/%s/jobs/%d/artifacts", target.BaseURL(), gitlabapi.PathEscape(project), job.ID)
-		requireDevelopmentArchive(t, livetest.Download(t, target, url, maxReleaseFile), head)
+		acceptance.checkArchive(t, livetest.Download(t, target, url, acceptance.maxArchive), head)
 	}
 	if found != 1 {
-		t.Fatalf("found %d development package jobs, want one", found)
+		t.Fatalf("found %d development jobs, want one", found)
 	}
 }
 
