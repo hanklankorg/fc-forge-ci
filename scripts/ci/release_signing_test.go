@@ -20,7 +20,7 @@ import (
 func TestReleaseSigningRequiresMatchingRebuild(t *testing.T) {
 	script, err := filepath.Abs("sign-reproducible-release.sh")
 	require.NoError(t, err)
-	for _, scenario := range []string{"equal", "with-sbom", "unlisted-sbom", "different", "missing", "no-reference", "same-directory", "bad-checksum", "missing-checksum", "incomplete-checksum", "duplicate-checksum", "malformed-checksum"} {
+	for _, scenario := range []string{"equal", "with-sbom", "unlisted-sbom", "different", "missing", "no-reference", "pre-release-no-reference", "same-directory", "bad-checksum", "missing-checksum", "incomplete-checksum", "duplicate-checksum", "malformed-checksum"} {
 		t.Run(scenario, func(t *testing.T) {
 			root := t.TempDir()
 			first, second := filepath.Join(root, "reference"), filepath.Join(root, "release")
@@ -74,11 +74,14 @@ func TestReleaseSigningRequiresMatchingRebuild(t *testing.T) {
 			if scenario == "same-directory" {
 				first = second
 			}
-			if scenario != "no-reference" {
+			if scenario != "no-reference" && scenario != "pre-release-no-reference" {
 				cmd.Env = append(cmd.Env, "FORGE_CI_RELEASE_REFERENCE="+first)
 			}
+			if scenario == "pre-release-no-reference" {
+				cmd.Env = append(cmd.Env, "GORELEASER_CURRENT_TAG=v0.90.0-pre")
+			}
 			output, runErr := cmd.CombinedOutput()
-			if scenario == "equal" || scenario == "with-sbom" {
+			if scenario == "equal" || scenario == "with-sbom" || scenario == "pre-release-no-reference" {
 				require.NoError(t, runErr, "%s", output)
 				args, readErr := os.ReadFile(call)
 				require.NoError(t, readErr)
