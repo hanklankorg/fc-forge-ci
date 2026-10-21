@@ -1,6 +1,17 @@
 # DiggSweden consumer migration handoff
 
-Status reconciled on **2026-10-20**, during combined-engine contract acceptance.
+Status reconciled on **2026-10-21**, during combined-engine contract acceptance.
+
+Latest local additions: independent npm development builds pass public/private
+GitLab `480/482` and Forgejo `149/150`, with downloaded version agreement and
+unchanged main/no tags/releases. Forgejo container-first Cargo development passes
+`154/155`, including independent registry-digest readback and stable-state checks.
+GitLab consumer unsigned-handoff rejection passes public/private `484/485` and
+`489/490`: signer-owned provenance is refused before signing and publication.
+The npm registry fixture now publishes, installs from a fresh cache, executes the
+installed package and verifies version-specific dist-tags on GitLab and Forgejo
+(`20261021T041800Z-1115730`). This is registry-fixture coverage, not production
+publication of the API-linter package.
 
 Latest frozen engine/controller: `77a9c3403542c46a75c4665ecd22bc65f3c47f08`.
 Public/private Node26 web stable0.2.4 passes (`39403245605` / `39403250036`),
@@ -101,13 +112,15 @@ Latest Android addition (2026-10-21): public GitLab stable0.0.20 passes on
 checks, APK/AAB/SBOM inspection, published Cosign bundles, detached GPG APK
 sidecar and cryptographic negatives pass. Mobile payloads are unsigned;
 detached release signatures do not imply Android install signing or store
-acceptance. Private GitLab and public/private Forgejo stable cases are queued.
+acceptance. Private GitLab `474/475` and follow-up MR `478` also pass. Forgejo
+stable runs `146/147` pass publicly/privately: eight release files and three
+verified Cosign bundles each. The supervised four-case batch exited successfully.
 
 | Consumer | Native trial evidence | Important boundary |
 | --- | --- | --- |
 | Java service, Java CLI, Java library, API linter, web | Public/private PR or MR gates and stable release flows on GitHub, GitLab and Forgejo; consecutive API-linter npm releases on GitLab and Forgejo | npm registry installation and remaining provider development flows remain open |
 | Container-first Cargo fixture | Public/private consecutive GitLab/Forgejo releases 0.1.1→0.1.2; GitLab cancellation/retry over retained candidates, bundles, image attestations and MR gates | Built-in demo fixture; does not establish the actual Rust application's local-forge acceptance |
-| Android | Full app/camera PR or MR checks on all three forges; GitHub unsigned and test-signed development builds; public GitLab unsigned-mobile stable artifacts with signed release evidence | Remaining local stable/development, real devices, production signing and store delivery are not established |
+| Android | Full app/camera PR or MR checks on all three forges; GitHub unsigned and test-signed development builds; public/private GitLab and Forgejo unsigned-mobile stable artifacts with signed release evidence | Local independent development, real devices, production signing and store delivery are not established |
 | iOS | Public/private GitHub ARM64 simulator PRs and unsigned development archives | No physical device, Secure Enclave or App Store acceptance |
 | Rust services | Public/private GitHub PRs and stable releases; all three images per visibility independently verified; all four downloaded executables match retained runtime images; actual default-workspace GitLab MR and Forgejo PR gates pass | Local stable/development and local testcontainers coverage remain open; no HSM/service-startup claim |
 | Maven artifact-first publication | GitLab/Forgejo fixture four-file readback, plus real GitHub public/private library original-build identity, fresh-cache classifiers, MAC0 smoke and private denial | Hosted2.7.6 closes the named forge-package contract; Sonatype production and every custom reactor/profile remain separate |
@@ -153,6 +166,8 @@ into each consumer as workarounds.
 | FC-17 | Forward configured Node version, retain actual runtime version and supply libatomic for Node26 | npm reusable workflows and shared runtime; public/private native web stable0.2.4 |
 | FC-18 | Render SARIF automation IDs using GitHub's category/run-ID convention | Security domain/application tests; processed known-alert native acceptance39403232350 |
 | FC-19 | Preserve the build-tool image's environment in key-free GitLab version preparation; the standard Rust image's Cargo lives outside the signer's fixed PATH | `templates/release-jobs.yml`; role-credential behavior tests and native consecutive Cargo releases |
+| FC-20 | Accept explicitly selected immutable `release.{version}` npm tags alongside `release-{version}` for Forgejo's prefix-tolerant tag validator | `internal/domain/publish/npmtag*`; packed-version binding and conflict checks remain mandatory; native registry install/dist-tag acceptance |
+| FC-21 | Read package-wide npm tag bindings without requiring `latest`; distinguish an empty tag map from auth/network failures | `internal/app/publish/forgepackagesnpm.go`, `npmtag_test.go`; real npm against inert registry plus native GitLab/Forgejo publication/install |
 
 Related working-tree fixes cover Android's default test execution and task/SBOM
 boundaries, exact scoped toolchain selection, scan diagnostics, private host image
@@ -214,13 +229,15 @@ blanket scanner ignore or renewed approval hold.
   existing OCI/API paths; status/credential/redirect regressions pass. Native
   checks pass for the named Rust, Maven and web trials; this does not establish
   every consumer's optional publication surface.
-- [ ] Finish real cross-job rejection: native artifact/bundle byte mutations and
+- [x] Establish the implemented consumer handoff rejection contracts: native artifact/bundle byte mutations and
   stale handoff digests now reject for the expected digest-mismatch reason.
   GitLab/Forgejo signed-image verification also rejects wrong keys and provenance
   subject/source/commit/workflow, and published release-file bundles reject changed
-  content, changed signatures and wrong keys on both local forges. Full consumer
-  job-boundary identity cases remain open; unrelated setup failures do not satisfy
-  them.
+  content, changed signatures and wrong keys on both local forges. Actual GitLab
+  consumer preseeded-provenance rejection also passes before signing/publication.
+  These workflows generate fresh evidence from unsigned inputs; they do not
+  authorize reuse of prior signed release-image evidence. Registry revalidation
+  during promotion is not claimed as an existing workflow contract.
 
 ### P1: reusable release behavior and consolidation
 
@@ -232,8 +249,9 @@ blanket scanner ignore or renewed approval hold.
   tag, SBOM and provenance. Public/private npm 2.0.1→2.0.2 passes on GitLab and
   Forgejo; GitLab container-first Cargo fixture 0.1.1→0.1.2 also passes.
   Forgejo Cargo fixture 0.1.1→0.1.2 also passes in both visibilities.
-- [ ] Add independent GitLab/Forgejo development flows and Rust container-first
-  development; preserve unchanged main and absence of stable tags/releases.
+- [x] Add representative independent GitLab/Forgejo npm development flows and
+  Forgejo Cargo container-first development; preserve unchanged main and absence
+  of stable tags/releases. Actual Rust-application development remains below.
 - [ ] Complete Rust local-forge PR/stable coverage and applicable Android local
   stable/development coverage, or explicitly agree narrower acceptance scope.
 - [x] Prove positive GitHub SARIF ingestion by waiting for processing and querying

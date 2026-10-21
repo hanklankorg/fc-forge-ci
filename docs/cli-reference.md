@@ -2438,7 +2438,7 @@ EXAMPLE:
 | `--cli-opts` | extra args forwarded to mvn (maven only; whitespace-separated) | string | `""` | `$MAVEN_CLI_OPTS` |
 | `--profile` | optional project-owned Maven publication profile; also used for snapshot version preflight | string | `""` | `$MAVEN_PROFILE` |
 | `--working-dir` | packed npm tarball, Maven build handoff or exported Gradle publication directory | string | `"."` | `$WORKING_DIRECTORY` |
-| `--npm-tag` | required for npm: release-{version} or release-<packed-version>; latest, next and movable channel tags are forbidden | string | `""` | `$NPM_TAG` |
+| `--npm-tag` | required for npm: release-{version}, release.{version}, release-<packed-version> or release.<packed-version>; latest, next and movable channel tags are forbidden | string | `""` | `$NPM_TAG` |
 
 ### `forge-ci publish google-play`
 
@@ -2593,7 +2593,7 @@ publish one packed npm tarball to an explicit registry under a version-specific 
 |------|-------------|------|---------|----------|
 | `--working-dir` | directory containing exactly one packed .tgz | string | `"."` | `$WORKING_DIRECTORY` |
 | `--registry` | destination npm registry URL (required) | string | `""` | `$NPM_REGISTRY` |
-| `--npm-tag` | required release-{version} or release-<packed-version> | string | `""` | `$NPM_TAG` |
+| `--npm-tag` | required release-{version}, release.{version}, release-<packed-version> or release.<packed-version> | string | `""` | `$NPM_TAG` |
 | `--token-file` | registry token file; defaults to $NODE_AUTH_TOKEN | string | `""` | n/a |
 
 #### `forge-ci publish npm find-tarball`
@@ -2615,7 +2615,7 @@ validate a required version-specific npm tag before build or authentication; wit
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
-| `--npm-tag` | release-{version} or release-<package-version>; movable channels are forbidden | string | `""` | `$NPM_TAG` |
+| `--npm-tag` | release-{version}, release.{version}, release-<package-version> or release.<package-version>; movable channels are forbidden | string | `""` | `$NPM_TAG` |
 | `--version` | package version to bind the tag to | string | `""` | n/a |
 
 #### `forge-ci publish npm validate-tarball`

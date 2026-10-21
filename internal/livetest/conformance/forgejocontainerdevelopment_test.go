@@ -9,11 +9,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/diggsweden/forge-ci/internal/domain/container"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
 	"github.com/diggsweden/forge-ci/internal/livetest"
@@ -130,7 +130,7 @@ func TestForgejoLayer_ContainerDevelopment(t *testing.T) {
 				t.Fatal(err)
 			}
 			digest, found := livetest.ImageDigest(t, target, repo, "dev-"+head)
-			if !found || !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(digest) {
+			if !found || !container.ValidDigest(digest) {
 				t.Fatalf("registry did not serve a development digest: %q", digest)
 			}
 			want := map[string]string{
