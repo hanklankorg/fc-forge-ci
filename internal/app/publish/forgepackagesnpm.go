@@ -163,7 +163,9 @@ type userConfig struct{ path, registry string }
 func checkNPMTagBinding(ctx context.Context, ops NPMPublishOps, dir string, config userConfig, meta npmPackedMetadata, tag string) error {
 	var stdout, stderr npmRegistryOutput
 
-	err := ops.RunInherit(ctx, dir, &stdout, &stderr, "view", meta.Name, "dist-tags", "--json", "--userconfig", config.path, "--registry", config.registry)
+	// Read package-wide bindings: view implicitly selects latest, which need not
+	// exist. Selecting the proposed version could hide a conflicting tag on 404.
+	err := ops.RunInherit(ctx, dir, &stdout, &stderr, "dist-tag", "ls", meta.Name, "--userconfig", config.path, "--registry", config.registry)
 	if err != nil {
 		if isNPMNotFound(stderr.String()) {
 			return nil
@@ -172,9 +174,15 @@ func checkNPMTagBinding(ctx context.Context, ops NPMPublishOps, dir string, conf
 		return fmt.Errorf("read npm distribution tags before publishing: %w", err)
 	}
 
-	var tags map[string]string
-	if json.Unmarshal(stdout.Bytes(), &tags) != nil {
-		return fmt.Errorf("npm registry returned invalid distribution tags: %w", errs.ErrMalformedInput)
+	tags := make(map[string]string)
+	for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
+		name, version, ok := strings.Cut(line, ": ")
+		_, duplicate := tags[name]
+		_, versionErr := domainpublish.NPMRegistryVersion(version)
+		if !ok || name == "" || strings.ContainsAny(name, " \t\r:") || duplicate || versionErr != nil {
+			return fmt.Errorf("npm registry returned invalid distribution tags: %w", errs.ErrMalformedInput)
+		}
+		tags[name] = version
 	}
 
 	if version, exists := tags[tag]; exists && version != meta.Version {

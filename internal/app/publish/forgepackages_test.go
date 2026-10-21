@@ -94,8 +94,8 @@ type fakeNPMPublish struct {
 }
 
 func (f *fakeNPMPublish) RunInherit(_ context.Context, dir string, stdout, _ io.Writer, args ...string) error {
-	if args[0] == "view" {
-		_, err := io.WriteString(stdout, "{}")
+	if args[0] == "dist-tag" {
+		_, err := io.WriteString(stdout, "release-0.1.0: 0.1.0\n")
 
 		return err
 	}
@@ -248,8 +248,8 @@ type npmCredProbe struct {
 }
 
 func (p *npmCredProbe) RunInherit(_ context.Context, _ string, stdout, _ io.Writer, args ...string) error {
-	if args[0] == "view" {
-		_, err := io.WriteString(stdout, "{}")
+	if args[0] == "dist-tag" {
+		_, err := io.WriteString(stdout, "release-0.1.0: 0.1.0\n")
 
 		return err
 	}

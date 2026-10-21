@@ -190,7 +190,7 @@ const assert = require('node:assert/strict');
 assert.equal(require('` + name + `'), 1);
 assert.equal(require('` + name + `/package.json').version, '` + version + `');
 VERIFY
-  npm view '` + name + `' dist-tags --json --registry "$registry" > dist-tags.json
+  npm view '` + name + `@` + version + `' dist-tags --json --registry "$registry" > dist-tags.json
   node <<'VERIFY'
 const assert = require('node:assert/strict');
 assert.equal(require('./dist-tags.json')['` + tagPrefix + version + `'], '` + version + `');
@@ -236,6 +236,9 @@ func TestNPMPublishWorkflow_RenderedShell(t *testing.T) {
 			target := livetest.Target{Forge: forge, Host: "fixture.invalid", Owner: "fixture"}
 			body := npmPublishWorkflow(target, "set -eu", "@fixture/package", "1.2.3")
 			script := publicationProbeScript(t, forge, body)
+			if !strings.Contains(script, "npm view '@fixture/package@1.2.3' dist-tags --json") {
+				t.Fatal("consumption tag query must select the installed version explicitly")
+			}
 			for _, shell := range []string{"sh", "bash"} {
 				command := exec.CommandContext(t.Context(), shell, "-n")
 				command.Stdin = strings.NewReader(script)
