@@ -156,7 +156,7 @@ jobs:
           BUILD_TARGET: ${{ matrix.runtime.target }}
           BUILD_MODE: load
           IMAGE_REF: localhost/${{ matrix.runtime.local-tag }}
-          BUILD_CACHE_REPO: ${{ github.event_name != 'pull_request' && format('ghcr.io/{0}/forge-ci-buildcache', github.repository_owner) || '' }}
+          BUILD_CACHE_REPO: ${{ github.event_name != 'pull_request' && format('ghcr.io/{0}-buildcache', github.repository) || '' }}
         run: ./cli-prebuilt/forge-ci container build
       - name: Smoke-test runtime image
         # podman reads buildah's container storage (no docker daemon), so the
@@ -382,10 +382,12 @@ jobs:
           BUILD_MODE: push-by-digest
           IMAGE_REF: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}
           # Forge-neutral registry layer cache (replaces type=gha): one dedicated
-          # cache package per project, shared by every image and arch (Buildah
-          # keys layers by content and takes no tag). Read-write
+          # cache package per repository, shared by every image and arch (Buildah
+          # keys layers by content and takes no tag). Include the repository name:
+          # another repo's GITHUB_TOKEN cannot write an org-shared package merely
+          # because both repositories have the same owner. Read-write
           # here (--cache-push; trusted push, packages:write + logged in above).
-          BUILD_CACHE_REPO: ghcr.io/${{ github.repository_owner }}/forge-ci-buildcache
+          BUILD_CACHE_REPO: ghcr.io/${{ github.repository }}-buildcache
           BUILD_CACHE_PUSH: "true"
           # OCI labels so each image self-identifies via `docker inspect` / GHCR
           # even after tags are pruned. (licenses is intentionally omitted — a
