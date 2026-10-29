@@ -105,11 +105,6 @@ jobs:
     name: Validate helper trust coordinates
     runs-on: ${{ fromJSON(inputs['runner-label']) }}
     timeout-minutes: 5
-    # permissions: is a GitHub field Forgejo ignores (warning per run) --
-    # kept for Scorecard Token-Permissions and GitHub portability. Real
-    # restriction is Forgejo's repo-scoped read-default token.
-    permissions:
-      contents: read
     outputs:
       helpers_repository: ${{ steps.validate.outputs.helpers_repository }}
       signer_image: ${{ steps.validate.outputs.signer_image }}
@@ -197,8 +192,6 @@ jobs:
       FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
       FORGE_CI_COSIGN_TRANSPARENCY: ${{ needs.coordinates.outputs.transparency_log }}
     timeout-minutes: 45
-    permissions:
-      contents: read
     steps:
       - name: Checkout layer helpers
         env:

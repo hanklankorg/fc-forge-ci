@@ -125,11 +125,6 @@ jobs:
     name: Validate helper and builder coordinates
     runs-on: ${{ fromJSON(inputs['runner-label']) }}
     timeout-minutes: 5
-    # permissions: is a GitHub field Forgejo ignores (warning per run) --
-    # kept for Scorecard Token-Permissions and GitHub portability. Real
-    # restriction is Forgejo's repo-scoped read-default token.
-    permissions:
-      contents: read
     outputs:
       helpers_repository: ${{ steps.validate.outputs.helpers_repository }}
       builder: ${{ steps.validate.outputs.builder }}
@@ -219,8 +214,6 @@ jobs:
     needs: coordinates
     runs-on: ${{ fromJSON(inputs['runner-label']) }}
     timeout-minutes: 10
-    permissions:
-      contents: read
     outputs:
       builds: ${{ steps.plan.outputs.builds }}
       images: ${{ steps.plan.outputs.images }}
@@ -328,8 +321,6 @@ jobs:
     # the runner's own environment.
     container: ${{ needs.coordinates.outputs.builder_job_image }}
     timeout-minutes: 90
-    permissions:
-      contents: read
     strategy:
       fail-fast: true
       matrix:
@@ -513,8 +504,6 @@ jobs:
     needs: [coordinates, plan, build]
     runs-on: ${{ fromJSON(inputs['runner-label']) }}
     timeout-minutes: 45
-    permissions:
-      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -771,8 +760,6 @@ jobs:
     timeout-minutes: 10
     outputs:
       ledger_json: ${{ steps.collect.outputs.ledger-json }}
-    permissions:
-      contents: read
     defaults:
       run:
         shell: bash

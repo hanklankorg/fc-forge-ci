@@ -90,6 +90,45 @@ release; follow its workflow run to the final release, or use
 | Transport | HTTPS between the runner and the instance; the helper checkout refuses anything else. A private certificate authority must be trusted by the runner's job images and by the signer image; the layer has no input for a CA bundle. |
 | Release branch | `main` unless `prepare-release.yml` is given another `release-branch`; see [The request is the head of the release branch](#the-request-is-the-head-of-the-release-branch). |
 
+### Authorization and job tokens
+
+Forgejo 16 ignores GitHub's workflow/job `permissions:` declarations, including
+`contents: read`. The Forgejo layer and its examples omit those keys; the
+[GitHub layer](github.md) keeps its native permission declarations.
+
+The automatic job token (`forgejo.token`, also exposed through GitHub-compatible
+names) is scoped to the calling repository. In Forgejo 16.0.6, a task accessing
+its own repository receives read access for a fork pull request and write access
+otherwise. A trusted `pull_request_target` run can have write authority; it is
+not the fork's untrusted `pull_request` run. Repository scope does **not** mean
+read-only access. Recheck the selected server's behavior when changing the
+supported Forgejo version.
+
+Build jobs receive no release-signing keys. That separation does not remove the
+automatic job token's repository authority. Removing ignored permission keys
+does not change that authority, and supplying a read-scoped access token does
+not restrict a separate automatic token still available to the job. A workload
+that requires a hard read-only boundary needs independently enforced isolation
+from write credentials; a YAML declaration or one cleared variable is not that
+boundary.
+
+Explicit release and registry credentials keep their own scopes. Configure
+Forgejo access-token scopes such as `read:repository`, `write:repository` and
+`write:package` when issuing those tokens, and pass them only to the operations
+that need them. These scopes are not replacements for `permissions:` in YAML.
+
+Forgejo enables OIDC with `enable-openid-connect: true` at workflow or job level,
+not GitHub's `permissions: id-token: write`. The current Forgejo workflows do not
+request OIDC tokens. Adding it requires a separate review of the issuer, audience,
+subject and consuming service's trust policy; an OIDC token is not automatically
+accepted by public Fulcio.
+
+See Forgejo's [workflow differences](https://forgejo.org/docs/v16.0/user/actions/github-actions/),
+[OIDC reference](https://forgejo.org/docs/v16.0/user/actions/security-openid-connect/)
+and [access-token scopes](https://forgejo.org/docs/v16.0/user/authentication/token-scope/).
+The automatic-token access modes above are defined by
+[`GetActionRepoPermission`](https://codeberg.org/forgejo/forgejo/src/tag/v16.0.6/models/perm/access/repo_permission.go).
+
 ### Network
 
 Beside the instance itself (Git over HTTPS and SSH, the API, the package

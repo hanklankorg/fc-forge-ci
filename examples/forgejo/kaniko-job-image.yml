@@ -35,8 +35,6 @@ name: Kaniko job image
 # which the signer workflow publishes, and its digest is pinned by a person.
 on:
   workflow_dispatch:
-permissions:
-  contents: read
 env:
   FORGE_CI_REPOSITORY_URL: https://FORGE_HOST/OWNER/forge-ci
   FORGE_CI_COMMIT_SHA: PIN_FORGE_CI_SHA

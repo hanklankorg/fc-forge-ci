@@ -87,11 +87,6 @@ on:
       - main
     paths:
       - .forgejo/workflows/signer-image.yml
-# permissions: is a GitHub field Forgejo ignores (warning per run) --
-# kept for Scorecard Token-Permissions and GitHub portability. Real
-# restriction is Forgejo's repo-scoped read-default token.
-permissions:
-  contents: read
 concurrency:
   group: signer-image-${{ forgejo.repository }}-${{ forgejo.ref }}
   cancel-in-progress: false

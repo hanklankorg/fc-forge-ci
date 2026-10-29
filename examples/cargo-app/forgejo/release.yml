@@ -68,12 +68,6 @@ on:
       # tag filters are globs; prepare's guard-release-tag validates strictly.
       - release-request/v[0-9]*.[0-9]*.[0-9]*
 
-# permissions: is a GitHub field Forgejo ignores (warning per run) --
-# kept for Scorecard Token-Permissions and GitHub portability. Real
-# restriction is Forgejo's repo-scoped read-default token.
-permissions:
-  contents: read
-
 jobs:
   # ===========================================================================
   # JOB: prepare — guard the request, fail-fast on enabled pipeline secrets,
@@ -129,8 +123,6 @@ jobs:
     needs: prepare
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 30
-    permissions:
-      contents: read
     env:
       # FIXME: the name of your binary. It also names the Build SBOM.
       ARTIFACT_NAME: FIXME-app
