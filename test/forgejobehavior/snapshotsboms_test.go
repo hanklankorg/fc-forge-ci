@@ -8,6 +8,7 @@ package forgejobehavior
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -127,8 +128,9 @@ func TestPackagePublisherKeepsTheSelectedEngineRevision(t *testing.T) {
 
 	var workflow struct {
 		Jobs map[string]struct {
-			Uses string         `yaml:"uses"`
-			With map[string]any `yaml:"with"`
+			Uses  string         `yaml:"uses"`
+			With  map[string]any `yaml:"with"`
+			Needs []string       `yaml:"needs"`
 		} `yaml:"jobs"`
 	}
 	loadYAML(t, ".github/workflows/release-publish-stage.yml", &workflow)
@@ -138,7 +140,14 @@ func TestPackagePublisherKeepsTheSelectedEngineRevision(t *testing.T) {
 		t.Fatalf("unexpected package publisher %q", publisher.Uses)
 	}
 
-	if got := publisher.With["forge-ci-binary-ref"]; got != "${{ inputs['forge-ci-binary-ref'] }}" {
+	resolver := workflow.Jobs["resolve-bootstrap"]
+	if resolver.Uses != "./.github/workflows/resolve-forge-ci-bootstrap.yml" || resolver.With["forge-ci-binary-ref"] != "${{ inputs['forge-ci-binary-ref'] }}" {
+		t.Fatalf("bootstrap must freeze the caller's selected engine revision: %+v", resolver)
+	}
+	if !slices.Contains(publisher.Needs, "resolve-bootstrap") {
+		t.Fatal("package publisher must wait for the frozen bootstrap revision")
+	}
+	if got := publisher.With["forge-ci-binary-ref"]; got != "${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}" {
 		t.Fatalf("package publisher loses the selected engine revision: %v", got)
 	}
 }

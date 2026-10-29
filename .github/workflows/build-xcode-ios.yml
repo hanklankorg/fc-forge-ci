@@ -127,7 +127,7 @@ on:
       forge-ci-binary-ref:
         description: "forge-ci binary ref/version to install (branch, tag, or SHA). For branch testing, set this to the same forge-ci revision as runtime image overrides on Linux jobs."
         required: false
-        default: "v0.90.0"
+        default: ""
         type: string
     # All `required: false` — `secrets: inherit` callers unchanged.
     secrets:
@@ -149,7 +149,14 @@ on:
 permissions:
   contents: read
 jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   build-variants:
+    needs: [resolve-bootstrap]
     name: Build Xcode iOS
     runs-on: ${{ inputs.macos-version }}
     timeout-minutes: 60
@@ -176,16 +183,18 @@ jobs:
           ref: ${{ inputs.branch }}
           fetch-depth: 1
       - name: Checkout forge-ci bootstrap installers
+        id: forge-ci-bootstrap
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
-          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
           path: .github-shared
           sparse-checkout: scripts/bootstrap
           persist-credentials: false
       - name: Install forge-ci binary
         env:
-          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          FORGE_CI_SOURCE_SHA: ${{ steps.forge-ci-bootstrap.outputs.commit }}
           FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
         run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
 

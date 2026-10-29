@@ -29,7 +29,7 @@ run `just gen-cli-reference` after any CLI change.
    runtime container. On plain runners, tagged releases install a
    cosign- and SHA-256-verified release archive; branch/SHA refs, local refs,
    and explicit `FORGE_CI_USE_GO_INSTALL=1` overrides select source installation,
-   subject to the [current module restriction](DEVELOPMENT.md#source-checkout).
+   using the [source checkout requirements](DEVELOPMENT.md#source-checkout).
 2. **Typed values and errors.** The domain/app/adapter split keeps business
    rules and external operations behind one CLI binding per use case.
 3. **Cross-provider shape.** The use cases are written behind provider-specific

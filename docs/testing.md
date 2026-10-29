@@ -908,11 +908,11 @@ report on this one.
   consumer publishes to is its own variable, given as an ordinary setting:
 
   ```text
-  FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE=$HOME/.config/forge-lab/hanklankorg-packages.pat \
+  FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE=$HOME/.config/forge-lab/example-org-packages.pat \
   FORGE_CI_LIVE_EXTERNAL_REGISTRY_USER=<github user> \
     just test-live-forgejo-consumer /absolute/nanolinter-clone release RELEASE_PLATFORMS=linux/amd64 \
-      IMAGE_REPOSITORY=ghcr.io/hanklankorg/<unique name> \
-      image=ghcr.io/hanklankorg/<unique name>:v0.0.1-go
+      IMAGE_REPOSITORY=ghcr.io/example-org/<unique name> \
+      image=ghcr.io/example-org/<unique name>:v0.0.1-go
   ```
 
   The lab's job containers must reach that registry. Packages a token creates
@@ -1240,6 +1240,29 @@ just github run --org <org> --ack-org <org> --token-file /private/github.pat \
 These checks prove provider publication behavior, not runner-driven signing,
 SBOM generation or the full release job graph. Local workflow/handoff tests
 and the full consumer trials cover those separate contracts.
+
+#### Bootstrap-only GitHub acceptance
+
+`TestGitHubBootstrap_SourceAndStableSelection` snapshots the current bootstrap
+scripts and reusable resolver into a guarded scratch repository. It checks
+explicit source installation with VCS build identity, current stable-tag
+selection, matching runtime-reference outputs and release-policy support.
+The test uses the organization admitted by the hosted Forge Lab session and
+requires its explicit numeric ID; no operator organization is built into it.
+
+```text
+just github run --org <test-org> --ack-org <test-org> --token-file /private/github.pat \
+  --prefix fcb- --fixtures none -- \
+  env FORGE_CI_LIVE_GITHUB_ORG_ID=<org-id> \
+  go -C /absolute/forge-ci test -tags=live ./internal/livetest \
+    -run '^TestGitHubBootstrap_SourceAndStableSelection$' -count=1 -timeout=20m
+```
+
+The existing protected PAT needs repository access, `workflow` and `delete_repo`
+for workflow-file pushes and exact-ID cleanup. This native amd64 smoke creates
+no signing keys, release assets or images. It verifies outputs rather than
+pulling runtime images or verifying release-binary signatures. Created scratch
+repositories are deleted by acknowledged ID and checked absent by ID and name.
 
 #### Minimal preparation and retention on GitHub
 
@@ -1598,6 +1621,52 @@ publication or Cosign verification alone does not prove either integration.
 Keyless verification needs the selected issuer's trust root: Cosign cannot
 infer a private CA root from the certificate it has just received. Supply that
 root explicitly and verify the configured issuer and signing identity.
+
+## Snapshot container acceptance
+
+The [shared snapshot contract](workflows.md#snapshot-container-contract-all-three-forges)
+and [container-only example](../examples/container-snapshot/) define the expected
+behavior. Minimal three-forge snapshot acceptance is **PENDING**; the operator
+runs it next. Record results only after execution. This covers snapshots and
+automatic artifact-first inputs, without claiming live or release acceptance.
+
+Retain evidence for each provider and selected revision covering:
+
+- Default-on declared containers, explicit `publish-containers: false`, no implicit
+  root image, and source-only/container-only configurations.
+- A manually selected developer branch different from the workflow/policy branch,
+  resolved once to a frozen SHA shared by artifact and image builds. Include branch
+  names that normalize identically: the original branch hash must always remain
+  in final lower-case `-snapshot` tags. Package version conventions must stay
+  unchanged.
+- Native amd64/arm64 builds without registry publication credentials, a failing
+  build preventing all publication, and rejection of missing or extra platform
+  layouts and missing, duplicate, extra or mismatched image receipts.
+- Automatic producer matrices for Go, Cargo, Maven, Gradle JVM and npm using
+  frozen `artifacts[]` settings and `source_date_epoch`. GitHub root reuse with
+  `use-build-artifacts: true` must avoid rebuilding; standalone defaults to
+  `false`. Exercise optional native prepared-context overrides separately.
+- Producer receipt and dependency inventory verification: source SHA/branch,
+  frozen plan, image/dependency names, platforms, file size, digest and canonical
+  string modes `0644`/`0755`. Exercise ZIP mode loss and expected raw Go/Cargo
+  binary normalization without making all files executable. Reject tampered or
+  stale bundles and missing/extra producer outputs. Shared Go `restore-context`
+  must reject path escapes and source/Git/plan replacement before restoring inputs.
+- One valid packaged npm tarball per producer at the isolated
+  `<context>/.forge-ci/snapshot-inputs/<name>` destination and a matching
+  Containerfile COPY path. Exercise native digest-pinned producer image overrides
+  and their documented host-tools/trusted-job-image fallbacks.
+- Independent scan enablement/severity and image SBOM selection, signing `NONE`,
+  and early refusal of explicit snapshot OCI signing/provenance, build secrets
+  and extraction. Confirm no stable aliases or promotions are advanced; signature
+  verification is not a snapshot acceptance claim.
+
+Start with local shared domain/application/CLI tests and native adapter behavior
+checks; hosted workflow/registry evidence is a separate acceptance step. Record
+actual commands, source/binary identities, provider, runner architectures, result
+and cleanup outcome when executed. Use fictional `example-org` in fixtures and
+documentation; live organization coordinates come from runtime-admitted Lab
+configuration rather than embedded operator names or IDs.
 
 ## Tests live next to source
 

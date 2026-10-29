@@ -17,12 +17,12 @@ import (
 //
 //	CI_COMMIT_REF_NAME       → RefName
 //	CI_COMMIT_TAG (presence) → RefType=Tag, else RefType=Branch
-//	CI_PIPELINE_SOURCE=merge_request_event → RefType=PR
+//	CI_PIPELINE_SOURCE=merge_request_event or MR context → RefType=PR
 //	CI_COMMIT_SHA            → SHA
 //	CI_COMMIT_SHORT_SHA      → ShortSHA  (CI_COMMIT_SHA[:7] fallback)
 //	CI_COMMIT_BRANCH || CI_MERGE_REQUEST_SOURCE_BRANCH_NAME → Branch
 //	CI_MERGE_REQUEST_IID     → PRNumber
-//	CI_PIPELINE_SOURCE       → EventName (via canonicalEventName)
+//	CI_PIPELINE_SOURCE       → EventName (via canonicalEventName; MR context wins)
 //	CI_PROJECT_PATH          → Repo
 //	CI_PROJECT_URL           → RepoURL
 func (p *Provider) ResolveContext(_ context.Context) (*provider.EventContext, error) {
@@ -46,6 +46,10 @@ func (p *Provider) ResolveContext(_ context.Context) (*provider.EventContext, er
 	}
 
 	prNumber := get("CI_MERGE_REQUEST_IID")
+	eventName := canonicalEventName(get("CI_PIPELINE_SOURCE"))
+	if hasMergeRequestContext(get) {
+		eventName = "pull_request"
+	}
 
 	return &provider.EventContext{
 		ForgeAPI:  provider.ForgeGitLab,
@@ -55,7 +59,7 @@ func (p *Provider) ResolveContext(_ context.Context) (*provider.EventContext, er
 		ShortSHA:  short,
 		Branch:    branch,
 		PRNumber:  prNumber,
-		EventName: canonicalEventName(get("CI_PIPELINE_SOURCE")),
+		EventName: eventName,
 		Repo:      get("CI_PROJECT_PATH"),
 		RepoURL:   get("CI_PROJECT_URL"),
 	}, nil
@@ -90,14 +94,14 @@ func canonicalEventName(source string) string {
 // classifyRefType resolves the ref type from a GitLab CI env snapshot.
 // Order of precedence:
 //
-//  1. CI_PIPELINE_SOURCE=merge_request_event → PR (overrides everything)
+//  1. Merge request source or runner context → PR (overrides everything)
 //  2. CI_COMMIT_TAG present                  → Tag
 //  3. CI_COMMIT_BRANCH present               → Branch
 //  4. CI_COMMIT_REF_NAME present             → Branch (fallback when
 //     CI_COMMIT_BRANCH isn't populated, e.g. detached HEAD pipelines)
 //  5. otherwise                              → Other
 func classifyRefType(get func(string) string) provider.RefType {
-	if get("CI_PIPELINE_SOURCE") == "merge_request_event" {
+	if hasMergeRequestContext(get) {
 		return provider.RefTypePR
 	}
 
@@ -114,4 +118,26 @@ func classifyRefType(get func(string) string) provider.RefType {
 	}
 
 	return provider.RefTypeOther
+}
+
+// GitLab passes the parent's CI_MERGE_REQUEST_* predefined variables to child
+// jobs, whose source is always parent_pipeline. These runner markers take
+// precedence over the source, including for fork MRs run in the target project.
+// As with the rest of ResolveContext, the CI configuration and predefined
+// environment are trusted; this is not authentication of caller-supplied vars.
+func hasMergeRequestContext(get func(string) string) bool {
+	if get("CI_PIPELINE_SOURCE") == "merge_request_event" {
+		return true
+	}
+	for _, key := range []string{
+		"CI_MERGE_REQUEST_ID", "CI_MERGE_REQUEST_IID",
+		"CI_MERGE_REQUEST_REF_PATH", "CI_MERGE_REQUEST_EVENT_TYPE",
+		"CI_MERGE_REQUEST_SOURCE_PROJECT_ID", "CI_MERGE_REQUEST_TARGET_PROJECT_ID",
+		"CI_MERGE_REQUEST_SOURCE_BRANCH_NAME", "CI_MERGE_REQUEST_TARGET_BRANCH_NAME",
+	} {
+		if get(key) != "" {
+			return true
+		}
+	}
+	return false
 }

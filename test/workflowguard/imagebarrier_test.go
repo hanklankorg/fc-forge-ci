@@ -62,7 +62,7 @@ func TestContainerPublicationWaitsForCompleteBuildMatrix(t *testing.T) {
 	require.True(t, foundStage && foundRecord && foundUpload)
 
 	publish := workflow.Jobs["publish-images"]
-	require.Equal(t, []any{"prep", "build-arch"}, publish.Needs)
+	require.Equal(t, []any{"resolve-bootstrap", "prep", "build-arch"}, publish.Needs)
 	require.Equal(t, "${{ inputs['push-image'] }}", publish.If, "no always() bypass of a failed matrix")
 
 	foundPublish := false
@@ -77,6 +77,6 @@ func TestContainerPublicationWaitsForCompleteBuildMatrix(t *testing.T) {
 	}
 
 	require.True(t, foundPublish)
-	require.Equal(t, []any{"prep", "publish-images"}, workflow.Jobs["image-evidence"].Needs)
-	require.Equal(t, []any{"prep", "image-evidence"}, workflow.Jobs["merge"].Needs)
+	require.Equal(t, []any{"resolve-bootstrap", "prep", "publish-images"}, workflow.Jobs["image-evidence"].Needs)
+	require.Equal(t, []any{"resolve-bootstrap", "prep", "image-evidence"}, workflow.Jobs["merge"].Needs)
 }

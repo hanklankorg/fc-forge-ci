@@ -26,27 +26,27 @@ on:
         type: string
       forge-ci-binary-ref:
         required: false
-        default: "v0.90.0"
+        default: ""
         type: string
       runtime-image:
         description: "forge-ci runtime image for the summarize job (base is sufficient)"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0"
+        default: ""
         type: string
       runtime-image-java:
         description: "forge-ci runtime image for Maven Central publish jobs"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-java-25:v0.90.0"
+        default: ""
         type: string
       runtime-image-rust:
         description: "forge-ci runtime image for container-first Cargo SBOM jobs (sbom-cargo.yml). Artefact-first Cargo runs in release-build-stage and uses the same image there."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-rust-stable:v0.90.0"
+        default: ""
         type: string
       runtime-image-go:
         description: "forge-ci runtime image for Go SBOM jobs"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-go-1.27:v0.90.0"
+        default: ""
         type: string
       build-result-json:
         required: true
@@ -134,9 +134,16 @@ on:
 permissions:
   contents: read
 jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   # Cross-cutting publish jobs depend on the build stage as a whole.
   # Platform-specific store publishing still checks the relevant build-stage result.
   forge-packages:
+    needs: [resolve-bootstrap]
     name: "Publish: ${{ matrix.artifact.name }} to GitHub Packages"
     if: ${{ fromJson(inputs['publish-stage-plan-json']).targets.forge_packages.runs && fromJson(inputs['build-result-json']).result == 'success' }}
     strategy:
@@ -153,7 +160,7 @@ jobs:
     # No `secrets:` block needed — auto-token always flows.
     uses: ./.github/workflows/publish-maven-github.yml
     with:
-      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      forge-ci-binary-ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
       working-directory: ${{ matrix.artifact.working_directory }}
       branch: ${{ inputs.branch }}
       artifact-source: ${{ matrix.artifact.publication_artifact_name || matrix.artifact.build_artifact_name }}
@@ -166,6 +173,7 @@ jobs:
       npm-tag: ${{ matrix.artifact.npm.tag }}
       attach-pattern: ${{ matrix.artifact.maven.attach_pattern || matrix.artifact.npm.attach_pattern }}
   maven-central:
+    needs: [resolve-bootstrap]
     name: "Publish: ${{ matrix.artifact.name }} to Maven Central"
     if: ${{ fromJson(inputs['publish-stage-plan-json']).targets.maven_central.runs && fromJson(inputs['build-result-json']).result == 'success' }}
     strategy:
@@ -195,8 +203,9 @@ jobs:
       private-dependencies: ${{ matrix.artifact.maven.private_dependencies || false }}
       settings-path: ${{ matrix.artifact.maven.settings_path }}
       profile: ${{ matrix.artifact.maven.profile || 'central-release' }}
-      runtime-image: ${{ inputs['runtime-image-java'] }}
+      runtime-image: ${{ inputs['runtime-image-java'] || needs.resolve-bootstrap.outputs['runtime-image-java'] }}
   xcode-ios:
+    needs: [resolve-bootstrap]
     name: "Publish: ${{ matrix.artifact.name }} to the App Store"
     if: ${{ fromJson(inputs['publish-stage-plan-json']).targets.xcode_ios.runs && fromJson(inputs['build-result-json']).targets.xcode_ios == 'success' }}
     strategy:
@@ -218,8 +227,9 @@ jobs:
       macos-version: ${{ matrix.artifact.xcode_ios.macos_version || 'macos-26' }}
       submit-for-review: ${{ matrix.artifact.xcode_ios.submit_for_review || false }}
       skip-validation: ${{ matrix.artifact.xcode_ios.skip_validation || false }}
-      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      forge-ci-binary-ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
   google-play:
+    needs: [resolve-bootstrap]
     name: "Publish: ${{ matrix.artifact.name }} to Google Play"
     if: ${{ fromJson(inputs['publish-stage-plan-json']).targets.google_play.runs && fromJson(inputs['build-result-json']).targets.gradle_android == 'success' }}
     strategy:
@@ -245,8 +255,9 @@ jobs:
       whats-new-directory: ${{ matrix.artifact.gradle_android.whats_new_directory || '' }}
       mapping-file: ${{ matrix.artifact.gradle_android.mapping_file || '' }}
       debug-symbols: ${{ matrix.artifact.gradle_android.debug_symbols || '' }}
-      runtime-image: ${{ inputs['runtime-image'] }}
+      runtime-image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
   containers:
+    needs: [resolve-bootstrap]
     name: "Build: ${{ matrix.container.name }} image"
     if: ${{ fromJson(inputs['publish-stage-plan-json']).targets.containers.runs && (fromJson(inputs['build-result-json']).result == 'success' || fromJson(inputs['build-result-json']).result == 'skipped') }}
     strategy:
@@ -313,7 +324,7 @@ jobs:
       # no build-secrets, in which case the materialize step is a no-op.
       build-secrets: ${{ matrix.container.build_secrets && join(matrix.container.build_secrets, ' ') || '' }}
       push-image: true
-      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      forge-ci-binary-ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
       # Container image signing: enabled when the release policy says
       # to sign artifacts AND the configured method is cosign-capable
       # (sigstore or kms). gpg cannot sign OCI manifests. The fields
@@ -332,6 +343,7 @@ jobs:
   # so the publish-stage targets.cargo_container_first set excludes
   # artefact-first artefacts. Mirrors the go-container-first job below.
   cargo-container-first:
+    needs: [resolve-bootstrap]
     name: "Build: ${{ matrix.artifact.name }} SBOM"
     if: ${{ fromJson(inputs['publish-stage-plan-json']).targets.cargo_container_first.runs }}
     strategy:
@@ -352,8 +364,9 @@ jobs:
       # `cargo-build-sbom` and the second matrix leg's actions/upload-artifact
       # would conflict with the first. Mirrors build-gradle's pattern.
       artifact-name: ${{ matrix.artifact.name }}
-      runtime-image: ${{ inputs['runtime-image-rust'] }}
+      runtime-image: ${{ inputs['runtime-image-rust'] || needs.resolve-bootstrap.outputs['runtime-image-rust'] }}
   go-container-first:
+    needs: [resolve-bootstrap]
     name: "Build: ${{ matrix.artifact.name }} SBOM"
     if: ${{ fromJson(inputs['publish-stage-plan-json']).targets.go_container_first.runs }}
     strategy:
@@ -369,14 +382,14 @@ jobs:
       branch: ${{ inputs.branch }}
       artifact-name: ${{ matrix.artifact.name }}
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
-      runtime-image: ${{ inputs['runtime-image-go'] }}
+      runtime-image: ${{ inputs['runtime-image-go'] || needs.resolve-bootstrap.outputs['runtime-image-go'] }}
   summarize-publish-stage:
     name: Summary
-    needs: [forge-packages, maven-central, xcode-ios, google-play, containers, cargo-container-first, go-container-first]
-    if: always()
+    needs: [resolve-bootstrap, forge-packages, maven-central, xcode-ios, google-play, containers, cargo-container-first, go-container-first]
+    if: always() && needs.resolve-bootstrap.result == 'success'
     runs-on: ubuntu-26.04
     container:
-      image: ${{ inputs['runtime-image'] }}
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
     permissions:
       contents: read
     outputs:

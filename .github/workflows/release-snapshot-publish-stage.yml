@@ -19,32 +19,32 @@ on:
         type: string
       forge-ci-binary-ref:
         required: false
-        default: "v0.90.0"
+        default: ""
         type: string
       runtime-image:
         description: "forge-ci runtime image (full — generate-snapshot-sboms needs syft)"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime:v0.90.0"
+        default: ""
         type: string
       runtime-image-node:
         description: "forge-ci runtime image for snapshot NPM publish jobs"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-node-24:v0.90.0"
+        default: ""
         type: string
       runtime-image-java:
         description: "JDK/Maven runtime for Maven-format snapshot publication"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-java-25:v0.90.0"
+        default: ""
         type: string
       runtime-image-rust:
         description: "forge-ci runtime image for Cargo SBOM jobs"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-rust-stable:v0.90.0"
+        default: ""
         type: string
       runtime-image-go:
         description: "forge-ci runtime image for Go SBOM jobs"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-go-1.27:v0.90.0"
+        default: ""
         type: string
       sboms:
         required: false
@@ -73,7 +73,14 @@ on:
 permissions:
   contents: read
 jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   forge-packages:
+    needs: [resolve-bootstrap]
     name: Publish Maven-format Snapshot - ${{ matrix.artifact.name }}
     if: ${{ fromJson(inputs['snapshot-publish-stage-plan-json']).targets.forge_packages.runs && fromJson(inputs['build-result-json']).result == 'success' }}
     strategy:
@@ -94,8 +101,9 @@ jobs:
       profile: ${{ matrix.artifact.project_type == 'maven' && matrix.artifact.build_type == 'library' && (matrix.artifact.maven.maven_profile || 'central-release') || '' }}
       from-build: ${{ matrix.artifact.project_type == 'maven' && matrix.artifact.build_type == 'library' }}
       snapshot: true
-      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      forge-ci-binary-ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
   maven-central:
+    needs: [resolve-bootstrap]
     name: Publish Central Snapshot - ${{ matrix.artifact.name }}
     if: ${{ fromJson(inputs['snapshot-publish-stage-plan-json']).targets.maven_central.runs && fromJson(inputs['build-result-json']).result == 'success' }}
     strategy:
@@ -119,11 +127,11 @@ jobs:
       settings-path: ${{ matrix.artifact.maven.settings_path || '' }}
       private-dependencies: ${{ matrix.artifact.maven.private_dependencies || false }}
       snapshot: true
-      runtime-image: ${{ inputs['runtime-image-java'] }}
-  # Snapshots publish npm packages and assemble SBOMs for the selected project type.
-  # Container-first Go/Cargo have separate Build SBOM jobs. Container images are
-  # built on the release path and promoted through the stage ladder.
+      runtime-image: ${{ inputs['runtime-image-java'] || needs.resolve-bootstrap.outputs['runtime-image-java'] }}
+  # Package publication and package SBOMs are independent of the snapshot image
+  # workflow, which consumes these builds from the same resolved source commit.
   npm:
+    needs: [resolve-bootstrap]
     name: Publish Snapshot NPM Package
     if: ${{ fromJson(inputs['snapshot-publish-stage-plan-json']).targets.npm.runs && fromJson(inputs['build-result-json']).targets.npm == 'success' }}
     permissions:
@@ -134,12 +142,13 @@ jobs:
     with:
       working-directory: ${{ fromJson(inputs['snapshot-publish-stage-plan-json']).inputs.npm_working_directory }}
       artifact-source: ${{ fromJson(inputs['snapshot-publish-stage-plan-json']).inputs.npm_build_artifact_name || 'npm-build-artifacts' }}
-      branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.branch }}
+      branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.release_sha }}
+      source-branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.branch }}
       registry: ${{ fromJson(inputs['snapshot-release-plan-json']).context.npm_registry }}
       package-scope: ${{ fromJson(inputs['snapshot-release-plan-json']).context.package_scope }}
       npm-tag: release-{version}
       use-ci-token: ${{ fromJson(inputs['snapshot-release-plan-json']).policy.use_ci_token }}
-      runtime-image: ${{ inputs['runtime-image-node'] }}
+      runtime-image: ${{ inputs['runtime-image-node'] || needs.resolve-bootstrap.outputs['runtime-image-node'] }}
     secrets:
       registry-password: ${{ secrets.registry-password }}
   # Container-first cargo's lockfile-derived "build" SBOM. Artefact-first
@@ -149,6 +158,7 @@ jobs:
   # Gated on the Build layer so snapshot's default fast path, and snapshot runs that
   # request only analyzed layers, don't pay for an unused Build SBOM.
   cargo-container-first:
+    needs: [resolve-bootstrap]
     name: Cargo SBOM Snapshot
     if: ${{ fromJson(inputs['snapshot-publish-stage-plan-json']).targets.cargo_container_first.runs }}
     permissions:
@@ -157,9 +167,10 @@ jobs:
     uses: ./.github/workflows/sbom-cargo.yml
     with:
       working-directory: ${{ fromJson(inputs['snapshot-publish-stage-plan-json']).inputs.cargo_working_directory }}
-      branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.branch }}
-      runtime-image: ${{ inputs['runtime-image-rust'] }}
+      branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.release_sha }}
+      runtime-image: ${{ inputs['runtime-image-rust'] || needs.resolve-bootstrap.outputs['runtime-image-rust'] }}
   go-container-first:
+    needs: [resolve-bootstrap]
     name: Go SBOM Snapshot
     # Snapshot SBOM aggregation follows the same single-project contract as
     # sbom-cargo-snapshot above. Multi-artifact release SBOM packaging is handled by
@@ -171,19 +182,19 @@ jobs:
     uses: ./.github/workflows/sbom-go.yml
     with:
       working-directory: ${{ fromJson(inputs['snapshot-publish-stage-plan-json']).inputs.go_sbom_working_directory }}
-      branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.branch }}
+      branch: ${{ fromJson(inputs['snapshot-release-plan-json']).context.release_sha }}
       artifact-name: ${{ fromJson(inputs['snapshot-publish-stage-plan-json']).inputs.go_sbom_artifact_name }}
-      runtime-image: ${{ inputs['runtime-image-go'] }}
+      runtime-image: ${{ inputs['runtime-image-go'] || needs.resolve-bootstrap.outputs['runtime-image-go'] }}
   sbom:
     name: Generate Snapshot SBOMs
-    needs: [cargo-container-first, go-container-first]
+    needs: [resolve-bootstrap, cargo-container-first, go-container-first]
     # Container-first Build SBOM jobs are listed in needs; needs[].result ==
     # 'skipped' means the job was gated off (non-container-first project or no
     # Build layer requested), which is fine.
-    if: ${{ inputs.sboms != 'none' && (fromJson(inputs['build-result-json']).result == 'success' || fromJson(inputs['build-result-json']).result == 'skipped') && !cancelled() && needs.cargo-container-first.result != 'failure' && needs.go-container-first.result != 'failure' }}
+    if: ${{ needs.resolve-bootstrap.result == 'success' && inputs.sboms != 'none' && (fromJson(inputs['build-result-json']).result == 'success' || fromJson(inputs['build-result-json']).result == 'skipped') && !cancelled() && needs.cargo-container-first.result != 'failure' && needs.go-container-first.result != 'failure' }}
     runs-on: ubuntu-26.04
     container:
-      image: ${{ inputs['runtime-image'] }}
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image-full'] }}
     permissions:
       actions: read
       contents: read
@@ -191,7 +202,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
-          ref: ${{ fromJson(inputs['snapshot-release-plan-json']).context.branch }}
+          ref: ${{ fromJson(inputs['snapshot-release-plan-json']).context.release_sha }}
           fetch-depth: 0
       - name: Download planned snapshot artifacts
         env:
@@ -225,11 +236,11 @@ jobs:
           if-no-files-found: error
   summarize-snapshot-publish-stage:
     name: Summarize Snapshot Publish Stage
-    needs: [npm, forge-packages, maven-central, cargo-container-first, go-container-first, sbom]
-    if: always()
+    needs: [resolve-bootstrap, npm, forge-packages, maven-central, cargo-container-first, go-container-first, sbom]
+    if: always() && needs.resolve-bootstrap.result == 'success'
     runs-on: ubuntu-26.04
     container:
-      image: ${{ inputs['runtime-image'] }}
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image-full'] }}
     permissions:
       contents: read
     outputs:

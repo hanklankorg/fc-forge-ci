@@ -401,7 +401,7 @@ EXAMPLE:
 | `--working-dir` | directory of the pom.xml to read for metadata; mvn itself runs in the current directory (cd in first) | string | `"."` | `$WORKING_DIRECTORY` |
 | `--build-type` | lifecycle: "app" (clean package) or "lib" (compile/test/package with optional --profile; POM owns attached artifacts) | string | `""` | `$BUILD_TYPE` |
 | `--cli-opts` | extra args forwarded to mvn (whitespace-separated, e.g. "-B -ntp") | string | `""` | `$MAVEN_CLI_OPTS` |
-| `--profile` | Maven profile to activate (library builds) | string | `""` | `$MAVEN_PROFILE` |
+| `--profile` | Maven profile to activate for dependency resolution, metadata and the build lifecycle | string | `""` | `$MAVEN_PROFILE` |
 | `--skip-tests` | skip the Maven test phase | bool | `false` | `$SKIP_TESTS` |
 | `--build-sbom` | generate the cyclonedx-maven-plugin Build SBOM (default true) | bool | `true` | `$ENABLE_BUILD_SBOM` |
 | `--sbom-tool-version` | pinned org.cyclonedx:cyclonedx-maven-plugin version (required when --build-sbom) | string | `""` | `$CYCLONEDX_MAVEN_VERSION` |
@@ -1984,11 +1984,17 @@ buildah bud without reimplementing label policy in shell.
 install Buildah runtime packages and configure job-local storage
 
 ```
-Installs missing Buildah/fuse-overlayfs packages when requested,
+Installs missing buildah, fuse-overlayfs, netavark and aardvark-dns packages when requested,
 writes a job-local containers storage config, prefers overlay/fuse-overlayfs only
 after buildah info and an optional layered build probe succeed, and falls back to
 vfs. Emits CONTAINERS_STORAGE_CONF and TMPDIR to the runner env file for later CI
 steps.
+
+Networking helpers are required independently of the storage driver. netavark
+provides container networking and aardvark-dns provides its DNS support. Helpers
+in /usr/lib/podman or /usr/libexec/podman are recognized even outside PATH.
+With --install-packages=false, provision these runtime packages in the image;
+probe failures retain Buildah's diagnostic for missing helpers.
 
 The temp directory is an existing scratch parent, which may be a shared /tmp:
 the storage goes into a new private directory created under it. Storage
@@ -2004,7 +2010,7 @@ EXAMPLE:
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
 | `--extra-packages` | whitespace-separated additional apt packages to install | string | `""` | `$SETUP_BUILDAH_EXTRA_PACKAGES` |
-| `--install-packages` | install missing Buildah/fuse-overlayfs/extra packages with apt-get | bool | `true` | `$SETUP_BUILDAH_INSTALL_PACKAGES` |
+| `--install-packages` | install missing buildah/fuse-overlayfs/netavark/aardvark-dns/extra packages with apt-get | bool | `true` | `$SETUP_BUILDAH_INSTALL_PACKAGES` |
 | `--probe-build` | validate storage with a layered build probe that writes into a directory its base image owns | bool | `true` | `$SETUP_BUILDAH_PROBE_BUILD` |
 | `--print-store` | print selected buildah storage details after setup | bool | `false` | `$CONTAINER_STORAGE_PRINT_STORE` |
 | `--summary` | append selected storage details to the step summary | bool | `false` | `$CONTAINER_STORAGE_SUMMARY` |
@@ -2038,6 +2044,128 @@ EXAMPLES:
 | `--trusted-root` | trust material cosign verifies the new signature against, as produced by "cosign trusted-root create" (default: cosign's own). Required for a self-hosted CA: cosign verifies the certificate it was just issued and cannot learn a private root any other way. Forbidden for --method=kms. | string | `""` | `$SIGN_TRUSTED_ROOT` |
 | `--rekor-url` | transparency log for --method=sigstore (default: public Sigstore). Where to publish, not whether: see FORGE_CI_COSIGN_TRANSPARENCY for that. Forbidden for --method=kms. | string | `""` | `$SIGN_REKOR_URL` |
 | `--recursive` | walk manifest-list children, signing each per-arch digest in addition to the list itself. Default true (production releases use multi-arch manifest lists). | bool | `true` | `$SIGN_RECURSIVE` |
+
+### `forge-ci container snapshot-images`
+
+plan, stage, publish and collect declared snapshot images
+
+#### `forge-ci container snapshot-images build`
+
+stage one planned architecture natively, after dependency validation; no uploads
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--plan` | Sets plan. (required) | string | `""` | n/a |
+| `--metadata-dir` | architecture-artifact root (<name>-arch-<arch>/layout and metadata) (required) | string | `""` | n/a |
+| `--name` | Sets name. (required) | string | `""` | n/a |
+| `--auth-file` | registry auth file used by buildah and the registry client; build-arch --stage pulls anonymously without one | string | `""` | `$FORGE_CI_IMAGE_AUTH_FILE` |
+| `--source-sha` | git commit SHA for the OCI revision label and default tag naming | string | `""` | `$SOURCE_SHA` |
+| `--server-url` | forge server URL used to derive the registry/repository | string | `""` | `$CI_SERVER_URL`, `$FORGEJO_SERVER_URL`, `$FORGEJO_SERVER`, `$GITHUB_SERVER_URL` |
+| `--repository` | owner/repo used to derive the image repository | string | `""` | `$REPOSITORY`, `$CI_REPO`, `$CI_PROJECT_PATH`, `$FORGEJO_REPOSITORY`, `$FORGEJO_REPO`, `$GITHUB_REPOSITORY` |
+| `--image-builder` | image builder type: buildah (default; rootless, needs user namespaces) or kaniko (for a pool that denies them; runs as root in the job image CI_IMAGE_BUILDER_JOB_IMAGE names, builds to a layout only, no load/local modes, no build secrets). Set CI_IMAGE_BUILDER on the repository to select it. | string | `"buildah"` | `$CI_IMAGE_BUILDER` |
+| `--kaniko-executor` | path of the kaniko executor (default /kaniko/executor) | string | `""` | `$KANIKO_EXECUTOR` |
+| `--arch` | Sets arch. (required) | string | `""` | n/a |
+| `--dependencies-file` | Sets dependencies file. | string | `"snapshot-dependencies.json"` | n/a |
+
+#### `forge-ci container snapshot-images build-artifact`
+
+build one frozen artifact with the existing ecosystem CLI, or prepare its already-built CI upload
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--plan` | Sets plan. (required) | string | `""` | n/a |
+| `--name` | Sets name. (required) | string | `""` | n/a |
+| `--output-dir` | Sets output dir. | string | `"_snapshot-artifacts"` | n/a |
+| `--from-artifact` | exact downloaded artifact directory; skips the ecosystem build | string | `""` | n/a |
+
+#### `forge-ci container snapshot-images collect`
+
+require exactly every planned image receipt and emit immutable digest references
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--plan` | Sets plan. (required) | string | `""` | n/a |
+| `--receipts-dir` | Sets receipts dir. (required) | string | `""` | n/a |
+| `--output` | Sets output. (required) | string | `""` | n/a |
+
+#### `forge-ci container snapshot-images context`
+
+record source-bound artifact identities, platforms and file digests after trusted artifact downloads
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--plan` | Sets plan. (required) | string | `""` | n/a |
+| `--output` | Sets output. | string | `"snapshot-dependencies.json"` | n/a |
+
+#### `forge-ci container snapshot-images gather-context`
+
+verify the complete producer set, install bound inputs and emit the frozen context bundle
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--plan` | Sets plan. (required) | string | `""` | n/a |
+| `--input-dir` | Sets input dir. | string | `"_snapshot-artifacts"` | n/a |
+| `--output` | Sets output. (required) | string | `""` | n/a |
+
+#### `forge-ci container snapshot-images plan`
+
+pin source and plan declared native snapshot images; no implicit root image
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--file` | Sets file. | string | `".forge-ci/artifacts.yml"` | n/a |
+| `--branch` | logical source branch (also for detached/manual checkouts) (required) | string | `""` | n/a |
+| `--source-sha` | Sets source sha. (required) | string | `""` | n/a |
+| `--image-repository` | full base OCI repository; configured image-name overrides its repository using the existing name rules (required) | string | `""` | n/a |
+| `--output` | Sets output. (required) | string | `""` | n/a |
+| `--publish` | enable declared images (false emits an empty disabled plan) | bool | `true` | n/a |
+
+#### `forge-ci container snapshot-images prepare-inputs`
+
+prepare exact already-built artifact downloads into bound producer outputs; no source rebuild
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--plan` | Sets plan. (required) | string | `""` | n/a |
+| `--artifact-dir` | Sets artifact dir. | string | `"_snapshot-downloads"` | n/a |
+| `--output-dir` | Sets output dir. | string | `"_snapshot-artifacts"` | n/a |
+
+#### `forge-ci container snapshot-images publish`
+
+verify and scan the complete planned platform set before upload; write one bound receipt
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--plan` | Sets plan. (required) | string | `""` | n/a |
+| `--metadata-dir` | architecture-artifact root (<name>-arch-<arch>/layout and metadata) (required) | string | `""` | n/a |
+| `--name` | Sets name. (required) | string | `""` | n/a |
+| `--auth-file` | registry auth file used by buildah and the registry client; build-arch --stage pulls anonymously without one | string | `""` | `$FORGE_CI_IMAGE_AUTH_FILE` |
+| `--source-sha` | git commit SHA for the OCI revision label and default tag naming | string | `""` | `$SOURCE_SHA` |
+| `--server-url` | forge server URL used to derive the registry/repository | string | `""` | `$CI_SERVER_URL`, `$FORGEJO_SERVER_URL`, `$FORGEJO_SERVER`, `$GITHUB_SERVER_URL` |
+| `--repository` | owner/repo used to derive the image repository | string | `""` | `$REPOSITORY`, `$CI_REPO`, `$CI_PROJECT_PATH`, `$FORGEJO_REPOSITORY`, `$FORGEJO_REPO`, `$GITHUB_REPOSITORY` |
+| `--registry-username` | registry username; the password is read from --registry-password-file or $REGISTRY_TOKEN / $REGISTRY_PASSWORD | string | `""` | `$REGISTRY_USER` |
+| `--registry-password-file` | file containing the registry password/token ("-" reads stdin); defaults to $REGISTRY_TOKEN then $REGISTRY_PASSWORD. The password never appears in argv. | string | `""` | n/a |
+| `--output` | Sets output. (required) | string | `""` | n/a |
+| `--evidence-dir` | retained scan and CycloneDX reports | string | `"snapshot-evidence"` | n/a |
+
+#### `forge-ci container snapshot-images read-plan`
+
+read typed snapshot transport fields, one value per line
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--plan` | Sets plan. (required) | string | `""` | n/a |
+| `--field` | Sets field. (required) | string | `""` | n/a |
+| `--name` | Sets name. | string | `""` | n/a |
+
+#### `forge-ci container snapshot-images restore-context`
+
+verify a frozen producer bundle and restore only its planned dependency files and inventory into the current checkout
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--plan` | Sets plan. (required) | string | `""` | n/a |
+| `--input` | Sets input. (required) | string | `""` | n/a |
 
 ### `forge-ci container suffix-extracted-binaries`
 
@@ -3787,7 +3915,7 @@ EXAMPLE:
 
 ### `forge-ci report snapshot-release`
 
-append the snapshot-release step-summary (job table, npm install snippet, and links)
+append the snapshot-release step-summary (job results, versioned packages, image digests, and links)
 
 ```
 EXAMPLE:
@@ -3805,6 +3933,8 @@ EXAMPLE:
 | `--build-stage-result-json` | inline JSON of the dev-build stage result table | string | `""` | `$BUILD_STAGE_RESULT_JSON` |
 | `--publish-stage-result-json` | inline JSON of the dev-publish stage result table | string | `""` | `$PUBLISH_STAGE_RESULT_JSON` |
 | `--snapshot-artifacts-json` | inline JSON listing the snapshot artifacts shown in the summary | string | `""` | `$SNAPSHOT_ARTIFACTS_JSON` |
+| `--snapshot-image-result` | snapshot image job result (success, failure, cancelled, skipped) | string | `""` | `$SNAPSHOT_IMAGE_RESULT` |
+| `--container-images-json` | source-bound snapshot image receipt inventory | string | `""` | `$CONTAINER_IMAGES_JSON` |
 | `--server-url` | CI server base URL (used to build artifact/run links) | string | `""` | `$CI_SERVER_URL`, `$FORGEJO_SERVER_URL`, `$FORGEJO_SERVER`, `$GITHUB_SERVER_URL` |
 
 ### `forge-ci report stage-result`
@@ -4507,7 +4637,7 @@ EXAMPLE:
 refuse to run when the workflow trigger is outside the publish/release allowlist
 
 ```
-Defense-in-depth guard placed at the entry of every privileged publish/release workflow. Reads the trigger event and refuses any trigger outside the allowlist — most importantly the pull_request* family, which would otherwise run with the caller's signing/package/API secrets attached to PR-HEAD code. Default allowlist: push, workflow_dispatch, release, schedule, workflow_run, merge_group. Adopters with legitimate PR-context publish needs (preview deploys) override via --allowed-events on the step.
+Defense-in-depth guard placed at the entry of every privileged publish/release workflow. Reads the trigger event and refuses any trigger outside the allowlist — most importantly the pull_request* family, which would otherwise run with the caller's signing/package/API secrets attached to PR-HEAD code. Default allowlist: push, workflow_dispatch, release, schedule, workflow_run, merge_group. Adopters with legitimate PR-context publish needs (preview deploys) override via --allowed-events on the step. Forgejo reusable calls resolve the original trigger from authenticated current-run metadata bound to the runner repository, run ID and source SHA; missing or ambiguous metadata is refused. An event-name override cannot relabel those reusable calls.
 
 EXAMPLE:
    # Reads $FORGEJO_EVENT_NAME / $GITHUB_EVENT_NAME, or the detected provider's
@@ -4977,6 +5107,7 @@ EXAMPLE:
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
+| `--container-tag` | emit <base>-<sanitized-branch>-<shortsha>-snapshot as a bounded OCI tag | bool | `false` | n/a |
 | `--ref-name` | source branch / ref to sanitise into the snapshot-version suffix | string | `""` | `$REF_NAME`, `$CI_REF_NAME`, `$FORGEJO_REF_NAME`, `$GITHUB_REF_NAME` |
 
 ### `forge-ci version render-changelog`

@@ -1171,9 +1171,56 @@ force.
 
 ## Snapshots
 
-The Forgejo layer has no snapshot flow: there is no counterpart of GitHub's
-`release-snapshot-orchestrator.yml`. A branch build is the consumer's own
-workflow, for example a push-triggered job with `build-go`.
+`.forgejo/workflows/snapshot-images.yml` publishes declared development containers
+using the [shared snapshot contract](workflows.md#snapshot-container-contract-all-three-forges).
+`publish-containers` defaults to `true`; set it explicitly to `false` to opt out.
+Pass `branch` explicitly for push or manual developer-branch selection. The layer
+freezes that branch to one SHA, uses native amd64/arm64 runners, stages without
+registry publication credentials, waits for all builds and collects the exact
+image receipt set. Tags always include the original branch hash and finish with
+lower-case `-snapshot`; no stable aliases, promotions or signing are performed.
+
+Call the reusable workflow from the trusted, SHA-pinned layer repository. Supply
+matching `forge-ci-sha`, `forge-ci-repository`, `image-repository`, `registry-user`
+and JSON-encoded `runner-label` (plus `runner-label-arm64` for arm64). Pass only
+`SNAPSHOT_REGISTRY_PASSWORD` as the publication secret. Builder selection follows
+the organization's `CI_IMAGE_BUILDER` and admitted kaniko job-image policy.
+Outputs are `source-sha` and `container-images-json`.
+
+Artifact-first dependencies are built automatically by the required producer
+matrix, using the existing Go, Cargo, Maven, Gradle JVM and npm builders. The
+shared plan binds `artifacts[]`, source SHA and `source_date_epoch`; shared Go
+commands gather producer outputs and restore validated inputs before image builds.
+Source-only/container-only plans need no artifact producers.
+
+Optional `artifact-job-image-go`, `artifact-job-image-java`,
+`artifact-job-image-node` and `artifact-job-image-rust` inputs select trusted
+digest-pinned producer toolchain images. They fall back to repository variables
+`SNAPSHOT_ARTIFACT_JOB_IMAGE_GO`, `SNAPSHOT_ARTIFACT_JOB_IMAGE_JAVA`,
+`SNAPSHOT_ARTIFACT_JOB_IMAGE_NODE` and `SNAPSHOT_ARTIFACT_JOB_IMAGE_RUST`,
+respectively. When unset, producers use the existing amd64 host tools.
+
+`context-artifact` is an advanced same-run prepared-context override, not a
+requirement for artifact-backed containers. Its producer must finish before the
+reusable call, build at the frozen SHA and use `gather-context` to emit the bundle:
+
+```text
+source-sha
+snapshot-plan.json
+manifest.sha256
+files/snapshot-dependencies.json
+files/<prepared artifact destinations>
+```
+
+The shared Go `restore-context` command verifies the exact plan, source identity,
+manifest and dependency inventory, including names, platforms, sizes, digests and
+canonical string modes `0644`/`0755`. It restores only confined planned paths;
+shell adapters transport artifacts rather than implement context validation.
+Retain the producer's inventory rather than regenerating it after transport.
+Npm tarballs use `<context>/.forge-ci/snapshot-inputs/<name>`; see the
+[shared input contract](workflows.md#automatic-artifact-first-inputs).
+Build secrets, binary extraction and explicit snapshot OCI signing/provenance
+requests remain unsupported. Scan severity and image SBOM policy are independent.
 
 ## Signing
 
@@ -1640,7 +1687,7 @@ Not supported yet, and known:
 
 Not in the layer:
 
-- A snapshot flow, a MegaLinter action, and SARIF ingestion.
+- A MegaLinter action and SARIF ingestion.
 - Builds other than Go, Cargo and Maven: no Gradle, npm or Xcode action.
 - Publication to the forge's package registry.
 - Committed version bumps for project files other than Maven's POMs.

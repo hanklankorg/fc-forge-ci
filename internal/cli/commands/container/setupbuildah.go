@@ -20,11 +20,17 @@ func setupBuildahCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "setup-buildah",
 		Usage: "install Buildah runtime packages and configure job-local storage",
-		Description: `Installs missing Buildah/fuse-overlayfs packages when requested,
+		Description: `Installs missing buildah, fuse-overlayfs, netavark and aardvark-dns packages when requested,
 writes a job-local containers storage config, prefers overlay/fuse-overlayfs only
 after buildah info and an optional layered build probe succeed, and falls back to
 vfs. Emits CONTAINERS_STORAGE_CONF and TMPDIR to the runner env file for later CI
 steps.
+
+Networking helpers are required independently of the storage driver. netavark
+provides container networking and aardvark-dns provides its DNS support. Helpers
+in /usr/lib/podman or /usr/libexec/podman are recognized even outside PATH.
+With --install-packages=false, provision these runtime packages in the image;
+probe failures retain Buildah's diagnostic for missing helpers.
 
 The temp directory is an existing scratch parent, which may be a shared /tmp:
 the storage goes into a new private directory created under it. Storage
@@ -37,7 +43,7 @@ EXAMPLE:
    forge-ci container setup-buildah --extra-packages "jq skopeo" --summary`,
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "extra-packages", Sources: cli.EnvVars("SETUP_BUILDAH_EXTRA_PACKAGES"), Usage: "whitespace-separated additional apt packages to install"},
-			&cli.BoolFlag{Name: "install-packages", Value: true, Sources: cli.EnvVars("SETUP_BUILDAH_INSTALL_PACKAGES"), Usage: "install missing Buildah/fuse-overlayfs/extra packages with apt-get"},
+			&cli.BoolFlag{Name: "install-packages", Value: true, Sources: cli.EnvVars("SETUP_BUILDAH_INSTALL_PACKAGES"), Usage: "install missing buildah/fuse-overlayfs/netavark/aardvark-dns/extra packages with apt-get"},
 			&cli.BoolFlag{Name: "probe-build", Value: true, Sources: cli.EnvVars("SETUP_BUILDAH_PROBE_BUILD"), Usage: "validate storage with a layered build probe that writes into a directory its base image owns"},
 			&cli.BoolFlag{Name: "print-store", Sources: cli.EnvVars("CONTAINER_STORAGE_PRINT_STORE"), Usage: "print selected buildah storage details after setup"},
 			&cli.BoolFlag{Name: "summary", Sources: cli.EnvVars("CONTAINER_STORAGE_SUMMARY"), Usage: "append selected storage details to the step summary"},

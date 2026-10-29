@@ -42,6 +42,9 @@ func TestSnapshotReleaseSummary_NPMHappyPath(t *testing.T) {
 	}
 
 	body := sink.buf.String()
+	if strings.Contains(body, "npm install my-pkg@dev") || strings.Contains(body, "tagged with `dev`") {
+		t.Fatalf("summary advertises a moving alias: %s", body)
+	}
 	for _, want := range []string{
 		"# Dev Release Summary",
 		"| **Project Type** | `npm` |",
@@ -52,10 +55,9 @@ func TestSnapshotReleaseSummary_NPMHappyPath(t *testing.T) {
 		"### NPM Package",
 		"my-pkg@0.0.0-dev.abc",
 		"npm install my-pkg@0.0.0-dev.abc",
-		"npm install my-pkg@dev",
 		"- [Packages](https://github.com/owner/repo/packages)",
 		"- [Workflow Run](https://example.com/run/1)",
-		"These are development artifacts",
+		"These are versioned development snapshots",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q\nfull:\n%s", want, body)
@@ -156,12 +158,7 @@ func TestSnapshotReleaseSummary_NonNPMProjectHidesNPMSections(t *testing.T) {
 // header block and the resource links, which are derived from the release ref,
 // SHA, actor and repository rather than from any stage result.
 //
-// It was previously named for a container row, and the assertions never
-// looked for one. There is none to look for, and that is correct rather than a
-// gap: pipeline.DevPublishTargets has no containers field, because the dev
-// flow builds no containers -- they are promoted to :dev on the release path
-// by the build-once/promote-many ladder. ReleaseSummary renders a "Containers"
-// row because its stage plan has that target; this one does not.
+// Snapshot images have their own job result, independent of package stage targets.
 func TestSnapshotReleaseSummary_RendersBuildInformationAndResources(t *testing.T) {
 	t.Parallel()
 

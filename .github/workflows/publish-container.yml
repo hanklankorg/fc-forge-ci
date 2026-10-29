@@ -252,9 +252,9 @@ on:
         required: false
         type: string
       forge-ci-binary-ref:
-        description: "forge-ci ref/version to install on plain-runner jobs (defaults to v0.90.0)"
+        description: "forge-ci ref/version to install; empty resolves the current stable release tag once"
         required: false
-        default: "v0.90.0"
+        default: ""
         type: string
       sign-image:
         description: "Sign the pushed image with cosign. Method controlled by sign-method (sigstore | kms). false skips the signing step entirely; gpg method is rejected (OpenPGP cannot sign OCI manifests)."
@@ -334,7 +334,14 @@ env:
   SIGN_ENABLED: ${{ inputs['sign-image'] }}
   TRANSPARENCY_LOG: ${{ inputs['transparency-log'] }}
 jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   prep:
+    needs: [resolve-bootstrap]
     name: Prepare Build${{ inputs.name && format(' ({0})', inputs.name) || '' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 5
@@ -383,10 +390,11 @@ jobs:
         with:
           ref: ${{ inputs.branch }}
       - name: Checkout forge-ci bootstrap installers
+        id: forge-ci-bootstrap
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
-          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
           path: .github-shared
           sparse-checkout: scripts/bootstrap
       # Tagged refs (vN.N.N) install from GitHub Releases with SHA-256
@@ -395,7 +403,8 @@ jobs:
       # absent.
       - name: Install forge-ci binary
         env:
-          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          FORGE_CI_SOURCE_SHA: ${{ steps.forge-ci-bootstrap.outputs.commit }}
           FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
         run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
       # Defense-in-depth gate: refuse to run when the workflow trigger
@@ -504,7 +513,7 @@ jobs:
         run: forge-ci container platform-plan
   build-arch:
     name: Build${{ inputs.name && format(' ({0})({1})', inputs.name, matrix.platform) || format(' ({0})', matrix.platform) }}
-    needs: prep
+    needs: [resolve-bootstrap, prep]
     # linux/arm64 -> ubuntu-26.04-arm (native ARM hosted runner). Anything
     # else falls through to ubuntu-26.04. No QEMU emulation in either path.
     runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-26.04-arm' || 'ubuntu-26.04' }}
@@ -537,10 +546,11 @@ jobs:
         with:
           ref: ${{ needs.prep.outputs.source-sha }}
       - name: Checkout forge-ci bootstrap installers
+        id: forge-ci-bootstrap
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
-          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
           path: .github-shared
           sparse-checkout: scripts/bootstrap
       # Tagged refs (vN.N.N) install from GitHub Releases with SHA-256
@@ -549,7 +559,8 @@ jobs:
       # absent.
       - name: Install forge-ci binary
         env:
-          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          FORGE_CI_SOURCE_SHA: ${{ steps.forge-ci-bootstrap.outputs.commit }}
           FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
         run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
       - name: Derive arch suffix
@@ -872,7 +883,7 @@ jobs:
 
   publish-images:
     name: Publish verified image layouts
-    needs: [prep, build-arch]
+    needs: [resolve-bootstrap, prep, build-arch]
     if: ${{ inputs['push-image'] }}
     runs-on: ubuntu-26.04
     timeout-minutes: 30
@@ -888,15 +899,17 @@ jobs:
         with:
           egress-policy: ${{ inputs.egress-policy }}
       - name: Checkout forge-ci bootstrap installers
+        id: forge-ci-bootstrap
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
-          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
           path: .github-shared
           sparse-checkout: scripts/bootstrap
       - name: Install forge-ci binary
         env:
-          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          FORGE_CI_SOURCE_SHA: ${{ steps.forge-ci-bootstrap.outputs.commit }}
           FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
         run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
       - name: Download complete layout set
@@ -931,7 +944,7 @@ jobs:
 
   image-evidence:
     name: Image evidence (${{ matrix.platform }})
-    needs: [prep, publish-images]
+    needs: [resolve-bootstrap, prep, publish-images]
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     strategy:
@@ -953,15 +966,17 @@ jobs:
         with:
           ref: ${{ needs.prep.outputs.source-sha }}
       - name: Checkout forge-ci bootstrap installers
+        id: forge-ci-bootstrap
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
-          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
           path: .github-shared
           sparse-checkout: scripts/bootstrap
       - name: Install forge-ci binary
         env:
-          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          FORGE_CI_SOURCE_SHA: ${{ steps.forge-ci-bootstrap.outputs.commit }}
           FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
         run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
       - name: Derive arch suffix
@@ -1056,7 +1071,7 @@ jobs:
 
   merge:
     name: Merge Manifest${{ inputs.name && format(' ({0})', inputs.name) || '' }}
-    needs: [prep, image-evidence]
+    needs: [resolve-bootstrap, prep, image-evidence]
     if: ${{ inputs['push-image'] }}
     runs-on: ubuntu-26.04
     timeout-minutes: 10
@@ -1079,10 +1094,11 @@ jobs:
         with:
           egress-policy: ${{ inputs.egress-policy }}
       - name: Checkout forge-ci bootstrap installers
+        id: forge-ci-bootstrap
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
-          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
           path: .github-shared
           sparse-checkout: scripts/bootstrap
       # Tagged refs (vN.N.N) install from GitHub Releases with SHA-256
@@ -1091,7 +1107,8 @@ jobs:
       # absent.
       - name: Install forge-ci binary
         env:
-          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          FORGE_CI_SOURCE_SHA: ${{ steps.forge-ci-bootstrap.outputs.commit }}
           FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
         run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
       - name: Download digests

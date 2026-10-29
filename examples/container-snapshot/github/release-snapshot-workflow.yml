@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: The Forge CI Authors
+# SPDX-License-Identifier: CC0-1.0
+name: Container snapshot
+on:
+  workflow_dispatch:
+    inputs:
+      source-branch:
+        description: Developer branch to snapshot (empty uses the selected workflow branch)
+        required: false
+        default: ''
+        type: string
+  push:
+    branches: ['develop', 'feature/**']
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    uses: diggsweden/forge-ci/.github/workflows/release-snapshot-orchestrator.yml@v0.90.0
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    with:
+      branch: ${{ inputs.source-branch || github.ref_name }}
+      forge-ci-binary-ref: v0.90.0
+      artifacts-config: .forge-ci/artifacts.yml

@@ -14,13 +14,13 @@
 # 4. Optionally generates SBOMs when the `sboms` input opts in
 # 5. Skips release-only features (SLSA, signing, GitHub releases)
 #
-# Note: the snapshot flow builds no containers. A container is built ONCE on
-# the release path and promoted to :dev by the build-once/promote-many ladder
-# (promote-stage.yml). Snapshots build configured artifact-first ecosystems,
-# optionally publish npm, and optionally generate SBOMs.
+# Declared containers publish by default from the same resolved commit as the
+# artifact builds. Snapshot image tags end in -snapshot and never move release
+# aliases or the production promotion ladder. Scanning and image SBOMs follow
+# each container's configuration; package SBOM selection is independent.
 #
 # Security controls:
-# - Minimal - focused on speed over security for development
+# - Refuse pull-request publication; isolate image builds from registry secrets
 # - Packages clearly marked with -snap namespace / snapshot tag
 # - No production attestations or signing
 #
@@ -40,7 +40,7 @@
 #   - Snapshot tags (0.5.9-snapshot-feat-name-abc1234) vs version tags
 #   - No SLSA attestation
 #   - SBOM generation defaults to none; opt in with `sboms`
-#   - No vulnerability scanning
+#   - Container scanning follows configuration
 #   - No artifact signing
 #   - No GitHub release
 #   - ~3-5 min vs ~12-15 min build time
@@ -63,9 +63,20 @@ on:
         default: ""
         type: string
       registry:
-        description: "Registry forwarded to the snapshot plan context (default ghcr.io). The snapshot flow builds artifact-first ecosystems but no containers."
+        description: "Snapshot container registry (default ghcr.io)"
         required: false
         default: "ghcr.io"
+        type: string
+      publish-containers:
+        description: "Publish declared snapshot containers; false is an explicit opt-out"
+        default: true
+        type: boolean
+      container-image-repository:
+        description: "Base image repository override; empty uses <registry>/<owner>/<repository>"
+        default: ""
+        type: string
+      container-registry-user:
+        default: ""
         type: string
       working-directory:
         description: "Working directory"
@@ -113,44 +124,44 @@ on:
         default: true
         type: boolean
       forge-ci-binary-ref:
-        description: "forge-ci ref/version passed to downstream plain-runner jobs (defaults to v0.90.0)"
+        description: "forge-ci ref/version passed downstream; empty resolves the current stable release tag once"
         required: false
-        default: "v0.90.0"
+        default: ""
         type: string
       runtime-image:
-        description: "forge-ci base runtime image for control-plane jobs. Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci base runtime image for control-plane jobs. Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0"
+        default: ""
         type: string
       runtime-image-full:
-        description: "forge-ci full runtime image for SBOM-capable snapshot publish jobs. Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci full runtime image for SBOM-capable snapshot publish jobs. Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime:v0.90.0"
+        default: ""
         type: string
       runtime-image-java:
-        description: "forge-ci Java runtime image for Maven/Gradle jobs. Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci Java runtime image for Maven/Gradle jobs. Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-java-25:v0.90.0"
+        default: ""
         type: string
       runtime-image-node:
-        description: "forge-ci Node runtime image for NPM jobs. Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci Node runtime image for NPM jobs. Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-node-24:v0.90.0"
+        default: ""
         type: string
       runtime-image-rust:
-        description: "forge-ci Rust runtime image for Cargo build + SBOM jobs (build-cargo.yml for artefact-first, sbom-cargo.yml for container-first). Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci Rust runtime image for Cargo build + SBOM jobs (build-cargo.yml for artefact-first, sbom-cargo.yml for container-first). Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-rust-stable:v0.90.0"
+        default: ""
         type: string
       runtime-image-go:
-        description: "forge-ci Go runtime image for Go build/SBOM jobs. Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci Go runtime image for Go build/SBOM jobs. Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-go-1.27:v0.90.0"
+        default: ""
         type: string
       runtime-image-android:
-        description: "forge-ci Android runtime image for Gradle Android jobs. Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci Android runtime image for Gradle Android jobs. Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-android-35:v0.90.0"
+        default: ""
         type: string
       sboms:
         description: "SBOMs to generate: all | none | comma-list of build,analyzed-artifact,analyzed-container (default: none for snapshot speed; set to 'all' to test SBOM wiring)"
@@ -163,6 +174,9 @@ on:
     # GITHUB_TOKEN auto-provided + the external registry-password).
     # All `required: false` — `secrets: inherit` callers unchanged.
     secrets:
+      container-registry-password:
+        description: "OCI registry credential; GitHub token is used for GHCR when omitted"
+        required: false
       MAVEN_CENTRAL_USERNAME:
         required: false
       MAVEN_CENTRAL_PASSWORD:
@@ -201,6 +215,9 @@ on:
         description: "Base64-encoded xcconfig file"
         required: false
     outputs:
+      container-images-json:
+        description: "Complete source-bound snapshot image inventory with immutable digest refs"
+        value: ${{ jobs.execute-snapshot-images.outputs.container-images-json }}
       npm-package-name:
         description: "Published NPM package name (if published)"
         value: ${{ fromJson(jobs.execute-snapshot-publish-stage.outputs['artifacts-json'] || '{}').npm_package_name }}
@@ -210,16 +227,24 @@ on:
 permissions:
   contents: read # Default permission; individual jobs declare additions.
 jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+
   # ===== Stage 0: Configuration And Policy =====
   # Single Setup job mirroring release-orchestrator.yml's parse-config shape.
   # Conditionally parses artifacts.yml when `artifacts-config` is set
   # (multi-artefact path); always composes the snapshot control-plane interface
   # consumed by every later stage.
   setup-snapshot:
+    needs: [resolve-bootstrap]
     name: Setup
     runs-on: ubuntu-26.04
     container:
-      image: ${{ inputs['runtime-image'] }}
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
     permissions:
       contents: read
     outputs:
@@ -260,7 +285,7 @@ jobs:
           NODE_VERSION: ${{ inputs['node-version'] }}
           RUST_TOOLCHAIN: ${{ inputs['rust-toolchain'] }}
           REGISTRY: ${{ inputs.registry }}
-          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
           NPM_REGISTRY: ${{ inputs['npm-registry'] }}
           PACKAGE_SCOPE: ${{ inputs['package-scope'] }}
           SBOMS: ${{ inputs.sboms }}
@@ -272,7 +297,7 @@ jobs:
   # ===== Stage 1: Build =====
   execute-snapshot-build-stage:
     name: Build
-    needs: [setup-snapshot]
+    needs: [resolve-bootstrap, setup-snapshot]
     if: ${{ !failure() && !cancelled() }}
     permissions:
       contents: read
@@ -292,19 +317,19 @@ jobs:
     with:
       snapshot-release-plan-json: ${{ needs.setup-snapshot.outputs.snapshot-release-plan-json }}
       snapshot-build-stage-plan-json: ${{ needs.setup-snapshot.outputs.snapshot-build-stage-plan-json }}
-      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
-      runtime-image: ${{ inputs['runtime-image'] }}
-      runtime-image-java: ${{ inputs['runtime-image-java'] }}
-      runtime-image-node: ${{ inputs['runtime-image-node'] }}
-      runtime-image-go: ${{ inputs['runtime-image-go'] }}
-      runtime-image-android: ${{ inputs['runtime-image-android'] }}
-      runtime-image-rust: ${{ inputs['runtime-image-rust'] }}
+      forge-ci-binary-ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+      runtime-image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
+      runtime-image-java: ${{ inputs['runtime-image-java'] || needs.resolve-bootstrap.outputs['runtime-image-java'] }}
+      runtime-image-node: ${{ inputs['runtime-image-node'] || needs.resolve-bootstrap.outputs['runtime-image-node'] }}
+      runtime-image-go: ${{ inputs['runtime-image-go'] || needs.resolve-bootstrap.outputs['runtime-image-go'] }}
+      runtime-image-android: ${{ inputs['runtime-image-android'] || needs.resolve-bootstrap.outputs['runtime-image-android'] }}
+      runtime-image-rust: ${{ inputs['runtime-image-rust'] || needs.resolve-bootstrap.outputs['runtime-image-rust'] }}
       sboms: ${{ inputs.sboms }}
 
   # ===== Stage 2: Publish =====
   execute-snapshot-publish-stage:
     name: Publish
-    needs: [setup-snapshot, execute-snapshot-build-stage]
+    needs: [resolve-bootstrap, setup-snapshot, execute-snapshot-build-stage]
     if: ${{ !failure() && !cancelled() }}
     permissions:
       actions: read
@@ -322,28 +347,55 @@ jobs:
     uses: ./.github/workflows/release-snapshot-publish-stage.yml
     with:
       snapshot-release-plan-json: ${{ needs.setup-snapshot.outputs.snapshot-release-plan-json }}
-      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
-      runtime-image: ${{ inputs['runtime-image-full'] }}
-      runtime-image-java: ${{ inputs['runtime-image-java'] }}
-      runtime-image-node: ${{ inputs['runtime-image-node'] }}
-      runtime-image-rust: ${{ inputs['runtime-image-rust'] }}
-      runtime-image-go: ${{ inputs['runtime-image-go'] }}
+      forge-ci-binary-ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+      runtime-image: ${{ inputs['runtime-image-full'] || needs.resolve-bootstrap.outputs['runtime-image-full'] }}
+      runtime-image-java: ${{ inputs['runtime-image-java'] || needs.resolve-bootstrap.outputs['runtime-image-java'] }}
+      runtime-image-node: ${{ inputs['runtime-image-node'] || needs.resolve-bootstrap.outputs['runtime-image-node'] }}
+      runtime-image-rust: ${{ inputs['runtime-image-rust'] || needs.resolve-bootstrap.outputs['runtime-image-rust'] }}
+      runtime-image-go: ${{ inputs['runtime-image-go'] || needs.resolve-bootstrap.outputs['runtime-image-go'] }}
       snapshot-publish-stage-plan-json: ${{ needs.setup-snapshot.outputs.snapshot-publish-stage-plan-json }}
       artifact-transfer-plan-json: ${{ needs.setup-snapshot.outputs.artifact-transfer-plan-json }}
       build-result-json: ${{ needs.execute-snapshot-build-stage.outputs.result-json }}
       sboms: ${{ inputs.sboms }}
 
+  execute-snapshot-images:
+    name: Snapshot images
+    needs: [resolve-bootstrap, setup-snapshot, execute-snapshot-build-stage]
+    if: ${{ !failure() && !cancelled() }}
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    uses: ./.github/workflows/snapshot-images.yml
+    with:
+      branch: ${{ fromJson(needs.setup-snapshot.outputs.snapshot-release-plan-json).context.branch }}
+      source-sha: ${{ fromJson(needs.setup-snapshot.outputs.snapshot-release-plan-json).context.release_sha }}
+      artifacts-config: ${{ inputs['artifacts-config'] }}
+      publish-containers: ${{ inputs['publish-containers'] }}
+      image-repository: ${{ inputs['container-image-repository'] || (inputs.registry != 'ghcr.io' && format('{0}/{1}', inputs.registry, github.repository)) || '' }}
+      registry-user: ${{ inputs['container-registry-user'] }}
+      forge-ci-binary-ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+      use-build-artifacts: true
+      runtime-image-go: ${{ inputs['runtime-image-go'] || needs.resolve-bootstrap.outputs['runtime-image-go'] }}
+      runtime-image-java: ${{ inputs['runtime-image-java'] || needs.resolve-bootstrap.outputs['runtime-image-java'] }}
+      runtime-image-node: ${{ inputs['runtime-image-node'] || needs.resolve-bootstrap.outputs['runtime-image-node'] }}
+      runtime-image-rust: ${{ inputs['runtime-image-rust'] || needs.resolve-bootstrap.outputs['runtime-image-rust'] }}
+    secrets:
+      registry-password: ${{ secrets['container-registry-password'] }}
+
   # ===== Stage 3: Summary =====
   snapshot-release-summary:
     name: Snapshot Summary
     needs:
+      - execute-snapshot-images
+      - resolve-bootstrap
       - setup-snapshot
       - execute-snapshot-build-stage
       - execute-snapshot-publish-stage
-    if: always()
+    if: always() && needs.resolve-bootstrap.result == 'success'
     runs-on: ubuntu-26.04
     container:
-      image: ${{ inputs['runtime-image'] }}
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
     permissions:
       contents: read
     steps:
@@ -363,4 +415,6 @@ jobs:
           BUILD_STAGE_RESULT_JSON: ${{ needs.execute-snapshot-build-stage.outputs.result-json }}
           PUBLISH_STAGE_RESULT_JSON: ${{ needs.execute-snapshot-publish-stage.outputs.result-json }}
           SNAPSHOT_ARTIFACTS_JSON: ${{ needs.execute-snapshot-publish-stage.outputs.artifacts-json }}
+          SNAPSHOT_IMAGE_RESULT: ${{ needs.execute-snapshot-images.result }}
+          CONTAINER_IMAGES_JSON: ${{ needs.execute-snapshot-images.outputs.container-images-json }}
         run: forge-ci report snapshot-release

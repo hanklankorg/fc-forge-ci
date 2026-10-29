@@ -51,6 +51,8 @@ path = [
   "docs/workflow-design-policy.md",
   "docs/workflows.md",
   "examples/README.md",
+  "examples/container-snapshot/README.md",
+  "examples/container-snapshot/hello.txt",
   "examples/android-app/README.md",
   "examples/cargo-app/README.md",
   "examples/gradle-app/README.md",

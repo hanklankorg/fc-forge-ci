@@ -1,0 +1,491 @@
+# SPDX-FileCopyrightText: The Forge CI Authors
+# SPDX-License-Identifier: CC0-1.0
+# workflow-call-secrets-contract: SNAPSHOT_REGISTRY_PASSWORD
+name: Snapshot images (reusable)
+on:
+  workflow_call:
+    inputs:
+      branch:
+        description: Logical source branch, including for manually dispatched callers. Resolved once.
+        type: string
+        required: true
+      publish-containers:
+        type: boolean
+        default: true
+      artifacts-config:
+        type: string
+        default: .forge-ci/artifacts.yml
+      image-repository:
+        description: Trusted full base OCI repository.
+        type: string
+        required: true
+      registry-user:
+        type: string
+        required: true
+      forge-ci-repository:
+        description: Layer repository, owner/repository on this forge or full HTTPS clone URL.
+        type: string
+        required: false
+        default: ''
+      forge-ci-sha:
+        description: Exact layer SHA, matching the caller's workflow pin.
+        type: string
+        required: true
+      runner-label:
+        type: string
+        required: true
+      runner-label-arm64:
+        type: string
+        default: ''
+      artifact-job-image-go:
+        description: Trusted digest-pinned Go toolchain image. Empty uses existing amd64 host tools.
+        type: string
+        default: ''
+      artifact-job-image-java:
+        description: Trusted digest-pinned Maven/Gradle JVM toolchain image. Empty uses existing amd64 host tools.
+        type: string
+        default: ''
+      artifact-job-image-node:
+        description: Trusted digest-pinned npm toolchain image. Empty uses existing amd64 host tools.
+        type: string
+        default: ''
+      artifact-job-image-rust:
+        description: Trusted digest-pinned Cargo toolchain image. Empty uses existing amd64 host tools.
+        type: string
+        default: ''
+      context-artifact:
+        description: Advanced same-run prepared-context override; empty automatically builds and gathers all required artifact-first dependencies.
+        type: string
+        default: ''
+      artifact-name:
+        description: Unique namespace when calling this workflow more than once in a run.
+        type: string
+        default: snapshot-images
+    outputs:
+      source-sha:
+        value: ${{ jobs.plan.outputs.source-sha }}
+      container-images-json:
+        value: ${{ jobs.collect.outputs.container-images-json }}
+env:
+  FORGE_CI_PROVIDER: forgejo
+  SNAPSHOT_SERVER: ${{ forgejo.server_url }}
+  SNAPSHOT_REPOSITORY: ${{ forgejo.repository }}
+  SNAPSHOT_ENGINE_SHA: ${{ inputs['forge-ci-sha'] }}
+  SNAPSHOT_NAMESPACE: ${{ inputs['artifact-name'] }}
+jobs:
+  coordinates:
+    runs-on: ${{ fromJSON(inputs['runner-label']) }}
+    outputs:
+      helpers_repository: ${{ steps.validate.outputs.helpers_repository }}
+      builder: ${{ steps.validate.outputs.builder }}
+      builder_job_image: ${{ steps.validate.outputs.builder_job_image }}
+      artifact_job_image_go: ${{ steps.validate.outputs.artifact_job_image_go }}
+      artifact_job_image_java: ${{ steps.validate.outputs.artifact_job_image_java }}
+      artifact_job_image_node: ${{ steps.validate.outputs.artifact_job_image_node }}
+      artifact_job_image_rust: ${{ steps.validate.outputs.artifact_job_image_rust }}
+    steps:
+      - name: Validate layer and native builder coordinates
+        id: validate
+        env:
+          HELPERS_REPOSITORY_INPUT: ${{ inputs['forge-ci-repository'] || vars.FORGE_CI_REPOSITORY }}
+          SERVER_URL: ${{ forgejo.server_url }}
+          BUILDER_INPUT: ${{ vars.CI_IMAGE_BUILDER }}
+          BUILDER_JOB_IMAGE_INPUT: ${{ vars.CI_IMAGE_BUILDER_JOB_IMAGE }}
+          ARTIFACT_JOB_IMAGE_GO_INPUT: ${{ inputs['artifact-job-image-go'] || vars.SNAPSHOT_ARTIFACT_JOB_IMAGE_GO }}
+          ARTIFACT_JOB_IMAGE_JAVA_INPUT: ${{ inputs['artifact-job-image-java'] || vars.SNAPSHOT_ARTIFACT_JOB_IMAGE_JAVA }}
+          ARTIFACT_JOB_IMAGE_NODE_INPUT: ${{ inputs['artifact-job-image-node'] || vars.SNAPSHOT_ARTIFACT_JOB_IMAGE_NODE }}
+          ARTIFACT_JOB_IMAGE_RUST_INPUT: ${{ inputs['artifact-job-image-rust'] || vars.SNAPSHOT_ARTIFACT_JOB_IMAGE_RUST }}
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          repository=${HELPERS_REPOSITORY_INPUT:-}
+          if [ -z "${repository}" ]; then
+            echo 'ERROR: name the forge-ci-repository input or FORGE_CI_REPOSITORY variable' >&2
+            exit 1
+          fi
+          if [[ "${repository}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+            repository="${SERVER_URL:?}/${repository}.git"
+          fi
+          rest=${repository#https://}
+          authority=${rest%%/*}
+          path=${rest#*/}
+          slug=${path%.git}
+          if [[ "${repository}" != https://* || "${repository}" == *'?'* || "${repository}" == *'#'* ||
+            "${rest}" != */* || "${authority}" == *@* || "${path}" == *\\* ||
+            ! "${repository}" =~ ^[[:graph:]]+$ ||
+            ! "${slug}" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$ ||
+            "/${slug}/" == *'/./'* || "/${slug}/" == *'/../'* ||
+            ! "${authority}" =~ ^([A-Za-z0-9][A-Za-z0-9.-]*|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?$ ]]; then
+            echo 'ERROR: forge-ci-repository must be owner/repository or a credential-free HTTPS clone URL' >&2
+            exit 1
+          fi
+          if [[ "${authority}" =~ :([0-9]{1,5})$ ]]; then
+            port=${BASH_REMATCH[1]}
+            ((10#${port} > 0 && 10#${port} < 65536))
+          fi
+          builder=${BUILDER_INPUT:-buildah}
+          builder_job_image=
+          case "${builder}" in
+            buildah) ;;
+            kaniko)
+              builder_job_image=${BUILDER_JOB_IMAGE_INPUT:-}
+              [[ "${builder_job_image}" =~ ^[a-z0-9]+([.-][a-z0-9]+)*(:[0-9]+)?/([a-z0-9]+(([._]|__|-+)[a-z0-9]+)*/)*[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?@sha256:[0-9a-f]{64}$ ]]
+              ;;
+            *) echo 'ERROR: CI_IMAGE_BUILDER must be buildah or kaniko' >&2; exit 1 ;;
+          esac
+          for image in "${ARTIFACT_JOB_IMAGE_GO_INPUT:-}" "${ARTIFACT_JOB_IMAGE_JAVA_INPUT:-}" "${ARTIFACT_JOB_IMAGE_NODE_INPUT:-}" "${ARTIFACT_JOB_IMAGE_RUST_INPUT:-}"; do
+            if [ -n "${image}" ] && [[ ! "${image}" =~ ^[a-z0-9]+([.-][a-z0-9]+)*(:[0-9]+)?/([a-z0-9]+(([._]|__|-+)[a-z0-9]+)*/)*[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?@sha256:[0-9a-f]{64}$ ]]; then
+              echo 'ERROR: snapshot artifact job images must be full digest-pinned OCI references' >&2
+              exit 1
+            fi
+          done
+          {
+            printf 'helpers_repository=%s\n' "${repository}"
+            printf 'builder=%s\n' "${builder}"
+            printf 'builder_job_image=%s\n' "${builder_job_image}"
+            if [ -n "${ARTIFACT_JOB_IMAGE_GO_INPUT:-}" ]; then printf 'artifact_job_image_go=%s\n' "${ARTIFACT_JOB_IMAGE_GO_INPUT}"; fi
+            if [ -n "${ARTIFACT_JOB_IMAGE_JAVA_INPUT:-}" ]; then printf 'artifact_job_image_java=%s\n' "${ARTIFACT_JOB_IMAGE_JAVA_INPUT}"; fi
+            if [ -n "${ARTIFACT_JOB_IMAGE_NODE_INPUT:-}" ]; then printf 'artifact_job_image_node=%s\n' "${ARTIFACT_JOB_IMAGE_NODE_INPUT}"; fi
+            if [ -n "${ARTIFACT_JOB_IMAGE_RUST_INPUT:-}" ]; then printf 'artifact_job_image_rust=%s\n' "${ARTIFACT_JOB_IMAGE_RUST_INPUT}"; fi
+          } >> "${FORGEJO_OUTPUT}"
+  plan:
+    needs: coordinates
+    runs-on: ${{ fromJSON(inputs['runner-label']) }}
+    env:
+      FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+    outputs:
+      source-sha: ${{ steps.plan.outputs.source-sha }}
+      builds: ${{ steps.plan.outputs.builds }}
+      images: ${{ steps.plan.outputs.images }}
+      artifacts: ${{ steps.plan.outputs.artifacts }}
+      has-artifacts: ${{ steps.plan.outputs.has-artifacts }}
+      enabled: ${{ steps.plan.outputs.enabled }}
+    steps:
+      - name: Bootstrap pinned native snapshot layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${SNAPSHOT_ENGINE_SHA}" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
+          [[ "${SNAPSHOT_NAMESPACE}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+          helpers="${GITHUB_WORKSPACE:?}/snapshot-engine"
+          git init --quiet "${helpers}"
+          git -C "${helpers}" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          if ! GIT_TERMINAL_PROMPT=0 git -C "${helpers}" fetch --quiet --depth=1 --no-tags origin "${SNAPSHOT_ENGINE_SHA}"; then
+            GIT_TERMINAL_PROMPT=0 git -C "${helpers}" fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          fi
+          git -C "${helpers}" checkout --quiet --detach "${SNAPSHOT_ENGINE_SHA}"
+          test "$(git -C "${helpers}" rev-parse HEAD)" = "${SNAPSHOT_ENGINE_SHA}"
+          source "${helpers}/.engine/bin/lib-forge-ci.sh"
+          fetch_forge_ci
+          {
+            printf 'SNAPSHOT_HELPERS=%s\n' "${helpers}"
+          } >> "${FORGEJO_ENV:?}"
+      - name: Resolve selected branch and freeze plan
+        id: plan
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ forgejo.token }}
+          SNAPSHOT_BRANCH: ${{ inputs.branch }}
+          SNAPSHOT_CONFIG: ${{ inputs['artifacts-config'] }}
+          SNAPSHOT_PUBLISH: ${{ inputs['publish-containers'] }}
+          SNAPSHOT_IMAGE_REPOSITORY: ${{ inputs['image-repository'] }}
+          ARM64_RUNNER: ${{ inputs['runner-label-arm64'] }}
+          CONTEXT_ARTIFACT: ${{ inputs['context-artifact'] }}
+        run: |
+          set -euo pipefail
+          source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
+          source "${SNAPSHOT_HELPERS}/.forgejo/bin/snapshot-images.sh"
+          if [ -n "${CONTEXT_ARTIFACT}" ] && [ "${SNAPSHOT_PUBLISH}" != false ]; then
+            run_forge_ci validate event-context
+            run_forge_ci artifact download --name "${CONTEXT_ARTIFACT}" --dir snapshot-context
+            snapshot_plan snapshot-context/snapshot-plan.json
+            snapshot_apply_context snapshot-context snapshot-plan.json
+          else
+            snapshot_plan
+          fi
+          run_forge_ci artifact upload --name "${SNAPSHOT_NAMESPACE}-plan" --file snapshot-plan.json --if-no-files error
+      - name: Require native arm64 runner when planned
+        if: ${{ steps.plan.outputs.has-arm64 == 'true' }}
+        shell: bash
+        env:
+          ARM64_RUNNER: ${{ inputs['runner-label-arm64'] }}
+        run: test -n "${ARM64_RUNNER}"
+  produce:
+    needs: [coordinates, plan]
+    if: ${{ needs.plan.outputs.has-artifacts == 'true' && inputs['context-artifact'] == '' }}
+    runs-on: ${{ fromJSON(inputs['runner-label']) }}
+    container: ${{ (matrix.artifact.project_type == 'go' && needs.coordinates.outputs.artifact_job_image_go) || ((matrix.artifact.project_type == 'maven' || matrix.artifact.project_type == 'gradle') && needs.coordinates.outputs.artifact_job_image_java) || (matrix.artifact.project_type == 'npm' && needs.coordinates.outputs.artifact_job_image_node) || (matrix.artifact.project_type == 'cargo' && needs.coordinates.outputs.artifact_job_image_rust) || '' }}
+    env:
+      FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+    strategy:
+      fail-fast: false
+      matrix:
+        artifact: ${{ fromJSON(needs.plan.outputs.artifacts) }}
+    steps:
+      - name: Bootstrap pinned native snapshot layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${SNAPSHOT_ENGINE_SHA}" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
+          helpers="${GITHUB_WORKSPACE:?}/snapshot-engine"
+          git init --quiet "${helpers}"
+          git -C "${helpers}" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          if ! GIT_TERMINAL_PROMPT=0 git -C "${helpers}" fetch --quiet --depth=1 --no-tags origin "${SNAPSHOT_ENGINE_SHA}"; then
+            GIT_TERMINAL_PROMPT=0 git -C "${helpers}" fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          fi
+          git -C "${helpers}" checkout --quiet --detach "${SNAPSHOT_ENGINE_SHA}"
+          test "$(git -C "${helpers}" rev-parse HEAD)" = "${SNAPSHOT_ENGINE_SHA}"
+          source "${helpers}/.engine/bin/lib-forge-ci.sh"
+          fetch_forge_ci
+          printf 'SNAPSHOT_HELPERS=%s\n' "${helpers}" >> "${FORGEJO_ENV:?}"
+      - name: Fetch exact artifact source and frozen settings
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ forgejo.token }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source-sha }}
+        run: |
+          set -euo pipefail
+          source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
+          source "${SNAPSHOT_HELPERS}/.forgejo/bin/snapshot-images.sh"
+          run_forge_ci artifact download --name "${SNAPSHOT_NAMESPACE}-plan" --dir .
+          snapshot_checkout "${SOURCE_SHA}"
+      - name: Build required artifact using the shared ecosystem runner
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ matrix.artifact.name }}
+        run: |
+          set -euo pipefail
+          source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
+          source "${SNAPSHOT_HELPERS}/.forgejo/bin/snapshot-images.sh"
+          _forge_ci_arch
+          test "${HELPERS_ENGINE_ARCH}" = amd64
+          snapshot_build_artifact "${ARTIFACT_NAME}"
+      - name: Retain bound artifact producer output
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ matrix.artifact.name }}
+        run: |
+          set -euo pipefail
+          source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
+          run_forge_ci artifact upload --name "${SNAPSHOT_NAMESPACE}-producer-${ARTIFACT_NAME}" \
+            --dir "snapshot-source/_snapshot-artifacts/${ARTIFACT_NAME}" --include-hidden --if-no-files error --retention-days 1
+  context:
+    needs: [coordinates, plan, produce]
+    if: ${{ !failure() && !cancelled() && needs.plan.outputs.enabled == 'true' && inputs['context-artifact'] == '' }}
+    runs-on: ${{ fromJSON(inputs['runner-label']) }}
+    env:
+      FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+    steps:
+      - name: Bootstrap pinned native snapshot layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${SNAPSHOT_ENGINE_SHA}" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
+          helpers="${GITHUB_WORKSPACE:?}/snapshot-engine"
+          git init --quiet "${helpers}"
+          git -C "${helpers}" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          if ! GIT_TERMINAL_PROMPT=0 git -C "${helpers}" fetch --quiet --depth=1 --no-tags origin "${SNAPSHOT_ENGINE_SHA}"; then
+            GIT_TERMINAL_PROMPT=0 git -C "${helpers}" fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          fi
+          git -C "${helpers}" checkout --quiet --detach "${SNAPSHOT_ENGINE_SHA}"
+          test "$(git -C "${helpers}" rev-parse HEAD)" = "${SNAPSHOT_ENGINE_SHA}"
+          source "${helpers}/.engine/bin/lib-forge-ci.sh"
+          fetch_forge_ci
+          printf 'SNAPSHOT_HELPERS=%s\n' "${helpers}" >> "${FORGEJO_ENV:?}"
+      - name: Gather the complete same-run producer set without source execution
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ forgejo.token }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source-sha }}
+        run: |
+          set -euo pipefail
+          source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
+          source "${SNAPSHOT_HELPERS}/.forgejo/bin/snapshot-images.sh"
+          run_forge_ci artifact download --name "${SNAPSHOT_NAMESPACE}-plan" --dir .
+          snapshot_checkout "${SOURCE_SHA}"
+          names=$(run_forge_ci container snapshot-images read-plan --plan snapshot-plan.json --field artifact-names)
+          while IFS= read -r name; do
+            [ -n "${name}" ] || continue
+            run_forge_ci artifact download --name "${SNAPSHOT_NAMESPACE}-producer-${name}" \
+              --dir "snapshot-source/_snapshot-artifacts/${name}"
+          done <<< "${names}"
+          snapshot_gather_context
+          run_forge_ci artifact upload --name "${SNAPSHOT_NAMESPACE}-context" \
+            --dir snapshot-source/snapshot-context --include-hidden --if-no-files error --retention-days 1
+  build:
+    needs: [coordinates, plan, context]
+    if: ${{ !failure() && !cancelled() && needs.plan.outputs.enabled == 'true' && (needs.context.result == 'success' || inputs['context-artifact'] != '') }}
+    runs-on: ${{ fromJSON(matrix.build.arch == 'arm64' && inputs['runner-label-arm64'] || inputs['runner-label']) }}
+    container: ${{ needs.coordinates.outputs.builder_job_image }}
+    env:
+      FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+    strategy:
+      fail-fast: false
+      matrix:
+        build: ${{ fromJSON(needs.plan.outputs.builds) }}
+    steps:
+      - name: Bootstrap pinned native snapshot layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${SNAPSHOT_ENGINE_SHA}" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
+          helpers="${GITHUB_WORKSPACE:?}/snapshot-engine"
+          git init --quiet "${helpers}"
+          git -C "${helpers}" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          if ! GIT_TERMINAL_PROMPT=0 git -C "${helpers}" fetch --quiet --depth=1 --no-tags origin "${SNAPSHOT_ENGINE_SHA}"; then
+            GIT_TERMINAL_PROMPT=0 git -C "${helpers}" fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          fi
+          git -C "${helpers}" checkout --quiet --detach "${SNAPSHOT_ENGINE_SHA}"
+          test "$(git -C "${helpers}" rev-parse HEAD)" = "${SNAPSHOT_ENGINE_SHA}"
+          source "${helpers}/.engine/bin/lib-forge-ci.sh"
+          fetch_forge_ci
+          printf 'SNAPSHOT_HELPERS=%s\n' "${helpers}" >> "${FORGEJO_ENV:?}"
+      - name: Fetch frozen source and same-run inputs
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ forgejo.token }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source-sha }}
+          CONTEXT_ARTIFACT: ${{ inputs['context-artifact'] }}
+        run: |
+          set -euo pipefail
+          source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
+          source "${SNAPSHOT_HELPERS}/.forgejo/bin/snapshot-images.sh"
+          run_forge_ci artifact download --name "${SNAPSHOT_NAMESPACE}-plan" --dir .
+          snapshot_checkout "${SOURCE_SHA}"
+          if [ -n "${CONTEXT_ARTIFACT}" ]; then
+            run_forge_ci artifact download --name "${CONTEXT_ARTIFACT}" --dir snapshot-context
+            snapshot_apply_context snapshot-context snapshot-plan.json
+          else
+            run_forge_ci artifact download --name "${SNAPSHOT_NAMESPACE}-context" --dir snapshot-context
+            snapshot_apply_context snapshot-context snapshot-plan.json
+          fi
+      - name: Stage native image without publication credentials
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ matrix.build.name }}
+          IMAGE_ARCH: ${{ matrix.build.arch }}
+          CI_IMAGE_BUILDER: ${{ needs.coordinates.outputs.builder }}
+          CI_IMAGE_BUILDER_JOB_IMAGE: ${{ needs.coordinates.outputs.builder_job_image }}
+        run: |
+          set -euo pipefail
+          source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
+          source "${SNAPSHOT_HELPERS}/.forgejo/bin/snapshot-images.sh"
+          snapshot_build "${IMAGE_NAME}" "${IMAGE_ARCH}"
+      - name: Transfer staged architecture
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ matrix.build.name }}
+          IMAGE_ARCH: ${{ matrix.build.arch }}
+        run: |
+          set -euo pipefail
+          source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
+          run_forge_ci artifact upload --name "${SNAPSHOT_NAMESPACE}-layout-${IMAGE_NAME}-${IMAGE_ARCH}" \
+            --dir "snapshot-source/snapshot-layouts/${IMAGE_NAME}-arch-${IMAGE_ARCH}" --include-hidden --if-no-files error --retention-days 1
+  publish:
+    needs: [coordinates, plan, build]
+    if: ${{ needs.plan.outputs.enabled == 'true' && needs.build.result == 'success' }}
+    runs-on: ${{ fromJSON(inputs['runner-label']) }}
+    env:
+      FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.plan.outputs.images) }}
+    steps:
+      - name: Bootstrap pinned native snapshot layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${SNAPSHOT_ENGINE_SHA}" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
+          helpers="${GITHUB_WORKSPACE:?}/snapshot-engine"
+          git init --quiet "${helpers}"
+          git -C "${helpers}" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          if ! GIT_TERMINAL_PROMPT=0 git -C "${helpers}" fetch --quiet --depth=1 --no-tags origin "${SNAPSHOT_ENGINE_SHA}"; then
+            GIT_TERMINAL_PROMPT=0 git -C "${helpers}" fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          fi
+          git -C "${helpers}" checkout --quiet --detach "${SNAPSHOT_ENGINE_SHA}"
+          test "$(git -C "${helpers}" rev-parse HEAD)" = "${SNAPSHOT_ENGINE_SHA}"
+          source "${helpers}/.engine/bin/lib-forge-ci.sh"
+          fetch_forge_ci
+          printf 'SNAPSHOT_HELPERS=%s\n' "${helpers}" >> "${FORGEJO_ENV:?}"
+      - name: Fetch exact source policy and complete layout set
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ forgejo.token }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source-sha }}
+          IMAGE_NAME: ${{ matrix.image.name }}
+        run: |
+          set -euo pipefail
+          source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
+          source "${SNAPSHOT_HELPERS}/.forgejo/bin/snapshot-images.sh"
+          run_forge_ci artifact download --name "${SNAPSHOT_NAMESPACE}-plan" --dir .
+          snapshot_checkout "${SOURCE_SHA}"
+          archs=$(run_forge_ci container snapshot-images read-plan --plan snapshot-plan.json --name "${IMAGE_NAME}" --field archs)
+          while IFS= read -r arch; do
+            run_forge_ci artifact download --name "${SNAPSHOT_NAMESPACE}-layout-${IMAGE_NAME}-${arch}" \
+              --dir "snapshot-layouts/${IMAGE_NAME}-arch-${arch}"
+          done <<< "${archs}"
+          # The scanner reads only the selected commit's ignore policy.
+          if [ -f snapshot-source/.trivyignore.yaml ]; then cp snapshot-source/.trivyignore.yaml .; fi
+          snapshot_evidence_tools "${IMAGE_NAME}"
+      - name: Publish verified snapshot and receipt
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ matrix.image.name }}
+          SNAPSHOT_REGISTRY_USER: ${{ inputs['registry-user'] }}
+          SNAPSHOT_REGISTRY_PASSWORD: ${{ secrets.SNAPSHOT_REGISTRY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
+          source "${SNAPSHOT_HELPERS}/.forgejo/bin/snapshot-images.sh"
+          snapshot_publish "${IMAGE_NAME}" snapshot-layouts
+      - name: Retain receipt and evidence
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ matrix.image.name }}
+        run: |
+          set -euo pipefail
+          source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
+          run_forge_ci artifact upload --name "${SNAPSHOT_NAMESPACE}-receipt-${IMAGE_NAME}" --file "snapshot-receipts/${IMAGE_NAME}.json" --if-no-files error
+          run_forge_ci artifact upload --name "${SNAPSHOT_NAMESPACE}-evidence-${IMAGE_NAME}" --dir "snapshot-evidence/${IMAGE_NAME}" --if-no-files ignore
+  collect:
+    needs: [coordinates, plan, build, publish]
+    if: ${{ !failure() && !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ${{ fromJSON(inputs['runner-label']) }}
+    env:
+      FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+    outputs:
+      container-images-json: ${{ steps.collect.outputs.container-images-json }}
+    steps:
+      - name: Bootstrap pinned native snapshot layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${SNAPSHOT_ENGINE_SHA}" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
+          helpers="${GITHUB_WORKSPACE:?}/snapshot-engine"
+          git init --quiet "${helpers}"
+          git -C "${helpers}" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          if ! GIT_TERMINAL_PROMPT=0 git -C "${helpers}" fetch --quiet --depth=1 --no-tags origin "${SNAPSHOT_ENGINE_SHA}"; then
+            GIT_TERMINAL_PROMPT=0 git -C "${helpers}" fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          fi
+          git -C "${helpers}" checkout --quiet --detach "${SNAPSHOT_ENGINE_SHA}"
+          test "$(git -C "${helpers}" rev-parse HEAD)" = "${SNAPSHOT_ENGINE_SHA}"
+          source "${helpers}/.engine/bin/lib-forge-ci.sh"
+          fetch_forge_ci
+          printf 'SNAPSHOT_HELPERS=%s\n' "${helpers}" >> "${FORGEJO_ENV:?}"
+      - name: Require every expected image receipt
+        id: collect
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
+          source "${SNAPSHOT_HELPERS}/.forgejo/bin/snapshot-images.sh"
+          run_forge_ci artifact download --name "${SNAPSHOT_NAMESPACE}-plan" --dir .
+          mkdir -p snapshot-receipts
+          names=$(run_forge_ci container snapshot-images read-plan --plan snapshot-plan.json --field image-names)
+          while IFS= read -r name; do
+            [ -n "${name}" ] || continue
+            run_forge_ci artifact download --name "${SNAPSHOT_NAMESPACE}-receipt-${name}" --dir snapshot-receipts
+          done <<< "${names}"
+          snapshot_collect
+          run_forge_ci artifact upload --name "${SNAPSHOT_NAMESPACE}" --file container-images.json --if-no-files error

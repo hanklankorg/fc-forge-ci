@@ -134,7 +134,7 @@ func releaseCmd() *cli.Command {
 func snapshotReleaseCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "snapshot-release",
-		Usage: "append the snapshot-release step-summary (job table, npm install snippet, and links)",
+		Usage: "append the snapshot-release step-summary (job results, versioned packages, image digests, and links)",
 		Description: `EXAMPLE:
    forge-ci report snapshot-release --project-type npm --release-sha abc1234`,
 		Flags: []cli.Flag{
@@ -147,6 +147,8 @@ func snapshotReleaseCmd() *cli.Command {
 			&cli.StringFlag{Name: "build-stage-result-json", Sources: cli.EnvVars("BUILD_STAGE_RESULT_JSON"), Usage: "inline JSON of the dev-build stage result table"},
 			&cli.StringFlag{Name: "publish-stage-result-json", Sources: cli.EnvVars("PUBLISH_STAGE_RESULT_JSON"), Usage: "inline JSON of the dev-publish stage result table"},
 			&cli.StringFlag{Name: "snapshot-artifacts-json", Sources: cli.EnvVars("SNAPSHOT_ARTIFACTS_JSON"), Usage: "inline JSON listing the snapshot artifacts shown in the summary"},
+			&cli.StringFlag{Name: "snapshot-image-result", Sources: cli.EnvVars("SNAPSHOT_IMAGE_RESULT"), Usage: "snapshot image job result (success, failure, cancelled, skipped)"},
+			&cli.StringFlag{Name: "container-images-json", Sources: cli.EnvVars("CONTAINER_IMAGES_JSON"), Usage: "source-bound snapshot image receipt inventory"},
 			&cli.StringFlag{Name: "server-url", Sources: cienv.ServerURL(), Usage: "CI server base URL (used to build artifact/run links)"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -161,6 +163,8 @@ func snapshotReleaseCmd() *cli.Command {
 					BuildStageJSON:        cmd.String("build-stage-result-json"),
 					PublishStageJSON:      cmd.String("publish-stage-result-json"),
 					SnapshotArtifactsJSON: cmd.String("snapshot-artifacts-json"),
+					SnapshotImageResult:   cmd.String("snapshot-image-result"),
+					ContainerImagesJSON:   cmd.String("container-images-json"),
 					URLs:                  dependencies.WebURLBuilder(),
 					ServerURL:             cmd.String("server-url"),
 				})

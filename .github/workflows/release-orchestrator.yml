@@ -128,44 +128,44 @@ on:
         # - Gradle Android: CHANGELOG.md build.gradle settings.gradle gradle.properties
         # - Xcode iOS: CHANGELOG.md project.pbxproj
       forge-ci-binary-ref:
-        description: "forge-ci ref/version passed to downstream plain-runner jobs (defaults to v0.90.0)"
+        description: "forge-ci ref/version passed downstream; empty resolves the current stable release tag once"
         required: false
-        default: "v0.90.0"
+        default: ""
         type: string
       runtime-image:
-        description: "forge-ci base runtime image for control-plane jobs. Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci base runtime image for control-plane jobs. Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0"
+        default: ""
         type: string
       runtime-image-full:
-        description: "forge-ci full runtime image for SBOM/security-capable release jobs. Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci full runtime image for SBOM/security-capable release jobs. Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime:v0.90.0"
+        default: ""
         type: string
       runtime-image-java:
-        description: "forge-ci Java runtime image for Maven/Gradle jobs. Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci Java runtime image for Maven/Gradle jobs. Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-java-25:v0.90.0"
+        default: ""
         type: string
       runtime-image-node:
-        description: "forge-ci Node runtime image for NPM jobs. Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci Node runtime image for NPM jobs. Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-node-24:v0.90.0"
+        default: ""
         type: string
       runtime-image-rust:
-        description: "forge-ci Rust runtime image for Cargo build + SBOM jobs (build-cargo.yml for artefact-first, sbom-cargo.yml for container-first). Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci Rust runtime image for Cargo build + SBOM jobs (build-cargo.yml for artefact-first, sbom-cargo.yml for container-first). Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-rust-stable:v0.90.0"
+        default: ""
         type: string
       runtime-image-go:
-        description: "forge-ci Go runtime image for Go build/SBOM jobs. Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci Go runtime image for Go build/SBOM jobs. Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-go-1.27:v0.90.0"
+        default: ""
         type: string
       runtime-image-android:
-        description: "forge-ci Android runtime image for Gradle Android jobs. Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci Android runtime image for Gradle Android jobs. Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-android-35:v0.90.0"
+        default: ""
         type: string
       # === IMAGE PROMOTION LADDER (build-once / promote-many) ===
       # When the release builds a container, the same immutable digest is
@@ -344,12 +344,19 @@ concurrency:
 permissions:
   contents: read # Default permission; individual jobs declare additions.
 jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   # ===== Stage 0: Configuration And Policy =====
   parse-config:
+    needs: [resolve-bootstrap]
     name: "Check: plan"
     runs-on: ubuntu-26.04
     container:
-      image: ${{ inputs['runtime-image'] }}
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
     permissions:
       contents: read
     outputs:
@@ -361,11 +368,9 @@ jobs:
       publish-stage-plan-json: ${{ steps.plan.outputs.publish-stage-plan-json }}
       artifact-transfer-plan-json: ${{ steps.plan.outputs.artifact-transfer-plan-json }}
 
-      # Commit SHA for forge-ci-binary-ref, resolved against the canonical forge-ci remote
-      # before any tag movement. Downstream plain-runner jobs use this so
-      # they install the same forge-ci commit the runtime image was built
-      # from, surviving version-bump tag moves.
-      forge-ci-binary-ref: ${{ steps.resolve-ref.outputs.sha }}
+      # Preserve concrete release tags for verified assets; source refs are
+      # already immutable commits, including Self Release's request commit.
+      forge-ci-binary-ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
 
       # Final release tag (vX.Y.Z) derived from the pushed request ref
       # (release-request/vX.Y.Z). Downstream jobs key off this, not
@@ -393,7 +398,7 @@ jobs:
         id: resolve-ref
         env:
           REMOTE_URL: ${{ github.server_url }}/${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
-          REF: ${{ inputs['forge-ci-binary-ref'] }}
+          REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
         run: forge-ci platform resolve-ref
       - name: Derive release tag from request ref
         id: relctx
@@ -437,7 +442,7 @@ jobs:
   # ===== Stage 1: Validation =====
   validate-prerequisites:
     name: "Check: release request"
-    needs: [parse-config]
+    needs: [resolve-bootstrap, parse-config]
     secrets:
       MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
       MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
@@ -463,12 +468,12 @@ jobs:
       authorized-source-sha: ${{ github.sha }}
       # Cargo prerequisite validation checks Cargo.lock and `cargo --version`,
       # so use the Rust runtime whenever Cargo artifacts (either mode) are present.
-      runtime-image: ${{ (fromJson(needs.parse-config.outputs['publish-stage-plan-json']).targets.cargo_container_first.runs || fromJson(needs.parse-config.outputs['build-stage-plan-json']).targets.cargo.runs) && inputs['runtime-image-rust'] || inputs['runtime-image'] }}
+      runtime-image: ${{ (fromJson(needs.parse-config.outputs['publish-stage-plan-json']).targets.cargo_container_first.runs || fromJson(needs.parse-config.outputs['build-stage-plan-json']).targets.cargo.runs) && (inputs['runtime-image-rust'] || needs.resolve-bootstrap.outputs['runtime-image-rust']) || (inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image']) }}
   # ===== Stage 2: Release Preparation =====
   # Release preparation now lives below this control-plane stage call.
   execute-prepare-stage:
     name: Prepare
-    needs: [parse-config, validate-prerequisites]
+    needs: [resolve-bootstrap, parse-config, validate-prerequisites]
     if: ${{ !failure() && !cancelled() }}
     permissions:
       actions: read
@@ -492,17 +497,17 @@ jobs:
       git-signing-method: ${{ fromJson(needs.parse-config.outputs.config-plan-json).git_signing.method }}
       bot-name: ${{ inputs['bot-name'] }}
       bot-email: ${{ inputs['bot-email'] }}
-      runtime-image: ${{ inputs['runtime-image'] }}
-      runtime-image-java: ${{ inputs['runtime-image-java'] }}
-      runtime-image-node: ${{ inputs['runtime-image-node'] }}
-      runtime-image-rust: ${{ inputs['runtime-image-rust'] }}
+      runtime-image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
+      runtime-image-java: ${{ inputs['runtime-image-java'] || needs.resolve-bootstrap.outputs['runtime-image-java'] }}
+      runtime-image-node: ${{ inputs['runtime-image-node'] || needs.resolve-bootstrap.outputs['runtime-image-node'] }}
+      runtime-image-rust: ${{ inputs['runtime-image-rust'] || needs.resolve-bootstrap.outputs['runtime-image-rust'] }}
   validate-release-tag:
     name: "Prepare: check the release tag"
-    needs: [parse-config, execute-prepare-stage]
+    needs: [resolve-bootstrap, parse-config, execute-prepare-stage]
     if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-26.04
     container:
-      image: ${{ inputs['runtime-image'] }}
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
     permissions:
       contents: read
     steps:
@@ -534,7 +539,7 @@ jobs:
   # Build fanout now lives below this control-plane stage call.
   execute-build-stage:
     name: Build
-    needs: [parse-config, execute-prepare-stage, validate-release-tag]
+    needs: [resolve-bootstrap, parse-config, execute-prepare-stage, validate-release-tag]
     if: ${{ !failure() && !cancelled() }}
     permissions:
       contents: read
@@ -558,12 +563,12 @@ jobs:
       source-date-epoch: ${{ needs.execute-prepare-stage.outputs.source-date-epoch }}
       build-stage-plan-json: ${{ needs.parse-config.outputs.build-stage-plan-json }}
       forge-ci-binary-ref: ${{ needs.parse-config.outputs.forge-ci-binary-ref }}
-      runtime-image: ${{ inputs['runtime-image'] }}
-      runtime-image-java: ${{ inputs['runtime-image-java'] }}
-      runtime-image-node: ${{ inputs['runtime-image-node'] }}
-      runtime-image-go: ${{ inputs['runtime-image-go'] }}
-      runtime-image-android: ${{ inputs['runtime-image-android'] }}
-      runtime-image-rust: ${{ inputs['runtime-image-rust'] }}
+      runtime-image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
+      runtime-image-java: ${{ inputs['runtime-image-java'] || needs.resolve-bootstrap.outputs['runtime-image-java'] }}
+      runtime-image-node: ${{ inputs['runtime-image-node'] || needs.resolve-bootstrap.outputs['runtime-image-node'] }}
+      runtime-image-go: ${{ inputs['runtime-image-go'] || needs.resolve-bootstrap.outputs['runtime-image-go'] }}
+      runtime-image-android: ${{ inputs['runtime-image-android'] || needs.resolve-bootstrap.outputs['runtime-image-android'] }}
+      runtime-image-rust: ${{ inputs['runtime-image-rust'] || needs.resolve-bootstrap.outputs['runtime-image-rust'] }}
   # ===== Stage 4: Publish =====
   # Publish fanout now lives below this control-plane stage call.
   # Container-first cargo publishes here: lockfile-derived SBOM and the
@@ -573,7 +578,7 @@ jobs:
   # release-artifact transfer plumbing the Go path uses.
   execute-publish-stage:
     name: Publish
-    needs: [parse-config, execute-prepare-stage, execute-build-stage]
+    needs: [resolve-bootstrap, parse-config, execute-prepare-stage, execute-build-stage]
     if: ${{ !failure() && !cancelled() }}
     permissions:
       contents: write
@@ -603,10 +608,10 @@ jobs:
       source-date-epoch: ${{ needs.execute-prepare-stage.outputs.source-date-epoch }}
       publish-stage-plan-json: ${{ needs.parse-config.outputs.publish-stage-plan-json }}
       forge-ci-binary-ref: ${{ needs.parse-config.outputs.forge-ci-binary-ref }}
-      runtime-image: ${{ inputs['runtime-image'] }}
-      runtime-image-java: ${{ inputs['runtime-image-java'] }}
-      runtime-image-rust: ${{ inputs['runtime-image-rust'] }}
-      runtime-image-go: ${{ inputs['runtime-image-go'] }}
+      runtime-image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
+      runtime-image-java: ${{ inputs['runtime-image-java'] || needs.resolve-bootstrap.outputs['runtime-image-java'] }}
+      runtime-image-rust: ${{ inputs['runtime-image-rust'] || needs.resolve-bootstrap.outputs['runtime-image-rust'] }}
+      runtime-image-go: ${{ inputs['runtime-image-go'] || needs.resolve-bootstrap.outputs['runtime-image-go'] }}
       build-result-json: ${{ needs.execute-build-stage.outputs.result-json }}
       # Carry the config-plan + sign-artifacts policy through so the
       # publish stage can dispatch container image signing per
@@ -677,7 +682,7 @@ jobs:
   # Release creation stays top-level because it is the public end of the pipeline.
   create-release:
     name: "Publish: release"
-    needs: [parse-config, execute-prepare-stage, validate-release-tag, execute-publish-stage]
+    needs: [resolve-bootstrap, parse-config, execute-prepare-stage, validate-release-tag, execute-publish-stage]
     # Run even if previous jobs were skipped but at least one succeeded
     if: ${{ fromJson(needs.parse-config.outputs['release-plan-json']).policy.create_release }}
     permissions:
@@ -704,7 +709,7 @@ jobs:
       artifact-transfer-plan-json: ${{ needs.parse-config.outputs.artifact-transfer-plan-json }}
       changelog-config: ${{ inputs['changelog.config'] }}
       make-latest: ${{ fromJson(needs.parse-config.outputs['release-plan-json']).policy.make_latest }}
-      runtime-image: ${{ inputs['runtime-image-full'] }}
+      runtime-image: ${{ inputs['runtime-image-full'] || needs.resolve-bootstrap.outputs['runtime-image-full'] }}
       cosign-public-key: ${{ inputs['cosign-public-key'] }}
       cosign-public-key-sha256: ${{ inputs['cosign-public-key-sha256'] }}
       release-asset-retention: ${{ inputs['release-asset-retention'] }}
@@ -713,6 +718,7 @@ jobs:
   release-summary:
     name: Summary
     needs:
+      - resolve-bootstrap
       - parse-config
       - execute-prepare-stage
       - execute-build-stage
@@ -721,10 +727,10 @@ jobs:
       - promote-staging
       - promote-release
       - create-release
-    if: always()
+    if: always() && needs.resolve-bootstrap.result == 'success'
     runs-on: ubuntu-26.04
     container:
-      image: ${{ inputs['runtime-image'] }}
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
     permissions:
       contents: read
       packages: read

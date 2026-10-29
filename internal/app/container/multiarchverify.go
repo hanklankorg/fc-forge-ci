@@ -49,7 +49,7 @@ func prepareSignerImageManifest(ctx context.Context, registry SignerManifestRegi
 	seen := make(map[string]bool, len(derived.Archs))
 	// Read the complete metadata set before contacting the registry.
 	for _, arch := range derived.Archs {
-		ref, err := signerArchRef(arch, derived.ImageRepository, derived.Name, derived.ManifestTag+"-"+arch)
+		ref, err := signerArchRef(in.LayoutsDir, arch, derived.ImageRepository, derived.Name, derived.ManifestTag+"-"+arch)
 		if err != nil {
 			return derived, err
 		}

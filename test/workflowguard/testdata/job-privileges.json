@@ -59,6 +59,9 @@
   "release-publish-stage.yml jobs.forge-packages": [
     "packages: write"
   ],
+  "release-snapshot-orchestrator.yml jobs.execute-snapshot-images": [
+    "packages: write"
+  ],
   "release-snapshot-orchestrator.yml jobs.execute-snapshot-publish-stage": [
     "packages: write"
   ],
@@ -96,6 +99,9 @@
     "packages: write"
   ],
   "slsa-attestor.yml jobs.attest": [
+    "packages: write"
+  ],
+  "snapshot-images.yml jobs.publish": [
     "packages: write"
   ],
   "version-bump.yml jobs.bump-version": [

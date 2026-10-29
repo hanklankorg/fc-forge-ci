@@ -75,7 +75,7 @@ installation recipe. Layer reuse depends on matching platform, inputs and cache.
 | `build-npm`, `publish-snapshot-npm` | `runtime-node-24` | Node + npm + corepack baked |
 | `publish-container` | host + Buildah and OCI registry adapter | The CLI builds and pushes on the host; this workflow does not use a runtime job container |
 | `security-openssf-scorecard` | host + third-party Docker action | The workflow selects a hosted runner for the Scorecard action |
-| `build-xcode-ios`, `publish-apple-appstore` | macOS host + bootstrap installer from `forge-ci-binary-ref` | Tagged releases use verified archives; branch/SHA refs use source installation, subject to the [current module restriction](DEVELOPMENT.md#source-checkout) |
+| `build-xcode-ios`, `publish-apple-appstore` | macOS host + bootstrap installer from `forge-ci-binary-ref` | Tagged releases use verified archives; branch/full commit refs build from a [detached source checkout](DEVELOPMENT.md#source-checkout) |
 
 ## Forgejo runtime publication
 
@@ -439,9 +439,12 @@ jobs:
 The plain-runner jobs (container publish and macOS workflows) do not use the
 runtime image. They install the binary selected by `forge-ci-binary-ref`, so
 that value must point at the same forge-ci commit as the workflow and runtime
-images being tested. Branch/SHA refs use source installation
-(`go install …@<ref>` of a pushed commit; `go.mod` requires only published
-modules). Commit SHAs avoid source-ref drift. The corresponding image labels
+images being tested. Branch/full commit refs use a detached Git checkout and
+`go install ./cmd/forge-ci`, without a version-suffixed module query. Both
+40-character SHA-1 and 64-character SHA-256 commit IDs are accepted. Host jobs
+bind the build to their bootstrap checkout; PR and snapshot orchestrators
+resolve source branches once. Commit IDs avoid source-ref drift across runs.
+The corresponding image labels
 can still be rewritten by a rerun; a digest is the content pin.
 
 ## Testing consumer configuration
@@ -546,5 +549,5 @@ For macOS workflows, the equivalent ref input is `forge-ci-binary-ref`.
 Those workflows run on a macOS VM instead of using the Linux runtime image.
 Published semver tags install the cosign- and SHA-256-verified release archive;
 branch/SHA refs, or an explicit `FORGE_CI_USE_GO_INSTALL=1` override, install
-from source with `go install`, subject to the
-[current module restriction](DEVELOPMENT.md#source-checkout).
+from a detached Git checkout with `go install ./cmd/forge-ci`; see the
+[source checkout requirements](DEVELOPMENT.md#source-checkout).

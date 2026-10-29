@@ -133,7 +133,7 @@ jobs:
           ARTIFACT_NAME: ${{ inputs['artifact-name'] }}
           BINARY_NAME: ${{ inputs['binary-name'] }}
           VERSION: ${{ inputs.version }}
-          COMMIT: ${{ inputs.commit }}
+          CI_COMMIT: ${{ inputs.commit }}
           SOURCE_DATE_EPOCH: ${{ inputs['source-date-epoch'] }}
           REF_NAME: ${{ github.ref_name }}
           PLATFORMS: ${{ inputs.platforms }}

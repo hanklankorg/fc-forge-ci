@@ -23,11 +23,11 @@ func preparationViolations(body []byte) []string {
 	}
 
 	needs := mappingChild(job, "needs")
-	if needs == nil || needs.Kind != yaml.SequenceNode || len(needs.Content) != 3 || needs.Content[0].Value != "generate-full-changelog" || needs.Content[1].Value != "generate-minimal-changelog" || needs.Content[2].Value != "prepare-version-files" {
+	if needs == nil || needs.Kind != yaml.SequenceNode || len(needs.Content) != 4 || needs.Content[0].Value != "resolve-bootstrap" || needs.Content[1].Value != "generate-full-changelog" || needs.Content[2].Value != "generate-minimal-changelog" || needs.Content[3].Value != "prepare-version-files" {
 		return []string{"preparation needs both changelog jobs and the key-free version job"}
 	}
 
-	if scalarChild(job, "if") != "${{ !cancelled() && needs.generate-full-changelog.result != 'failure' && needs.generate-minimal-changelog.result != 'failure' && needs.prepare-version-files.result != 'failure' && needs.prepare-version-files.result != 'cancelled' }}" {
+	if scalarChild(job, "if") != "${{ !cancelled() && needs.resolve-bootstrap.result == 'success' && needs.generate-full-changelog.result != 'failure' && needs.generate-minimal-changelog.result != 'failure' && needs.prepare-version-files.result != 'failure' && needs.prepare-version-files.result != 'cancelled' }}" {
 		return []string{"preparation job failure condition changed"}
 	}
 

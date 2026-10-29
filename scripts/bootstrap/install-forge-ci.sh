@@ -8,8 +8,8 @@
 # Resolution:
 #   "local" / "."        → go install ./cmd/forge-ci (working copy)
 #   vX.Y.Z[(-suffix)]    → download release tarball + verify SHA-256
-#   anything else (SHAs, branches) → go install github.com/diggsweden/forge-ci/cmd/forge-ci@<ref>,
-#                                     or a source build of FORGE_CI_REPOSITORY when it is a fork
+#   anything else (SHAs, branches) → fetch the requested Git revision and build
+#                                     ./cmd/forge-ci from that detached checkout
 #
 # Release refs use only the authenticated release-asset path and fail closed on
 # any download or verification error. Set FORGE_CI_USE_GO_INSTALL=1 only
@@ -30,7 +30,6 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install-cosign.sh"
 : "${FORGE_CI_PRERELEASE_BRANCH:=main}"
 : "${FORGE_CI_SERVER_URL:=${GITHUB_SERVER_URL:-https://github.com}}"
 : "${FORGE_CI_RELEASE_URL_BASE:=${FORGE_CI_SERVER_URL}/${FORGE_CI_REPOSITORY}/releases/download}"
-: "${FORGE_CI_MODULE_PATH:=github.com/diggsweden/forge-ci/cmd/forge-ci}"
 
 # check_forge_ci_source refuses repository and branch values that are not a
 # plain owner/name and branch name, before they reach a regex or a git URL.
@@ -115,6 +114,23 @@ verify_forge_ci_binary_pin() {
 is_forge_ci_release_ref() {
 	local ref="$1"
 	[[ "$ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._-]+)?$ ]]
+}
+
+is_forge_ci_commit_ref() {
+	[[ "$1" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
+}
+
+# GitHub's latest-release redirect excludes drafts and prereleases. Resolve it
+# once, then use the concrete tag for archive URLs and signature identity.
+resolve_forge_ci_stable_release() {
+	local release_base="${FORGE_CI_RELEASE_URL_BASE%/download}" resolved ref
+	resolved="$(curl --retry 5 --retry-delay 3 --retry-connrefused -sSfL -o /dev/null -w '%{url_effective}' "$release_base/latest")" || return 1
+	ref="${resolved##*/}"
+	if [[ ! "$ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ || "$resolved" != "$release_base/tag/$ref" ]]; then
+		printf 'ERROR: latest forge-ci release did not resolve to a stable version tag\n' >&2
+		return 1
+	fi
+	printf '%s' "$ref"
 }
 
 # verify_forge_ci_sha256 reads a goreleaser-style checksums.txt
@@ -281,19 +297,22 @@ install_forge_ci_go_install() {
 	mkdir -p "$install_dir"
 	if [[ "$ref" == "local" || "$ref" == "." ]]; then
 		GOBIN="$install_dir" go install ./cmd/forge-ci || return 1
-	elif [[ "$FORGE_CI_REPOSITORY" == "diggsweden/forge-ci" ]]; then
-		GOBIN="$install_dir" go install "${FORGE_CI_MODULE_PATH}@${ref}" || return 1
 	else
-		install_forge_ci_fork_source "$ref" "$install_dir" || return 1
+		install_forge_ci_source "$ref" "$install_dir" || return 1
 	fi
 	verify_forge_ci_binary_pin "$install_dir/forge-ci" || return 1
 }
 
-# install_forge_ci_fork_source builds <ref> of FORGE_CI_REPOSITORY from
-# source. A fork keeps the upstream module path, so the module proxy would
-# resolve the upstream repository instead of the fork's commit.
-install_forge_ci_fork_source() (
-	local ref="$1" install_dir="$2" src
+# Build the requested Git revision directly, including for upstream. A Go module
+# query can map a SHA to the moving v0.90.0-pre tag and reuse immutable cached
+# module contents from an older commit. Forks also need Git rather than module
+# resolution, since their module path can still identify the upstream repository.
+install_forge_ci_source() (
+	local ref="$1" install_dir="$2" src source_sha remote advertised advertised_sha rest object_format=sha1
+	if ! command -v git &>/dev/null; then
+		printf 'ERROR: git binary not found for requested source installation\n' >&2
+		return 1
+	fi
 	check_forge_ci_source || return 1
 	if [[ ! "$ref" =~ ^[A-Za-z0-9._/]+(-[A-Za-z0-9._/]*)*$ ]]; then
 		printf 'ERROR: forge-ci ref must be a plain branch, tag or commit, got %q\n' "$ref" >&2
@@ -301,27 +320,64 @@ install_forge_ci_fork_source() (
 	fi
 	src="$(mktemp -d)" || return 1
 	trap 'rm -rf "$src"' EXIT
-	git -C "$src" init -q || return 1
-	git -C "$src" fetch -q --depth 1 "${FORGE_CI_SERVER_URL}/${FORGE_CI_REPOSITORY}.git" "$ref" || return 1
+	remote="${FORGE_CI_SERVER_URL}/${FORGE_CI_REPOSITORY}.git"
+	advertised_sha="$ref"
+	if ! is_forge_ci_commit_ref "$ref"; then
+		advertised="$(git ls-remote -- "$remote" "$ref" "refs/heads/$ref" "refs/tags/$ref")" || return 1
+		read -r advertised_sha rest <<<"$advertised"
+	fi
+	if ! is_forge_ci_commit_ref "$advertised_sha"; then
+		printf 'ERROR: could not resolve forge-ci ref %s; use a full 40- or 64-character commit SHA or an existing branch/tag\n' "$ref" >&2
+		return 1
+	fi
+	[[ "${#advertised_sha}" != 64 ]] || object_format=sha256
+	git -C "$src" init -q --object-format="$object_format" || return 1
+	if ! git -C "$src" fetch -q --depth 1 "$remote" "$ref"; then
+		printf 'ERROR: could not fetch forge-ci ref %s; use a full 40- or 64-character commit SHA or an existing branch/tag\n' "$ref" >&2
+		return 1
+	fi
 	git -C "$src" checkout -q --detach FETCH_HEAD || return 1
+	source_sha="$(git -C "$src" rev-parse HEAD)" || return 1
+	if is_forge_ci_commit_ref "$ref" && [[ "$source_sha" != "$ref" ]]; then
+		printf 'ERROR: forge-ci source commit %s does not match requested %s\n' "$source_sha" "$ref" >&2
+		return 1
+	fi
+	printf 'Building forge-ci from %s at commit %s\n' "$FORGE_CI_REPOSITORY" "$source_sha"
 	(cd "$src" && GOBIN="$install_dir" go install ./cmd/forge-ci) || return 1
 )
 
 install_forge_ci() {
-	local ref="${1:-${FORGE_CI_BINARY_REF:-v0.90.0}}"
+	local ref="${1:-${FORGE_CI_BINARY_REF:-}}"
 	local install_dir="${FORGE_CI_INSTALL_DIR:-${RUNNER_TEMP:-${CI_TEMP_DIR:-/tmp}}/bin}"
+	# Go requires an absolute GOBIN, including after entering a source checkout.
+	[[ "$install_dir" == /* ]] || install_dir="$PWD/$install_dir"
 
 	if [[ -z "$ref" ]]; then
-		printf 'ERROR: forge-ci ref is required\n' >&2
-		return 1
+		ref="$(resolve_forge_ci_stable_release)" || return 1
 	fi
-
 	printf 'Installing forge-ci (%s) into %s...\n' "$ref" "$install_dir"
 	if [[ "$ref" == "local" || "$ref" == "." ]]; then
+		if [[ "${FORGE_CI_SOURCE_SHA+x}" == x ]]; then
+			printf 'ERROR: local source installation cannot use FORGE_CI_SOURCE_SHA; request the bound commit instead\n' >&2
+			return 1
+		fi
 		install_forge_ci_go_install "$ref" "$install_dir" || return 1
 	elif [[ "${FORGE_CI_USE_GO_INSTALL:-0}" != "1" ]] && is_forge_ci_release_ref "$ref"; then
 		install_forge_ci_release "$ref" "$install_dir" || return 1
 	else
+		# Workflows bind source builds to the commit of their bootstrap checkout.
+		# Release-asset installs above retain the original tag and signature policy.
+		if [[ "${FORGE_CI_SOURCE_SHA+x}" == x ]]; then
+			if ! is_forge_ci_commit_ref "$FORGE_CI_SOURCE_SHA"; then
+				printf 'ERROR: FORGE_CI_SOURCE_SHA must be a full 40- or 64-character commit SHA\n' >&2
+				return 1
+			fi
+			if is_forge_ci_commit_ref "$ref" && [[ "$ref" != "$FORGE_CI_SOURCE_SHA" ]]; then
+				printf 'ERROR: bootstrap source commit does not match requested forge-ci commit\n' >&2
+				return 1
+			fi
+			ref="$FORGE_CI_SOURCE_SHA"
+		fi
 		install_forge_ci_go_install "$ref" "$install_dir" || return 1
 	fi
 

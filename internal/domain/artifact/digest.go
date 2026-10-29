@@ -61,10 +61,7 @@ func Digest(fsys fs.FS, root string) (string, error) {
 			return "", err
 		}
 
-		mode := "0644"
-		if info.Mode()&0o111 != 0 {
-			mode = "0755"
-		}
+		mode := CanonicalFileMode(info.Mode())
 
 		rel := strings.TrimPrefix(path, prefix)
 		if root == "." {
@@ -75,6 +72,16 @@ func Digest(fsys fs.FS, root string) (string, error) {
 	}
 
 	return hex.EncodeToString(manifest.Sum(nil)), nil
+}
+
+// CanonicalFileMode preserves executable intent without depending on ownership,
+// umask or transport-specific permission bits. It is the mode policy used by
+// artifact digests and snapshot file handoffs.
+func CanonicalFileMode(mode fs.FileMode) string {
+	if mode&0o111 != 0 {
+		return "0755"
+	}
+	return "0644"
 }
 
 func regularFilesSorted(fsys fs.FS, root string) ([]string, error) {

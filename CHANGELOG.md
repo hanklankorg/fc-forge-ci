@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **BREAKING:** Replace `release-type` and `derive-release --require-stable`
+  with `release-policy: stable|stable-prerelease`, without compatibility aliases.
+  Keep workflow, binary and runtime-image versions aligned; select prerelease
+  admission in trusted configuration.
 - **BREAKING:** Remove the `build-release-image` composite action after migrating
   the Maven, npm and Cargo demos and proving their Forgejo release hand-offs.
   Use `release-images.yml` for native image builds and join its evidence with
@@ -20,6 +24,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Signed numbered prereleases use the existing release pipeline with
+  `release-policy: stable-prerelease`, including release evidence and retry
+  behavior. Prereleases do not move stable image aliases or promotion stages;
+  GitLab identifies them in release notes because it has no native prerelease flag.
+- Declared in-progress snapshot containers publish by default on GitHub, Forgejo
+  and GitLab; `publish-containers: false` explicitly opts out. Shared planning,
+  native architecture staging, scan/SBOM policy and exact digest receipt collection
+  use a frozen source SHA. Container tags always include the original branch hash
+  and end in lower-case `-snapshot`; package naming is unchanged. GitHub integrates
+  after artifact builds and reuses their exact uploads. Standalone GitHub and
+  native Forgejo/GitLab automatically build required Go, Cargo, Maven, Gradle JVM
+  and npm artifact-first producers; prepared native contexts are optional advanced
+  overrides. Shared Go commands validate producer sets and safely restore confined
+  inputs with source-bound digests and canonical `0644`/`0755` string modes across
+  ZIP transport. Npm tarballs use isolated per-artifact context destinations.
+  Snapshot OCI signing/provenance, build secrets and extraction remain unsupported.
+  Minimal three-forge snapshot acceptance is pending operator execution.
 - Package retention accepts repeatable `--keep-digest` roots, preserving old
   consumer pins and their platform/signature closure. A missing pin refuses the
   pass. A weekly/manual opt-in example previews a caller's reviewed runtime-image
@@ -113,6 +134,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bootstrap source installs build a detached Git checkout instead of resolving
+  a commit through a cached moving Go module tag. Host jobs bind the binary to
+  their bootstrap checkout, support full SHA-1/SHA-256 IDs and relative install
+  directories, and forward the selected revision to Swift lint jobs.
+- GitHub binary defaults resolve one concrete published stable release tag,
+  with matching default runtime-image references and preserved explicit
+  overrides. Self Release continues to use its exact request commit.
 - Pin PR and release compatibility gates to the upstream companion suite's
   current release-policy, SSH handshake and registry-authority tests.
 - PR black-box CI explicitly rebuilds the exact source checkout and passes that

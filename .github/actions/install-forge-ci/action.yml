@@ -28,14 +28,14 @@
 # Ref resolution (see the wrapped script for detail):
 #   vX.Y.Z[(-suffix)] → cosign + SHA-256 verified release tarball (no Go needed)
 #   local / .         → go install ./cmd/forge-ci (working copy)
-#   SHA / branch      → go install github.com/diggsweden/forge-ci/...@<ref>
+#   SHA / branch      → detached Git checkout, then go install ./cmd/forge-ci
 name: Install forge-ci
 description: "Install the cosign/SHA-256-verified forge-ci binary onto a plain or macOS runner."
 inputs:
   ref:
-    description: "forge-ci version/ref to install (vX.Y.Z release tag, a SHA/branch for go install, or local). Defaults to v0.90.0."
+    description: "forge-ci version/ref to install (release tag, full 40/64-character commit ID, branch, or local). Defaults to the latest stable release."
     required: false
-    default: "v0.90.0"
+    default: ""
 runs:
   using: composite
   steps:

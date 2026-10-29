@@ -589,8 +589,8 @@ func TestPromoteWorkflowResolvesDryRunAsBoolean(t *testing.T) {
 // failure this guard exists to prevent. A new example is picked up with no
 // counter to bump.
 // The GitHub callers live in examples/**/github/, beside the GitLab and
-// Forgejo ones; every such directory holds a release caller, so a
-// renamed or dropped one is a failure and not a silently shorter list.
+// Forgejo ones. Except for the explicitly checked snapshot-only example below,
+// every such directory holds a release caller; dropping one remains a failure.
 func githubReleaseCallers(t *testing.T, root string) []string {
 	t.Helper()
 
@@ -624,6 +624,24 @@ func githubReleaseCallers(t *testing.T, root string) []string {
 	}
 
 	for _, dir := range githubDirs {
+		if dir == filepath.Join(root, "examples", "container-snapshot", "github") {
+			// This one example intentionally demonstrates only the snapshot
+			// surface. Prove its classification instead of exempting directories
+			// merely because their production caller disappeared.
+			body, err := os.ReadFile(filepath.Join(dir, "release-snapshot-workflow.yml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			doc, err := effectiveWorkflow(body)
+			require.NoError(t, err)
+			jobs := mappingChild(doc, "jobs")
+			require.NotNil(t, jobs)
+			require.Len(t, jobs.Content, 2, "snapshot-only example must contain exactly its snapshot call")
+			job := jobs.Content[1]
+			require.True(t, strings.HasPrefix(scalarChild(job, "uses"), "diggsweden/forge-ci/.github/workflows/release-snapshot-orchestrator.yml@"))
+			require.NotEmpty(t, scalarChild(mappingChild(job, "with"), "branch"))
+			continue
+		}
 		if _, statErr := os.Stat(filepath.Join(dir, "release-workflow.yml")); statErr != nil {
 			t.Errorf("%s has no release-workflow.yml: %v", dir, statErr)
 		}

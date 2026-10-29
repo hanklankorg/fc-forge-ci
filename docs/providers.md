@@ -114,17 +114,22 @@ with the action itself pinned to an immutable commit SHA:
 ```
 
 The action pin selects the reviewed installer implementation; `ref` selects the
-binary release. For published release refs, the installer bootstraps the
+binary release. An omitted ref resolves the current published stable release to
+a concrete tag before installation. Explicit refs take precedence; no `latest`
+binary asset or image tag is executed. For published release refs, the installer bootstraps the
 repository-pinned cosign with a SHA-256 check, then downloads the release assets
 and verifies `checksums.txt` and its Sigstore bundle before checking the binary
 archive. Bootstrap, download, checksum or signature failures stop installation;
 there is no automatic source fallback. Cosign need not be preinstalled.
 
-Branch and commit refs select source installation and require Go. The upstream
-route uses version-suffixed `go install`; current revisions require only
-published modules. The reviewed [source checkout procedure](DEVELOPMENT.md#source-checkout)
-also supports local work.
-Forks use a checkout-based source build instead. Setting
+Branch and full commit refs select source installation and require Git and Go.
+Upstream and forks both fetch a detached Git checkout and build
+`go install ./cmd/forge-ci` from it. Full SHA-1 (40 hex characters) and SHA-256
+(64 hex characters) commit IDs are supported. Host workflows bind source builds
+to their bootstrap checkout; PR and snapshot orchestrators resolve a source
+branch once for all downstream jobs. The reviewed
+[source checkout procedure](DEVELOPMENT.md#source-checkout) also supports local work.
+Setting
 `FORGE_CI_USE_GO_INSTALL=1` explicitly selects source installation even for a
 release ref; that route does not verify release assets.
 
@@ -132,6 +137,12 @@ The underlying [`install-forge-ci.sh`](../scripts/bootstrap/install-forge-ci.sh)
 is for this composite action and for jobs that have already checked out or
 vendored the forge-ci repository. A consumer must not assume that
 `scripts/bootstrap/install-forge-ci.sh` exists in its own checkout.
+
+This bootstrap verifies GitHub-produced keyless release assets. Native Forgejo
+and GitLab delivery instead use their commit-pinned layer/component and recorded
+engine checksum; changing the server URL does not change signature policy.
+The initializer's default remains the highest stable Git tag, which may differ
+from the provider's current published release if a tag has no release assets.
 
 On Forgejo, a job gets the binary from the delivery layer instead: the
 `setup-forge-ci` action under `.forgejo/actions/` downloads the binary the

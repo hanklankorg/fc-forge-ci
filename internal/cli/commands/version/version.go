@@ -209,6 +209,7 @@ func generateDevCmd() *cli.Command {
    # Prints e.g. 1.2.3-snapshot-feature-x-abc1234 to stdout
    forge-ci version generate-snapshot --ref-name feature/x`,
 		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "container-tag", Usage: "emit <base>-<sanitized-branch>-<shortsha>-snapshot as a bounded OCI tag"},
 			&cli.StringFlag{
 				Name:    "ref-name",
 				Usage:   "source branch / ref to sanitise into the snapshot-version suffix",
@@ -226,9 +227,10 @@ func generateDevCmd() *cli.Command {
 				// designed to be captured via $(...) or piped. Per clig.dev
 				// the value goes to stdout; progress/errors go to stderr.
 				return appversion.GenerateSnapshotVersion(ctx, git.New(), os.Stdout, appversion.GenerateSnapshotVersionInput{
-					RefName: cmd.String("ref-name"),
-					Format:  format,
-					Sink:    dependencies.OutputSink,
+					ContainerTag: cmd.Bool("container-tag"),
+					RefName:      cmd.String("ref-name"),
+					Format:       format,
+					Sink:         dependencies.OutputSink,
 				})
 			})
 		},

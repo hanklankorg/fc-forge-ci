@@ -21,6 +21,7 @@ import (
 type fakeBuildahSetupTool struct {
 	commands           map[string]bool
 	failOverlayProbe   bool
+	probeError         error
 	probeCalls         []string
 	probeContainerfile string
 	probeDir           string
@@ -59,6 +60,9 @@ func (f *fakeBuildahSetupTool) ProbeBuild(_ context.Context, env []string, probe
 	f.probeDir = probeDir
 	f.calls = append(f.calls, "build:"+image)
 	f.probeCalls = append(f.probeCalls, driver)
+	if f.probeError != nil {
+		return f.probeError
+	}
 
 	if driver == "overlay" && f.failOverlayProbe {
 		return errors.New("simulated overlay probe failure")
@@ -206,9 +210,60 @@ func TestSetupBuildah_InstallsOnlyMissingPackages(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []string{"fuse-overlayfs", "gettext", "custom"}
+	want := []string{"fuse-overlayfs", "netavark", "aardvark-dns", "gettext", "custom"}
 	if !slices.Equal(installer.packages, want) {
 		t.Fatalf("installed packages = %v, want %v", installer.packages, want)
+	}
+}
+
+func TestSetupBuildah_NetworkingPackages(t *testing.T) {
+	t.Parallel()
+	for _, installed := range []bool{false, true} {
+		name := "helpers missing"
+		if installed {
+			name = "helpers installed"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			tool := &fakeBuildahSetupTool{commands: map[string]bool{
+				"apt-get": true, "buildah": true, "fuse-overlayfs": true,
+				"netavark": installed, "aardvark-dns": installed,
+			}}
+			installer := &fakePackageInstaller{}
+			_, err := appcontainer.SetupBuildah(t.Context(), tool, installer, nil, nil, io.Discard,
+				appcontainer.SetupBuildahInput{RunnerTemp: t.TempDir(), InstallPackages: true, ExtraPackages: "netavark aardvark-dns"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var want []string
+			if !installed {
+				want = []string{"netavark", "aardvark-dns"}
+			}
+			if !slices.Equal(installer.packages, want) {
+				t.Fatalf("installed %v, want %v", installer.packages, want)
+			}
+		})
+	}
+}
+
+func TestSetupBuildah_InstallDisabledPreservesMissingHelperProbeError(t *testing.T) {
+	t.Parallel()
+	probeErr := errors.New("could not find netavark in /usr/lib/podman or /usr/libexec/podman")
+	tool := &fakeBuildahSetupTool{
+		commands:   map[string]bool{"buildah": true, "fuse-overlayfs": true},
+		probeError: probeErr,
+	}
+	installer := &fakePackageInstaller{}
+	_, err := appcontainer.SetupBuildah(t.Context(), tool, installer, nil, nil, io.Discard,
+		appcontainer.SetupBuildahInput{RunnerTemp: t.TempDir(), ProbeBuild: true})
+	if !errors.Is(err, probeErr) {
+		t.Fatalf("error = %v, want original missing-helper diagnostic", err)
+	}
+	if len(installer.packages) != 0 {
+		t.Fatalf("installation disabled but installed %v", installer.packages)
+	}
+	if !slices.Equal(tool.probeCalls, []string{"overlay", "vfs"}) {
+		t.Fatalf("probes = %v, want overlay and vfs", tool.probeCalls)
 	}
 }
 

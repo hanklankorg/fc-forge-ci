@@ -9,7 +9,7 @@
       "forge-ci-binary-ref": {
         "required": false,
         "type": "string",
-        "default": "v0.90.0"
+        "default": ""
       },
       "lint-engine": {
         "required": false,
@@ -48,7 +48,7 @@
       "runtime-image": {
         "required": false,
         "type": "string",
-        "default": "ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0"
+        "default": ""
       }
     },
     "secrets": [
@@ -111,7 +111,7 @@
       "forge-ci-binary-ref": {
         "required": false,
         "type": "string",
-        "default": "v0.90.0"
+        "default": ""
       },
       "promote-release-environment": {
         "required": false,
@@ -180,37 +180,37 @@
       "runtime-image": {
         "required": false,
         "type": "string",
-        "default": "ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0"
+        "default": ""
       },
       "runtime-image-android": {
         "required": false,
         "type": "string",
-        "default": "ghcr.io/diggsweden/forge-ci-runtime-android-35:v0.90.0"
+        "default": ""
       },
       "runtime-image-full": {
         "required": false,
         "type": "string",
-        "default": "ghcr.io/diggsweden/forge-ci-runtime:v0.90.0"
+        "default": ""
       },
       "runtime-image-go": {
         "required": false,
         "type": "string",
-        "default": "ghcr.io/diggsweden/forge-ci-runtime-go-1.27:v0.90.0"
+        "default": ""
       },
       "runtime-image-java": {
         "required": false,
         "type": "string",
-        "default": "ghcr.io/diggsweden/forge-ci-runtime-java-25:v0.90.0"
+        "default": ""
       },
       "runtime-image-node": {
         "required": false,
         "type": "string",
-        "default": "ghcr.io/diggsweden/forge-ci-runtime-node-24:v0.90.0"
+        "default": ""
       },
       "runtime-image-rust": {
         "required": false,
         "type": "string",
-        "default": "ghcr.io/diggsweden/forge-ci-runtime-rust-stable:v0.90.0"
+        "default": ""
       }
     },
     "secrets": [
@@ -256,10 +256,20 @@
         "required": true,
         "type": "string"
       },
+      "container-image-repository": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "container-registry-user": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
       "forge-ci-binary-ref": {
         "required": false,
         "type": "string",
-        "default": "v0.90.0"
+        "default": ""
       },
       "java-version": {
         "required": false,
@@ -286,6 +296,11 @@
         "type": "string",
         "default": ""
       },
+      "publish-containers": {
+        "required": false,
+        "type": "boolean",
+        "default": true
+      },
       "publish-maven-snapshots": {
         "required": false,
         "type": "boolean",
@@ -304,37 +319,37 @@
       "runtime-image": {
         "required": false,
         "type": "string",
-        "default": "ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0"
+        "default": ""
       },
       "runtime-image-android": {
         "required": false,
         "type": "string",
-        "default": "ghcr.io/diggsweden/forge-ci-runtime-android-35:v0.90.0"
+        "default": ""
       },
       "runtime-image-full": {
         "required": false,
         "type": "string",
-        "default": "ghcr.io/diggsweden/forge-ci-runtime:v0.90.0"
+        "default": ""
       },
       "runtime-image-go": {
         "required": false,
         "type": "string",
-        "default": "ghcr.io/diggsweden/forge-ci-runtime-go-1.27:v0.90.0"
+        "default": ""
       },
       "runtime-image-java": {
         "required": false,
         "type": "string",
-        "default": "ghcr.io/diggsweden/forge-ci-runtime-java-25:v0.90.0"
+        "default": ""
       },
       "runtime-image-node": {
         "required": false,
         "type": "string",
-        "default": "ghcr.io/diggsweden/forge-ci-runtime-node-24:v0.90.0"
+        "default": ""
       },
       "runtime-image-rust": {
         "required": false,
         "type": "string",
-        "default": "ghcr.io/diggsweden/forge-ci-runtime-rust-stable:v0.90.0"
+        "default": ""
       },
       "rust-toolchain": {
         "required": false,
@@ -370,10 +385,12 @@
       "PROVISIONING_PROFILE_BASE64",
       "SECRETS_PROPERTIES_BASE64",
       "XCCONFIG_BASE64",
+      "container-registry-password",
       "registry-password"
     ],
     "required_secrets": [],
     "outputs": {
+      "container-images-json": "${{ jobs.execute-snapshot-images.outputs.container-images-json }}",
       "npm-package-name": "${{ fromJson(jobs.execute-snapshot-publish-stage.outputs['artifacts-json'] || '{}').npm_package_name }}",
       "npm-package-version": "${{ fromJson(jobs.execute-snapshot-publish-stage.outputs['artifacts-json'] || '{}').npm_package_version }}"
     }

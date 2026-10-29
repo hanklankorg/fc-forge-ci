@@ -41,9 +41,9 @@ on:
         default: "audit"
         type: string
       forge-ci-binary-ref:
-        description: "forge-ci ref/version to install for SARIF upload (defaults to v0.90.0)"
+        description: "forge-ci ref/version for SARIF upload; empty resolves the current stable release tag once"
         required: false
-        default: "v0.90.0"
+        default: ""
         type: string
     secrets:
       CODE_SCANNING_TOKEN:
@@ -52,6 +52,12 @@ on:
 permissions:
   contents: read
 jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   # The scorecard publish webapp rejects any job whose steps aren't all `uses:`.
   # We keep this job strictly pure-actions and hand off SARIF to a separate
   # `publish-sarif` job via an artifact.
@@ -93,8 +99,8 @@ jobs:
   # above and uploads it to Code Scanning via forge-ci.
   publish-sarif:
     name: Upload SARIF to Code Scanning
-    needs: [analysis]
-    if: always() && needs.analysis.result != 'cancelled'
+    needs: [resolve-bootstrap, analysis]
+    if: always() && needs.resolve-bootstrap.result == 'success' && needs.analysis.result != 'cancelled'
     runs-on: ubuntu-26.04
     timeout-minutes: 1
     permissions:
@@ -109,16 +115,18 @@ jobs:
       # node-less verb. Unconditional (the download result isn't known yet); the
       # cost on a no-SARIF run is one install.
       - name: Checkout forge-ci bootstrap installers
+        id: forge-ci-bootstrap
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
-          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
           path: .github-shared
           sparse-checkout: scripts/bootstrap
           persist-credentials: false
       - name: Install forge-ci binary
         env:
-          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          FORGE_CI_SOURCE_SHA: ${{ steps.forge-ci-bootstrap.outputs.commit }}
           FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
         run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
       - name: Download scorecard SARIF artifact

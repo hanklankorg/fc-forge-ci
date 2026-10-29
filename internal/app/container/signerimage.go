@@ -86,6 +86,8 @@ type SignerImageBuildArchInput struct {
 
 // SignerImageAssembleInput drives multi-arch manifest assembly.
 type SignerImageAssembleInput struct {
+	// LayoutsDir is the gathered architecture-artifact root; empty preserves cwd.
+	LayoutsDir       string
 	AuthFile         string
 	SourceSHA        string
 	ServerURL        string
@@ -112,9 +114,12 @@ type SignerImageAssembleInput struct {
 // The build job may lack the scanner, as the kaniko job image does; the
 // publishing job runs it on the very bytes it uploads.
 type StagedLayoutEvidence struct {
-	Trivy  ImageEvidenceTrivy
-	Syft   ImageEvidenceSyft
-	Stderr io.Writer
+	// CheckLayout optionally supplies a policy-specific scan/inventory gate.
+	// It runs for every verified local layout before the first upload.
+	CheckLayout func(context.Context, string, string) error
+	Trivy       ImageEvidenceTrivy
+	Syft        ImageEvidenceSyft
+	Stderr      io.Writer
 	// TrivyOutputTemplate names each architecture's Trivy JSON; it must
 	// contain {arch} or {platform}.
 	TrivyOutputTemplate string
@@ -132,6 +137,15 @@ type StagedLayoutEvidence struct {
 // check scans every staged layout, so the evidence of all architectures is
 // written, and refuses publication if any of them failed.
 func (e *StagedLayoutEvidence) check(ctx context.Context, out io.Writer, inputs []LayoutRecordInput) error {
+	if e.CheckLayout != nil {
+		var failures []error
+		for _, in := range inputs {
+			if err := e.CheckLayout(ctx, in.Directory, in.Platform); err != nil {
+				failures = append(failures, fmt.Errorf("staged %s: %w", in.Platform, err))
+			}
+		}
+		return errors.Join(failures...)
+	}
 	raws := make([]string, 0, len(inputs))
 	for _, in := range inputs {
 		raws = append(raws, in.Platform)
@@ -312,6 +326,11 @@ func PublishAndAssembleSignerImage(ctx context.Context, registry StagedSignerReg
 	if err != nil {
 		return nil, err
 	}
+	// Establish source/platform/content binding before policy callbacks inspect
+	// inputs. PublishImageLayouts rechecks the same bytes after the callbacks.
+	if _, err := verifyImageLayouts(ctx, registry, inputs); err != nil {
+		return nil, err
+	}
 
 	if in.Evidence != nil {
 		if err := validateStagedIndexEvidence(in, derived, inputs); err != nil {
@@ -350,12 +369,12 @@ func stagedSignerInputs(ctx context.Context, registry LayoutInspector, in Signer
 	for _, arch := range derived.Archs {
 		tag := derived.ManifestTag + "-" + arch
 
-		ref, err := signerArchRef(arch, derived.ImageRepository, derived.Name, tag)
+		ref, err := signerArchRef(in.LayoutsDir, arch, derived.ImageRepository, derived.Name, tag)
 		if err != nil {
 			return nil, err
 		}
 
-		directory := filepath.Join(derived.Name+"-arch-"+arch, "layout")
+		directory := filepath.Join(in.LayoutsDir, derived.Name+"-arch-"+arch, "layout")
 
 		record, err := readImageLayoutRecord(directory)
 		if err != nil {
@@ -695,8 +714,8 @@ func localScratchImage(name string) string {
 	return "localhost/" + name
 }
 
-func signerArchRef(arch, imageRepository, name, expectedTag string) (string, error) {
-	metadataFile := filepath.Join(name+"-arch-"+arch, name+"-"+arch+".json")
+func signerArchRef(root, arch, imageRepository, name, expectedTag string) (string, error) {
+	metadataFile := filepath.Join(root, name+"-arch-"+arch, name+"-"+arch+".json")
 
 	body, err := os.ReadFile(metadataFile) //nolint:gosec // workspace-local metadata artifact downloaded by the workflow.
 	if err != nil {

@@ -24,10 +24,11 @@ const (
 	defaultBuildahRunnerTemp = "/tmp"
 	probeImage               = "localhost/forge-ci-storage-probe:latest"
 
-	// buildahBinary and fuseOverlayfsBinary are the command/package names of
-	// the Buildah runtime dependencies this setup installs and probes.
+	// Command/package names of the runtime dependencies installed by setup.
 	buildahBinary       = "buildah"
 	fuseOverlayfsBinary = "fuse-overlayfs"
+	netavarkBinary      = "netavark"
+	aardvarkDNSBinary   = "aardvark-dns"
 )
 
 var aptPackageRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.+_-]*$`)
@@ -140,8 +141,13 @@ type buildahSetupPaths struct {
 }
 
 func setupBuildahPackages(extra string) ([]string, error) {
-	packages := []string{buildahBinary, fuseOverlayfsBinary}
-	seen := map[string]bool{buildahBinary: true, fuseOverlayfsBinary: true}
+	// With --no-install-recommends, Buildah's network backend and its DNS
+	// helper must be explicit, even when the build uses vfs storage.
+	packages := []string{buildahBinary, fuseOverlayfsBinary, netavarkBinary, aardvarkDNSBinary}
+	seen := make(map[string]bool, len(packages))
+	for _, name := range packages {
+		seen[name] = true
+	}
 
 	for packageName := range strings.FieldsSeq(strings.ReplaceAll(extra, "\n", " ")) {
 		if !aptPackageRE.MatchString(packageName) {
@@ -189,7 +195,7 @@ func missingBuildahPackages(tool BuildahSetupTool, packages []string) []string {
 
 func buildahPackageCommand(packageName string) string {
 	switch packageName {
-	case buildahBinary, fuseOverlayfsBinary, "curl", "jq", "podman", "skopeo", "unzip":
+	case buildahBinary, fuseOverlayfsBinary, netavarkBinary, aardvarkDNSBinary, "curl", "jq", "podman", "skopeo", "unzip":
 		return packageName
 	case "gettext":
 		return "envsubst"

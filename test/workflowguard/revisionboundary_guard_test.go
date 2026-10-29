@@ -110,6 +110,7 @@ func declaredMutationWorkflows() map[string]string {
 		"release-prepare-stage.yml":          "branch",
 		"release-publish-stage.yml":          "branch",
 		"release-snapshot-orchestrator.yml":  "branch",
+		"snapshot-images.yml":                "branch", // resolved once into plan.outputs.source-sha; later checkouts use only that SHA.
 		"validate-release-prerequisites.yml": "branch",
 		"version-bump.yml":                   "branch",
 	}

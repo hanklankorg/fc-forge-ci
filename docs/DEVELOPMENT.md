@@ -20,11 +20,9 @@ forge-ci --version
 
 Your Go bin directory (normally `$(go env GOPATH)/bin`) must be on `PATH`. To
 install another reviewed source revision, check out that revision and run the
-same command, or install a pushed commit or tag without a checkout:
-
-```bash
-go install github.com/diggsweden/forge-ci/cmd/forge-ci@<ref>
-```
+same command. Avoid `go install github.com/diggsweden/forge-ci/cmd/forge-ci@<ref>`
+for exact-commit builds: Go can resolve a SHA to the moving pre-release tag and
+reuse module contents cached before that tag moved.
 
 Use `forge-ci --help` to inspect the local interface. `forge-ci init` still
 requires a release tag and its examples on the repository it reads; it does not
@@ -37,8 +35,24 @@ temporary storage, but renders a proposal without writing project files.
 Initializer unit tests inject an inert remote and use temporary project trees
 to check generation parity, conflicts, and unchanged files; they need no provider.
 
-The bootstrap installer takes the same path for a branch or SHA
-`forge-ci-binary-ref`; release tags install the signed archive instead. See
+The bootstrap installer fetches a detached Git checkout for a branch or full
+40-character SHA-1 or 64-character SHA-256 commit ID
+`forge-ci-binary-ref` and builds from that source, logging the resolved commit;
+release tags install the signed archive instead. Self Release passes the commit
+named by its release-request tag, so advancing the branch cannot change its CLI.
+PR and snapshot orchestrators resolve source branches once for all host jobs;
+standalone host jobs bind the build to their bootstrap checkout using
+`FORGE_CI_SOURCE_SHA`. Release-tag inputs retain signed release-asset installation.
+Use the complete commit ID rather than an abbreviated hash. Git source installs
+select the repository's SHA-1 or SHA-256 object format before fetching.
+`local`/`.` builds use the working copy and reject `FORGE_CI_SOURCE_SHA`; to build
+a bound revision, pass its commit ID instead. Relative `FORGE_CI_INSTALL_DIR`
+values are resolved against the invoking working directory.
+An omitted binary ref resolves the current published stable release to its
+concrete tag once. GitHub orchestrators use that tag for default runtime images
+as well; explicit image overrides take precedence. Self Release's explicit
+request commit never takes this default-discovery path.
+See
 [CLI binary channels](runtime-images.md#cli-binary-channels).
 
 ## Prerequisites - Linux

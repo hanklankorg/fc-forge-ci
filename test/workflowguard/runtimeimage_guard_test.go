@@ -82,6 +82,11 @@ func TestRuntimeImageTagsShareOneVersion(t *testing.T) {
 func collectRuntimeTagSites(rel, content string, verifyTagAllowedFiles map[string]bool, sites map[string][]string) {
 	for index, line := range strings.Split(content, "\n") {
 		for _, tag := range runtimetags.Tags(line) {
+			// The resolver's printf template is executed by the bootstrap contract
+			// tests; its format placeholder is not a literal OCI version pin.
+			if rel == ".github/workflows/resolve-forge-ci-bootstrap.yml" && tag == `%s\n` {
+				continue
+			}
 			if tag == "verify" && verifyTagAllowedFiles[rel] {
 				continue
 			}
@@ -226,23 +231,11 @@ func TestReleaseRevisionIsOneModeledVersion(t *testing.T) {
 	// modeled revision of the same version, not a second version.
 	rolling := runtimeTag + rollingPreReleaseSuffix
 
-	refs := make([]string, 0, len(binaryRefs))
-	for ref := range binaryRefs {
-		refs = append(refs, ref)
-	}
-
-	slices.Sort(refs)
-
-	for _, ref := range refs {
-		want := runtimeTag
-		if rollingPreReleaseFiles(binaryRefs[ref]) {
-			want = rolling
-		}
-
-		require.Equalf(t, want, ref,
-			"the installed CLI revision must name the same release as the runtime images (%s); a version cut rewrites both together. Sites:\n  %s",
-			runtimeTag, strings.Join(binaryRefs[ref], "\n  "))
-	}
+	// Empty defaults select one concrete stable release at runtime. The bootstrap
+	// resolver returns its matching CLI ref and all runtime image references;
+	// bootstrap_revision_guard_test.go executes that selection and checks wiring.
+	require.Len(t, binaryRefs, 1, "binary defaults must share stable-release resolution")
+	require.Contains(t, binaryRefs, "", "binary defaults must not retain an older hard-coded release")
 
 	for site, value := range rollingPreReleaseSites(t, files) {
 		require.Equalf(t, rolling, value,
@@ -253,22 +246,6 @@ func TestReleaseRevisionIsOneModeledVersion(t *testing.T) {
 // rollingPreReleaseSuffix is the tag the self graph publishes and consumes for
 // the release it is currently building.
 const rollingPreReleaseSuffix = "-pre"
-
-// rollingPreReleaseFiles reports whether every site of one binary-ref value is
-// a workflow that deliberately tracks the rolling pre-release CLI. Only the
-// operator-managed attestor does: it is invoked directly from an isolated
-// repository rather than from this repo's release graph, and it consumes the
-// pre-release assets the self graph publishes.
-func rollingPreReleaseFiles(sites []string) bool {
-	for _, site := range sites {
-		file, _, _ := strings.Cut(site, ":")
-		if file != ".github/workflows/slsa-attestor.yml" {
-			return false
-		}
-	}
-
-	return len(sites) > 0
-}
 
 // rollingPreReleaseSites finds every functional rolling pre-release literal in
 // the runtime surface: input defaults, expression fallbacks and concurrency
@@ -328,12 +305,6 @@ on:
 		"only the binary-ref input names a CLI revision")
 	require.Equal(t, []string{".github/workflows/stale.yml:10"}, digests,
 		"a digest-pinned runtime default must be reported, not silently skipped")
-
-	require.False(t, rollingPreReleaseFiles(refs["v2.9.0"]), "an ordinary workflow may not track the rolling pre-release")
-	require.True(t, rollingPreReleaseFiles([]string{".github/workflows/slsa-attestor.yml:57"}))
-	require.False(t, rollingPreReleaseFiles(nil), "no sites is not an exemption")
-	require.False(t, rollingPreReleaseFiles([]string{".github/workflows/slsa-attestor.yml:57", ".github/workflows/other.yml:12"}),
-		"one exempt site does not exempt the value everywhere it appears")
 
 	sites := map[string]string{}
 	collectRollingPreReleaseSites(".github/workflows/self.yml", strings.Join([]string{

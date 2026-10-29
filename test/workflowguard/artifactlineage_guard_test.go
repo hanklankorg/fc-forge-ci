@@ -30,7 +30,9 @@ import (
 // inputs.artifact-name }}`. That indirection is not an edge case; it is how
 // every download step in this repository is fed.
 //
-// What is deliberately NOT attempted: evaluating format(), input defaults or
+// Snapshot handoffs additionally admit a shared input namespace and matrices
+// from the same typed snapshot planner; snapshotlineage_test.go proves those
+// bounded relationships. What is NOT attempted: evaluating format(), input defaults or
 // step outputs. Those would be a reimplementation of the expression language,
 // and a wrong one would report confident nonsense. A download step this cannot
 // resolve (a run-time name, a pattern, or no name at all, which fetches every
@@ -67,7 +69,12 @@ func lineageFindings(workflows map[string]lineageWorkflow) ([]string, int) {
 	for _, workflow := range workflows {
 		for jobName, job := range workflow.jobs {
 			names, unresolved := downloadNames(job)
+			proven := snapshotLineageProofs(workflow, jobName)
 			for _, reason := range unresolved {
+				if proven[reason] {
+					resolved++
+					continue
+				}
 				findings = append(findings, fmt.Sprintf(
 					"%s: job %s has a download whose producer cannot be proven: %s; use a literal name",
 					workflow.name, jobName, reason))

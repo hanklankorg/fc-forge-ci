@@ -14,7 +14,7 @@ on:
       runtime-image:
         description: "forge-ci runtime image for the status/summary jobs (base is sufficient)"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0"
+        default: ""
         type: string
       required-lints:
         description: "Mandated lint floor passed to `nanolinter verify --require` (comma-separated check ids forced to run + block)."
@@ -29,7 +29,7 @@ on:
       forge-ci-binary-ref:
         description: "forge-ci version the lint job installs (cosign-verified) for SARIF tooling"
         required: false
-        default: "v0.90.0"
+        default: ""
         type: string
     # Aggregator: forwards CODE_SCANNING_TOKEN to the nanolinter job for
     # its security-SARIF upload; other lint jobs use the auto GITHUB_TOKEN.
@@ -40,7 +40,14 @@ on:
 permissions:
   contents: read
 jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   nanolinter:
+    needs: [resolve-bootstrap]
     name: "Check: lint"
     if: ${{ fromJson(inputs['quality-stage-plan-json']).targets.nanolinter.runs }}
     permissions:
@@ -53,8 +60,9 @@ jobs:
       # flavour matching the project type.
       nanolinter-image: ${{ fromJson(inputs['pr-plan-json']).policy.nanolinter_image }}
       required-lints: ${{ inputs['required-lints'] }}
-      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      forge-ci-binary-ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
   megalinter:
+    needs: [resolve-bootstrap]
     name: "Check: lint (MegaLinter)"
     if: ${{ fromJson(inputs['quality-stage-plan-json']).targets.megalinter.runs }}
     permissions:
@@ -64,24 +72,26 @@ jobs:
     uses: ./.github/workflows/lint-megalinter.yml
     with:
       megalinter-image: ${{ inputs['megalinter-image'] }}
-      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      forge-ci-binary-ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
   swift:
+    needs: [resolve-bootstrap]
     name: "Check: lint (Swift)"
     if: ${{ fromJson(inputs['quality-stage-plan-json']).targets.swift.runs }}
     permissions:
       contents: read
     uses: ./.github/workflows/lint-swift.yml
     with:
+      forge-ci-binary-ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
       enable-swiftformat: ${{ fromJson(inputs['pr-plan-json']).policy.swift_format }}
       enable-swiftlint: ${{ fromJson(inputs['pr-plan-json']).policy.swift_lint }}
-      runtime-image: ${{ inputs['runtime-image'] }}
+      runtime-image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
   quality-status:
     name: "Check: status"
     runs-on: ubuntu-26.04
     container:
-      image: ${{ inputs['runtime-image'] }}
-    if: always()
-    needs: [nanolinter, megalinter, swift]
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
+    if: always() && needs.resolve-bootstrap.result == 'success'
+    needs: [resolve-bootstrap, nanolinter, megalinter, swift]
     steps:
       - name: Check quality results
         env:
@@ -95,11 +105,11 @@ jobs:
             "$CHECK_SWIFT"
   summarize-quality-stage:
     name: Summary
-    needs: [nanolinter, megalinter, swift, quality-status]
-    if: always()
+    needs: [resolve-bootstrap, nanolinter, megalinter, swift, quality-status]
+    if: always() && needs.resolve-bootstrap.result == 'success'
     runs-on: ubuntu-26.04
     container:
-      image: ${{ inputs['runtime-image'] }}
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
     permissions:
       actions: read
       contents: read

@@ -320,15 +320,18 @@ t_identity_refuses_unsafe_repository() (
 t_fork_source_build_uses_the_fork() (
 	local tmp
 	tmp="$(mktemp -d)"
-	# shellcheck disable=SC2329 # invoked indirectly by install_forge_ci_fork_source.
-	git() { printf '%s\n' "$*" >>"$tmp/git.log"; }
+	# shellcheck disable=SC2329 # invoked indirectly by install_forge_ci_source.
+	git() {
+		printf '%s\n' "$*" >>"$tmp/git.log"
+		if [[ "$*" == *'rev-parse HEAD' ]]; then printf '%s\n' '0123456789012345678901234567890123456789'; fi
+	}
 	# shellcheck disable=SC2329 # invoked indirectly by install_forge_ci_go_install.
 	go() {
 		printf '%s\n' "$*" >>"$tmp/go.log"
 		mkdir -p "$GOBIN" && : >"$GOBIN/forge-ci"
 	}
-	FORGE_CI_REPOSITORY=someone/forge-ci install_forge_ci_go_install 0123abc "$tmp/install" >/dev/null 2>&1 || return 1
-	grep -Fq 'fetch -q --depth 1 https://github.com/someone/forge-ci.git 0123abc' "$tmp/git.log" &&
+	FORGE_CI_REPOSITORY=someone/forge-ci install_forge_ci_go_install 0123456789012345678901234567890123456789 "$tmp/install" >/dev/null 2>&1 || return 1
+	grep -Fq 'fetch -q --depth 1 https://github.com/someone/forge-ci.git 0123456789012345678901234567890123456789' "$tmp/git.log" &&
 		grep -Fxq 'install ./cmd/forge-ci' "$tmp/go.log" &&
 		! grep -Fq 'github.com/diggsweden/forge-ci' "$tmp/go.log"
 )

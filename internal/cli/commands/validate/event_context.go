@@ -15,6 +15,12 @@ import (
 	"github.com/diggsweden/forge-ci/internal/listval"
 )
 
+// Only providers with authenticated reusable-run metadata implement this role.
+// A bare workflow_call value never becomes an allowed event on its own.
+type workflowCallEventResolver interface {
+	ResolveWorkflowCallEvent(context.Context) (string, error)
+}
+
 func eventContextCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "event-context",
@@ -25,7 +31,10 @@ func eventContextCmd() *cli.Command {
 			"would otherwise run with the caller's signing/package/API secrets attached " +
 			"to PR-HEAD code. Default allowlist: push, workflow_dispatch, release, " +
 			"schedule, workflow_run, merge_group. Adopters with legitimate PR-context " +
-			"publish needs (preview deploys) override via --allowed-events on the step.\n\n" +
+			"publish needs (preview deploys) override via --allowed-events on the step. " +
+			"Forgejo reusable calls resolve the original trigger from authenticated current-run " +
+			"metadata bound to the runner repository, run ID and source SHA; missing or ambiguous " +
+			"metadata is refused. An event-name override cannot relabel those reusable calls.\n\n" +
 			"EXAMPLE:\n" +
 			"   # Reads $FORGEJO_EVENT_NAME / $GITHUB_EVENT_NAME, or the detected provider's\n" +
 			"   # event context (GitLab: normalized CI_PIPELINE_SOURCE); refuses pull_request*\n" +
@@ -60,6 +69,20 @@ func eventContextCmd() *cli.Command {
 					}
 
 					eventName = evt.EventName
+				}
+				if resolver, ok := dependencies.Provider.(workflowCallEventResolver); ok {
+					native, err := dependencies.Provider.ResolveContext(ctx)
+					if err != nil {
+						return err
+					}
+					// An event-name argument cannot relabel a native reusable run.
+					if eventName == "workflow_call" || native.EventName == "workflow_call" {
+						resolved, err := resolver.ResolveWorkflowCallEvent(ctx)
+						if err != nil {
+							return err
+						}
+						eventName = resolved
+					}
 				}
 
 				return appvalidate.EventContext(os.Stderr, deps.Annotator(cmd), appvalidate.EventContextInput{

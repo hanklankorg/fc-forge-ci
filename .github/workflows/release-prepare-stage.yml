@@ -27,27 +27,27 @@ on:
       forge-ci-binary-ref:
         description: "Immutable forge-ci commit used by the plain-runner preparation job"
         required: false
-        default: "v0.90.0"
+        default: ""
         type: string
       runtime-image:
         description: "forge-ci runtime image for the summarize job (base is sufficient)"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0"
+        default: ""
         type: string
       runtime-image-java:
         description: "forge-ci runtime image for Maven/Gradle version bump jobs"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-java-25:v0.90.0"
+        default: ""
         type: string
       runtime-image-node:
         description: "forge-ci runtime image for NPM version bump jobs"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-node-24:v0.90.0"
+        default: ""
         type: string
       runtime-image-rust:
         description: "forge-ci runtime image for Cargo version bump jobs"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-rust-stable:v0.90.0"
+        default: ""
         type: string
       git-signing-method:
         description: "How to sign the release commit + tag: gpg (default) or ssh. Orchestrator passes fromJSON(config-plan-json).git_signing.method."
@@ -100,7 +100,14 @@ on:
 permissions:
   contents: read
 jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   generate-full-changelog:
+    needs: [resolve-bootstrap]
     name: "Prepare: changelog"
     if: ${{ inputs['existing-release-sha'] == '' && fromJson(inputs['prepare-stage-plan-json']).targets.version_bump.runs }}
     permissions:
@@ -109,13 +116,14 @@ jobs:
     with:
       release-policy: ${{ inputs['release-policy'] }}
       branch: ${{ inputs['authorized-source-sha'] }}
-      runtime-image: ${{ inputs['runtime-image'] }}
+      runtime-image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
       upload-as-artifact: true
       changelog-config: "/opt/forge-ci/templates/gitcliff/keepachangelog.toml"
       git-cliff-args: ""
       output-file: "CHANGELOG.md"
       artifact-name: "full-changelog"
   generate-minimal-changelog:
+    needs: [resolve-bootstrap]
     name: "Prepare: commit message"
     if: ${{ inputs['existing-release-sha'] == '' && fromJson(inputs['prepare-stage-plan-json']).targets.version_bump.runs }}
     permissions:
@@ -124,7 +132,7 @@ jobs:
     with:
       release-policy: ${{ inputs['release-policy'] }}
       branch: ${{ inputs['authorized-source-sha'] }}
-      runtime-image: ${{ inputs['runtime-image'] }}
+      runtime-image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
       upload-as-artifact: true
       changelog-config: "/opt/forge-ci/templates/gitcliff/minimal.toml"
       git-cliff-args: "--latest --strip header"
@@ -132,7 +140,7 @@ jobs:
       artifact-name: "minimal-changelog"
   prepare-version-files:
     name: "Prepare: version files without signing keys"
-    needs: [generate-full-changelog]
+    needs: [resolve-bootstrap, generate-full-changelog]
     if: ${{ inputs['existing-release-sha'] == '' && fromJson(inputs['prepare-stage-plan-json']).targets.version_bump.runs }}
     runs-on: ubuntu-26.04
     permissions:
@@ -147,16 +155,18 @@ jobs:
           ref: ${{ inputs['authorized-source-sha'] }}
           persist-credentials: false
       - name: Checkout forge-ci bootstrap installers
+        id: forge-ci-bootstrap
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
-          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
           path: .github-shared
           sparse-checkout: scripts/bootstrap
           persist-credentials: false
       - name: Install forge-ci binary
         env:
-          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          FORGE_CI_SOURCE_SHA: ${{ steps.forge-ci-bootstrap.outputs.commit }}
           FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
         run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
       - name: Refuse PR-context trigger
@@ -203,8 +213,8 @@ jobs:
     name: "Prepare: version, release commit and tag"
     env:
       RELEASE_POLICY: ${{ inputs['release-policy'] }}
-    needs: [generate-full-changelog, generate-minimal-changelog, prepare-version-files]
-    if: ${{ !cancelled() && needs.generate-full-changelog.result != 'failure' && needs.generate-minimal-changelog.result != 'failure' && needs.prepare-version-files.result != 'failure' && needs.prepare-version-files.result != 'cancelled' }}
+    needs: [resolve-bootstrap, generate-full-changelog, generate-minimal-changelog, prepare-version-files]
+    if: ${{ !cancelled() && needs.resolve-bootstrap.result == 'success' && needs.generate-full-changelog.result != 'failure' && needs.generate-minimal-changelog.result != 'failure' && needs.prepare-version-files.result != 'failure' && needs.prepare-version-files.result != 'cancelled' }}
     runs-on: ubuntu-26.04
     permissions:
       actions: read
@@ -220,15 +230,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Checkout forge-ci bootstrap installers
+        id: forge-ci-bootstrap
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
-          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
           path: .github-shared
           sparse-checkout: scripts/bootstrap
       - name: Install forge-ci binary
         env:
-          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          FORGE_CI_SOURCE_SHA: ${{ steps.forge-ci-bootstrap.outputs.commit }}
           FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
         run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
       - name: Refuse PR-context trigger (release secrets in scope)
@@ -345,11 +357,11 @@ jobs:
         run: forge-ci release ssh cleanup
   summarize-prepare-stage:
     name: Summary
-    needs: [version-bump]
-    if: always()
+    needs: [resolve-bootstrap, version-bump]
+    if: always() && needs.resolve-bootstrap.result == 'success'
     runs-on: ubuntu-26.04
     container:
-      image: ${{ inputs['runtime-image'] }}
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
     permissions:
       contents: read
     outputs:

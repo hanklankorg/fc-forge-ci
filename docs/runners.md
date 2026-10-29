@@ -20,6 +20,13 @@ runner as the cause when it sees it. Hosted Forgejo pools such as Codefloe
 deny it; GitHub-hosted VMs, gitlab.com's per-job VMs and a machine of your own
 with rootless Podman permit it.
 
+`setup-buildah` provisions missing `buildah`, `fuse-overlayfs`, `netavark` and
+`aardvark-dns` packages when package installation is enabled. The networking
+helpers are required independently of the storage driver; switching to `vfs`
+does not replace them. Helpers under `/usr/lib/podman` or `/usr/libexec/podman`
+are recognized outside `PATH`. With `--install-packages=false`, provision these
+runtime packages in the job image.
+
 ## How a workflow names its runners
 
 Runner selection is a repository or organization variable, never a literal in

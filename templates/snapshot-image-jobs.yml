@@ -1,0 +1,114 @@
+# SPDX-FileCopyrightText: The Forge CI Authors
+# SPDX-License-Identifier: CC0-1.0
+spec:
+  inputs:
+    engine-sha:
+      regex: '^([0-9a-f]{40}|[0-9a-f]{64})$'
+    forge-ci-repository:
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
+    job-image:
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    build-image:
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    runner-tags:
+      type: array
+      default: []
+    image-builder:
+      options: [buildah, kaniko]
+      default: buildah
+    builder-job-image:
+      default: ''
+---
+.forge-ci-snapshot:
+  image:
+    name: $[[ inputs.job-image ]]
+    entrypoint: ['']
+  tags: $[[ inputs.runner-tags ]]
+  inherit:
+    variables: false
+  variables:
+    GIT_STRATEGY: empty
+    FORGE_CI_PROVIDER: gitlab
+    FORGE_CI_PACKAGE_PROVIDER: gitlab
+    SNAPSHOT_LAYER_PROJECT: $[[ inputs.forge-ci-repository ]]
+    SNAPSHOT_ENGINE_SHA: $[[ inputs.engine-sha ]]
+    CI_IMAGE_BUILDER: $[[ inputs.image-builder ]]
+    CI_IMAGE_BUILDER_JOB_IMAGE: $[[ inputs.builder-job-image ]]
+  before_script:
+    - |
+      set -euo pipefail
+      umask 077
+      unset BASH_ENV ENV
+      export SNAPSHOT_SERVER=${CI_SERVER_URL:?}
+      export SNAPSHOT_REPOSITORY=${CI_PROJECT_PATH:?}
+      export FORGE_CI_REPOSITORY_URL="${CI_SERVER_URL}/${SNAPSHOT_LAYER_PROJECT}.git"
+      export SNAPSHOT_HELPERS="${CI_PROJECT_DIR:?}/snapshot-engine"
+      if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+        ca_bundle="${CI_PROJECT_DIR}/snapshot-ca.crt"
+        cat /etc/ssl/certs/ca-certificates.crt "${CI_SERVER_TLS_CA_FILE}" > "${ca_bundle}"
+        export GIT_SSL_CAINFO=${ca_bundle} CURL_CA_BUNDLE=${ca_bundle} SSL_CERT_FILE=${ca_bundle}
+      fi
+      git init --quiet "${SNAPSHOT_HELPERS}"
+      git -C "${SNAPSHOT_HELPERS}" remote add origin "${FORGE_CI_REPOSITORY_URL}"
+      GIT_TERMINAL_PROMPT=0 git -c credential.helper= -c core.hooksPath=/dev/null \
+        -C "${SNAPSHOT_HELPERS}" fetch --quiet --depth=1 --no-tags origin "${SNAPSHOT_ENGINE_SHA}"
+      git -C "${SNAPSHOT_HELPERS}" checkout --quiet --detach "${SNAPSHOT_ENGINE_SHA}"
+      test "$(git -C "${SNAPSHOT_HELPERS}" rev-parse HEAD)" = "${SNAPSHOT_ENGINE_SHA}"
+      source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
+      fetch_forge_ci
+      export CI_OUTPUT="${CI_PROJECT_DIR}/snapshot-outputs.env"
+      source "${SNAPSHOT_HELPERS}/.forgejo/bin/snapshot-images.sh"
+      source "${SNAPSHOT_HELPERS}/.gitlab/bin/snapshot-images.sh"
+      # Provider checks CI_MERGE_REQUEST_IID/ID and other MR markers even in children.
+      snapshot_validate_event
+  after_script:
+    - |
+      # Native tools and the artifact uploader may run as different users.
+      # Only the declared data handoffs are made readable, never auth or source.
+      for handoff in snapshot-plan.json snapshot-child.yml snapshot-layouts _snapshot-artifacts snapshot-context snapshot-receipts snapshot-evidence container-images.json; do
+        if [ -e "${handoff}" ] && [ ! -L "${handoff}" ]; then
+          find "${handoff}" \( -type d -o -type f \) -exec chmod u=rwX,go=rX -- {} +
+        fi
+      done
+.forge-ci-snapshot-produce:
+  extends: .forge-ci-snapshot
+  script:
+    - snapshot_gitlab_produce
+  artifacts:
+    expire_in: 1 day
+    paths: [_snapshot-artifacts/]
+.forge-ci-snapshot-context:
+  extends: .forge-ci-snapshot
+  script:
+    - snapshot_gitlab_gather
+  artifacts:
+    expire_in: 1 day
+    paths: [snapshot-context/]
+.forge-ci-snapshot-build:
+  extends: .forge-ci-snapshot
+  image:
+    name: $[[ inputs.build-image ]]
+    entrypoint: ['']
+  script:
+    - snapshot_gitlab_build
+  artifacts:
+    expire_in: 1 day
+    paths: [snapshot-layouts/]
+.forge-ci-snapshot-publish:
+  extends: .forge-ci-snapshot
+  # Scope SNAPSHOT_REGISTRY_PASSWORD to this environment, never to build jobs.
+  environment:
+    name: snapshot/registry
+    action: prepare
+  script:
+    - snapshot_gitlab_publish
+  artifacts:
+    expire_in: 7 days
+    paths: [snapshot-receipts/, snapshot-evidence/]
+.forge-ci-snapshot-collect:
+  extends: .forge-ci-snapshot
+  script:
+    - snapshot_collect
+  artifacts:
+    expire_in: 7 days
+    paths: [container-images.json]

@@ -1378,7 +1378,7 @@ forge-ci follows the [12-Factor App config split](https://12factor.net/config): 
 **Things that look like env config but aren't:**
 
 - `version` / `commit` / `build-date` baked into binaries via ldflags: these *identify* the artifact, derived from the git tag + SHA + `SOURCE_DATE_EPOCH`. Same bytes on rebuild = same fingerprint, which is the whole point.
-- `runtime-image: ghcr.io/diggsweden/forge-ci-runtime-*:v0.90.0` defaults: pinned to this repo's release version. The default *is* the application config; adopters override per-environment via workflow inputs.
+- Runtime-image selection: orchestrators resolve empty binary/image overrides to one concrete stable release tag. Explicit overrides remain caller configuration; standalone container-only leaf workflows retain their documented version pins.
 - `github.run_id` in cross-job artifact-upload names: workflow-internal scoping, never reaches the released artifact.
 
 **Preserving artifact identity through deployment:**

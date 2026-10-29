@@ -66,14 +66,14 @@ on:
         default: false
         type: boolean
       forge-ci-binary-ref:
-        description: "forge-ci ref/version passed to downstream plain-runner jobs (defaults to v0.90.0)"
+        description: "forge-ci ref/version passed downstream; empty resolves the current stable release tag once"
         required: false
-        default: "v0.90.0"
+        default: ""
         type: string
       runtime-image:
-        description: "forge-ci base runtime image for PR control-plane and summary jobs. Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci base runtime image for PR control-plane and summary jobs. Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0"
+        default: ""
         type: string
       nanolinter-image:
         description: "Image the nanolinter lint job runs in. Empty (default) uses the nanolinter flavour for project-type: go, java (maven), kotlin (gradle, gradle-android), javascript-typescript (npm), rust (cargo), swift (xcode-ios), core otherwise. Set it to pin a digest or use a mirror."
@@ -97,12 +97,20 @@ on:
 permissions:
   contents: read # Default permission; individual jobs declare additions.
 jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+
   # ===== Stage 0: PR Plan =====
   compose-pr-plan:
+    needs: [resolve-bootstrap]
     name: "Check: plan"
     runs-on: ubuntu-26.04
     container:
-      image: ${{ inputs['runtime-image'] }}
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
     permissions:
       contents: read
     outputs:
@@ -114,7 +122,7 @@ jobs:
         env:
           PROJECT_TYPE: ${{ inputs['project-type'] }}
           BASE_BRANCH: ${{ inputs['base-branch'] }}
-          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
           LINT_ENGINE: ${{ inputs['lint-engine'] }}
           NANOLINTER_IMAGE: ${{ inputs['nanolinter-image'] }}
           LINTER_SWIFTFORMAT: ${{ inputs['linters.swiftformat'] }}
@@ -124,7 +132,7 @@ jobs:
   # ===== Stage 1: Quality =====
   execute-quality-stage:
     name: Check
-    needs: [compose-pr-plan]
+    needs: [resolve-bootstrap, compose-pr-plan]
     permissions:
       actions: read
       contents: read
@@ -134,19 +142,19 @@ jobs:
     with:
       pr-plan-json: ${{ needs.compose-pr-plan.outputs.pr-plan-json }}
       quality-stage-plan-json: ${{ needs.compose-pr-plan.outputs.quality-stage-plan-json }}
-      runtime-image: ${{ inputs['runtime-image'] }}
+      runtime-image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
       required-lints: ${{ inputs['required-lints'] }}
       megalinter-image: ${{ inputs['megalinter-image'] }}
-      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      forge-ci-binary-ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
 
   # ===== Summary =====
   pr-summary:
     name: Summary
-    needs: [compose-pr-plan, execute-quality-stage]
-    if: always()
+    needs: [resolve-bootstrap, compose-pr-plan, execute-quality-stage]
+    if: always() && needs.resolve-bootstrap.result == 'success'
     runs-on: ubuntu-26.04
     container:
-      image: ${{ inputs['runtime-image'] }}
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
     permissions:
       actions: read
       contents: read

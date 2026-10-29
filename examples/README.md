@@ -48,6 +48,14 @@ installation whose Forgejo runner pool denies the user namespaces rootless
 Buildah needs: a public GitHub repository lends a VM for one container-build
 job at a time; see [Runners and runner lending](../docs/runners.md).
 
+### Container snapshots: [`container-snapshot/`](container-snapshot/)
+
+Container-only development images, with a manual GitHub developer-branch selector
+and inherited scan/SBOM policy. The example explains native Forgejo/GitLab call
+contracts, automatic artifact-first producers and optional prepared-context
+overrides. Declared snapshot
+containers are default-on; `publish-containers: false` opts out.
+
 ### By signing backend: [`signing/`](signing/)
 
 How a GitHub release is signed, independent of what is being released.

@@ -28,6 +28,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/domain/container"
@@ -103,11 +104,26 @@ func (a *Adapter) BuildToLayout(ctx context.Context, req container.BuildRequest,
 	return a.run(ctx, out, a.global("push", imageID, "oci:"+layoutDir+":image")...)
 }
 
-// CommandExists reports whether name is available in PATH.
+// CommandExists also recognizes networking helpers in Buildah's standard
+// helper directories, which Debian does not put on PATH.
 func (a *Adapter) CommandExists(name string) bool {
-	_, err := exec.LookPath(name)
+	return commandExists(name, []string{"/usr/lib/podman", "/usr/libexec/podman"})
+}
 
-	return err == nil
+func commandExists(name string, helperDirs []string) bool {
+	if _, err := exec.LookPath(name); err == nil {
+		return true
+	}
+
+	if name == "netavark" || name == "aardvark-dns" {
+		for _, dir := range helperDirs {
+			if _, err := exec.LookPath(filepath.Join(dir, name)); err == nil {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // InfoDriver returns buildah's selected graph driver for the supplied env.

@@ -54,7 +54,7 @@ EXAMPLE:
 			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Sources: cli.EnvVars("WORKING_DIRECTORY"), Usage: "directory of the pom.xml to read for metadata; mvn itself runs in the current directory (cd in first)"},
 			&cli.StringFlag{Name: "build-type", Sources: cli.EnvVars("BUILD_TYPE"), Usage: "lifecycle: \"app\" (clean package) or \"lib\" (compile/test/package with optional --profile; POM owns attached artifacts)"},
 			&cli.StringFlag{Name: flagCLIOpts, Sources: cli.EnvVars("MAVEN_CLI_OPTS"), Usage: "extra args forwarded to mvn (whitespace-separated, e.g. \"-B -ntp\")"},
-			&cli.StringFlag{Name: "profile", Sources: cli.EnvVars("MAVEN_PROFILE"), Usage: "Maven profile to activate (library builds)"},
+			&cli.StringFlag{Name: "profile", Sources: cli.EnvVars("MAVEN_PROFILE"), Usage: "Maven profile to activate for dependency resolution, metadata and the build lifecycle"},
 			&cli.BoolFlag{Name: flagSkipTests, Sources: cli.EnvVars("SKIP_TESTS"), Usage: "skip the Maven test phase"},
 			&cli.BoolFlag{Name: flagBuildSBOM, Value: true, Sources: cli.EnvVars("ENABLE_BUILD_SBOM"), Usage: "generate the cyclonedx-maven-plugin Build SBOM (default true)"},
 			&cli.StringFlag{Name: flagSBOMToolVersion, Sources: cli.EnvVars("CYCLONEDX_MAVEN_VERSION"), Usage: "pinned org.cyclonedx:cyclonedx-maven-plugin version (required when --build-sbom)"},
@@ -81,6 +81,11 @@ EXAMPLE:
 
 				options = []string{"--settings", settings}
 			}
+			// A profile selects dependencies and resolved metadata as well as the
+			// lifecycle. Keep it as one typed argument in every Maven invocation.
+			if profile := cmd.String("profile"); profile != "" {
+				options = append(options, "-P", profile)
+			}
 
 			environment, err := resolveDependencyEnvironment(cmd)
 			if err != nil {
@@ -99,7 +104,6 @@ EXAMPLE:
 						EnableBuildSBOM: cmd.Bool(flagBuildSBOM),
 						BuildType:       cmd.String("build-type"),
 						CLIOpts:         strings.Fields(cmd.String(flagCLIOpts)),
-						Profile:         cmd.String("profile"),
 						SBOMToolVersion: cmd.String(flagSBOMToolVersion),
 						JavaVersion:     cmd.String("java-version"),
 						ExpectVersion:   cmd.String("expect-version"),

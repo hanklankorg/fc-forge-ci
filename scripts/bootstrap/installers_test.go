@@ -449,26 +449,10 @@ func TestInstallForgeCI_ReleaseRequiresPinnedCosignBootstrap(t *testing.T) {
 	}
 }
 
-func TestInstallForgeCIRawDownloadCallersFetchReviewedHelperSet(t *testing.T) {
+func TestInstallForgeCIHasNoUnboundRawDownloadCallers(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join("..", "..")
-
-	callers := map[string]bool{
-		".github/workflows/lint-megalinter.yml": true,
-	}
-	for path := range callers {
-		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		for _, helper := range []string{"install-forge-ci.sh", "install-common.sh", "install-cosign.sh"} {
-			if !strings.Contains(string(body), `"$raw/`+helper+`"`) {
-				t.Errorf("%s no longer fetches the reviewed helper %s", path, helper)
-			}
-		}
-	}
 
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -495,15 +479,7 @@ func TestInstallForgeCIRawDownloadCallersFetchReviewedHelperSet(t *testing.T) {
 			return err
 		}
 
-		if !callers[filepath.ToSlash(rel)] {
-			t.Errorf("unreviewed raw installer caller: %s", rel)
-		}
-
-		for _, helper := range []string{"install-common.sh", "install-cosign.sh"} {
-			if !strings.Contains(text, `"$raw/`+helper+`"`) {
-				t.Errorf("%s downloads install-forge-ci.sh without %s", path, helper)
-			}
-		}
+		t.Errorf("raw installer caller without a single revision-bound checkout: %s", rel)
 
 		return nil
 	})
@@ -512,47 +488,212 @@ func TestInstallForgeCIRawDownloadCallersFetchReviewedHelperSet(t *testing.T) {
 	}
 }
 
-func TestInstallForgeCI_RemoteRef_GoInstallPath(t *testing.T) {
-	binDir := t.TempDir()
-	logPath := filepath.Join(t.TempDir(), "go-args")
-	writeFakeGo(t, binDir, logPath)
-	githubPath := filepath.Join(t.TempDir(), "github-path")
-	installDir := filepath.Join(t.TempDir(), "install")
+func TestInstallForgeCI_SourceUsesRequestedGitRevision(t *testing.T) {
+	t.Parallel()
+	for _, format := range []string{"sha1", "sha256"} {
+		t.Run(format, func(t *testing.T) {
+			checkForgeCISourceRevision(t, format)
+		})
+	}
+}
 
-	// FORGE_CI_USE_GO_INSTALL=1 opts out of the release-asset fast path.
-	// Branch refs / SHAs implicitly land here, this test covers that
-	// codepath by forcing it for a tagged ref.
-	stdout, stderr, err := runSourcedScript(t, "install-forge-ci.sh", `install_forge_ci "$FORGE_CI_BINARY_REF"`, map[string]string{
-		"PATH":                    binDir,
-		"FORGE_CI_BINARY_REF":     "v0.91.0",
-		"FORGE_CI_INSTALL_DIR":    installDir,
-		"FORGE_CI_USE_GO_INSTALL": "1",
-		"GITHUB_PATH":             githubPath,
+func checkForgeCISourceRevision(t *testing.T, format string) {
+	t.Helper()
+
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	root := t.TempDir()
+	repo := filepath.Join(root, "diggsweden", "forge-ci.git")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command(gitPath, append([]string{"-C", repo}, args...)...)
+		cmd.Env = []string{"HOME=" + root, "PATH=/usr/bin:/bin", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null"}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "-q", "-b", "main", "--object-format="+format)
+	writeBootstrapFixture(t, filepath.Join(repo, "source-version"), "request-commit")
+	git("add", "source-version")
+	git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "request")
+	requestSHA := git("rev-parse", "HEAD")
+	git("tag", "release-request/v0.92.1")
+	git("tag", "v0.90.0-pre")
+	writeBootstrapFixture(t, filepath.Join(repo, "source-version"), "new-main-commit")
+	git("add", "source-version")
+	git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "advance main")
+	mainSHA := git("rev-parse", "HEAD")
+	git("tag", "-f", "v0.90.0-pre")
+
+	for _, tc := range []struct{ ref, sha, version, bound string }{
+		{requestSHA, requestSHA, "request-commit", ""},
+		{"release-request/v0.92.1", requestSHA, "request-commit", ""},
+		{"main", mainSHA, "new-main-commit", ""},
+		{"v0.90.0-pre", mainSHA, "new-main-commit", ""},
+		{"main", requestSHA, "request-commit", requestSHA},
+		{requestSHA[:12], "", "", ""},
+	} {
+		t.Run(tc.ref, func(t *testing.T) {
+			binDir := t.TempDir()
+			if err := os.Symlink(gitPath, filepath.Join(binDir, "git")); err != nil {
+				t.Fatal(err)
+			}
+			// Model Go's stale module cache separately from the real Git checkout.
+			// The fixture compiler's output identifies the source actually built.
+			fakeGo := `#!/bin/bash
+[[ "$GOBIN" == /* ]] || exit 96
+if [[ "$*" == "install ./cmd/forge-ci" ]]; then
+  version="$(cat source-version)"
+else
+  version=stale-module-cache
+fi
+printf '#!/bin/bash\nprintf "%%s\\n" "%s"\n' "$version" >"$GOBIN/forge-ci"
+chmod +x "$GOBIN/forge-ci"
+`
+			if err := os.WriteFile(filepath.Join(binDir, "go"), []byte(fakeGo), 0o700); err != nil {
+				t.Fatal(err)
+			}
+
+			githubPath := filepath.Join(t.TempDir(), "github-path")
+			installRoot := t.TempDir()
+			installDir := installRoot + "/./install"
+			useSource := "0"
+			if tc.ref == "v0.90.0-pre" {
+				useSource = "1"
+			}
+			env := map[string]string{
+				"PATH":                    binDir,
+				"INSTALL_ROOT":            installRoot,
+				"FORGE_CI_SERVER_URL":     "file://" + root,
+				"FORGE_CI_BINARY_REF":     tc.ref,
+				"FORGE_CI_INSTALL_DIR":    "./install",
+				"FORGE_CI_USE_GO_INSTALL": useSource,
+				"GITHUB_PATH":             githubPath,
+			}
+			if tc.bound != "" {
+				env["FORGE_CI_SOURCE_SHA"] = tc.bound
+			}
+			stdout, stderr, err := runSourcedScript(t, "install-forge-ci.sh", `cd "$INSTALL_ROOT" && install_forge_ci "$FORGE_CI_BINARY_REF" && forge-ci --version`, env)
+			if tc.version == "" {
+				if err == nil || !strings.Contains(stderr, "use a full 40- or 64-character commit SHA") {
+					t.Fatalf("short SHA refusal: %v %s", err, stderr)
+				}
+				if _, err := os.Stat(githubPath); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("failed source fetch published PATH: %v", err)
+				}
+
+				return
+			}
+			if err != nil || !strings.HasSuffix(stdout, tc.version+"\n") || !strings.Contains(stdout, "at commit "+tc.sha) {
+				t.Fatalf("requested source not built: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+			}
+
+			pathBody, err := os.ReadFile(githubPath)
+			if err != nil || strings.TrimSpace(string(pathBody)) != installDir {
+				t.Fatalf("GITHUB_PATH = %q, err=%v", pathBody, err)
+			}
+		})
+	}
+}
+
+func TestInstallForgeCI_RefusesInvalidBootstrapBindingBeforeBuild(t *testing.T) {
+	t.Parallel()
+
+	for _, ref := range []string{"local", ".", strings.Repeat("a", 40), strings.Repeat("a", 64)} {
+		for _, sha := range []string{"", "deadbeef", strings.Repeat("b", 40), strings.Repeat("b", 64)} {
+			t.Run(ref+sha, func(t *testing.T) {
+				root := t.TempDir()
+				body := `install_forge_ci_go_install() { printf called >"$BUILD_MARKER"; }; install_forge_ci "$FORGE_CI_BINARY_REF"`
+				_, stderr, err := runSourcedScript(t, "install-forge-ci.sh", body, map[string]string{
+					"FORGE_CI_BINARY_REF": ref,
+					"FORGE_CI_SOURCE_SHA": sha,
+					"BUILD_MARKER":        filepath.Join(root, "built"),
+					"GITHUB_PATH":         filepath.Join(root, "path"),
+				})
+				if err == nil || !strings.Contains(stderr, "ERROR:") {
+					t.Fatalf("invalid source binding accepted: %v %s", err, stderr)
+				}
+				for _, name := range []string{"built", "path"} {
+					if _, err := os.Stat(filepath.Join(root, name)); !errors.Is(err, os.ErrNotExist) {
+						t.Fatalf("refused binding changed %s: %v", name, err)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestInstallForgeCI_LocalSourceUsesAbsoluteInstallDirectory(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	body := `go() {
+  [[ "$*" == "install ./cmd/forge-ci" && "$GOBIN" == "$INSTALL_ROOT/./bin" ]] || return 96
+  printf '#!/bin/bash\nprintf "local fixture\\n"\n' >"$GOBIN/forge-ci"
+  chmod +x "$GOBIN/forge-ci"
+}; cd "$INSTALL_ROOT" && install_forge_ci local`
+	stdout, stderr, err := runSourcedScript(t, "install-forge-ci.sh", body, map[string]string{
+		"INSTALL_ROOT":         root,
+		"FORGE_CI_INSTALL_DIR": "./bin",
 	})
-	if err != nil {
-		t.Fatalf("install_forge_ci: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	if err != nil || !strings.Contains(stdout, "local fixture") {
+		t.Fatalf("local relative installation: %v %s %s", err, stdout, stderr)
 	}
+}
 
-	args, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestInstallForgeCI_DefaultUsesConcreteStableRelease(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ explicit, redirect, want string }{
+		{"", "https://github.com/diggsweden/forge-ci/releases/tag/v0.93.0", "v0.93.0"},
+		{"v0.92.1", "must-not-query", "v0.92.1"},
+		{"", "https://github.com/diggsweden/forge-ci/releases/tag/v0.93.0-rc.1", ""},
+		{"", "https://github.com/foreign/repository/releases/tag/v0.93.0", ""},
+	} {
+		t.Run(tc.explicit+tc.redirect, func(t *testing.T) {
+			root := t.TempDir()
+			body := `curl() {
+  [[ "$REDIRECT" != must-not-query && "${*: -1}" == https://github.com/diggsweden/forge-ci/releases/latest ]] || return 94
+  [[ ! -e "$QUERY_MARKER" ]] || return 95
+  printf queried >"$QUERY_MARKER"
+  printf '%s' "$REDIRECT"
+}; install_forge_ci_release() {
+  printf '%s' "$1" >"$SELECTED_TAG"
+  mkdir -p "$2"
+  printf '#!/bin/bash\nprintf "stable fixture\\n"\n' >"$2/forge-ci"
+  chmod +x "$2/forge-ci"
+}; install_forge_ci "$EXPLICIT"`
+			_, stderr, err := runSourcedScript(t, "install-forge-ci.sh", body, map[string]string{
+				"EXPLICIT":             tc.explicit,
+				"REDIRECT":             tc.redirect,
+				"QUERY_MARKER":         filepath.Join(root, "query"),
+				"SELECTED_TAG":         filepath.Join(root, "tag"),
+				"FORGE_CI_INSTALL_DIR": filepath.Join(root, "bin"),
+			})
+			if tc.want == "" {
+				if err == nil || !strings.Contains(stderr, "stable version tag") {
+					t.Fatalf("invalid stable selection: %v %s", err, stderr)
+				}
 
-	if got := strings.TrimSpace(string(args)); got != "install github.com/diggsweden/forge-ci/cmd/forge-ci@v0.91.0" {
-		t.Fatalf("go args = %q", got)
-	}
-
-	pathBody, err := os.ReadFile(githubPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if strings.TrimSpace(string(pathBody)) != installDir {
-		t.Fatalf("GITHUB_PATH = %q", pathBody)
-	}
-
-	if !strings.Contains(stdout, "forge-ci installed successfully") {
-		t.Fatalf("stdout = %s", stdout)
+				return
+			}
+			if err != nil {
+				t.Fatalf("stable selection: %v %s", err, stderr)
+			}
+			tag, err := os.ReadFile(filepath.Join(root, "tag"))
+			if err != nil || string(tag) != tc.want {
+				t.Fatalf("selected tag %q, err=%v", tag, err)
+			}
+		})
 	}
 }
 
@@ -606,6 +747,7 @@ func TestInstallForgeCI_ReleaseAssetPath(t *testing.T) {
 	env := map[string]string{
 		"PATH":                     binDir,
 		"FORGE_CI_BINARY_REF":      "v0.90.0",
+		"FORGE_CI_SOURCE_SHA":      "not-used-for-signed-release-assets",
 		"FORGE_CI_INSTALL_DIR":     installDir,
 		"RELEASE_FIXTURE_ROOT":     releaseRoot,
 		"EXPECTED_COSIGN_IDENTITY": `^https://github\.com/diggsweden/forge-ci/\.github/workflows/release-binary\.yml@refs/tags/release-request/v0\.90\.0$`,

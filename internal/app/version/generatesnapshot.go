@@ -26,6 +26,8 @@ type GenerateSnapshotOps interface {
 
 // GenerateSnapshotVersionInput drives GenerateSnapshotVersion.
 type GenerateSnapshotVersionInput struct {
+	// ContainerTag selects the OCI-safe postfix form; package versions retain their historical form.
+	ContainerTag bool
 	// RefName is the source branch / ref to sanitise into the snapshot-version
 	// suffix.
 	RefName string
@@ -75,6 +77,12 @@ func GenerateSnapshotVersion(ctx context.Context, ops GenerateSnapshotOps, out i
 	}
 
 	dev := version.ComposeSnapshotVersion(base, in.RefName, shortSHA)
+	if in.ContainerTag {
+		dev, err = version.ComposeSnapshotContainerTag(base, in.RefName, shortSHA)
+		if err != nil {
+			return err
+		}
+	}
 	if in.Sink != nil && (in.Format == output.FormatGitHub || in.Format == output.FormatGitLab) {
 		if err := in.Sink.Set(ctx, "snapshot-version", dev); err != nil {
 			return err

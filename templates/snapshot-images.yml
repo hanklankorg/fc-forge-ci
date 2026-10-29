@@ -1,0 +1,124 @@
+# SPDX-FileCopyrightText: The Forge CI Authors
+# SPDX-License-Identifier: CC0-1.0
+# Include from a trusted pinned policy. Manual callers pass branch explicitly;
+# source checkout and image identity never use the policy pipeline's ref name.
+spec:
+  component: [sha]
+  inputs:
+    branch:
+      description: Logical source branch to resolve exactly once.
+    publish-containers:
+      type: boolean
+      default: true
+    artifacts-config:
+      default: .forge-ci/artifacts.yml
+    image-repository:
+      description: Trusted full base OCI repository.
+    forge-ci-repository:
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
+    job-image:
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    build-image:
+      description: Native build tools; for kaniko this must be builder-job-image.
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    artifact-job-image-go:
+      description: Trusted Go toolchain image; empty uses job-image, which must supply its tools.
+      default: ''
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    artifact-job-image-java:
+      description: Trusted Maven/Gradle JVM toolchain image; empty uses job-image.
+      default: ''
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    artifact-job-image-node:
+      description: Trusted npm toolchain image; empty uses job-image.
+      default: ''
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    artifact-job-image-rust:
+      description: Trusted Cargo toolchain image; empty uses job-image.
+      default: ''
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    image-builder:
+      options: [buildah, kaniko]
+      default: buildah
+    builder-job-image:
+      default: ''
+    runner-tags:
+      type: array
+      default: []
+    build-runner-tags:
+      type: array
+      default: []
+    build-runner-tags-arm64:
+      type: array
+      default: []
+    context-job:
+      description: Advanced prepared-context override. Parent producer needs Snapshot plan and exports _snapshot-context. Default builds required artifacts automatically.
+      default: 'Snapshot: plan'
+---
+include:
+  - project: $[[ inputs.forge-ci-repository ]]
+    ref: $[[ component.sha ]]
+    file: /templates/snapshot-image-jobs.yml
+    inputs:
+      engine-sha: $[[ component.sha ]]
+      forge-ci-repository: $[[ inputs.forge-ci-repository ]]
+      job-image: $[[ inputs.job-image ]]
+      build-image: $[[ inputs.build-image ]]
+      image-builder: $[[ inputs.image-builder ]]
+      builder-job-image: $[[ inputs.builder-job-image ]]
+      runner-tags: $[[ inputs.runner-tags ]]
+"Snapshot: plan":
+  extends: .forge-ci-snapshot
+  stage: .pre
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" || $CI_MERGE_REQUEST_ID || $CI_MERGE_REQUEST_IID'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "push" || $CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api" || $CI_PIPELINE_SOURCE == "schedule"'
+      when: on_success
+    - when: never
+  variables:
+    SNAPSHOT_BRANCH: $[[ inputs.branch ]]
+    SNAPSHOT_PUBLISH: '$[[ inputs.publish-containers ]]'
+    SNAPSHOT_CONFIG: $[[ inputs.artifacts-config ]]
+    SNAPSHOT_IMAGE_REPOSITORY: $[[ inputs.image-repository ]]
+    SNAPSHOT_JOB_IMAGE: $[[ inputs.job-image ]]
+    SNAPSHOT_BUILD_IMAGE: $[[ inputs.build-image ]]
+    SNAPSHOT_ARTIFACT_IMAGE_GO: $[[ inputs.artifact-job-image-go ]]
+    SNAPSHOT_ARTIFACT_IMAGE_JAVA: $[[ inputs.artifact-job-image-java ]]
+    SNAPSHOT_ARTIFACT_IMAGE_NODE: $[[ inputs.artifact-job-image-node ]]
+    SNAPSHOT_ARTIFACT_IMAGE_RUST: $[[ inputs.artifact-job-image-rust ]]
+    SNAPSHOT_CONTEXT_JOB: $[[ inputs.context-job ]]
+    SNAPSHOT_RUNNER_TAGS: 'json:$[[ inputs.runner-tags ]]'
+    SNAPSHOT_AMD64_TAGS: 'json:$[[ inputs.build-runner-tags ]]'
+    SNAPSHOT_ARM64_TAGS: 'json:$[[ inputs.build-runner-tags-arm64 ]]'
+  script:
+    - command -v jq >/dev/null || { echo 'GitLab snapshot job-image requires jq for native child-pipeline generation' >&2; exit 69; }
+    - snapshot_plan
+    - snapshot_gitlab_generate snapshot-plan.json snapshot-child.yml
+  artifacts:
+    expire_in: 1 day
+    paths: [snapshot-plan.json, snapshot-child.yml]
+"Snapshot: execute":
+  stage: deploy
+  inherit:
+    variables: false
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" || $CI_MERGE_REQUEST_ID || $CI_MERGE_REQUEST_IID'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "push" || $CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api" || $CI_PIPELINE_SOURCE == "schedule"'
+      when: on_success
+    - when: never
+  needs:
+    # When a context producer is selected, wait for it before creating the
+    # child pipeline: needs:pipeline:job fetches artifacts but is not a
+    # cross-pipeline scheduling dependency. That producer itself needs plan.
+    - job: $[[ inputs.context-job ]]
+      artifacts: false
+  trigger:
+    strategy: mirror
+    forward:
+      yaml_variables: false
+      pipeline_variables: false
+    include:
+      - artifact: snapshot-child.yml
+        job: "Snapshot: plan"

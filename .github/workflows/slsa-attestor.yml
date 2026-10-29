@@ -64,7 +64,7 @@ on:
         description: "forge-ci ref/version whose bootstrap installers + CLI to use."
         required: false
         type: string
-        default: "v0.90.0-pre"
+        default: ""
     secrets:
       registry-password:
         description: "Registry password/token for pushing the attestation. Falls back to the job's GITHUB_TOKEN on GHCR."
@@ -84,7 +84,14 @@ permissions:
   packages: write # push the signed attestation to the registry
 
 jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   attest:
+    needs: [resolve-bootstrap]
     name: Attest provenance (cosign + KMS)
     runs-on: ${{ fromJSON(inputs.runs-on) }}
     steps:
@@ -93,15 +100,17 @@ jobs:
         with:
           egress-policy: audit
       - name: Checkout forge-ci bootstrap installers
+        id: forge-ci-bootstrap
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
-          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
           path: .github-shared
           sparse-checkout: scripts/bootstrap
       - name: Install forge-ci binary
         env:
-          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          FORGE_CI_SOURCE_SHA: ${{ steps.forge-ci-bootstrap.outputs.commit }}
           FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
         run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
       - name: Refuse PR-context trigger (signing and registry secrets in scope)

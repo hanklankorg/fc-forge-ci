@@ -8,15 +8,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
+	domaincontainer "github.com/diggsweden/forge-ci/internal/domain/container"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/git"
 	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
 	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
+	"github.com/diggsweden/forge-ci/internal/domain/snapshotimage"
 	domainsummary "github.com/diggsweden/forge-ci/internal/domain/summary"
 	domainversion "github.com/diggsweden/forge-ci/internal/domain/version"
 )
@@ -35,6 +40,8 @@ type SnapshotReleaseSummaryInput struct {
 	BuildStageJSON        string
 	PublishStageJSON      string
 	SnapshotArtifactsJSON string
+	SnapshotImageResult   string
+	ContainerImagesJSON   string
 	URLs                  provider.WebURLBuilder // nil when the platform has no web UI
 	ServerURL             string
 	Now                   time.Time
@@ -80,6 +87,20 @@ func SnapshotReleaseSummary(ctx context.Context, sink ci.SummarySink, out io.Wri
 	metadata, err := parseSnapshotMetadata(in.SnapshotArtifactsJSON)
 	if err != nil {
 		return err
+	}
+	images, err := snapshotImageReceipts(in.ContainerImagesJSON, in.ReleaseSHA, in.ReleaseRef)
+	if err != nil {
+		return err
+	}
+	imageStatus := in.SnapshotImageResult
+	if imageStatus == "" {
+		imageStatus = string(domainsummary.ResultSkipped)
+	}
+	if !domainsummary.IsResult(domainsummary.Result(imageStatus)) {
+		return fmt.Errorf("invalid snapshot image result: %w", errs.ErrMalformedInput)
+	}
+	if imageStatus == string(domainsummary.ResultSuccess) && strings.TrimSpace(in.ContainerImagesJSON) == "" {
+		return fmt.Errorf("successful snapshot images job has no inventory: %w", errs.ErrMalformedInput)
 	}
 
 	npmPackageName, npmPackageVersion, npmPublishStatus := metadata.Name, metadata.Version, metadata.Status
@@ -145,6 +166,7 @@ func SnapshotReleaseSummary(ctx context.Context, sink ci.SummarySink, out io.Wri
 	_, _ = fmt.Fprintf(&builder, "| Cargo SBOM | %s |\n", domainsummary.StatusIcon(cargoSBOMStatus))
 	_, _ = fmt.Fprintf(&builder, "| Go SBOM | %s |\n", domainsummary.StatusIcon(goSBOMStatus))
 	_, _ = fmt.Fprintf(&builder, "| Dev SBOMs | %s |\n", domainsummary.StatusIcon(sbomStatus))
+	_, _ = fmt.Fprintf(&builder, "| Snapshot Images | %s |\n", domainsummary.StatusIcon(imageStatus))
 
 	_, _ = fmt.Fprintf(&builder, "\n## Published Artifacts\n")
 
@@ -158,12 +180,17 @@ func SnapshotReleaseSummary(ctx context.Context, sink ci.SummarySink, out io.Wri
 			}
 
 			_, _ = fmt.Fprintf(&builder, "```\n%s@%s\n```\n\n", npmPackageName, npmPackageVersion)
-			_, _ = fmt.Fprintf(&builder, "```bash\nnpm install %s@%s\nnpm install %s@dev\n```\n",
-				npmPackageName, npmPackageVersion, npmPackageName)
+			_, _ = fmt.Fprintf(&builder, "```bash\nnpm install %s@%s\n```\n", npmPackageName, npmPackageVersion)
 		case npmStatus == string(domainsummary.ResultSuccess):
 			_, _ = fmt.Fprintf(&builder, "\n### NPM Package\nPublished; package metadata unavailable\n")
 		default:
 			_, _ = fmt.Fprintf(&builder, "\n### NPM Package\nNot published\n")
+		}
+	}
+	if imageStatus == string(domainsummary.ResultSuccess) && len(images) > 0 {
+		builder.WriteString("\n### Snapshot Images\n\n| Image | Immutable Reference | Platforms |\n|-------|---------------------|-----------|\n")
+		for _, image := range images {
+			_, _ = fmt.Fprintf(&builder, "| `%s` | `%s` | `%s` |\n", domainsummary.SanitizeCell(image.Name), domainsummary.SanitizeCell(image.Ref), domainsummary.SanitizeCell(strings.Join(image.Platforms, ", ")))
 		}
 	}
 
@@ -171,7 +198,7 @@ func SnapshotReleaseSummary(ctx context.Context, sink ci.SummarySink, out io.Wri
 	builder.WriteString(resourceLine("Packages", domainsummary.PackagesURL(in.URLs, in.ServerURL, in.ReleaseRepository)))
 	builder.WriteString(resourceLine("Workflow Run", in.RunURL))
 	builder.WriteString("\n")
-	_, _ = fmt.Fprintf(&builder, "These are development artifacts tagged with `dev` and are not intended for production use.\n")
+	_, _ = fmt.Fprintf(&builder, "These are versioned development snapshots, not intended for production use. No moving aliases are published by this snapshot flow.\n")
 
 	if err := sink.Append(ctx, builder.String()); err != nil {
 		return err
@@ -180,6 +207,53 @@ func SnapshotReleaseSummary(ctx context.Context, sink ci.SummarySink, out io.Wri
 	_, _ = fmt.Fprintf(out, "✓ Dev release summary generated successfully\n")
 
 	return nil
+}
+
+// The inventory describes completed publication only when the independent job
+// result succeeded. Its receipt identities must still match this summary's source.
+func snapshotImageReceipts(value, sha, branch string) ([]snapshotimage.Receipt, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	decoder := json.NewDecoder(strings.NewReader(value))
+	decoder.DisallowUnknownFields()
+	var images []snapshotimage.Receipt
+	if err := decoder.Decode(&images); err != nil {
+		return nil, fmt.Errorf("parse snapshot image inventory: %w: %w", err, errs.ErrMalformedInput)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF || images == nil {
+		return nil, fmt.Errorf("snapshot image inventory must be one JSON array: %w", errs.ErrMalformedInput)
+	}
+	names := map[string]bool{}
+	for _, image := range images {
+		if image.Version != snapshotimage.Version || !git.ValidCommitSHA(sha) || image.SourceSHA != sha || image.SourceBranch != branch || !git.ValidRefName("refs/heads/"+branch) {
+			return nil, fmt.Errorf("snapshot image receipt differs from summary source: %w", errs.ErrMalformedInput)
+		}
+		if image.Name == "" || image.Name == "." || image.Name == ".." || filepath.Base(image.Name) != image.Name || strings.ContainsAny(image.Name, "\\\r\n\t") || names[image.Name] {
+			return nil, fmt.Errorf("snapshot image receipt has invalid or duplicate name: %w", errs.ErrMalformedInput)
+		}
+		if !domaincontainer.ValidRepositoryName(image.ImageRepository) || !domaincontainer.ValidDigest(image.Digest) || image.Ref != image.ImageRepository+"@"+image.Digest {
+			return nil, fmt.Errorf("snapshot image receipt has invalid digest reference: %w", errs.ErrMalformedInput)
+		}
+		stem := strings.TrimSuffix(image.Tag, "-snapshot")
+		index := strings.LastIndex(stem, "-")
+		if !strings.HasSuffix(image.Tag, "-snapshot") || index < 0 || len(stem[index+1:]) < domainversion.SnapshotShortSHALen || !strings.HasPrefix(sha, stem[index+1:]) {
+			return nil, fmt.Errorf("snapshot image tag differs from source commit: %w", errs.ErrMalformedInput)
+		}
+		if err := domaincontainer.ValidateManifestTags(image.ImageRepository, []string{image.ImageRepository + ":" + image.Tag}); err != nil {
+			return nil, fmt.Errorf("invalid snapshot image tag: %w: %w", err, errs.ErrMalformedInput)
+		}
+		if len(image.Platforms) == 0 {
+			return nil, fmt.Errorf("snapshot image receipt has no platforms: %w", errs.ErrMalformedInput)
+		}
+		for i, platform := range image.Platforms {
+			if (platform != "linux/amd64" && platform != "linux/arm64") || slices.Contains(image.Platforms[:i], platform) {
+				return nil, fmt.Errorf("snapshot image receipt has invalid platforms: %w", errs.ErrMalformedInput)
+			}
+		}
+		names[image.Name] = true
+	}
+	return images, nil
 }
 
 type snapshotMetadata struct {

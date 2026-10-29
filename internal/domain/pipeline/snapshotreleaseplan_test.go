@@ -152,6 +152,37 @@ func TestNewSnapshotReleasePlan_ProjectTypeOverrideWins(t *testing.T) {
 	}
 }
 
+func TestNewSnapshotReleasePlan_ContainerOnlyUsesMetaWithoutPackageWork(t *testing.T) {
+	t.Parallel()
+	configPlan := executionConfigPlan(t, &config.Config{
+		Containers: []config.Container{{Name: "server", ContainerFile: "Containerfile", Context: "."}},
+	})
+	sha := strings.Repeat("a", 40)
+	plan, err := pipeline.NewSnapshotReleasePlan(pipeline.SnapshotReleasePlanInput{
+		ConfigPlan: configPlan, Branch: "feature/manual", ReleaseSHA: sha,
+		PublishNPM: true, PublishMavenSnapshots: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Context.ProjectType != projecttype.Meta || plan.Context.Branch != "feature/manual" || plan.Context.ReleaseSHA != sha {
+		t.Fatalf("container-only snapshot lost its source or meta context: %+v", plan.Context)
+	}
+	if plan.Stages.Build.Targets.Maven.Runs || plan.Stages.Build.Targets.NPM.Runs || plan.Stages.Build.Targets.Gradle.Runs || plan.Stages.Build.Targets.Go.Runs || plan.Stages.Build.Targets.Cargo.Runs || plan.Stages.Build.Targets.GradleAndroid.Runs || plan.Stages.Build.Targets.XcodeIOS.Runs {
+		t.Fatalf("container-only snapshot inferred package builds: %+v", plan.Stages.Build.Targets)
+	}
+	if plan.Stages.Publish.Targets.NPM.Runs || plan.Stages.Publish.Targets.ForgePackages.Runs || plan.Stages.Publish.Targets.MavenCentral.Runs || plan.Stages.Publish.Targets.SBOM.Runs || len(plan.ArtifactTransfers.Items) != 0 {
+		t.Fatalf("container-only snapshot inferred package publication/transfers: %+v", plan)
+	}
+	override, err := pipeline.NewSnapshotReleasePlan(pipeline.SnapshotReleasePlanInput{ConfigPlan: configPlan, ProjectType: projecttype.Go})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if override.Context.ProjectType != projecttype.Go {
+		t.Fatalf("explicit project type was replaced by meta: %q", override.Context.ProjectType)
+	}
+}
+
 func TestNewSnapshotReleasePlan_RejectsUnsupportedConfigPlanVersion(t *testing.T) {
 	t.Parallel()
 

@@ -126,9 +126,8 @@ func TestReleaseSummary_EachRowShowsItsOwnResult(t *testing.T) {
 }
 
 // TestSnapshotReleaseSummary_EachRowShowsItsOwnResult does the same for the
-// dev release rows of an npm project. The snapshot table has no container row
-// on purpose: dev containers are reported by their own jobs, so a containers
-// target must not add one.
+// snapshot rows of an npm project. The image result is independent of package
+// stage targets; a legacy containers target must not override that result.
 func TestSnapshotReleaseSummary_EachRowShowsItsOwnResult(t *testing.T) {
 	t.Parallel()
 
@@ -144,18 +143,20 @@ func TestSnapshotReleaseSummary_EachRowShowsItsOwnResult(t *testing.T) {
 		{"Cargo SBOM", "dev-publish", "cargo_container_first"},
 		{"Go SBOM", "dev-publish", "go_container_first"},
 		{"Dev SBOMs", "dev-publish", "sbom"},
+		{"Snapshot Images", "", "images"},
 	}
 
 	// A succeeding containers target rides along in every run.
 	sources := append(slices.Clone(rows), summaryRow{stage: "dev-publish", key: "containers"})
 
 	for failed := range rows {
-		stages, _ := oneHotStages(t, sources, failed)
+		stages, inputs := oneHotStages(t, sources, failed)
 		sink := &fakeSummarySink{}
 
 		require.NoError(t, appsummary.SnapshotReleaseSummary(t.Context(), sink, io.Discard, appsummary.SnapshotReleaseSummaryInput{
 			ProjectType: projecttype.NPM, ReleaseRef: "main", ReleaseSHA: "abcdef0123",
 			BuildStageJSON: stages["dev-build"], PublishStageJSON: stages["dev-publish"], Now: fixedNow(),
+			SnapshotImageResult: inputs["images"], ContainerImagesJSON: "[]",
 		}))
 		require.Equal(t, wantOneHot(rows, failed), jobStatusTable(t, sink.buf.String()), rows[failed].label)
 	}

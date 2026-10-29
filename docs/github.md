@@ -33,7 +33,7 @@ The orchestrators are the supported entry points:
 |---|---|---|
 | `pullrequest-orchestrator.yml` | `pull_request`, push | The lint gate (nanolinter or MegaLinter) and Swift checks, with findings in Code Scanning. Tests stay in the caller's own workflow. |
 | `release-orchestrator.yml` | A signed `release-request/vX.Y.Z` tag | Validates the request and prerequisites, prepares the signed version bump and final tag, builds every declared artifact, publishes it, builds and signs containers, and creates the GitHub release. |
-| `release-snapshot-orchestrator.yml` | Branch pushes | A branch-suffixed npm snapshot and optional SBOMs; no signing, containers or release. |
+| `release-snapshot-orchestrator.yml` | Branch pushes or manual selection | Package snapshots and default-on declared snapshot containers; no OCI signing or release. |
 
 Leaf workflows can be called directly to compose your own pipeline; see
 [Two ways to call it](components.md#two-ways-to-call-it). GitHub resolves a nested
@@ -210,8 +210,11 @@ names.
 
 Containerized jobs run in the runtime images, which carry the `forge-ci`
 binary and the toolchain of one family (base, full, Java, Node, Rust, Go,
-Android). Each orchestrator has one `runtime-image*` input per family and
-defaults to `ghcr.io/diggsweden/forge-ci-runtime-*:v0.90.0`.
+Android). Each orchestrator has one `runtime-image*` override per family. An empty
+`forge-ci-binary-ref` resolves the current published stable release to its concrete
+tag once, such as `v0.93.0`. Empty runtime-image overrides select the same tag.
+Explicit binary refs and image overrides take precedence; source commits use
+the corresponding `sha-<short>` runtime references. No `latest` image tag is used.
 [Runtime Images](runtime-images.md) has the roster, which workflow uses
 which image, tag and pinning conventions, and mirroring. Android images are
 linux/amd64 only.
@@ -223,6 +226,11 @@ ref builds from source. [CLI binary channels](runtime-images.md#cli-binary-chann
 and [Installing `forge-ci`](providers.md#installing-forge-ci) describe both.
 Keep the workflow ref, `forge-ci-binary-ref` and the runtime images on one
 version.
+
+Self Release supplies the exact commit named by its release-request tag and
+that commit's runtime images, even while the new stable release does not exist.
+Standalone container-only leaf workflows retain their documented explicit
+runtime defaults; orchestrators pass their resolved image overrides to them.
 
 ## Pull-request gates and lint
 
@@ -352,10 +360,21 @@ tag exists it cannot move, which is what
 and publishes a content-addressed npm snapshot (`<version>-snapshot-<branch>-<sha>`,
 dist-tag `snapshot`) to `npm-registry` (GitHub Packages by default), with SBOMs
 when `sboms` asks for them.
-It builds no containers, signs nothing and creates no release; a release-built
-image reaches `:dev` through the promotion ladder instead. See
-[Snapshot vs Production Release](components.md#snapshot-vs-production-release)
-and the [snapshot trust model](verification.md#snapshot-release-trust-model).
+Declared containers also publish by default from the same frozen source SHA;
+`publish-containers: false` explicitly opts out. Containers use branch-hashed tags
+ending in lower-case `-snapshot`; package naming is unchanged. Image scan and SBOM
+policy are independent of the package `sboms` input. Snapshot images are unsigned
+and never advance release aliases or promotions. See the
+[snapshot container contract](workflows.md#snapshot-container-contract-all-three-forges)
+and [manual branch-selection example](../examples/container-snapshot/).
+
+The root orchestrator sets `use-build-artifacts: true` on its snapshot-image call:
+`prepare-inputs` reuses exact current-run uploads, avoiding duplicate builds.
+Standalone `snapshot-images.yml` defaults that input to `false` and automatically
+builds required Go, Cargo, Maven, Gradle JVM and npm producers. Both paths use
+shared Go `gather-context`/`restore-context` validation and confined restoration.
+See [automatic artifact-first inputs](workflows.md#automatic-artifact-first-inputs)
+for frozen plan settings, mode preservation and npm Containerfile COPY paths.
 
 A snapshot caller for feature branches:
 
@@ -486,7 +505,7 @@ maintainer side.
 |---|---|
 | Release stops in its first preflight with exit 78 | A configuration the forge cannot serve: GitHub Enterprise Server, or a capability the forge lacks. Exit 78 is never worth retrying; see the [capability matrix](providers.md#capability-matrix). |
 | `RELEASE_TOKEN` refused in preflight | A classic PAT, or a fine-grained token without access to the repository. See [RELEASE_TOKEN](reference.md#release_token). |
-| Request tag refused | Unsigned or lightweight tag, a signer outside the allowlist, or a prerelease suffix. See [Release Authorisation](verification.md#release-authorisation). |
+| Request tag refused | Unsigned or lightweight tag, a signer outside the allowlist, or a prerelease suffix under the default `release-policy: stable`. Trusted `stable-prerelease` policy admits signed beta/RC requests; see [release policy](workflows.md#stable-and-prerelease-policy) and [Release Authorisation](verification.md#release-authorisation). |
 | Findings missing from Code Scanning | No `CODE_SCANNING_TOKEN` passed, or `upload-sarif: false`. The gate itself still ran. |
 | A build succeeds but nothing is published | See [Configuration troubleshooting](artifacts-reference.md#configuration-troubleshooting). |
 | A release failed after the final tag was pushed | Re-run forward; see [Failed Release Recovery](failed-release-recovery.md). |
@@ -505,5 +524,6 @@ to do where it degrades.
 - **No release-isolation gate** over the consumer's workflow.
 - **npm publishing targets GitHub Packages**; `NPM_TOKEN` is reserved and does
   not enable npmjs.org.
-- **Snapshots are npm only.**
+- **Snapshot image features are limited.** Build secrets and binary extraction
+  are unsupported; explicit snapshot OCI signing/provenance is rejected.
 - **Android runtime image is linux/amd64 only.**

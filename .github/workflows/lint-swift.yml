@@ -67,19 +67,26 @@ on:
         default: "macos-26"
         type: string
       forge-ci-binary-ref:
-        description: "forge-ci ref/version installed on the macOS runner (default: v0.90.0)"
+        description: "forge-ci ref/version installed on the macOS runner (default: latest stable release)"
         required: false
-        default: "v0.90.0"
+        default: ""
         type: string
       runtime-image:
-        description: "forge-ci runtime image used by the Linux summary job. Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci runtime image used by the Linux summary job. Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0"
+        default: ""
         type: string
 permissions:
   contents: read
 jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   swift-format-lint:
+    needs: [resolve-bootstrap]
     name: Swift Format Lint
     if: ${{ inputs['enable-swiftformat'] }}
     runs-on: ${{ inputs.macos-version }}
@@ -92,16 +99,18 @@ jobs:
         with:
           fetch-depth: 1
       - name: Checkout forge-ci bootstrap installers
+        id: forge-ci-bootstrap
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
-          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
           path: .github-shared
           sparse-checkout: scripts/bootstrap
           persist-credentials: false
       - name: Install forge-ci binary
         env:
-          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          FORGE_CI_SOURCE_SHA: ${{ steps.forge-ci-bootstrap.outputs.commit }}
           FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
         run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
       - name: Install swift-format
@@ -120,6 +129,7 @@ jobs:
           FILE_PATTERN: ${{ inputs['file-pattern'] }}
         run: forge-ci lint swift format-lint
   swiftlint:
+    needs: [resolve-bootstrap]
     name: SwiftLint
     if: ${{ inputs['enable-swiftlint'] }}
     runs-on: ${{ inputs.macos-version }}
@@ -132,16 +142,18 @@ jobs:
         with:
           fetch-depth: 1
       - name: Checkout forge-ci bootstrap installers
+        id: forge-ci-bootstrap
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
-          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
           path: .github-shared
           sparse-checkout: scripts/bootstrap
           persist-credentials: false
       - name: Install forge-ci binary
         env:
-          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          FORGE_CI_SOURCE_SHA: ${{ steps.forge-ci-bootstrap.outputs.commit }}
           FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
         run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
       - name: Install SwiftLint
@@ -157,10 +169,10 @@ jobs:
   summary:
     name: Lint Summary
     runs-on: ubuntu-26.04
-    needs: [swift-format-lint, swiftlint]
-    if: always()
+    needs: [resolve-bootstrap, swift-format-lint, swiftlint]
+    if: always() && needs.resolve-bootstrap.result == 'success'
     container:
-      image: ${{ inputs['runtime-image'] }}
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
     steps:
       - name: Aggregate results
         env:

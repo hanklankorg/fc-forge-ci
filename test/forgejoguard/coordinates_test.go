@@ -54,6 +54,7 @@ func coordinateWorkflows() map[string]coordinateContract {
 		".forgejo/workflows/promote-base-container-images.yml": {"forge-ci-sha", 1, false},
 		".forgejo/workflows/verify-base-container-images.yml":  {"forge-ci-sha", 1, false},
 		".forgejo/workflows/release-images.yml":                {"forge-ci-sha", 4, true},
+		".forgejo/workflows/snapshot-images.yml":               {"forge-ci-sha", 6, true},
 	}
 }
 
@@ -322,8 +323,12 @@ func assertCoordinateConsumerJob(t *testing.T, relative string, contract coordin
 	// A builder job runs the job image the coordinates job validated, and
 	// holds no secret: it runs the caller's Containerfile.
 	if contract.builder {
-		if image := target.containerImage(); image != builderJobImage {
-			t.Errorf("%s: job %s runs container %q, want the validated %q", relative, name, image, builderJobImage)
+		want := builderJobImage
+		if relative == ".forgejo/workflows/snapshot-images.yml" && name == "produce" {
+			want = "${{ (matrix.artifact.project_type == 'go' && needs.coordinates.outputs.artifact_job_image_go) || ((matrix.artifact.project_type == 'maven' || matrix.artifact.project_type == 'gradle') && needs.coordinates.outputs.artifact_job_image_java) || (matrix.artifact.project_type == 'npm' && needs.coordinates.outputs.artifact_job_image_node) || (matrix.artifact.project_type == 'cargo' && needs.coordinates.outputs.artifact_job_image_rust) || '' }}"
+		}
+		if image := target.containerImage(); image != want {
+			t.Errorf("%s: job %s runs container %q, want the validated %q", relative, name, image, want)
 		}
 
 		if anyString(target.node, secretsWord.MatchString) {

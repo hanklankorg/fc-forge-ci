@@ -801,15 +801,57 @@ job through native artifacts.
 | `publish-maven-central` | A Maven library through its profile, or exported Gradle JVM publications through the Central API | Signed release request and prepared SHA; publisher secrets including the GPG public key; sources and javadoc JARs |
 | `publish-apple-appstore` | An IPA to App Store Connect with `xcrun altool` | A macOS runner with Xcode and `forge-ci`; the IPA under `artifacts/` |
 
-Google Play and container publishing have no GitLab component. See
+Google Play and standalone release-container publishing have no GitLab component.
+Development containers use the [snapshot component](#snapshots). See
 [Publishing](publishing.md) for target setup, which is forge-neutral for
 Maven Central and App Store Connect.
 
 ## Snapshots
 
-The GitLab layer has no snapshot flow: there is no counterpart of GitHub's
-`release-snapshot-orchestrator.yml`. A branch build is the consumer's own
-pipeline, for example with a build component and `publish-forge-packages`.
+`templates/snapshot-images.yml` is the native snapshot image component. Include
+it from a trusted pinned policy with explicit `branch`, `image-repository`,
+`forge-ci-repository`, digest-pinned `job-image` and `build-image`. The selected
+branch is resolved once; the policy pipeline's ref is not the source identity.
+`publish-containers` defaults to `true`; explicit `false` opts out.
+
+The component generates a child pipeline with native amd64/arm64 builds,
+publication after all builds and exact receipt collection. Set
+`build-runner-tags` and `build-runner-tags-arm64` for the corresponding native
+runners; arm64 builds require arm64 tags. `runner-tags` selects control-plane
+runners. Buildah is the default; kaniko requires the admitted digest-pinned
+`builder-job-image`, also used as `build-image`. Build execution receives no
+registry publication credentials. Publishers use `SNAPSHOT_REGISTRY_USER` and
+`SNAPSHOT_REGISTRY_PASSWORD`, falling back to GitLab registry credentials.
+The collect job retains `container-images.json` as a child-pipeline artifact.
+
+The default `context-job: 'Snapshot: plan'` enables automatic required
+artifact-first producers in the child pipeline. They invoke the existing Go,
+Cargo, Maven, Gradle JVM and npm builders using the frozen plan's `artifacts[]`,
+source SHA and `source_date_epoch`, then gather and restore the bound inputs.
+Optional `artifact-job-image-go`, `artifact-job-image-java`,
+`artifact-job-image-node` and `artifact-job-image-rust` inputs must be
+digest-pinned when provided; otherwise producers use the trusted `job-image`,
+which must supply their toolchains.
+
+To override automatic production, set `context-job` to a parent producer that
+needs `Snapshot: plan` and builds from its frozen SHA. Use `gather-context` to
+export `_snapshot-context/` containing `source-sha`, `snapshot-plan.json`,
+`manifest.sha256` and `files/`, including `files/snapshot-dependencies.json` and
+planned artifact destinations. The execute job waits for that producer before
+creating the child pipeline; build jobs fetch the bundle with `needs:pipeline:job`.
+This is an optional advanced prepared-context override. There is no package
+snapshot orchestrator.
+
+The shared Go `restore-context` command verifies the source SHA, exact plan,
+manifest, dependency names, platforms, file sizes, digests and canonical string
+modes `0644`/`0755`, then restores only confined planned inputs. Shell adapters
+provide native transport, not context-validation business rules. Do not recreate
+the producer inventory after transport. Npm inputs require one valid packaged
+tarball at `<context>/.forge-ci/snapshot-inputs/<name>`. See the
+[shared contract](workflows.md#snapshot-container-contract-all-three-forges) for
+branch-hashed, final `-snapshot` tags, independent scan/SBOM policy and unsupported
+build secrets, extraction and explicit snapshot OCI signing/provenance requests.
+Snapshots do not advance release aliases or promotions.
 
 ## Signing
 
@@ -971,7 +1013,8 @@ with multiple forge layouts, select GitLab explicitly with
 
 ## Limits
 
-- **No snapshot flow.**
+- **No package snapshot orchestrator.** Snapshot image artifact-first producers
+  run automatically for supported Go, Cargo, Maven, Gradle JVM and npm inputs.
 - **No Google Play, container-publishing or Xcode-build components**; Gradle
   publishing is not wired in `publish-forge-packages`.
 - **No `:dev`/`:staging` promotion ladder.**

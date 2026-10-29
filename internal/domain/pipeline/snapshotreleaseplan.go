@@ -147,6 +147,9 @@ func NewSnapshotReleasePlan(in SnapshotReleasePlanInput) (SnapshotReleasePlan, e
 	if projectType == "" {
 		projectType = in.ConfigPlan.FallbackProjectType
 	}
+	if projectType == "" && len(in.ConfigPlan.Containers.All) > 0 && len(in.ConfigPlan.Artifacts.All) == 0 {
+		projectType = projecttype.Meta
+	}
 
 	if projectType == "" {
 		return SnapshotReleasePlan{}, fmt.Errorf("project-type is empty and no fallback could be derived from config-plan-json: %w", errs.ErrInvalidConfig)
@@ -281,9 +284,8 @@ func newDevBuildStagePlan(configPlan ConfigPlan) DevBuildStagePlan {
 // newDevPublishStagePlan builds the standalone dev publish-stage plan.
 func newDevPublishStagePlan(configPlan ConfigPlan, policy SnapshotReleasePolicy, anySBOM, buildSBOM bool, projectType projecttype.Type) DevPublishStagePlan {
 	artifacts := configPlan.Artifacts
-	// The snapshot flow builds no containers: a container is built ONCE on the
-	// release path and promoted to :dev by the build-once/promote-many ladder
-	// (promote-stage.yml), never rebuilt for the snapshot flow.
+	// Snapshot images use the separate shared image plan after these artifact
+	// builds; package publication and its SBOM selection remain independent.
 	forgePackages := filterArtifacts(artifacts.ForgePackages, func(artifact PlannedArtifact) bool { return artifact.ProjectType != projecttype.NPM })
 	targets := DevPublishTargets{
 		ForgePackages:       targetPlan(forgePackages, policy.PublishMavenSnapshots && len(forgePackages) > 0),

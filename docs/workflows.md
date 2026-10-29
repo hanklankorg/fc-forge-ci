@@ -303,14 +303,100 @@ The snapshot release flow follows the same lighter control-plane pattern:
 1. `setup-snapshot`
 2. `execute-snapshot-build-stage`
 3. `execute-snapshot-publish-stage`
-4. `snapshot-release-summary`
+4. `snapshot-images.yml` after artifact builds, alongside package publication
+5. `snapshot-release-summary`
 
-Unlike the production flow, the snapshot path intentionally skips release creation, signing, and the broader prerequisite/policy layer, and builds no containers (a container is built once on the release path and promoted to `:dev` by the promotion ladder). SBOM generation defaults to `none` for speed, but can be enabled with the snapshot orchestrator `sboms` input for wiring tests.
+The snapshot path skips release creation and signing. Declared containers publish
+by default; `publish-containers: false` is the explicit opt-out. Source-only and
+container-only configurations are accepted. There is no implicit root
+Containerfile discovery for snapshots. Package SBOM generation defaults to `none`
+and is selected with `sboms`; image SBOMs follow container policy independently.
 It still benefits from one small control-plane interface job so later stage calls depend on `snapshot-release-plan-json`, `snapshot-build-stage-plan-json`, and `snapshot-publish-stage-plan-json` instead of shell-derived context bags.
 The snapshot publish stage plan includes explicit singleton `inputs` for non-matrix jobs: NPM publish, Cargo SBOM, and Go SBOM. Workflow YAML therefore never indexes into plan arrays.
 Those singleton inputs include the exact NPM build artifact upload name used by the snapshot build stage.
 
 **Idempotent NPM publishing:** Snapshot versions are content-addressed (`{base}-snapshot-{branch}-{sha}`), so the same commit always produces the same version string. The `publish-snapshot-npm.yml` workflow checks the registry before publishing and skips with a warning if the version already exists. This makes re-runs safe: the pipeline succeeds without attempting to overwrite an immutable package.
+
+#### Snapshot container contract (all three forges)
+
+`forge-ci container snapshot-images` owns planning, artifact production, context
+validation/restoration, image builds, publication and collection. The logical
+branch is explicit, including manual
+developer-branch selection; resolve it once and build from the frozen source SHA.
+Container tags always include a hash of the original branch, even when its
+normalized name is unique, and end in lower-case `-snapshot`:
+`1.2.3-feature-login-<branchhash>-a1b2c3d-snapshot`.
+This avoids normalized-branch collisions; package version conventions are unchanged.
+Architecture staging tags may append `-amd64` or `-arm64` to that final image tag.
+
+Native `linux/amd64` and `linux/arm64` builds stage OCI layouts without registry
+publication credentials. Publication waits for **all** planned builds, verifies
+the complete platform set, then scans according to `enable-scan` and
+`scan-severity`. `enable-analyzed-container-sbom` independently selects image
+SBOM generation. Signing is `NONE`; explicit OCI signing or `enable-slsa: true`
+requests are rejected. Snapshots never update stable aliases or enter promotion.
+
+The GitHub root orchestrator calls `snapshot-images.yml` after artifact builds,
+passing their frozen SHA and `use-build-artifacts: true` to reuse the exact
+same-run uploads without rebuilding. Its public additions are:
+
+| Interface | Purpose |
+| --- | --- |
+| `publish-containers` | Boolean, default `true`; explicit `false` opts out |
+| `container-image-repository` | Optional base OCI repository; defaults to `<registry>/<owner>/<repository>` |
+| `container-registry-user` | Optional registry username; defaults to the GitHub actor |
+| secret `container-registry-password` | Optional OCI credential; GHCR uses the GitHub token when omitted |
+| output `container-images-json` | Exact collected image inventory with source identity, platforms and immutable digest refs |
+
+The standalone GitHub `snapshot-images.yml` takes required `branch`, optional
+`source-sha`, `image-repository`, `registry-user` and secret `registry-password`.
+Without `source-sha`, it resolves the selected branch once. With it, it checks
+out that exact commit while retaining the logical branch for naming.
+Its `use-build-artifacts` default is `false`: required artifact-first producers
+run automatically. Optional `runtime-image-go`, `runtime-image-java`,
+`runtime-image-node` and `runtime-image-rust` select their toolchain runtimes.
+Collection rejects missing, duplicate, extra or source/platform-mismatched receipts;
+no declarations or an explicit opt-out produce an empty inventory.
+
+#### Automatic artifact-first inputs
+
+The shared plan carries required `artifacts[]` and frozen `source_date_epoch`.
+`build-artifact` invokes the existing Go, Cargo, Maven, Gradle JVM and npm builders
+with the typed artifact settings, source SHA, snapshot package version and source
+timestamp. Ecosystem settings such as Go build tags/ldflags/main package, Java
+profiles/tasks/settings, Node version and opted-in private dependencies follow
+those builders. Providers supply toolchains and native job/artifact transport;
+Go owns the business rules and validation.
+
+| Command | Handoff |
+| --- | --- |
+| `build-artifact` | Build one planned producer, or prepare its exact download with `--from-artifact` |
+| `prepare-inputs` | Convert existing exact build uploads to producer outputs without rebuilding |
+| `gather-context` | Validate the complete producer set, install planned inputs and emit a frozen context bundle |
+| `restore-context` | Verify that bundle and restore only planned dependency files and inventory into the frozen checkout |
+
+[Forgejo](forgejo.md#snapshots) and [GitLab](gitlab.md#snapshots) automatically
+schedule required producer matrices by default. A same-run prepared context is
+an optional advanced override. Source-only/container-only plans need no artifact
+producers. Container-first compilation remains in the Containerfile.
+
+Producer receipts and dependency inventories bind source SHA/branch, frozen plan,
+artifact/image names, platforms, file paths, sizes, SHA-256 and canonical string
+modes `0644`/`0755`. These modes survive ZIP transport; restoration applies the
+recorded mode. Raw Go/Cargo expected binaries are normalized as executables,
+without making every input file executable. `restore-context` validates the
+complete bundle and destination paths in Go, confines writes to planned inputs,
+and refuses source/Git/plan replacement or symlink escapes. This is run-local
+integrity evidence, not a signature or independent proof of CI-run origin.
+
+Npm inputs require exactly one valid packaged tarball and are staged at
+`<context>/.forge-ci/snapshot-inputs/<name>`. A Containerfile uses a context-relative
+path such as `COPY .forge-ci/snapshot-inputs/web/*.tgz /tmp/` for artifact `web`.
+This isolated destination avoids overwriting checkout files or mixing packages.
+
+Container build secrets, binary extraction and explicit snapshot OCI
+signing/provenance requests remain unsupported and fail explicitly. See the
+[container snapshot example](../examples/container-snapshot/).
 
 ```mermaid
 graph TD
@@ -318,6 +404,8 @@ graph TD
     B --> C[setup-snapshot]
     C --> D[release-snapshot-build-stage.yml]
     D --> E[release-snapshot-publish-stage.yml]
+    D --> G[snapshot-images.yml]
+    G --> F[snapshot-release-summary]
     E --> F[snapshot-release-summary]
 
     style A fill:#a7c080,stroke:#5c6a4a,color:#2b3339

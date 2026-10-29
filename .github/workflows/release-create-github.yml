@@ -100,9 +100,9 @@ on:
         default: ""
         type: string
       runtime-image:
-        description: "forge-ci runtime image (full — needs syft for SBOM generation). Optional override; default uses the matching v0.90.0 runtime image."
+        description: "forge-ci runtime image (full — needs syft for SBOM generation). Empty uses the resolved forge-ci version."
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime:v0.90.0"
+        default: ""
         type: string
       cosign-public-key:
         description: "The trusted Cosign public key, PEM, when artifacts.yml signs with sign.key env://COSIGN_KEY. Pass the COSIGN_PUBLIC_KEY repository or organization variable: each job that receives the key secret refuses to sign unless the key derives this public key."
@@ -117,7 +117,7 @@ on:
       forge-ci-binary-ref:
         description: "Immutable forge-ci commit the plain-runner signing job installs; the orchestrator passes the commit its runtime image was built from."
         required: false
-        default: "v0.90.0"
+        default: ""
         type: string
       release-asset-retention:
         description: "How many of the newest published releases keep every file. After publishing, each older release keeps its checksums, signatures and SBOMs and loses its archives, binaries and packages; the releases and tags stay, and an immutable release is kept whole. Empty, the default, deletes nothing."
@@ -144,7 +144,14 @@ on:
 permissions:
   contents: read # Default permission; release creation uses RELEASE_TOKEN.
 jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   generate-changelog:
+    needs: [resolve-bootstrap]
     name: "Publish: release notes"
     permissions:
       contents: read
@@ -152,7 +159,7 @@ jobs:
     with:
       release-policy: ${{ inputs['release-policy'] }}
       branch: ${{ inputs['checkout-ref'] }}
-      runtime-image: ${{ inputs['runtime-image'] }}
+      runtime-image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image-full'] }}
       git-cliff-args: "--latest"
       output-file: "ReleasenotesTmp"
       upload-as-artifact: true
@@ -163,11 +170,11 @@ jobs:
     # holds no write authority and no signing key: the image is the caller's
     # choice, and a job container starts before any step could check it.
     name: "Publish: release files"
-    needs: [generate-changelog]
+    needs: [resolve-bootstrap, generate-changelog]
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     container:
-      image: ${{ inputs['runtime-image'] }}
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image-full'] }}
     permissions:
       actions: read
       contents: read
@@ -270,7 +277,7 @@ jobs:
     # A failed publisher reuses these exact bytes instead of generating new
     # Sigstore bundles. This plain runner can disable swap before loading keys.
     name: "Sign: release files"
-    needs: [assemble-release]
+    needs: [resolve-bootstrap, assemble-release]
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
@@ -291,16 +298,18 @@ jobs:
           egress-policy: ${{ inputs['egress-policy'] }}
           allowed-endpoints: ${{ inputs['egress-allowed-endpoints'] }}
       - name: Checkout forge-ci bootstrap installers
+        id: forge-ci-bootstrap
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
-          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
           path: .github-shared
           sparse-checkout: scripts/bootstrap
           persist-credentials: false
       - name: Install forge-ci binary
         env:
-          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          FORGE_CI_SOURCE_SHA: ${{ steps.forge-ci-bootstrap.outputs.commit }}
           FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
         run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
       # Defense-in-depth: signing keys must never run with PR-HEAD code.
@@ -422,7 +431,7 @@ jobs:
         run: forge-ci release gpg cleanup
   create-release:
     name: "Publish: release"
-    needs: [assemble-release, sign-release]
+    needs: [resolve-bootstrap, assemble-release, sign-release]
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
@@ -443,16 +452,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Checkout forge-ci bootstrap installers
+        id: forge-ci-bootstrap
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
-          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
           path: .github-shared
           sparse-checkout: scripts/bootstrap
           persist-credentials: false
       - name: Install forge-ci binary
         env:
-          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          FORGE_CI_SOURCE_SHA: ${{ steps.forge-ci-bootstrap.outputs.commit }}
           FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
         run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
       - name: Refuse PR-context trigger (release token in scope)

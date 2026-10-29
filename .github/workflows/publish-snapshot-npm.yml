@@ -62,6 +62,10 @@ on:
         description: "Explicit branch, tag, or SHA whose package is published"
         required: true
         type: string
+      source-branch:
+        description: "Logical branch used for snapshot metadata when branch is a frozen SHA"
+        default: ""
+        type: string
       registry:
         description: "NPM registry URL"
         required: false
@@ -203,6 +207,8 @@ jobs:
         run: forge-ci validate auth registry
       - name: Generate snapshot version tag
         id: tags
+        env:
+          REF_NAME: ${{ inputs['source-branch'] || inputs.branch }}
         run: forge-ci version generate-snapshot
       - name: Check if version already published
         id: check-registry

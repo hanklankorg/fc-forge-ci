@@ -1,0 +1,99 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+name: Resolve forge-ci bootstrap revision
+on:
+  workflow_call:
+    inputs:
+      forge-ci-binary-ref:
+        description: "Explicit release tag or commit/branch; empty selects the current stable release tag"
+        required: true
+        type: string
+    outputs:
+      forge-ci-binary-ref:
+        description: "Original release tag for verified assets, or immutable source commit"
+        value: ${{ jobs.resolve.outputs.forge-ci-binary-ref }}
+      runtime-image:
+        value: ${{ jobs.resolve.outputs.runtime-image }}
+      runtime-image-full:
+        value: ${{ jobs.resolve.outputs.runtime-image-full }}
+      runtime-image-java:
+        value: ${{ jobs.resolve.outputs.runtime-image-java }}
+      runtime-image-node:
+        value: ${{ jobs.resolve.outputs.runtime-image-node }}
+      runtime-image-go:
+        value: ${{ jobs.resolve.outputs.runtime-image-go }}
+      runtime-image-rust:
+        value: ${{ jobs.resolve.outputs.runtime-image-rust }}
+      runtime-image-android:
+        value: ${{ jobs.resolve.outputs.runtime-image-android }}
+permissions:
+  contents: read
+jobs:
+  resolve:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      forge-ci-binary-ref: ${{ steps.select.outputs.ref }}
+      runtime-image: ${{ steps.select.outputs.runtime-image }}
+      runtime-image-full: ${{ steps.select.outputs.runtime-image-full }}
+      runtime-image-java: ${{ steps.select.outputs.runtime-image-java }}
+      runtime-image-node: ${{ steps.select.outputs.runtime-image-node }}
+      runtime-image-go: ${{ steps.select.outputs.runtime-image-go }}
+      runtime-image-rust: ${{ steps.select.outputs.runtime-image-rust }}
+      runtime-image-android: ${{ steps.select.outputs.runtime-image-android }}
+    steps:
+      - name: Select explicit ref or latest stable release
+        id: requested
+        env:
+          REQUESTED_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          GH_TOKEN: ${{ github.token }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
+        run: |
+          set -euo pipefail
+          ref="$REQUESTED_REF"
+          if [[ -z "$ref" ]]; then
+            ref="$(gh api --hostname "${SERVER_URL#https://}" "repos/${REPOSITORY}/releases/latest" --jq 'select(.draft == false and .prerelease == false) | .tag_name')"
+            [[ "$ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { printf 'No valid latest stable release\n' >&2; exit 1; }
+          fi
+          [[ "$ref" =~ ^[A-Za-z0-9._/]+(-[A-Za-z0-9._/]*)*$ ]] || { printf 'Invalid bootstrap ref\n' >&2; exit 1; }
+          printf 'ref=%s\n' "$ref" >>"$GITHUB_OUTPUT"
+          checkout=true
+          if [[ "$ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._-]+)?$ || "$ref" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then checkout=false; fi
+          printf 'checkout=%s\n' "$checkout" >>"$GITHUB_OUTPUT"
+      - name: Resolve bootstrap checkout
+        id: bootstrap
+        if: ${{ steps.requested.outputs.checkout == 'true' }}
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
+          ref: ${{ steps.requested.outputs.ref }}
+          sparse-checkout: scripts/bootstrap
+          persist-credentials: false
+      - name: Preserve release assets or pin source commit
+        id: select
+        env:
+          REQUESTED_REF: ${{ steps.requested.outputs.ref }}
+          SOURCE_SHA: ${{ steps.bootstrap.outputs.commit }}
+          REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
+          IMAGE_NAMESPACE: ${{ vars.FORGE_CI_IMAGE_NAMESPACE }}
+        run: |
+          set -euo pipefail
+          ref="$REQUESTED_REF"
+          if [[ ! "$ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._-]+)?$ && ! "$ref" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
+            [[ "$SOURCE_SHA" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || { printf 'Invalid bootstrap commit\n' >&2; exit 1; }
+            ref="$SOURCE_SHA"
+          fi
+          image_tag="$ref"
+          if [[ "$ref" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then image_tag="sha-${ref:0:7}"; fi
+          namespace="${IMAGE_NAMESPACE:-ghcr.io/${REPOSITORY%%/*}}"
+          {
+            printf 'ref=%s\n' "$ref"
+            printf 'runtime-image=%s/forge-ci-runtime-base:%s\n' "$namespace" "$image_tag"
+            printf 'runtime-image-full=%s/forge-ci-runtime:%s\n' "$namespace" "$image_tag"
+            printf 'runtime-image-java=%s/forge-ci-runtime-java-25:%s\n' "$namespace" "$image_tag"
+            printf 'runtime-image-node=%s/forge-ci-runtime-node-24:%s\n' "$namespace" "$image_tag"
+            printf 'runtime-image-go=%s/forge-ci-runtime-go-1.27:%s\n' "$namespace" "$image_tag"
+            printf 'runtime-image-rust=%s/forge-ci-runtime-rust-stable:%s\n' "$namespace" "$image_tag"
+            printf 'runtime-image-android=%s/forge-ci-runtime-android-35:%s\n' "$namespace" "$image_tag"
+          } >>"$GITHUB_OUTPUT"

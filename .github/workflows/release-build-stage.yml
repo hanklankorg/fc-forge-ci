@@ -22,37 +22,37 @@ on:
         type: string
       forge-ci-binary-ref:
         required: false
-        default: "v0.90.0"
+        default: ""
         type: string
       runtime-image:
         description: "forge-ci runtime image for the summarize job (base is sufficient)"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0"
+        default: ""
         type: string
       runtime-image-java:
         description: "forge-ci runtime image for Maven/Gradle jobs"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-java-25:v0.90.0"
+        default: ""
         type: string
       runtime-image-node:
         description: "forge-ci runtime image for NPM jobs"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-node-24:v0.90.0"
+        default: ""
         type: string
       runtime-image-go:
         description: "forge-ci runtime image for Go jobs"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-go-1.27:v0.90.0"
+        default: ""
         type: string
       runtime-image-android:
         description: "forge-ci runtime image for Gradle Android jobs"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-android-35:v0.90.0"
+        default: ""
         type: string
       runtime-image-rust:
         description: "forge-ci runtime image for Cargo jobs"
         required: false
-        default: "ghcr.io/diggsweden/forge-ci-runtime-rust-stable:v0.90.0"
+        default: ""
         type: string
     # Aggregator: forwards to build-{maven,npm,gradle-app,gradle-android,
     # go,xcode-ios}.yml. The Android + iOS leaves are the only ones with
@@ -101,7 +101,14 @@ on:
 permissions:
   contents: read
 jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   maven:
+    needs: [resolve-bootstrap]
     name: "Build: ${{ matrix.artifact.name }} (Maven)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.maven.runs }}
     strategy:
@@ -122,8 +129,9 @@ jobs:
       profile: ${{ matrix.artifact.build_type == 'library' && (matrix.artifact.maven.maven_profile || 'central-release') || '' }}
       artifact-name: ${{ matrix.artifact.name }}
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
-      runtime-image: ${{ inputs['runtime-image-java'] }}
+      runtime-image: ${{ inputs['runtime-image-java'] || needs.resolve-bootstrap.outputs['runtime-image-java'] }}
   npm:
+    needs: [resolve-bootstrap]
     name: "Build: ${{ matrix.artifact.name }} (npm)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.npm.runs }}
     strategy:
@@ -142,10 +150,11 @@ jobs:
       branch: ${{ inputs.branch }}
       artifact-name: ${{ matrix.artifact.name }}
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
-      runtime-image: ${{ inputs['runtime-image-node'] }}
+      runtime-image: ${{ inputs['runtime-image-node'] || needs.resolve-bootstrap.outputs['runtime-image-node'] }}
       node-version: ${{ matrix.artifact.npm.node_version || '' }}
       expect-version: ${{ inputs['release-tag'] }}
   gradle:
+    needs: [resolve-bootstrap]
     name: "Build: ${{ matrix.artifact.name }} (Gradle)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.gradle.runs }}
     strategy:
@@ -167,8 +176,9 @@ jobs:
       central-publication: ${{ contains(matrix.artifact.publish_to, 'maven-central') }}
       gradle-tasks: ${{ matrix.artifact.gradle.gradle_tasks }}
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
-      runtime-image: ${{ inputs['runtime-image-java'] }}
+      runtime-image: ${{ inputs['runtime-image-java'] || needs.resolve-bootstrap.outputs['runtime-image-java'] }}
   go:
+    needs: [resolve-bootstrap]
     name: "Build: ${{ matrix.artifact.name }} (Go)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.go.runs }}
     strategy:
@@ -193,8 +203,9 @@ jobs:
       ldflags: ${{ matrix.artifact.go.ldflags || '' }}
       skip-tests: ${{ matrix.artifact.go.skip_tests || false }}
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
-      runtime-image: ${{ inputs['runtime-image-go'] }}
+      runtime-image: ${{ inputs['runtime-image-go'] || needs.resolve-bootstrap.outputs['runtime-image-go'] }}
   cargo:
+    needs: [resolve-bootstrap]
     name: "Build: ${{ matrix.artifact.name }} (Cargo)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.cargo.runs }}
     strategy:
@@ -216,8 +227,9 @@ jobs:
       platforms: ${{ matrix.artifact.cargo.platforms || 'linux/amd64' }}
       skip-tests: ${{ matrix.artifact.cargo.skip_tests || false }}
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
-      runtime-image: ${{ inputs['runtime-image-rust'] }}
+      runtime-image: ${{ inputs['runtime-image-rust'] || needs.resolve-bootstrap.outputs['runtime-image-rust'] }}
   gradle-android:
+    needs: [resolve-bootstrap]
     name: "Build: ${{ matrix.artifact.name }} (Android)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.gradle_android.runs }}
     strategy:
@@ -253,8 +265,9 @@ jobs:
       artifact-name: ${{ matrix.artifact.name }}
       enable-signing: ${{ matrix.artifact.gradle_android.enable_android_signing }}
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
-      runtime-image: ${{ inputs['runtime-image-android'] }}
+      runtime-image: ${{ inputs['runtime-image-android'] || needs.resolve-bootstrap.outputs['runtime-image-android'] }}
   xcode-ios:
+    needs: [resolve-bootstrap]
     name: "Build: ${{ matrix.artifact.name }} (Xcode)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.xcode_ios.runs }}
     strategy:
@@ -286,7 +299,7 @@ jobs:
       build-number: ${{ matrix.artifact.xcode_ios.build_number }}
       working-directory: ${{ matrix.artifact.working_directory }}
       macos-version: ${{ matrix.artifact.xcode_ios.macos_version || 'macos-26' }}
-      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      forge-ci-binary-ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
   # Container-first cargo and container-first Go produce nothing at the
   # build-stage level. Their manifest-derived Build SBOMs and actual
   # compiles (inside the Containerfile) both run in release-publish-stage,
@@ -294,11 +307,11 @@ jobs:
   # build jobs by design. Artifact-first cargo + go run here.
   summarize-build-stage:
     name: Summary
-    needs: [maven, npm, gradle, go, cargo, gradle-android, xcode-ios]
-    if: always()
+    needs: [resolve-bootstrap, maven, npm, gradle, go, cargo, gradle-android, xcode-ios]
+    if: always() && needs.resolve-bootstrap.result == 'success'
     runs-on: ubuntu-26.04
     container:
-      image: ${{ inputs['runtime-image'] }}
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
     permissions:
       contents: read
     outputs:

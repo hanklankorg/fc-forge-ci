@@ -30,7 +30,7 @@ on:
       forge-ci-binary-ref:
         description: "forge-ci version installed (cosign-verified) for the SARIF enrich/upload commands. Use a published release tag (vN.N.N or vN.N.N-pre) so the bootstrap scripts + signature resolve."
         required: false
-        default: "v0.90.0"
+        default: ""
         type: string
       upload-sarif:
         description: "Upload MegaLinter's security SARIF to GitHub Code Scanning"
@@ -49,7 +49,14 @@ on:
 permissions:
   contents: read
 jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   megalinter-lint:
+    needs: [resolve-bootstrap]
     name: MegaLinter
     runs-on: ubuntu-26.04
     timeout-minutes: 30
@@ -109,23 +116,27 @@ jobs:
             printf '::error::MegaLinter found blocking lint issues — see the MegaLinter summary above (this is a lint gate on your code, not a workflow error).\n'
           fi
           exit "$rc"
+      - name: Checkout forge-ci bootstrap installers
+        id: forge-ci-bootstrap
+        if: always() && inputs.upload-sarif && hashFiles(env.SARIF_FILE) != ''
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
+          ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          path: .github-shared
+          sparse-checkout: scripts/bootstrap
+          persist-credentials: false
       - name: Install forge-ci (cosign-verified, SARIF tooling)
         id: install
         # SARIF glue only, via the canonical cosign-verified bootstrap installer
-        # at $BINARY_REF — the same fail-closed
+        # at the resolved bootstrap revision — the same fail-closed
         # install path the rest of the suite uses.
-        if: always() && inputs.upload-sarif && hashFiles(env.SARIF_FILE) != ''
+        if: always() && steps.forge-ci-bootstrap.outcome == 'success'
         env:
-          BINARY_REF: ${{ inputs.forge-ci-binary-ref }}
+          FORGE_CI_BINARY_REF: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          FORGE_CI_SOURCE_SHA: ${{ steps.forge-ci-bootstrap.outputs.commit }}
           FORGE_CI_REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || 'diggsweden/forge-ci' }}
-        run: |
-          set -euo pipefail
-          work="$(mktemp -d)"
-          raw="https://raw.githubusercontent.com/${FORGE_CI_REPOSITORY}/${BINARY_REF}/scripts/bootstrap"
-          curl --retry 5 --retry-delay 3 --retry-connrefused -sSfL -o "$work/install-common.sh" "$raw/install-common.sh"
-          curl --retry 5 --retry-delay 3 --retry-connrefused -sSfL -o "$work/install-cosign.sh" "$raw/install-cosign.sh"
-          curl --retry 5 --retry-delay 3 --retry-connrefused -sSfL -o "$work/install-forge-ci.sh" "$raw/install-forge-ci.sh"
-          bash "$work/install-forge-ci.sh" "$BINARY_REF"
+        run: bash .github-shared/scripts/bootstrap/install-forge-ci.sh "$FORGE_CI_BINARY_REF"
       - name: Enrich + upload MegaLinter SARIF to Code Scanning
         # Gated on install success: if forge-ci couldn't be installed this
         # skips honestly rather than faking success. continue-on-error so a
