@@ -31,6 +31,41 @@ const (
 	GitLabGateFile = ".gitlab/merge-request.yml"
 )
 
+// WithGitLabGateFromSource imports an admitted regular source blob into the
+// private consumer index. The original checkout and application remain intact.
+func (consumer Consumer) WithGitLabGateFromSource(tb TB, path string) Consumer {
+	tb.Helper()
+	ctx, cancel := context.WithTimeout(Context(tb), timeoutLayerPush)
+	defer cancel()
+	body, err := githubWorkflow(ctx, consumer, path)
+	if err != nil {
+		tb.Fatalf("read admitted GitLab gate: %v", err)
+	}
+	if err := consumer.stageFile(ctx, "100644", GitLabGateFile, body); err != nil {
+		tb.Fatalf("stage admitted GitLab gate: %v", err)
+	}
+	// The original MR gate statically checks its source Forgejo release caller
+	// against the current engine contract. Apply the same narrow destination
+	// spelling migration as PlanConsumer, only in this private scratch index.
+	for name, workflow := range consumer.Workflows(tb) {
+		migrated, err := migratePublicationRepository(workflow)
+		if err != nil {
+			tb.Fatalf("scratch caller contract: %v", err)
+		}
+		if migrated != workflow {
+			if err := consumer.stageFile(ctx, "100644", consumerWorkflows+"/"+name, migrated); err != nil {
+				tb.Fatalf("stage scratch caller contract: %v", err)
+			}
+		}
+	}
+	commit, err := consumer.commit(ctx, consumerBaseMessage)
+	if err != nil {
+		tb.Fatalf("commit scratch GitLab gate: %v", err)
+	}
+	consumer.Commit = commit
+	return consumer
+}
+
 // PushGitLab stages the consumer's own MR pipeline, replacing only its
 // components' coordinates and job image with the trial's. Other source files,
 // including the consumer's existing Forgejo policy, stay byte-for-byte intact.

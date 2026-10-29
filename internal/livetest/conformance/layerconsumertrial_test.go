@@ -86,6 +86,13 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 	}
 
 	consumer := livetest.OpenConsumer(t, target, root)
+	if image := os.Getenv("FORGE_CI_LIVE_MAVEN_APPLICATION_IMAGE"); image != "" {
+		recipe, err := filepath.Abs("../../../test/live/demos/hello-maven/consumer")
+		if err != nil {
+			t.Fatal(err)
+		}
+		consumer = livetest.NewMavenApplicationConsumerFixture(t, consumer, recipe, image)
+	}
 
 	workflows := consumer.Workflows(t)
 	if _, found := workflows[settings.Workflow]; !found {

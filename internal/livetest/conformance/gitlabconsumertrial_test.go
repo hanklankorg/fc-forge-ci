@@ -55,6 +55,9 @@ func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 
 	target := livetest.Accept(t, provider.ForgeGitLab)
 	consumer := livetest.OpenConsumer(t, target, root)
+	if gate := os.Getenv("FORGE_CI_LIVE_GITLAB_GATE_SOURCE"); gate != "" {
+		consumer = consumer.WithGitLabGateFromSource(t, gate)
+	}
 	engineRepo := livetest.NewScratchRepo(t, target, "gitlab-consumer-layer")
 	layer := livetest.PushLayer(t, target, engineRepo)
 	image := livetest.PushJobImage(t, target, engineRepo, os.Getenv("FORGE_CI_LIVE_CONSUMER_IMAGE_ARCHIVE"))
@@ -178,6 +181,10 @@ func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 		logGitLabTrace(t, gitlabTrialTrace(t, ctx, client, project, passed.ID))
 		t.Fatalf("the consumer's own MR gate ended %s", passed.Status)
 	}
+	// Success must retain the same bounded trace evidence before scratch
+	// cleanup; summaries alone lose Rust test counts and gate diagnostics.
+	passedTrace := gitlabTrialTrace(t, ctx, client, project, passed.ID, "check")
+	t.Log(strings.ReplaceAll(passedTrace, target.Token, "[REDACTED]"))
 
 	settings, _, err := client.Projects.GetProject(project, nil, gitlabapi.WithContext(ctx))
 	if err != nil {
