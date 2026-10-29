@@ -171,9 +171,21 @@ none. [Forks](#forks) says when to set them.
 | `FORGE_CI_PRERELEASE_BRANCH` | `main` | the branch whose pushes publish runtime images and the pre-release CLI, and the branch the installer trusts for pre-release signatures |
 | `RELEASE_PLATFORMS` | `linux/amd64,linux/arm64` | the runtime images' platforms in Self Runtime Container; unset selects both declared architectures, and an explicit value may narrow the selection. An undeclared, duplicated or malformed entry fails before anything is built. Consumers read the same variable for their images with the same meaning, unset building what their configuration declares |
 | `RUNTIME_IMAGE_RETENTION` | unset: nothing is deleted | how many of the newest commit images (`sha-*`) of each runtime image Self Runtime Container keeps after it publishes; older versions are deleted through the GitHub Packages API with the job token, except release and pre-release tags and every platform manifest, signature and attestation a kept image needs. `forge-ci container package-retention --dry-run` shows what a value would delete |
-| `FORGE_CI_IMAGE_NAMESPACE` | `ghcr.io/<repository owner>`, where Self Runtime Container publishes | runtime images used by Self Pull Request and Self Release; set it when the owner has capital letters or images live elsewhere |
+| `FORGE_CI_IMAGE_NAMESPACE` | `ghcr.io/<repository owner>` | Trusted repository variable selecting the runtime publication namespace and the images used by Self Pull Request and Self Release. Use a lowercase, tag-free GHCR path under the owner, e.g. `ghcr.io/owner/scratch-repo`, to isolate a scratch engine's packages. Source labels still identify the source repository; the layer cache remains repository-scoped. |
 | `FORGE_CI_TESTSUITE_REPOSITORY` | `diggsweden/forge-ci-blackbox-tests` | the companion black-box suite checked out by the PR and release gates |
 | `RELEASE_BRANCH` | the branch whose head the release-request tag names | the fork's own Self Release: an explicit release branch when several branches share that head. A consumer names its branch with the orchestrator's `branch` input instead |
+
+Scratch engine trials set the runtime namespace before pushing their source and
+retain the prepared engine for batch reuse. `GitHubEngine.RuntimePackageNames`
+reports the seven exact runtime package names plus the separate repository cache.
+Before launch, the operator checks each exact coordinate: absence is acceptable;
+an existing package must be explicitly acknowledged and linked to the current
+source repository ID. Missing or foreign ownership blocks reuse. After publication,
+capture the package IDs with `ReadContainerPackageIdentity`; batch finalization
+may pass only acknowledged identities to `DeleteContainerPackage`, which rechecks
+both IDs before deletion and confirms absence. Nested package names are passed
+raw to go-github, which URL-escapes them once. This does not authorize cleanup of
+old owner-global packages.
 
 ## Secrets and tokens
 

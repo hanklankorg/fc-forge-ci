@@ -8,6 +8,7 @@ package livetest
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -81,7 +82,7 @@ func TestGitHubSnapshotArtifactFirst(t *testing.T) {
 
 	repoID := details.GetID()
 	// A unique new consumer name is also its image package. Never adopt or sweep
-	// another package. Cleanup rechecks its ID and linked repository when present.
+	// another package. Cleanup requires its ID and exact linked repository.
 	_, existing, lookupErr := trial.api.Organizations.GetPackage(t.Context(), trial.org, "container", repo)
 	if lookupErr == nil || existing == nil || existing.StatusCode != http.StatusNotFound {
 		t.Fatal("snapshot package must be absent before this trial")
@@ -231,40 +232,24 @@ func snapshotGitHubPackageCleanup(t *testing.T, trial *GitHubTrial, repo string,
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 2*time.Minute)
 	defer cancel()
 
-	pkg, response, err := trial.api.Organizations.GetPackage(ctx, trial.org, "container", repo)
-	if response != nil && response.StatusCode == http.StatusNotFound {
+	identity, err := trial.ReadContainerPackageIdentity(ctx, repo, repoID)
+	if errors.Is(err, os.ErrNotExist) {
 		return
 	}
 
-	if err != nil || pkg.GetID() <= 0 || pkg.GetName() != repo || (pkg.GetRepository() != nil && pkg.GetRepository().GetID() != repoID) {
+	if err != nil {
 		t.Error("snapshot package cleanup identity unavailable; refusing deletion")
 
 		return
 	}
 
-	id := pkg.GetID()
-
-	current, _, err := trial.api.Organizations.GetPackage(ctx, trial.org, "container", repo)
-	if err != nil || current.GetID() != id {
-		t.Error("snapshot package cleanup ID drift")
-
-		return
-	}
-
-	if _, err := trial.api.Organizations.DeletePackage(ctx, trial.org, "container", repo); err != nil {
+	if err := trial.DeleteContainerPackage(ctx, identity); err != nil {
 		t.Error("exact snapshot package deletion failed")
 
 		return
 	}
 
-	_, response, err = trial.api.Organizations.GetPackage(ctx, trial.org, "container", repo)
-	if err == nil || response == nil || response.StatusCode != http.StatusNotFound {
-		t.Error("snapshot package deletion not confirmed")
-
-		return
-	}
-
-	t.Logf("snapshot package deletion confirmed: package=%s id=%d acknowledged-repository=%d", repo, id, repoID)
+	t.Logf("snapshot package deletion confirmed: package=%s id=%d acknowledged-repository=%d", repo, identity.ID, repoID)
 }
 
 func settleSnapshotGitHubRun(t *testing.T, trial *GitHubTrial, repo, source string) {

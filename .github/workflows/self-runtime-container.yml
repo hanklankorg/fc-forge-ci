@@ -345,6 +345,13 @@ jobs:
           tar -xzf "$tarball" -C cli-prebuilt forge-ci
           sudo install -m0755 cli-prebuilt/forge-ci /usr/local/bin/forge-ci
           forge-ci --version
+      - name: Validate runtime image namespace
+        env:
+          NAMESPACE: ${{ vars.FORGE_CI_IMAGE_NAMESPACE || format('ghcr.io/{0}', github.repository_owner) }}
+        run: |
+          forge-ci container validate namespace --image-name "$NAMESPACE/forge-ci-runtime" \
+            --expected-image-repository "$NAMESPACE/forge-ci-runtime" --repository "$GITHUB_REPOSITORY" \
+            --registry ghcr.io --enforce-namespace "$GITHUB_REPOSITORY_OWNER"
       - name: Compute build metadata
         id: meta
         run: |
@@ -380,7 +387,7 @@ jobs:
           BUILD_TARGET: ${{ matrix.runtime.target }}
           BUILD_PLATFORM: ${{ matrix.platform.platform }}
           BUILD_MODE: push-by-digest
-          IMAGE_REF: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}
+          IMAGE_REF: ${{ vars.FORGE_CI_IMAGE_NAMESPACE || format('ghcr.io/{0}', github.repository_owner) }}/${{ matrix.runtime.name }}
           # Forge-neutral registry layer cache (replaces type=gha): one dedicated
           # cache package per repository, shared by every image and arch (Buildah
           # keys layers by content and takes no tag). Include the repository name:
@@ -410,7 +417,7 @@ jobs:
         # the same artifact by construction (COPY of cli-prebuilt/forge-ci),
         # so this is a regression guard against the prebuilt path being bypassed.
         env:
-          IMAGE_REF: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}@${{ steps.build.outputs.digest }}
+          IMAGE_REF: ${{ vars.FORGE_CI_IMAGE_NAMESPACE || format('ghcr.io/{0}', github.repository_owner) }}/${{ matrix.runtime.name }}@${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
           want="$(sha256sum cli-prebuilt/forge-ci | awk '{print $1}')"
@@ -437,7 +444,7 @@ jobs:
         # signed as a cosign attestation in the next step; provenance is attested
         # on the merged index in publish-merge.
         env:
-          IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}
+          IMAGE_NAME: ${{ vars.FORGE_CI_IMAGE_NAMESPACE || format('ghcr.io/{0}', github.repository_owner) }}/${{ matrix.runtime.name }}
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: forge-ci sbom assemble
       - name: Attest SBOM (cosign keyless)
@@ -450,7 +457,7 @@ jobs:
         #     ghcr.io/diggsweden/<runtime>@sha256:<per-arch-digest>
         env:
           SIGN_METHOD: sigstore
-          IMAGE_REF: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}@${{ steps.build.outputs.digest }}
+          IMAGE_REF: ${{ vars.FORGE_CI_IMAGE_NAMESPACE || format('ghcr.io/{0}', github.repository_owner) }}/${{ matrix.runtime.name }}@${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
           pred="$(find . -maxdepth 1 -name '*-analyzed-container-sbom.cyclonedx.json' | head -1)"
@@ -467,7 +474,7 @@ jobs:
         # floor is understood.
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}@${{ steps.build.outputs.digest }}
+          image-ref: ${{ vars.FORGE_CI_IMAGE_NAMESPACE || format('ghcr.io/{0}', github.repository_owner) }}/${{ matrix.runtime.name }}@${{ steps.build.outputs.digest }}
           format: sarif
           output: trivy-results.sarif
           vuln-type: os,library
@@ -585,7 +592,7 @@ jobs:
       - name: Compute image metadata
         id: metadata
         env:
-          IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}
+          IMAGE_NAME: ${{ vars.FORGE_CI_IMAGE_NAMESPACE || format('ghcr.io/{0}', github.repository_owner) }}/${{ matrix.runtime.name }}
           FLAVOR: latest=false
           TAG_RULES: |
             type=raw,value=weekly,enable=${{ github.event_name == 'schedule' }}
@@ -608,7 +615,7 @@ jobs:
           fi
       - name: Create manifest list and push
         env:
-          IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}
+          IMAGE_NAME: ${{ vars.FORGE_CI_IMAGE_NAMESPACE || format('ghcr.io/{0}', github.repository_owner) }}/${{ matrix.runtime.name }}
           TAGS: ${{ steps.metadata.outputs.tags }}
           DIGESTS_DIR: /tmp/digests
         run: forge-ci container manifest merge
@@ -655,7 +662,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           REGISTRY_USER: ${{ github.actor }}
-          RUNTIME_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.runtime.name }}
+          RUNTIME_IMAGE: ${{ vars.FORGE_CI_IMAGE_NAMESPACE || format('ghcr.io/{0}', github.repository_owner) }}/${{ matrix.runtime.name }}
           RECENT_COUNT: ${{ vars.RUNTIME_IMAGE_RETENTION }}
         run: |
           forge-ci container package-retention --repository "${RUNTIME_IMAGE,,}" \

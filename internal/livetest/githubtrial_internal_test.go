@@ -67,7 +67,7 @@ func TestReuseGitHubEngineOnlyReadsPreparedSessionEngine(t *testing.T) {
 	trial.api = client
 
 	got := trial.ReuseEngine(root)
-	if got != (GitHubEngine{Owner: trial.org, Repository: "fc-forge-ci", Commit: commit}) || len(reads) != 3 {
+	if got != (GitHubEngine{Owner: trial.org, Repository: "fc-forge-ci", Commit: commit, Namespace: "ghcr.io/example-org/fc-forge-ci"}) || len(reads) != 3 {
 		t.Fatalf("reuse = %+v; reads = %v", got, reads)
 	}
 }

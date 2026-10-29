@@ -127,11 +127,18 @@ func (trial *GitHubTrial) EnsureEngine(root, platforms string) GitHubEngine {
 		trial.tb.Cleanup(func() { trial.SetVariable(name, "RELEASE_PLATFORMS", githubDefaultPlatforms) })
 	}
 
-	trial.push(root, "--force", trial.remote(name), "HEAD:refs/heads/main")
+	namespace := "ghcr.io/" + strings.ToLower(trial.org+"/"+name)
+	engine := GitHubEngine{Owner: trial.org, Repository: name, Commit: commit, Namespace: namespace}
+	packageNames, err := engine.RuntimePackageNames()
+	if err != nil {
+		trial.tb.Fatalf("livetest: invalid runtime package coordinates: %v", err)
+	}
+	trial.tb.Logf("retained engine package coordinates (no deletion authority): %v", packageNames)
+	trial.SetVariable(name, "FORGE_CI_IMAGE_NAMESPACE", namespace)
 	trial.SetVariable(name, "FORGE_CI_REPOSITORY", trial.org+"/"+name)
 	trial.ensurePrerelease(name)
+	trial.push(root, "--force", trial.remote(name), "HEAD:refs/heads/main")
 
-	engine := GitHubEngine{Owner: trial.org, Repository: name, Commit: commit}
 	run := trial.WaitRun(name, githubEngineWorkflow, "push", commit, githubEngineTimeout)
 
 	if run.GetConclusion() != "success" {
@@ -172,7 +179,7 @@ func (trial *GitHubTrial) ReuseEngine(root string) GitHubEngine {
 
 	trial.tb.Logf("reusing prepared engine without mutations: %s/%s at %s", trial.org, name, commit)
 
-	return GitHubEngine{Owner: trial.org, Repository: name, Commit: commit}
+	return GitHubEngine{Owner: trial.org, Repository: name, Commit: commit, Namespace: "ghcr.io/" + strings.ToLower(trial.org+"/"+name)}
 }
 
 // WithHistory returns the trial pushing the consumer's own history under the
@@ -797,7 +804,7 @@ func (trial *GitHubTrial) CheckRelease(repo string, tree GitHubConsumerTree, fin
 func (trial *GitHubTrial) CheckImage(repo, image, final string, engine GitHubEngine, trust CosignTrust) string {
 	trial.tb.Helper()
 
-	reference := engine.Registry() + "/" + strings.ToLower(repo) + "/" + image
+	reference := "ghcr.io/" + strings.ToLower(engine.Owner+"/"+repo) + "/" + image
 	for _, tag := range []string{final, strings.TrimPrefix(final, "v")} {
 		output, err := trial.output(trial.tempDir("verify"), "cosign", append(append([]string{"verify"}, trust.verifyArgs()...), reference+":"+tag)...)
 		if err == nil {

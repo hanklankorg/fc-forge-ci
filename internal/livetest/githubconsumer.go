@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/crypto/nacl/box"
 
+	"github.com/diggsweden/forge-ci/internal/domain/container"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
 
@@ -31,6 +32,7 @@ type GitHubEngine struct {
 	Owner      string // organization login
 	Repository string // repository name, without the owner
 	Commit     string // the full commit its reusable workflows are pinned to
+	Namespace  string // optional full runtime image namespace; empty preserves owner-global coordinates
 }
 
 // ImageTag is the runtime-image tag Self Runtime Container publishes for the
@@ -43,8 +45,12 @@ func (engine GitHubEngine) ImageTag() string {
 	return "sha-" + engine.Commit[:7]
 }
 
-// Registry is the organization's GHCR namespace; GHCR names are lowercase.
+// Registry is the runtime image namespace, defaulting to the organization's
+// GHCR namespace for callers that do not select a repository-specific one.
 func (engine GitHubEngine) Registry() string {
+	if engine.Namespace != "" {
+		return engine.Namespace
+	}
 	return "ghcr.io/" + strings.ToLower(engine.Owner)
 }
 
@@ -73,6 +79,9 @@ var (
 func RenderGitHubConsumer(name, text string, engine GitHubEngine, overrides map[string]string) (string, []string, error) {
 	if engine.Owner == "" || engine.Repository == "" || len(engine.Commit) != 40 {
 		return "", nil, fmt.Errorf("the engine under test needs an owner, a repository and a full commit: %w", errs.ErrValidation)
+	}
+	if !container.ValidRepositoryName(engine.Registry()) {
+		return "", nil, fmt.Errorf("runtime image namespace must be a canonical OCI repository: %w", errs.ErrValidation)
 	}
 
 	if err := requireOrchestratorImages(name, text); err != nil {
