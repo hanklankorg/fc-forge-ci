@@ -5,10 +5,10 @@ plugins {
 }
 
 android {
-    namespace = "org.hanklankorg.trial.hello"
+    namespace = "org.example.trial.hello"
     compileSdk = 35
     defaultConfig {
-        applicationId = "org.hanklankorg.trial.hello"
+        applicationId = "org.example.trial.hello"
         minSdk = 26
         targetSdk = 35
         versionCode = providers.gradleProperty("versionCode").get().toInt()

@@ -22,7 +22,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
 
-var trialEngine = GitHubEngine{Owner: "HankLankOrg", Repository: "fc-forge-ci", Commit: strings.Repeat("a", 40)}
+var trialEngine = GitHubEngine{Owner: "Example-Org", Repository: "fc-forge-ci", Commit: strings.Repeat("a", 40)}
 
 func TestFailedJobAnnotationsUseExactRepositoryAndBoundOutput(t *testing.T) {
 	calls := 0
@@ -157,10 +157,10 @@ func TestRenderGitHubConsumer_PinsTheEngineUnderTest(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"uses: HankLankOrg/fc-forge-ci/.github/workflows/pullrequest-orchestrator.yml@" + trialEngine.Commit,
+		"uses: Example-Org/fc-forge-ci/.github/workflows/pullrequest-orchestrator.yml@" + trialEngine.Commit,
 		"forge-ci-binary-ref: v0.90.0-pre",
-		"runtime-image: ghcr.io/hanklankorg/forge-ci-runtime-base:sha-aaaaaaa",
-		`"ghcr.io/hanklankorg/forge-ci-runtime-go-1.27:sha-aaaaaaa"`,
+		"runtime-image: ghcr.io/example-org/forge-ci-runtime-base:sha-aaaaaaa",
+		`"ghcr.io/example-org/forge-ci-runtime-go-1.27:sha-aaaaaaa"`,
 		"nanolinter-image: ghcr.io/itiquette/nanolinter:go",
 		"uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
 	} {
@@ -180,7 +180,7 @@ func TestRenderGitHubConsumer_PinsTheEngineUnderTest(t *testing.T) {
 func TestRenderGitHubConsumer_Overrides(t *testing.T) {
 	t.Parallel()
 
-	mirror := "ghcr.io/hanklankorg/nanolinter:go@sha256:" + strings.Repeat("d", 64)
+	mirror := "ghcr.io/example-org/nanolinter:go@sha256:" + strings.Repeat("d", 64)
 
 	const input = "nanolinter-image"
 
@@ -226,9 +226,9 @@ func TestKeylessIdentityRegexp(t *testing.T) {
 	identity := regexp.MustCompile(trialEngine.KeylessIdentityRegexp())
 
 	for subject, want := range map[string]bool{
-		"https://github.com/HankLankOrg/fc-forge-ci/.github/workflows/release-create-github.yml@refs/heads/main":   true,
-		"https://github.com/HankLankOrg/fc-forge-ci/.github/workflows/publish-container.yml@" + trialEngine.Commit: true,
-		"https://github.com/HankLankOrg/fc-forge-ciX/.github/workflows/release.yml@refs/heads/main":                false,
+		"https://github.com/Example-Org/fc-forge-ci/.github/workflows/release-create-github.yml@refs/heads/main":   true,
+		"https://github.com/Example-Org/fc-forge-ci/.github/workflows/publish-container.yml@" + trialEngine.Commit: true,
+		"https://github.com/Example-Org/fc-forge-ciX/.github/workflows/release.yml@refs/heads/main":                false,
 		"https://github.com/other/fc-forge-ci/.github/workflows/release.yml@refs/heads/main":                       false,
 	} {
 		if got := identity.MatchString(subject); got != want {

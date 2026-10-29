@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: CC0-1.0
 name: HelloTrial
 options:
-  bundleIdPrefix: org.hanklankorg.trial
+  bundleIdPrefix: org.example.trial
   deploymentTarget:
     iOS: "18.0"
 configFiles:
@@ -20,7 +20,7 @@ targets:
     sources: [Sources]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: org.hanklankorg.trial.hello-ios
+        PRODUCT_BUNDLE_IDENTIFIER: org.example.trial.hello-ios
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
   HelloTrialTests:
     type: bundle.unit-test

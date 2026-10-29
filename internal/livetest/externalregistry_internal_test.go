@@ -29,13 +29,13 @@ func TestReadExternalRegistry(t *testing.T) {
 		}
 	}
 
-	got, err := readExternalRegistry(private, "hanklankorg")
-	if err != nil || got != (ExternalRegistry{User: "hanklankorg", Token: "ghp_fixture"}) {
+	got, err := readExternalRegistry(private, "example-user")
+	if err != nil || got != (ExternalRegistry{User: "example-user", Token: "ghp_fixture"}) {
 		t.Fatalf("readExternalRegistry = %+v, %v", got, err)
 	}
 
 	for name, tc := range map[string]struct{ path, user string }{
-		"readable by others": {path: shared, user: "hanklankorg"},
+		"readable by others": {path: shared, user: "example-user"},
 		"no user":            {path: private, user: " "},
 		"no file":            {path: filepath.Join(dir, "absent"), user: "u"},
 	} {
@@ -50,14 +50,14 @@ func TestReadExternalRegistry(t *testing.T) {
 func TestParseTrialSettings_Image(t *testing.T) {
 	t.Parallel()
 
-	settings, err := ParseTrialSettings(TrialRelease, []string{"image=ghcr.io/hanklankorg/nanolinter", "IMAGE_REPOSITORY=ghcr.io/hanklankorg"})
-	if err != nil || !slices.Equal(settings.Images, []string{"ghcr.io/hanklankorg/nanolinter"}) || settings.Variables["IMAGE_REPOSITORY"] != "ghcr.io/hanklankorg" {
+	settings, err := ParseTrialSettings(TrialRelease, []string{"image=ghcr.io/example-org/nanolinter", "IMAGE_REPOSITORY=ghcr.io/example-org"})
+	if err != nil || !slices.Equal(settings.Images, []string{"ghcr.io/example-org/nanolinter"}) || settings.Variables["IMAGE_REPOSITORY"] != "ghcr.io/example-org" {
 		t.Fatalf("settings = %+v, %v", settings, err)
 	}
 
 	for image, want := range map[string]string{
-		"ghcr.io/hanklankorg/nanolinter":           "ghcr.io/hanklankorg/nanolinter:v0.0.1",
-		"ghcr.io/hanklankorg/nanolinter:v0.0.1-go": "ghcr.io/hanklankorg/nanolinter:v0.0.1-go",
+		"ghcr.io/example-org/nanolinter":           "ghcr.io/example-org/nanolinter:v0.0.1",
+		"ghcr.io/example-org/nanolinter:v0.0.1-go": "ghcr.io/example-org/nanolinter:v0.0.1-go",
 		"registry.lab:5000/owner/app":              "registry.lab:5000/owner/app:v0.0.1",
 	} {
 		if _, err := ParseTrialSettings(TrialRelease, []string{"image=" + image}); err != nil {
@@ -70,8 +70,8 @@ func TestParseTrialSettings_Image(t *testing.T) {
 	}
 
 	for _, words := range [][]string{
-		{"image=ghcr.io/hanklankorg/nanolinter@sha256:abc"},
-		{"image=ghcr.io/hanklankorg/nanolinter", "image=ghcr.io/hanklankorg/nanolinter"},
+		{"image=ghcr.io/example-org/nanolinter@sha256:abc"},
+		{"image=ghcr.io/example-org/nanolinter", "image=ghcr.io/example-org/nanolinter"},
 		{"image=nanolinter"},
 	} {
 		if _, err := ParseTrialSettings(TrialRelease, words); err == nil {
@@ -79,7 +79,7 @@ func TestParseTrialSettings_Image(t *testing.T) {
 		}
 	}
 
-	if _, err := ParseTrialSettings(TrialPullRequest, []string{"image=ghcr.io/hanklankorg/nanolinter"}); err == nil {
+	if _, err := ParseTrialSettings(TrialPullRequest, []string{"image=ghcr.io/example-org/nanolinter"}); err == nil {
 		t.Error("image= accepted for a pull request")
 	}
 }
@@ -91,8 +91,8 @@ func TestExternalImageHostAcceptsAnyReference(t *testing.T) {
 	t.Parallel()
 
 	for image, want := range map[string]string{
-		"ghcr.io/hanklankorg/nl-sim":                      "ghcr.io",
-		"ghcr.io/hanklankorg/nl-sim:v0.0.1-go":            "ghcr.io",
+		"ghcr.io/example-org/nl-sim":                      "ghcr.io",
+		"ghcr.io/example-org/nl-sim:v0.0.1-go":            "ghcr.io",
 		"registry.lab:5000/owner/app:v1":                  "registry.lab:5000",
 		"ghcr.io/o/app@sha256:" + strings.Repeat("a", 64): "ghcr.io",
 	} {

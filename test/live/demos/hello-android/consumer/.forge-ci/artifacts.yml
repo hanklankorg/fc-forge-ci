@@ -12,4 +12,4 @@ artifacts:
       build-types: release
       gradle-version-file: gradle.properties
       enable-android-signing: false
-      package-name: org.hanklankorg.trial.hello.demo
+      package-name: org.example.trial.hello.demo

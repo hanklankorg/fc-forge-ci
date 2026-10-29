@@ -1,6 +1,6 @@
 # Hello npm package
 
-A dependency-free, publishable package in the disposable `@hanklankorg` scope.
+A dependency-free, publishable package in the fictional `@example-org` scope.
 Unlike `hello-npm-service`, this fixture tests a package intended for registry
 installation, with no container. `npm test` packs it, installs the tarball into
 an isolated consumer offline, then checks its exported API.

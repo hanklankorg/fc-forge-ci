@@ -100,11 +100,11 @@ func TestPrivateReleaseAssetsPairExactAuthenticatedAndAnonymousPaths(t *testing.
 			}
 
 			tb := &recordingTB{}
-			trial := &GitHubTrial{tb: tb, api: client, org: "hanklankorg"}
+			trial := &GitHubTrial{tb: tb, api: client, org: "example-org"}
 			trial.CheckPrivateReleaseAssets("fc-private", map[string]int64{"worker-linux-amd64": 42})
 
 			denied := status == 401 || status == 403 || status == 404
-			if len(authenticated) != 1 || len(anonymous) != 1 || authenticated[0] != anonymous[0] || authenticated[0] != "/repos/hanklankorg/fc-private/releases/assets/42" || (len(tb.errors) == 0) != denied {
+			if len(authenticated) != 1 || len(anonymous) != 1 || authenticated[0] != anonymous[0] || authenticated[0] != "/repos/example-org/fc-private/releases/assets/42" || (len(tb.errors) == 0) != denied {
 				t.Fatalf("auth=%v anonymous=%v status=%d verdict=%+v", authenticated, anonymous, status, tb)
 			}
 		})

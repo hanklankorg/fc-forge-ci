@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
 // SPDX-License-Identifier: CC0-1.0
-package org.hanklankorg.trial.hello;
+package org.example.trial.hello;
 
 import static org.junit.Assert.assertEquals;
 import org.junit.Test;

@@ -1,5 +1,5 @@
 {
-  "name": "@hanklankorg/hello-npm-package",
+  "name": "@example-org/hello-npm-package",
   "version": "0.1.0",
   "description": "Disposable Forge CI package publication and installation fixture",
   "license": "CC0-1.0",

@@ -568,7 +568,7 @@ func TestRegistryForLogin_ReducesARepositoryToItsHost(t *testing.T) {
 
 	for registry, want := range map[string]string{
 		"ghcr.io":                        "ghcr.io",
-		"ghcr.io/hanklankorg/nanolinter": "ghcr.io",
+		"ghcr.io/example-org/nanolinter": "ghcr.io",
 		"https://forge.example:8443":     "forge.example:8443",
 		"forge.example:8443/owner/app":   "forge.example:8443",
 	} {

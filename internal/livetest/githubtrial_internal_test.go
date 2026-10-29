@@ -18,7 +18,7 @@ import (
 
 func TestReuseGitHubEngineOnlyReadsPreparedSessionEngine(t *testing.T) {
 	t.Parallel()
-	trial := &GitHubTrial{tb: t, org: "hanklankorg", prefix: "fc-"}
+	trial := &GitHubTrial{tb: t, org: "example-org", prefix: "fc-"}
 	root := t.TempDir()
 	trial.git(root, "init", "--quiet", "--object-format=sha1", "--initial-branch=main", ".")
 	trial.git(root, "-c", "user.name=Trial", "-c", "user.email=trial@example.invalid", "commit", "--quiet", "--allow-empty", "-m", "engine")
@@ -38,9 +38,9 @@ func TestReuseGitHubEngineOnlyReadsPreparedSessionEngine(t *testing.T) {
 		var body any
 
 		switch request.URL.Path {
-		case "/repos/hanklankorg/fc-forge-ci/git/ref/heads/main", "/repos/hanklankorg/fc-forge-ci/git/ref/tags/" + GitHubPrerelease:
+		case "/repos/example-org/fc-forge-ci/git/ref/heads/main", "/repos/example-org/fc-forge-ci/git/ref/tags/" + GitHubPrerelease:
 			body = map[string]any{"object": map[string]string{"sha": commit}}
-		case "/repos/hanklankorg/fc-forge-ci/actions/workflows/" + githubEngineWorkflow + "/runs":
+		case "/repos/example-org/fc-forge-ci/actions/workflows/" + githubEngineWorkflow + "/runs":
 			if request.URL.Query().Get("head_sha") != commit || request.URL.Query().Get("event") != "push" {
 				t.Errorf("engine build lookup not pinned: %s", request.URL)
 			}
@@ -93,7 +93,7 @@ func TestGitHubWaitRunReturnsCancelledTerminalRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	trial := &GitHubTrial{tb: t, api: client, org: "hanklankorg"}
+	trial := &GitHubTrial{tb: t, api: client, org: "example-org"}
 
 	run := trial.WaitRun("fc-cancelled", "pullrequest.yml", "pull_request", strings.Repeat("a", 40), time.Second)
 	if run.GetID() != 42 || run.GetConclusion() != "cancelled" {

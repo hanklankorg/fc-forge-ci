@@ -173,7 +173,7 @@ func TestDevelopmentAcceptanceChecksArtifactsAndStableState(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			trial := &GitHubTrial{tb: stopOnFatalTB{TB: t}, api: client, org: "hanklankorg"}
+			trial := &GitHubTrial{tb: stopOnFatalTB{TB: t}, api: client, org: "example-org"}
 			failure := ""
 
 			func() {
@@ -221,7 +221,7 @@ func TestDevelopmentDispatchIsSentOnceAndReturnsIdentity(t *testing.T) {
 		}
 
 		response.Header().Set("Content-Type", "application/json")
-		_, _ = response.Write([]byte(`{"workflow_run_id":7,"html_url":"https://github.com/hanklankorg/fc-development/actions/runs/7"}`))
+		_, _ = response.Write([]byte(`{"workflow_run_id":7,"html_url":"https://github.com/example-org/fc-development/actions/runs/7"}`))
 	}))
 	defer server.Close()
 
@@ -230,7 +230,7 @@ func TestDevelopmentDispatchIsSentOnceAndReturnsIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	trial := &GitHubTrial{tb: t, api: client, org: "hanklankorg"}
+	trial := &GitHubTrial{tb: t, api: client, org: "example-org"}
 	if id := trial.DispatchDevelopment("fc-development", "release-dev.yml"); id != 7 || calls.Load() != 1 {
 		t.Fatalf("dispatch id=%d calls=%d", id, calls.Load())
 	}

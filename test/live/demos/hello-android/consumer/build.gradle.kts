@@ -6,7 +6,7 @@ plugins {
 }
 
 allprojects {
-    group = "org.hanklankorg.trial"
+    group = "org.example.trial"
     version = providers.gradleProperty("versionName").get()
     tasks.withType<AbstractArchiveTask>().configureEach {
         isPreserveFileTimestamps = false
