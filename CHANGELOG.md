@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Remove ignored GitHub-style permission declarations from Forgejo workflows,
+  examples and live consumers. Automatic-token rights, explicit credentials and
+  OIDC behavior are unchanged; the Forgejo guide states their actual boundaries.
 - **BREAKING:** Remove the `build-release-image` composite action after migrating
   the Maven, npm and Cargo demos and proving their Forgejo release hand-offs.
   Use `release-images.yml` for native image builds and join its evidence with

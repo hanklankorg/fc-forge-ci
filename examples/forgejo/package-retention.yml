@@ -10,8 +10,6 @@ on:
   schedule:
     - cron: '19 4 * * 1'
   workflow_dispatch:
-permissions:
-  contents: read
 concurrency:
   group: package-retention
   cancel-in-progress: false

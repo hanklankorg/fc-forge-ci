@@ -39,12 +39,6 @@ on:
   pull_request:
     branches: [main]
 
-# permissions: is a GitHub field Forgejo ignores (warning per run) --
-# kept for Scorecard Token-Permissions and GitHub portability. Real
-# restriction is Forgejo's repo-scoped read-default token.
-permissions:
-  contents: read
-
 env:
   # Trust the checked-out tree whoever owns the job container's workspace
   # mount: the image runs as its own user.
