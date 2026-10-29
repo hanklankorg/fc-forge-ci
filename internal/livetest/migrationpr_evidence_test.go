@@ -7,7 +7,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"encoding/xml"
@@ -15,7 +14,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -29,13 +27,6 @@ import (
 
 const migrationReportArtifact = "migration-java-surefire"
 const migrationZIPLimit = 16 << 20
-
-func snapshotEvidenceRoot() string {
-	if root := os.Getenv("FORGE_CI_LIVE_SNAPSHOT_EVIDENCE_DIR"); root != "" {
-		return root
-	}
-	return os.Getenv("FORGE_CI_LIVE_SNAPSHOT_EVIDENCE")
-}
 
 func migrationEvidenceDestination(root string, repositories ...string) error {
 	if !filepath.IsAbs(root) {
@@ -66,30 +57,6 @@ func migrationEvidenceDestination(root string, repositories ...string) error {
 		}
 	}
 	return nil
-}
-
-// Publish one plain evidence file atomically through a confined descriptor.
-// Replacing an existing link never opens its target (including hard links).
-func writeSnapshotEvidence(root, name string, body []byte) error {
-	if !filepath.IsAbs(root) || filepath.Base(name) != name || name == "." || name == ".." || strings.ContainsAny(name, "\\\x00") {
-		return errors.New("evidence requires an absolute root and plain filename")
-	}
-	dir, err := pathsafe.MkdirRoot(root, 0700)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = dir.Close() }()
-	tmp := ".evidence-" + rand.Text()
-	file, err := dir.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = dir.Remove(tmp) }()
-	_, writeErr := file.Write(body)
-	if err := errors.Join(writeErr, file.Close()); err != nil {
-		return err
-	}
-	return dir.Rename(tmp, name)
 }
 
 func migrationJavaJob(original string) (string, error) {

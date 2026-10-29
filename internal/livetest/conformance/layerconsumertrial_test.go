@@ -224,7 +224,7 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 
 	run := livetest.WaitForConsumerRun(t, target, repo, settings.Workflow, event, settings.InterruptAfter)
 
-	scenario.logJobs(t, livetest.RunJobs(t, target, repo, run.ID))
+	scenario.logJobs(t, livetest.RunJobs(t, target, repo, run.ID), facts.Secrets, plan.Secrets)
 	logArtifacts(t, run, livetest.RunArtifacts(t, target, repo, run.ID))
 
 	if settings.InterruptAfter != "" {
@@ -268,7 +268,7 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 			requestTag, finalTag := "release-request/v"+settings.NextVersion, "v"+settings.NextVersion
 			requester.PushTag(t, target, repo, requestTag, layerMain, "Request release "+finalTag)
 			next := livetest.WaitForConsumerRunAfter(t, target, repo, settings.Workflow, event, run.ID)
-			scenario.logJobs(t, livetest.RunJobs(t, target, repo, next.ID))
+			scenario.logJobs(t, livetest.RunJobs(t, target, repo, next.ID), facts.Secrets, plan.Secrets)
 
 			if next.Status != jobSuccess {
 				t.Fatalf("second release run %d ended %q", next.ID, next.Status)
@@ -289,7 +289,7 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 	}
 
 	if demo != "" {
-		runDemoPullRequest(t, scenario, consumer, main)
+		runDemoPullRequest(t, scenario, consumer, main, facts.Secrets, plan.Secrets)
 	}
 }
 
@@ -334,7 +334,7 @@ const demoPullRequestWorkflow = "pullrequest.yml"
 // left, and requires the consumer's own pull-request workflow to pass on it.
 // The change is one commit on pushed, the commit whose tree the trial staged:
 // on the released main it would carry that tree and undo the release commit.
-func runDemoPullRequest(t *testing.T, scenario layerScenario, consumer livetest.Consumer, pushed string) {
+func runDemoPullRequest(t *testing.T, scenario layerScenario, consumer livetest.Consumer, pushed string, secrets ...map[string]string) {
 	t.Helper()
 
 	target, repo := scenario.target, scenario.repo
@@ -344,7 +344,7 @@ func runDemoPullRequest(t *testing.T, scenario layerScenario, consumer livetest.
 	requirePullRequest(t, livetest.OpenPullRequest(t, target, repo, trialBranch, layerMain, "test: consumer trial"), trialBranch, head, released)
 
 	run := livetest.WaitForConsumerRun(t, target, repo, demoPullRequestWorkflow, "pull_request", "")
-	scenario.logJobs(t, livetest.RunJobs(t, target, repo, run.ID))
+	scenario.logJobs(t, livetest.RunJobs(t, target, repo, run.ID), secrets...)
 
 	if run.Status != jobSuccess {
 		t.Fatalf("pull-request run %d of %s ended %q, want %s", run.ID, run.WorkflowID, run.Status, jobSuccess)

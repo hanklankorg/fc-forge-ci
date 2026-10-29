@@ -161,7 +161,7 @@ func requireObjectFormats(t *testing.T, objectFormat, consumerCommit, engineComm
 
 // requireStatus reads the run's jobs and, when the run did not end as the
 // scenario expects, prints them before failing.
-func (s layerScenario) requireStatus(t *testing.T, run livetest.WorkflowRun, want string) []livetest.RunJob {
+func (s layerScenario) requireStatus(t *testing.T, run livetest.WorkflowRun, want string, secrets ...map[string]string) []livetest.RunJob {
 	t.Helper()
 
 	jobs := livetest.RunJobs(t, s.target, s.repo, run.ID)
@@ -169,7 +169,7 @@ func (s layerScenario) requireStatus(t *testing.T, run livetest.WorkflowRun, wan
 		return jobs
 	}
 
-	s.logJobs(t, jobs)
+	s.logJobs(t, jobs, secrets...)
 	t.Fatalf("run %d of %s ended %q, want %s", run.ID, run.WorkflowID, run.Status, want)
 
 	return nil
@@ -177,7 +177,7 @@ func (s layerScenario) requireStatus(t *testing.T, run livetest.WorkflowRun, wan
 
 // logJobs prints every job with its status, and the end of the log of each
 // that ran on a runner and did not succeed.
-func (s layerScenario) logJobs(t *testing.T, jobs []livetest.RunJob) {
+func (s layerScenario) logJobs(t *testing.T, jobs []livetest.RunJob, secrets ...map[string]string) {
 	t.Helper()
 
 	for _, job := range jobs {
@@ -189,7 +189,7 @@ func (s layerScenario) logJobs(t *testing.T, jobs []livetest.RunJob) {
 			continue
 		}
 
-		if log := livetest.JobLogTail(t, s.target, s.repo, job); log != "" {
+		if log := livetest.RetainJobLog(t, s.target, s.repo, job, secrets...); log != "" {
 			t.Logf("job %q log (tail):\n%s", job.Name, log)
 		} else {
 			t.Logf("job %q: the forge served no log", job.Name)

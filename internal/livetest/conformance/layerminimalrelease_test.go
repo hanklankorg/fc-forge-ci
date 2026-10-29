@@ -138,12 +138,13 @@ func runLayerMinimalRelease(t *testing.T, private bool, objectFormat string) {
 	keys := newReleaseKeys(t)
 	livetest.AddDeployKey(t, target, repo, "livetest release bot", keys.sshPublic)
 
-	for secret, value := range map[string]string{
+	secrets := map[string]string{
 		"RELEASE_SSH_SIGNING_KEY":    keys.sshPrivate,
 		"RELEASE_COSIGN_PRIVATE_KEY": keys.cosignPrivate,
 		"RELEASE_COSIGN_PASSPHRASE":  keys.passphrase,
 		"RELEASE_TOKEN":              target.Token,
-	} {
+	}
+	for secret, value := range secrets {
 		livetest.SetRepoSecret(t, target, repo, secret, value)
 	}
 
@@ -177,7 +178,7 @@ func runLayerMinimalRelease(t *testing.T, private bool, objectFormat string) {
 	livetest.AnnotateTag(t, target, repo, releaseRequestTag, layerMain, "Request release v0.0.1")
 
 	run := livetest.WaitForLayerRun(t, target, repo, workflow, "push")
-	jobs := scenario.requireStatus(t, run, jobSuccess)
+	jobs := scenario.requireStatus(t, run, jobSuccess, secrets)
 
 	requireReleaseJobs(t, jobs, run.ID, scenario.label)
 	main := requireReleaseGit(t, target, repo, keys, request, releaseRequestTag, releaseFinalTag)
