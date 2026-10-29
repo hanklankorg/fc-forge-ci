@@ -32,7 +32,7 @@ import (
 )
 
 func TestSnapshotDeliveredArtifactBundle(t *testing.T) {
-	root := os.Getenv("FORGE_CI_LIVE_SNAPSHOT_EVIDENCE")
+	root := snapshotEvidenceRoot()
 	source := os.Getenv("FORGE_CI_LIVE_SNAPSHOT_SOURCE_SHA")
 
 	if root == "" || source == "" {
@@ -114,20 +114,12 @@ func TestSnapshotWorkingTreeNativeBuild(t *testing.T) {
 func saveSnapshotEvidence(t *testing.T, name string, body []byte) {
 	t.Helper()
 
-	root := os.Getenv("FORGE_CI_LIVE_SNAPSHOT_EVIDENCE")
+	root := snapshotEvidenceRoot()
 	if root == "" {
 		return
 	}
 
-	if !filepath.IsAbs(root) || filepath.Base(name) != name {
-		t.Fatal("snapshot evidence requires an absolute root and plain filename")
-	}
-
-	if err := os.MkdirAll(root, 0700); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.WriteFile(filepath.Join(root, name), body, 0600); err != nil {
+	if err := writeSnapshotEvidence(root, name, body); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -276,40 +276,50 @@ func (trial *GitHubTrial) stageConsumer(root, fixtures string, engine GitHubEngi
 	trial.tb.Helper()
 
 	dir := trial.tempDir("consumer")
+	git := githubStageGit()
+	source, staged, err := githubStage(trial.tb.Context(), git, root, trial.tempDir("objects"), dir, trial.history)
+	if err != nil {
+		trial.tb.Fatalf("livetest: stage consumer: %v", err)
+	}
+	prefix := filepath.ToSlash(filepath.Join(fixtures, "workflows")) + "/"
+	listed, err := git.output(trial.tb.Context(), source.stage, nil, "ls-tree", "-rz", "--name-only", source.Commit, "--", prefix)
+	if err != nil {
+		trial.tb.Fatalf("livetest: list fixture blobs: %v", err)
+	}
+	applied := map[string]bool{}
+	for path := range strings.SplitSeq(string(listed), "\x00") {
+		name := strings.TrimPrefix(path, prefix)
+		if path == "" || strings.Contains(name, "/") || filepath.Ext(name) != ".yml" {
+			continue
+		}
+		text, readErr := githubWorkflow(trial.tb.Context(), source, path)
+		if readErr != nil {
+			trial.tb.Fatalf("livetest: %v", readErr)
+		}
+		rendered, inputs, renderErr := RenderGitHubConsumer(name, text, engine, overrides)
+		if renderErr != nil {
+			trial.tb.Fatalf("livetest: %v", renderErr)
+		}
+		if err = staged.stageFile(trial.tb.Context(), "100644", ".github/workflows/"+name, rendered); err != nil {
+			trial.tb.Fatalf("livetest: %v", err)
+		}
+		for _, input := range inputs {
+			applied[input] = true
+		}
+	}
+	for _, input := range sortedKeys(overrides) {
+		if !applied[input] {
+			trial.tb.Fatalf("livetest: no fixture passes %s", input)
+		}
+	}
 	message := consumerBaseMessage
-
 	if trial.history {
-		// The consumer's own history, with its rendered workflows one commit on
-		// top. GitHub has no SHA-256 repositories, so only a SHA-1 one can come.
-		trial.git(dir, "init", gitQuiet, "--object-format=sha1", "--initial-branch=main", ".")
-		trial.git(dir, "fetch", gitQuiet, root, "HEAD")
-		trial.git(dir, "checkout", gitQuiet, "-B", "main", "FETCH_HEAD")
-
 		message = demoBaseMessage
-	} else {
-		archive := filepath.Join(trial.tempDir("archive"), "head.tar")
-
-		trial.git(root, "archive", "--format=tar", "-o", archive, "HEAD")
-		trial.run(dir, nil, "tar", "-xf", archive, "-C", dir)
-		trial.git(dir, "init", gitQuiet, "--object-format=sha1", "--initial-branch=main", ".")
 	}
-
-	workflows := filepath.Join(dir, ".github", "workflows")
-	if err := os.RemoveAll(workflows); err != nil {
-		trial.tb.Fatalf("livetest: clear the consumer's own workflows: %v", err)
-	}
-
-	if err := os.MkdirAll(workflows, 0o755); err != nil { //nolint:gosec // a workflow directory is world-readable by convention.
-		trial.tb.Fatalf("livetest: %v", err)
-	}
-
-	trial.renderFixtures(filepath.Join(root, fixtures, "workflows"), workflows, engine, overrides)
-
-	// The archive contains tracked source, including paths covered by the
-	// consumer's ignore rules. In a fresh repository those paths are no longer
-	// tracked: ordinary add would silently drop Cargo src/bin and similar files.
-	trial.git(dir, "add", "--force", "--all")
 	trial.commit(dir, message, "")
+	// Only Git's checkout writes the imported tree; no source links are read.
+	trial.git(dir, "checkout-index", "--all", "--force")
+	workflows := filepath.Join(dir, ".github", "workflows")
 
 	return dir, workflows
 }
@@ -848,59 +858,6 @@ func githubListsAll(listed *github.Workflows, entries []os.DirEntry) bool {
 	}
 
 	return true
-}
-
-// renderFixtures writes each fixture workflow of source into workflows,
-// rendered for the engine under test.
-func (trial *GitHubTrial) renderFixtures(source, workflows string, engine GitHubEngine, overrides map[string]string) {
-	trial.tb.Helper()
-
-	entries, err := os.ReadDir(source)
-	if err != nil {
-		trial.tb.Fatalf("livetest: read the consumer's GitHub fixtures in %s: %v", source, err)
-	}
-
-	applied := map[string]bool{}
-
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yml" {
-			continue
-		}
-
-		for _, input := range trial.renderFixture(source, workflows, entry.Name(), engine, overrides) {
-			applied[input] = true
-		}
-	}
-
-	// A setting no workflow passes would be silently ignored, and the trial
-	// would run the published image instead of the one the caller named.
-	for _, input := range sortedKeys(overrides) {
-		if !applied[input] {
-			trial.tb.Fatalf("livetest: no workflow in %s passes %s, so the setting cannot override it", source, input)
-		}
-	}
-}
-
-// renderFixture writes one rendered fixture workflow and returns the
-// override inputs it passes.
-func (trial *GitHubTrial) renderFixture(source, workflows, name string, engine GitHubEngine, overrides map[string]string) []string {
-	trial.tb.Helper()
-
-	text, err := os.ReadFile(filepath.Join(source, name)) //nolint:gosec // a fixture of the consumer checkout under test.
-	if err != nil {
-		trial.tb.Fatalf("livetest: %v", err)
-	}
-
-	rendered, inputs, err := RenderGitHubConsumer(name, string(text), engine, overrides)
-	if err != nil {
-		trial.tb.Fatalf("livetest: %v", err)
-	}
-
-	if err = os.WriteFile(filepath.Join(workflows, name), []byte(rendered), 0o644); err != nil { //nolint:gosec // a workflow file is world-readable by convention.
-		trial.tb.Fatalf("livetest: %v", err)
-	}
-
-	return inputs
 }
 
 // checkReleaseCommit wants main one signed commit ahead of the trial's main.

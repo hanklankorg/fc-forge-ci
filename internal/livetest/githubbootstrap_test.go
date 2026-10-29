@@ -139,16 +139,20 @@ func TestGitHubBootstrap_SourceAndStableSelection(t *testing.T) {
 	}
 }
 
-func settleBootstrapRuns(t *testing.T, trial *GitHubTrial, repo, snapshot string) {
+func settleBootstrapRuns(t *testing.T, trial *GitHubTrial, repo, snapshot string, selection ...string) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 2*time.Minute)
 	defer cancel()
 
 	requested := make(map[int64]bool)
+	workflow, event := "bootstrap-smoke.yml", "workflow_dispatch"
+	if len(selection) == 2 {
+		workflow, event = selection[0], selection[1]
+	}
 
 	for {
-		runs, _, err := trial.api.Actions.ListWorkflowRunsByFileName(ctx, trial.org, repo, "bootstrap-smoke.yml", &github.ListWorkflowRunsOptions{HeadSHA: snapshot, Event: "workflow_dispatch"})
+		runs, _, err := trial.api.Actions.ListWorkflowRunsByFileName(ctx, trial.org, repo, workflow, &github.ListWorkflowRunsOptions{HeadSHA: snapshot, Event: event})
 		if err != nil {
 			t.Errorf("bootstrap cleanup cannot observe owned runs: %v", err)
 
