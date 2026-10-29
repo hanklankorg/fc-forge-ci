@@ -25,13 +25,15 @@ for your forge. GitHub, GitLab and Forgejo use their own CI syntax.
 ### Install
 
 ```bash
-# With mise (manages the Go toolchain):
-mise use -g go@1.27.3
-go install github.com/diggsweden/forge-ci/cmd/forge-ci@v0.90.0
-
-# Or with Go alone:
-go install github.com/diggsweden/forge-ci/cmd/forge-ci@v0.90.0
+mise use -g github:diggsweden/forge-ci@0.91.13
+forge-ci --version
 ```
+
+This installs the released CLI globally; no Go toolchain is required.
+Alternatively, download the archive for your platform from the
+[release page](https://github.com/diggsweden/forge-ci/releases/tag/v0.91.13)
+and follow [Artifact Verification](docs/verification.md) before installation.
+Source builds are covered in [Development](docs/DEVELOPMENT.md).
 
 `forge-ci init <repo-url>` writes a project's first CI files;
 `forge-ci doctor` checks local configuration.
@@ -53,7 +55,8 @@ Outside `github.com`, the mirror's operator must put that `forge` value in
 Without it, initialization refuses rather than guessing from the hostname.
 
 From your project directory, choose **one** of the following previews.
-Replace the example URL with the published template repository your organization uses:
+Replace the example URL with the published template repository your
+organization uses:
 
 ```bash
 # GitHub
@@ -73,7 +76,8 @@ It fetches templates into temporary storage but writes no project files.
 Conflicts return a nonzero status; existing files are never replaced.
 Use `--example` to choose an example and `--ref` to select an available release.
 After review, repeat without `--dry-run`, retaining the reported release and example.
-Preview and generation fetch the source independently; preview is not a saved execution plan.
+Preview and generation fetch the source independently; preview is not a saved
+execution plan.
 
 Linter configuration files are optional customizations: init does not create
 or modify Nanolinter or MegaLinter configs. The `lint-engine` input selects the
@@ -103,12 +107,12 @@ permissions:
   contents: read
 jobs:
   pr-checks:
-    uses: diggsweden/forge-ci/.github/workflows/pullrequest-orchestrator.yml@v0.90.0
+    uses: diggsweden/forge-ci/.github/workflows/pullrequest-orchestrator.yml@v0.91.13
     permissions:
       actions: read
       contents: read
     with:
-      forge-ci-binary-ref: v0.90.0
+      forge-ci-binary-ref: v0.91.13
       project-type: go  # maven, npm, gradle, cargo, ...
 ```
 
@@ -126,7 +130,7 @@ permissions:
   contents: read
 jobs:
   release:
-    uses: diggsweden/forge-ci/.github/workflows/release-orchestrator.yml@v0.90.0
+    uses: diggsweden/forge-ci/.github/workflows/release-orchestrator.yml@v0.91.13
     permissions:
       contents: write
       packages: write
@@ -137,7 +141,7 @@ jobs:
       RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
     with:
       branch: main
-      forge-ci-binary-ref: v0.90.0
+      forge-ci-binary-ref: v0.91.13
 ```
 
 ```bash
