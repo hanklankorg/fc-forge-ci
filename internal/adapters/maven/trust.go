@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/safeexec"
@@ -56,7 +57,7 @@ func (a *Adapter) trustedEnvironment(ctx context.Context, dir string, args ...st
 		return nil, noop, err
 	}
 
-	home, err := mavenJavaHome(value("JAVA_HOME"), value("PATH"), dir)
+	home, err := mavenJavaHome(ctx, value("JAVA_HOME"), value("PATH"), dir)
 	if err != nil {
 		return nil, noop, err
 	}
@@ -104,8 +105,13 @@ func (a *Adapter) trustedEnvironment(ctx context.Context, dir string, args ...st
 }
 
 func callerMavenTruststore(args, env []string) bool {
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "-Djavax.net.ssl.trustStore") {
+	for index, arg := range args {
+		property := strings.TrimPrefix(strings.TrimPrefix(arg, "-D"), "--define=")
+		if (arg == "-D" || arg == "--define") && index+1 < len(args) {
+			property = args[index+1]
+		}
+
+		if strings.HasPrefix(strings.TrimSpace(property), "javax.net.ssl.trustStore") {
 			return true
 		}
 	}
@@ -121,12 +127,26 @@ func callerMavenTruststore(args, env []string) bool {
 }
 
 func readMavenCAs(path string) ([][]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("read Maven public CA: %w", err)
+	}
+
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("maven public CA must be a regular file: %w", errs.ErrValidation)
+	}
+
 	file, err := os.Open(path) //nolint:gosec // Explicit public CA environment contract; bounded PEM-only read below.
 	if err != nil {
 		return nil, fmt.Errorf("read Maven public CA: %w", err)
 	}
 
 	defer func() { _ = file.Close() }()
+
+	info, err = file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("maven public CA must be a regular file: %w", errs.ErrValidation)
+	}
 
 	const maxCABytes = 1024 * 1024
 
@@ -135,6 +155,10 @@ func readMavenCAs(path string) ([][]byte, error) {
 		return nil, fmt.Errorf("maven public CA must be readable and no larger than 1 MiB: %w", errs.ErrValidation)
 	}
 
+	return parseMavenCAs(body)
+}
+
+func parseMavenCAs(body []byte) ([][]byte, error) {
 	var certificates [][]byte
 
 	for len(strings.TrimSpace(string(body))) > 0 {
@@ -163,9 +187,9 @@ func readMavenCAs(path string) ([][]byte, error) {
 	return certificates, nil
 }
 
-func mavenJavaHome(home, path, dir string) (string, error) {
+func mavenJavaHome(ctx context.Context, home, path, dir string) (string, error) {
 	if home != "" {
-		return home, nil
+		return probeMavenJavaHome(ctx, filepath.Join(home, "bin", "java"), home, path, dir)
 	}
 
 	// exec.LookPath("java") would use the parent's PATH, not Maven's.
@@ -185,15 +209,77 @@ func mavenJavaHome(home, path, dir string) (string, error) {
 			continue
 		}
 
-		java, err = filepath.EvalSymlinks(java)
-		if err != nil {
-			return "", err
-		}
-
-		return filepath.Dir(filepath.Dir(java)), nil
+		return probeMavenJavaHome(ctx, java, "", path, dir)
 	}
 
 	return "", safeexec.WrapError(exec.ErrNotFound, "java", "")
+}
+
+func probeMavenJavaHome(ctx context.Context, java, home, path, dir string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	cmd := safeexec.Command(ctx, java, "-XshowSettings:properties", "-version")
+	// This is runtime discovery, not project execution: no caller JVM options,
+	// signer material, Maven arguments or dependency credentials reach the probe.
+	cmd.Env = []string{"PATH=" + path, "JAVA_HOME=" + home}
+	cmd.Dir = dir
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return "", err
+	}
+
+	if err = cmd.Start(); err != nil {
+		return "", safeexec.WrapError(err, "java", "runtime discovery")
+	}
+
+	const maxSettingsBytes = 64 * 1024
+
+	settings, readErr := io.ReadAll(io.LimitReader(stderr, maxSettingsBytes+1))
+	if readErr != nil || len(settings) > maxSettingsBytes {
+		cancel()
+	}
+
+	waitErr := cmd.Wait()
+
+	if readErr != nil || len(settings) > maxSettingsBytes {
+		return "", fmt.Errorf("java runtime settings exceed readable bounds: %w", errs.ErrValidation)
+	}
+
+	if ctx.Err() != nil {
+		return "", fmt.Errorf("java runtime discovery interrupted: %w", ctx.Err())
+	}
+
+	if waitErr != nil {
+		return "", safeexec.WrapError(waitErr, "java", "runtime discovery")
+	}
+
+	return parseMavenJavaHome(string(settings))
+}
+
+func parseMavenJavaHome(settings string) (string, error) {
+	var home string
+
+	for line := range strings.SplitSeq(settings, "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok || strings.TrimSpace(key) != "java.home" {
+			continue
+		}
+
+		value = strings.TrimSpace(value)
+		if home != "" || !filepath.IsAbs(value) || filepath.Clean(value) != value || value == string(filepath.Separator) || strings.ContainsRune(value, '\x00') {
+			return "", fmt.Errorf("java runtime reported an invalid or ambiguous java.home: %w", errs.ErrValidation)
+		}
+
+		home = value
+	}
+
+	if home == "" {
+		return "", fmt.Errorf("java runtime did not report java.home: %w", errs.ErrValidation)
+	}
+
+	return home, nil
 }
 
 func importMavenCAs(ctx context.Context, home, store, work string, env []string, certificates [][]byte) error {

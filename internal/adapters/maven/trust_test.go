@@ -4,17 +4,21 @@
 package maven
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func publicCATestPEM(t *testing.T) []byte {
@@ -75,7 +79,7 @@ func TestJavaFallbackUsesChildPATH(t *testing.T) {
 		}
 
 		for name, body := range map[string]string{
-			"bin/java":             "#!/bin/sh\nexit 99\n", // Never execute Java.
+			"bin/java":             fmt.Sprintf("#!/bin/sh\nprintf '    java.home = %%s\\n' '%s' >&2\n", home),
 			"bin/keytool":          "#!/bin/sh\nexit 0\n",
 			"lib/security/cacerts": home,
 		} {
@@ -134,6 +138,7 @@ func TestPublicCATrustSnapshot(t *testing.T) {
 
 	roots := filepath.Join(home, "lib/security/cacerts")
 	write(roots, "original-public-roots", 0o600)
+	write(filepath.Join(home, "bin/java"), fmt.Sprintf("#!/bin/sh\nprintf 'java.home = %%s\\n' '%s' >&2\n", home), 0o700)
 	// The fake proves keytool receives a copy, not the JVM's installed store.
 	write(filepath.Join(home, "bin/keytool"), `#!/bin/sh
 set -eu
@@ -199,6 +204,127 @@ printf '\nimported-ca' >> "$store"
 	adapter.Env = adapter.Env[:len(adapter.Env)-1]
 	if _, _, err := adapter.trustedEnvironment(t.Context(), ""); err == nil {
 		t.Fatal("invalid CA admitted")
+	}
+}
+
+func TestMavenJavaWrapperReportsActualRuntime(t *testing.T) {
+	launcher, runtime := t.TempDir(), t.TempDir()
+	java := filepath.Join(launcher, "java")
+
+	script := fmt.Sprintf(`#!/bin/sh
+set -eu
+test "$#" = 2
+test "$1" = -XshowSettings:properties
+test "$2" = -version
+test -z "${JAVA_TOOL_OPTIONS-}"
+test -z "${JDK_JAVA_OPTIONS-}"
+test -z "${_JAVA_OPTIONS-}"
+test -z "${MAVEN_OPTS-}"
+test -z "${RELEASE_GPG_PRIVATE_KEY-}"
+test -z "${DEPENDENCY_TOKEN-}"
+printf '    java.home = %%s\n' '%s' >&2
+`, runtime)
+	if err := os.WriteFile(java, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS", "MAVEN_OPTS", "RELEASE_GPG_PRIVATE_KEY", "DEPENDENCY_TOKEN"} {
+		t.Setenv(name, "synthetic-private-option")
+	}
+
+	got, err := mavenJavaHome(t.Context(), "", launcher, "")
+	if err != nil || got != runtime {
+		t.Fatalf("wrapper runtime = %q, %v; want %q", got, err, runtime)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if _, err = mavenJavaHome(ctx, "", launcher, ""); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation = %v", err)
+	}
+}
+
+func TestInvalidJavaHomeRefusesBeforeTrustWorkspace(t *testing.T) {
+	root := t.TempDir()
+	ca := filepath.Join(root, "ca.pem")
+	java := filepath.Join(root, "java")
+
+	if err := os.WriteFile(ca, publicCATestPEM(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	work := t.TempDir()
+	t.Setenv("TMPDIR", work)
+
+	for _, report := range []string{"no home", "java.home = relative", "java.home = /one\njava.home = /two", "java.home = /one/../two", "java.home = /"} {
+		if err := os.WriteFile(java, []byte("#!/bin/sh\nprintf '%s\\n' '"+report+"' >&2\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		adapter := &Adapter{Env: []string{"PATH=" + root, "SSL_CERT_FILE=" + ca}}
+		_, cleanup, err := adapter.trustedEnvironment(t.Context(), "")
+		cleanup()
+
+		if err == nil {
+			t.Fatalf("accepted runtime settings %q", report)
+		}
+
+		entries, readErr := os.ReadDir(work)
+		if readErr != nil || len(entries) != 0 {
+			t.Fatalf("workspace created on rejected runtime: %v, %v", entries, readErr)
+		}
+	}
+}
+
+func TestMavenJavaDiscoveryCancellationAndOutputBounds(t *testing.T) {
+	root := t.TempDir()
+
+	java := filepath.Join(root, "java")
+	if err := os.WriteFile(java, []byte("#!/bin/sh\nwhile :; do :; done\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+
+	if _, err := mavenJavaHome(ctx, "", root, ""); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("running probe cancellation = %v", err)
+	}
+
+	script := "#!/bin/sh\nprintf '%s' '" + strings.Repeat("x", 64*1024+1) + "' >&2\n"
+	if err := os.WriteFile(java, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := mavenJavaHome(t.Context(), "", root, ""); err == nil || !strings.Contains(err.Error(), "bounds") {
+		t.Fatalf("oversized runtime settings = %v", err)
+	}
+}
+
+func TestPublicCAFileKindsAndSplitTrustArguments(t *testing.T) {
+	root := t.TempDir()
+	if _, err := readMavenCAs(root); err == nil {
+		t.Fatal("accepted directory as public CA")
+	}
+
+	ca, link := filepath.Join(root, "ca.pem"), filepath.Join(root, "ca-link.pem")
+	if err := os.WriteFile(ca, publicCATestPEM(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Symlink(ca, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := readMavenCAs(link); err != nil {
+		t.Fatalf("public CA symlink to regular file: %v", err)
+	}
+
+	for _, args := range [][]string{{"-D", "javax.net.ssl.trustStore=/private"}, {"--define", "javax.net.ssl.trustStoreType=JKS"}, {"--define=javax.net.ssl.trustStorePassword=private"}} {
+		if !callerMavenTruststore(args, nil) {
+			t.Fatalf("missed caller truststore: %v", args)
+		}
 	}
 }
 
