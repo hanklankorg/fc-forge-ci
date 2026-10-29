@@ -48,9 +48,9 @@ func TestGitHubConsumerPRUnitBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Keep the existing single/static-job admission before appending retention;
-	// the caller supplies the runtime display name checked by the report oracle.
-	if _, err := migrationJavaJob(original); err != nil {
+	// The caller supplies the runtime display name, including matrix expansion.
+	// Retention is appended only to a single concrete test job with steps.
+	if err := consumerPRTestWorkflow(original); err != nil {
 		t.Fatal(err)
 	}
 	source := consumer.Commit

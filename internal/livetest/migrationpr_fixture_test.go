@@ -5,6 +5,7 @@ package livetest
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -12,6 +13,42 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+func consumerPRTestWorkflow(body string) error {
+	var workflow struct {
+		Jobs map[string]struct {
+			Uses  string `yaml:"uses"`
+			Steps []any  `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(body), &workflow); err != nil {
+		return err
+	}
+	if len(workflow.Jobs) != 1 {
+		return errors.New("unit baseline requires exactly one original test job")
+	}
+	for _, job := range workflow.Jobs {
+		if job.Uses != "" || len(job.Steps) == 0 {
+			return errors.New("unit baseline requires an original test job with steps")
+		}
+	}
+	return nil
+}
+
+func TestConsumerPRTestWorkflow(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		ok   bool
+	}{
+		{`jobs: {test: {name: 'Test (${{ matrix.java }})', steps: [{run: mvn test}]}}`, true},
+		{`jobs: {a: {steps: [{run: mvn test}]}, b: {steps: [{run: mvn test}]}}`, false},
+		{`jobs: {test: {uses: ./.github/workflows/test.yml}}`, false},
+	} {
+		if err := consumerPRTestWorkflow(tc.body); (err == nil) != tc.ok {
+			t.Fatalf("workflow admission: ok=%t err=%v", tc.ok, err)
+		}
+	}
+}
 
 // consumerPRFixture is a unit-check overlay, not an engine release-flow plan.
 // PublicTools is an explicit admission: private tools require origin-scoped

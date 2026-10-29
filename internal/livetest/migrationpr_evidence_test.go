@@ -22,7 +22,6 @@ import (
 
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
 	"github.com/google/go-github/v91/github"
-	"gopkg.in/yaml.v3"
 )
 
 const migrationReportArtifact = "migration-java-surefire"
@@ -57,31 +56,6 @@ func migrationEvidenceDestination(root string, repositories ...string) error {
 		}
 	}
 	return nil
-}
-
-func migrationJavaJob(original string) (string, error) {
-	var workflow struct {
-		Jobs map[string]struct {
-			Name string `yaml:"name"`
-		} `yaml:"jobs"`
-	}
-	if err := yaml.Unmarshal([]byte(original), &workflow); err != nil {
-		return "", err
-	}
-	if len(workflow.Jobs) != 1 {
-		return "", errors.New("Java baseline expects exactly one original test job")
-	}
-	for id, job := range workflow.Jobs {
-		name := job.Name
-		if name == "" {
-			name = id
-		}
-		if strings.Contains(name, "${{") {
-			return "", errors.New("dynamic Java job names require an explicit oracle")
-		}
-		return "original-java21-unit-check / " + name, nil
-	}
-	return "", errors.New("missing Java test job")
 }
 
 type migrationJUnitSummary struct{ Reports, Tests, Skipped, Failures, Errors int }
