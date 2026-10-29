@@ -22,6 +22,45 @@ type MavenLibraryFixtureConfig struct {
 	Profile   string
 }
 
+// NewMavenApplicationConsumerFixture binds the existing Maven app recipe to a
+// real single-module application, changing CI files only in the private index.
+func NewMavenApplicationConsumerFixture(tb TB, source Consumer, recipe, image string) Consumer {
+	tb.Helper()
+	config := MavenLibraryFixtureConfig{RecipeDirectory: recipe, JavaImage: image, Profile: "default"}
+	if err := config.validate(); err != nil {
+		tb.Fatalf("Maven app fixture: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(Context(tb), timeoutLayerPush)
+	defer cancel()
+	artifact, err := mavenLibraryArtifact(ctx, source)
+	if err != nil {
+		tb.Fatalf("Maven app identity: %v", err)
+	}
+	for _, file := range mavenConsumerRecipeFiles {
+		body, err := os.ReadFile(filepath.Join(recipe, file))
+		if err != nil {
+			tb.Fatalf("Maven app recipe: %v", err)
+		}
+		text := string(body)
+		if strings.HasSuffix(file, "/release.yml") {
+			text = regexp.MustCompile(`(?m)^(      image: |      version-bump-image: ).*$`).ReplaceAllString(text, "${1}"+image)
+			text = strings.ReplaceAll(text, "ARTIFACT_NAME: hello-maven", "ARTIFACT_NAME: "+artifact)
+		}
+		if err := source.stageFile(ctx, "100644", file, text); err != nil {
+			tb.Fatalf("Maven app overlay: %v", err)
+		}
+	}
+	if err := stageMavenRecipeLicenses(ctx, source, recipe); err != nil {
+		tb.Fatalf("Maven app recipe licensing: %v", err)
+	}
+	commit, err := source.commit(ctx, consumerBaseMessage)
+	if err != nil {
+		tb.Fatalf("Maven app fixture commit: %v", err)
+	}
+	source.Commit = commit
+	return source
+}
+
 func (config MavenLibraryFixtureConfig) validate() error {
 	if !filepath.IsAbs(config.RecipeDirectory) {
 		return fmt.Errorf("recipe directory must be absolute")
@@ -69,7 +108,7 @@ func newMavenLibraryConsumerFixture(ctx context.Context, source Consumer, config
 	if _, err = source.git.run(ctx, source.stage, "read-tree", source.Commit); err != nil {
 		return Consumer{}, err
 	}
-	for _, file := range []string{".forgejo/workflows/pullrequest.yml", ".forgejo/workflows/release.yml", ".chglog/config-keepachangelog.yml", ".chglog/config-minimal.yml", ".chglog/CHANGELOG-keepachangelog.tpl", ".chglog/CHANGELOG-minimal.tpl"} {
+	for _, file := range mavenConsumerRecipeFiles {
 		body, readErr := os.ReadFile(filepath.Join(config.RecipeDirectory, file))
 		if readErr != nil {
 			return Consumer{}, readErr
@@ -84,6 +123,9 @@ func newMavenLibraryConsumerFixture(ctx context.Context, source Consumer, config
 		if err = source.stageFile(ctx, "100644", file, text); err != nil {
 			return Consumer{}, err
 		}
+	}
+	if err = stageMavenRecipeLicenses(ctx, source, config.RecipeDirectory); err != nil {
+		return Consumer{}, err
 	}
 	commit, err := source.commit(ctx, consumerBaseMessage)
 	if err != nil {

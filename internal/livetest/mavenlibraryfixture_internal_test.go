@@ -28,6 +28,43 @@ func TestMavenLibraryFixtureConfig(t *testing.T) {
 	}
 }
 
+func TestMavenApplicationFixturePreservesAdmittedSource(t *testing.T) {
+	for _, format := range []string{"sha1", "sha256"} {
+		t.Run(format, func(t *testing.T) {
+			root, git := stageTestRepo(t, format)
+			pom := "<project><artifactId>real-service</artifactId><version>0.2.1</version></project>"
+			stageTestWrite(t, root, "pom.xml", pom, 0644)
+			stageTestWrite(t, root, "run-service", "#!/bin/sh\nexit 0\n", 0755)
+			stageTestCommit(t, git, root)
+			source, err := openConsumer(t.Context(), git, root, t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			recipe, err := filepath.Abs("../../test/live/demos/hello-maven/consumer")
+			if err != nil {
+				t.Fatal(err)
+			}
+			image := "registry.invalid/maven:25@sha256:" + strings.Repeat("b", 64)
+			fixture := NewMavenApplicationConsumerFixture(t, source, recipe, image)
+			got, err := git.run(t.Context(), fixture.stage, "show", fixture.Commit+":pom.xml")
+			if err != nil || got != pom {
+				t.Fatalf("source POM changed: %q %v", got, err)
+			}
+			mode, err := git.run(t.Context(), fixture.stage, "ls-tree", fixture.Commit, "run-service")
+			if err != nil || !strings.HasPrefix(mode, "100755") {
+				t.Fatal("source executable mode changed")
+			}
+			workflow, err := git.run(t.Context(), fixture.stage, "show", fixture.Commit+":.forgejo/workflows/release.yml")
+			if err != nil || !strings.Contains(workflow, "build-type: app") || !strings.Contains(workflow, "ARTIFACT_NAME: real-service") || !strings.Contains(workflow, "image: "+image) {
+				t.Fatal("app recipe binding failed")
+			}
+			if err := git.requireClean(t.Context(), root, "."); err != nil {
+				t.Fatal("original source checkout modified")
+			}
+		})
+	}
+}
+
 func TestMavenLibraryFixtureNativeRecipes(t *testing.T) {
 	config := MavenLibraryFixtureConfig{RecipeDirectory: filepath.Join("..", "..", "test", "live", "demos", "hello-maven", "consumer"), JavaImage: "registry.invalid/maven:21@sha256:" + strings.Repeat("a", 64), Profile: "central-release"}
 	for _, file := range []string{"pullrequest.yml", "release.yml"} {

@@ -385,9 +385,10 @@ const (
 type ConsumerPlan struct {
 	Pin ConsumerPin
 	// Replace is old, new pairs, applied to every tracked text file at once.
-	Replace   []string
-	Variables map[string]string
-	Secrets   map[string]string
+	Replace        []string
+	Variables      map[string]string
+	Secrets        map[string]string
+	workflowInputs map[string]string
 }
 
 // PlanConsumer reads the consumer's workflows and plans the trial.
@@ -411,6 +412,14 @@ func (layer Layer) PlanConsumer(workflows map[string]string, facts ConsumerFacts
 	}
 
 	plan := ConsumerPlan{Pin: pin, Replace: layer.inPlaceOf(pin), Variables: map[string]string{}, Secrets: map[string]string{}}
+	plan.workflowInputs = map[string]string{}
+	for _, name := range sortedKeys(workflows) {
+		migrated, migrationErr := migratePublicationRepository(workflows[name])
+		if migrationErr != nil {
+			return ConsumerPlan{}, fmt.Errorf("%s: %w", name, migrationErr)
+		}
+		plan.workflowInputs[workflows[name]] = migrated
+	}
 	// Establish base coordinates across all wrappers first. A shared image
 	// workflow may receive that same variable as image-repository; it is still
 	// the exact base destination, not the final release destination.
@@ -423,7 +432,7 @@ func (layer Layer) PlanConsumer(workflows map[string]string, facts ConsumerFacts
 	}
 
 	for _, name := range sortedKeys(workflows) {
-		text := foldedExpression.ReplaceAllString(workflows[name], " }}")
+		text := foldedExpression.ReplaceAllString(plan.workflowInputs[workflows[name]], " }}")
 
 		for _, input := range sortedKeys(facts.Inputs) {
 			if input == "base-repository" {
@@ -478,6 +487,9 @@ func (layer Layer) inPlaceOf(pin ConsumerPin) []string {
 // Render applies the plan to the text of one file. No old string begins
 // inside another's match, so the order of the pairs decides nothing.
 func (plan *ConsumerPlan) Render(text string) string {
+	if migrated, found := plan.workflowInputs[text]; found {
+		text = migrated
+	}
 	return strings.NewReplacer(plan.Replace...).Replace(text)
 }
 
