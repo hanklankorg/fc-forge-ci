@@ -221,6 +221,7 @@ func MavenApplication(ctx context.Context, ops MavenOps, out, stderr io.Writer, 
 // deliberately does not invoke unpinned plugin goals. w receives the status
 // banner and mvn's output streams via ops.RunInherit.
 func MavenLibrary(ctx context.Context, ops MavenOps, writer, stderr io.Writer, in MavenLibraryInput) error {
+	ops = unsignedMaven(ops)
 	_, _ = fmt.Fprintln(writer, "Building Maven library lifecycle...")
 
 	profileArg := ""
@@ -258,7 +259,6 @@ func MavenLibrary(ctx context.Context, ops MavenOps, writer, stderr io.Writer, i
 	// mvn $MAVEN_CLI_OPTS package -DskipTests=$SKIP_TESTS $PROFILE_ARG -Dgpg.skip=true
 	pkgArgs := mvn("package", "-DskipTests="+strconv.FormatBool(in.SkipTests))
 
-	pkgArgs = append(pkgArgs, "-Dgpg.skip=true")
 	if err := ops.RunInherit(ctx, writer, stderr, pkgArgs...); err != nil {
 		return err
 	}

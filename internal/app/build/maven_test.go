@@ -208,8 +208,8 @@ func TestMavenLibrary_RunsCompileTestPackage_WithProfile(t *testing.T) {
 		t.Fatalf("expected 3 mvn invocations, got %d", len(ops.runs))
 	}
 
-	wantCompile := []string{"--batch-mode", "--errors", "clean", "compile", "-Pcentral-release"}
-	wantTest := []string{"--batch-mode", "--errors", "test", "-Pcentral-release"}
+	wantCompile := []string{"--batch-mode", "--errors", "clean", "compile", "-Pcentral-release", "-Dgpg.skip=true"}
+	wantTest := []string{"--batch-mode", "--errors", "test", "-Pcentral-release", "-Dgpg.skip=true"}
 
 	wantPackage := []string{"--batch-mode", "--errors", "package", "-DskipTests=false", "-Pcentral-release", "-Dgpg.skip=true"}
 	for i, want := range [][]string{wantCompile, wantTest, wantPackage} {
@@ -238,7 +238,7 @@ func TestMavenLibrary_SkipTestsTrue_OmitsTestPhase(t *testing.T) {
 	// Looking for two flags in the package args said nothing about the
 	// compile invocation, nor about anything else the package run carries --
 	// and the test phase being omitted is the claim in the name.
-	wantCompile := []string{"-q", "clean", "compile"}
+	wantCompile := []string{"-q", "clean", "compile", "-Dgpg.skip=true"}
 	wantPackage := []string{"-q", "package", "-DskipTests=true", "-Dgpg.skip=true"}
 
 	for i, want := range [][]string{wantCompile, wantPackage} {
@@ -260,8 +260,8 @@ func TestMavenLibrary_NoProfile_OmitsPFlag(t *testing.T) {
 	// Scanning for a "-P" prefix said nothing about what the three runs did
 	// carry, so an omitted phase or a stray flag was invisible here.
 	want := [][]string{
-		{"-q", "clean", "compile"},
-		{"-q", "test"},
+		{"-q", "clean", "compile", "-Dgpg.skip=true"},
+		{"-q", "test", "-Dgpg.skip=true"},
 		{"-q", "package", "-DskipTests=false", "-Dgpg.skip=true"},
 	}
 	if !slices.EqualFunc(ops.runs, want, slices.Equal) {

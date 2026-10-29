@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,58 @@ import (
 	appbuild "github.com/diggsweden/forge-ci/internal/app/build"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
+
+// Regression for a CLI/adapter-selected release profile: install traverses
+// verify before MavenLibrary is reached. Every producer run must be key-free,
+// including when the caller explicitly supplied the opposite property. Native
+// quality/test failures must still stop the release at their original step.
+func TestMavenReleaseBuild_UnsignedLibraryPreservesNativeGates(t *testing.T) {
+	for _, failureGoal := range []string{"", "install", "test", "package"} {
+		t.Run("failure="+failureGoal, func(t *testing.T) {
+			options := []string{"--batch-mode", "-Pcentral-release", "-Dgpg.skip=false"}
+			before := slices.Clone(options)
+			gateFailure := errors.New("project-owned quality gate failed")
+			var goals []string
+			ops := mavenPreflightOps{run: func(_ context.Context, _, _ io.Writer, args []string) error {
+				if !slices.Equal(args[:len(options)], options) || args[len(args)-1] != "-Dgpg.skip=true" {
+					t.Fatalf("unsigned producer policy/profile lost: %v", args)
+				}
+				goal := args[len(options)]
+				goals = append(goals, goal)
+				if goal == "test" && (slices.Contains(args, "-DskipTests") || slices.Contains(args, "-DskipTests=true")) {
+					t.Fatal("project tests were disabled")
+				}
+				if goal == "package" && !slices.Contains(args, "-DskipTests=false") {
+					t.Fatal("packaging no longer preserves project tests/attached artifacts")
+				}
+				if goal == failureGoal {
+					return gateFailure
+				}
+				return nil
+			}}
+			err := appbuild.MavenReleaseBuild(t.Context(), &recordingSummarySink{}, ops, io.Discard, io.Discard, appbuild.MavenReleaseBuildInput{
+				Dir: newMavenDir(t), BuildType: "lib", CLIOpts: options,
+				EnableBuildSBOM: true, SBOMToolVersion: "2.9.1",
+			})
+			if !slices.Equal(options, before) {
+				t.Fatal("mutated caller Maven options")
+			}
+			if failureGoal != "" {
+				if !errors.Is(err, gateFailure) || goals[len(goals)-1] != failureGoal {
+					t.Fatalf("project failure was hidden or build continued: goals=%v err=%v", goals, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []string{"install", "clean", "test", "package", "org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom"}
+			if !slices.Equal(goals, want) {
+				t.Fatalf("reactor/test/package/SBOM sequence changed: %v", goals)
+			}
+		})
+	}
+}
 
 func newMavenDir(t *testing.T) string {
 	t.Helper()
@@ -93,11 +146,13 @@ func TestMavenReleaseBuild_RunsStepsInOrder(t *testing.T) {
 			name:      "lib with a profile",
 			buildType: "lib",
 			profile:   "central-release",
+			sbom:      true,
 			want: [][]string{
-				{"install", "-DskipTests"},
-				{"clean", "compile", "-Pcentral-release"},
-				{"test", "-Pcentral-release"},
+				{"install", "-DskipTests", "-Dgpg.skip=true"},
+				{"clean", "compile", "-Pcentral-release", "-Dgpg.skip=true"},
+				{"test", "-Pcentral-release", "-Dgpg.skip=true"},
 				{"package", "-DskipTests=false", "-Pcentral-release", "-Dgpg.skip=true"},
+				{"org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom", "-Dgpg.skip=true"},
 			},
 		},
 		{
@@ -107,8 +162,8 @@ func TestMavenReleaseBuild_RunsStepsInOrder(t *testing.T) {
 			buildType: "lib",
 			skipTests: true,
 			want: [][]string{
-				{"install", "-DskipTests"},
-				{"clean", "compile"},
+				{"install", "-DskipTests", "-Dgpg.skip=true"},
+				{"clean", "compile", "-Dgpg.skip=true"},
 				{"package", "-DskipTests=true", "-Dgpg.skip=true"},
 			},
 		},

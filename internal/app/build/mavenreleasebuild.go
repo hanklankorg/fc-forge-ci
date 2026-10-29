@@ -22,6 +22,26 @@ const (
 	mavenBuildTypeLib = "lib"
 )
 
+// unsignedMavenOps enforces the library producer's key-free boundary on every
+// native run, including reactor bootstrap install (which traverses verify).
+// Project profiles still own attached sources/javadoc and all quality gates;
+// release signatures belong to the isolated signing job, not this producer.
+type unsignedMavenOps struct{ MavenOps }
+
+func (ops unsignedMavenOps) RunInherit(ctx context.Context, out, stderr io.Writer, args ...string) error {
+	unsigned := make([]string, 0, len(args)+1)
+	unsigned = append(unsigned, args...)
+	unsigned = append(unsigned, "-Dgpg.skip=true")
+	return ops.MavenOps.RunInherit(ctx, out, stderr, unsigned...)
+}
+
+func unsignedMaven(ops MavenOps) MavenOps {
+	if _, ok := ops.(unsignedMavenOps); ok {
+		return ops
+	}
+	return unsignedMavenOps{MavenOps: ops}
+}
+
 // MavenReleaseBuildInput drives MavenReleaseBuild. It embeds the shared
 // ReleaseBuildOptions and adds the Maven-specific knobs as configuration: build
 // type, CLI opts, profile, and the pinned cyclonedx plugin version.
@@ -106,6 +126,9 @@ func MavenReleaseBuild(ctx context.Context, summarySink ci.SummarySink, ops Mave
 	pom, err := loadMavenPOM(MavenMetadataInput{Dir: in.Dir})
 	if err != nil {
 		return err
+	}
+	if in.BuildType == mavenBuildTypeLib {
+		ops = unsignedMaven(ops)
 	}
 
 	if installErr := MavenInstall(ctx, ops, in.CLIOpts, out, stderr); installErr != nil {
