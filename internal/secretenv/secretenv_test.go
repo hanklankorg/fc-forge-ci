@@ -7,8 +7,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/diggsweden/forge-ci/internal/cli/secretenv"
 	"github.com/diggsweden/forge-ci/internal/runcontext"
+	"github.com/diggsweden/forge-ci/internal/secretenv"
 )
 
 // TestNames_CoverEveryCredentialTheBinaryResolves is the check a hand-written

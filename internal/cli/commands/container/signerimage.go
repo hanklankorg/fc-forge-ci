@@ -20,8 +20,8 @@ import (
 	"github.com/diggsweden/forge-ci/internal/cli/cienv"
 	"github.com/diggsweden/forge-ci/internal/cli/deps"
 	"github.com/diggsweden/forge-ci/internal/cli/regflags"
-	"github.com/diggsweden/forge-ci/internal/cli/secretenv"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/secretenv"
 )
 
 func signerImageGroup() *cli.Command {

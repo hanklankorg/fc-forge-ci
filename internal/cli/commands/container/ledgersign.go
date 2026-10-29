@@ -14,11 +14,11 @@ import (
 	"github.com/diggsweden/forge-ci/internal/adapters/ociregistry"
 	"github.com/diggsweden/forge-ci/internal/adapters/syft"
 	appcontainer "github.com/diggsweden/forge-ci/internal/app/container"
-	"github.com/diggsweden/forge-ci/internal/cli/secretenv"
 	"github.com/diggsweden/forge-ci/internal/cli/signflags"
 	"github.com/diggsweden/forge-ci/internal/cliio"
 	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
 	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
+	"github.com/diggsweden/forge-ci/internal/secretenv"
 )
 
 func ledgerSignCmd() *cli.Command {

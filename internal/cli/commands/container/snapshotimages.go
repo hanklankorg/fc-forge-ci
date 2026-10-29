@@ -18,8 +18,8 @@ import (
 	appsnapshot "github.com/diggsweden/forge-ci/internal/app/snapshotimage"
 	"github.com/diggsweden/forge-ci/internal/cli/deps"
 	"github.com/diggsweden/forge-ci/internal/cli/regflags"
-	"github.com/diggsweden/forge-ci/internal/cli/secretenv"
 	"github.com/diggsweden/forge-ci/internal/domain/snapshotimage"
+	"github.com/diggsweden/forge-ci/internal/secretenv"
 	"github.com/urfave/cli/v3"
 )
 

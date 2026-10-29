@@ -9,6 +9,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -19,6 +20,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/secretenv"
 )
 
 func publicCATestPEM(t *testing.T) []byte {
@@ -336,5 +340,91 @@ func TestNoExplicitCALeavesEnvironmentUntouched(t *testing.T) {
 
 	if err != nil || len(env) != 1 || env[0] != a.Env[0] {
 		t.Fatalf("environment = %v, %v", env, err)
+	}
+}
+
+func TestMavenJavaDiscoveryFailureRetainsRedactedCause(t *testing.T) {
+	root := t.TempDir()
+	java := filepath.Join(root, "java")
+
+	script := `#!/bin/sh
+printf 'runtime wrapper: MISE_DATA_DIR is required; synthetic-private-token\n' >&2
+exit 1
+`
+	if err := os.WriteFile(java, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := mavenJavaHome(t.Context(), "", root, "", "MISE_DATA_DIR=/fixture/runtime", "GITHUB_TOKEN=synthetic-private-token")
+	if err == nil || !strings.Contains(err.Error(), "runtime wrapper: MISE_DATA_DIR is required") || strings.Contains(err.Error(), "synthetic-private-token") {
+		t.Fatalf("missing safe causal diagnostic: %v", err)
+	}
+
+	if !errors.Is(err, errs.ErrValidation) {
+		t.Fatalf("lost validation classification: %v", err)
+	}
+
+	// Build inert secret-shaped diagnostics at runtime, not stored credentials.
+	keyShape := string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("synthetic diagnostic fixture")}))
+	jwtShape := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256"}`)) + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"fixture"}`)) + ".signature"
+	for _, body := range []string{
+		keyShape,
+		jwtShape,
+	} {
+		redacted := mavenDiscoveryDiagnostic([]byte(body), nil)
+		if strings.Contains(redacted, body) || !strings.Contains(redacted, "redacted") {
+			t.Fatalf("unsafe wrapper diagnostic: %v", redacted)
+		}
+	}
+}
+
+func TestMavenMiseDiscoveryPreservesAdmittedRuntimeEnvironment(t *testing.T) {
+	root, runtime, working := t.TempDir(), t.TempDir(), t.TempDir()
+	java, capture := filepath.Join(root, "java"), filepath.Join(root, "environment")
+
+	script := fmt.Sprintf(`#!/bin/sh
+set -eu
+test "$#" = 2
+test "$1" = -XshowSettings:properties
+test "$2" = -version
+test "$HOME" = '%s'
+test "$PWD" = '%s'
+test "$MISE_CONFIG_DIR" = '%s'
+test "$MISE_TRUSTED_CONFIG_PATHS" = '%s/image.toml'
+test "$MISE_OVERRIDE_CONFIG_FILENAMES" = image.toml
+test "$XDG_CONFIG_HOME" = '%s'
+/usr/bin/env > '%s'
+printf 'java.home = %%s\n' '%s' >&2
+`, root, working, root, root, root, capture, runtime)
+	if err := os.WriteFile(java, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	names := secretenv.Names("JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS", "MAVEN_OPTS", "MAVEN_ARGS")
+	environment := make([]string, 0, len(names)+6)
+	environment = append(environment, "PATH="+root, "HOME="+root, "MISE_CONFIG_DIR="+root,
+		"MISE_TRUSTED_CONFIG_PATHS="+root+"/image.toml", "MISE_OVERRIDE_CONFIG_FILENAMES=image.toml", "XDG_CONFIG_HOME="+root)
+
+	for _, name := range names {
+		environment = append(environment, name+"=synthetic-credential-or-injection")
+	}
+
+	if _, err := mavenJavaHome(t.Context(), "", root, working, "PATH="+root, "JAVA_HOME="); err == nil {
+		t.Fatal("two-variable environment unexpectedly satisfied Mise wrapper")
+	}
+
+	got, err := mavenJavaHome(t.Context(), "", root, working, environment...)
+	if err != nil || got != runtime {
+		t.Fatalf("admitted Mise runtime = %q, %v; want %q", got, err, runtime)
+	}
+
+	body, err := os.ReadFile(capture)
+	if err != nil || strings.Contains(string(body), "synthetic-credential-or-injection") {
+		t.Fatalf("probe environment leaked credentials/options: %q, %v", body, err)
+	}
+
+	diagnostic := mavenDiscoveryDiagnostic([]byte("Mise config "+root+"/image.toml failed: synthetic-credential-or-injection"), environment)
+	if !strings.Contains(diagnostic, root+"/image.toml") || strings.Contains(diagnostic, "synthetic-credential-or-injection") {
+		t.Fatalf("diagnostic lost runtime path or exposed secret: %v", diagnostic)
 	}
 }

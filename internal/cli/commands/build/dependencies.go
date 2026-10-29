@@ -11,9 +11,9 @@ import (
 	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/cli/secret"
-	"github.com/diggsweden/forge-ci/internal/cli/secretenv"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/safeexec"
+	"github.com/diggsweden/forge-ci/internal/secretenv"
 	"github.com/diggsweden/forge-ci/internal/secrettext"
 	"github.com/urfave/cli/v3"
 )

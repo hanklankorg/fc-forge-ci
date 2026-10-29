@@ -18,6 +18,8 @@ import (
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/safeexec"
+	"github.com/diggsweden/forge-ci/internal/secretenv"
+	"github.com/diggsweden/forge-ci/internal/secrettext"
 )
 
 // trustedEnvironment bridges explicit PEM trust to Maven's separate JVM store.
@@ -57,7 +59,7 @@ func (a *Adapter) trustedEnvironment(ctx context.Context, dir string, args ...st
 		return nil, noop, err
 	}
 
-	home, err := mavenJavaHome(ctx, value("JAVA_HOME"), value("PATH"), dir)
+	home, err := mavenJavaHome(ctx, value("JAVA_HOME"), value("PATH"), dir, env...)
 	if err != nil {
 		return nil, noop, err
 	}
@@ -187,9 +189,9 @@ func parseMavenCAs(body []byte) ([][]byte, error) {
 	return certificates, nil
 }
 
-func mavenJavaHome(ctx context.Context, home, path, dir string) (string, error) {
+func mavenJavaHome(ctx context.Context, home, path, dir string, environment ...string) (string, error) {
 	if home != "" {
-		return probeMavenJavaHome(ctx, filepath.Join(home, "bin", "java"), home, path, dir)
+		return probeMavenJavaHome(ctx, filepath.Join(home, "bin", "java"), dir, environment)
 	}
 
 	// exec.LookPath("java") would use the parent's PATH, not Maven's.
@@ -209,20 +211,20 @@ func mavenJavaHome(ctx context.Context, home, path, dir string) (string, error) 
 			continue
 		}
 
-		return probeMavenJavaHome(ctx, java, "", path, dir)
+		return probeMavenJavaHome(ctx, java, dir, environment)
 	}
 
 	return "", safeexec.WrapError(exec.ErrNotFound, "java", "")
 }
 
-func probeMavenJavaHome(ctx context.Context, java, home, path, dir string) (string, error) {
+func probeMavenJavaHome(ctx context.Context, java, dir string, environment []string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	cmd := safeexec.Command(ctx, java, "-XshowSettings:properties", "-version")
-	// This is runtime discovery, not project execution: no caller JVM options,
-	// signer material, Maven arguments or dependency credentials reach the probe.
-	cmd.Env = []string{"PATH=" + path, "JAVA_HOME=" + home}
+	// Keep the selected wrapper's HOME/XDG/Mise context exactly as admitted by
+	// the caller. Discovery must not add trust or drop runtime-selection state.
+	cmd.Env = safeexec.EnvWithout(environment, mavenRuntimeOmissions()...)
 	cmd.Dir = dir
 
 	stderr, err := cmd.StderrPipe()
@@ -242,6 +244,18 @@ func probeMavenJavaHome(ctx context.Context, java, home, path, dir string) (stri
 	}
 
 	waitErr := cmd.Wait()
+	if waitErr != nil {
+		wrapped := safeexec.WrapError(waitErr, "java", "runtime discovery")
+		if readErr != nil || len(settings) > maxSettingsBytes {
+			return "", fmt.Errorf("java runtime settings exceed readable bounds: %w", wrapped)
+		}
+
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("java runtime discovery interrupted: %w: %w", wrapped, ctx.Err())
+		}
+
+		return "", fmt.Errorf("%w\n%s", wrapped, mavenDiscoveryDiagnostic(settings, environment))
+	}
 
 	if readErr != nil || len(settings) > maxSettingsBytes {
 		return "", fmt.Errorf("java runtime settings exceed readable bounds: %w", errs.ErrValidation)
@@ -251,11 +265,25 @@ func probeMavenJavaHome(ctx context.Context, java, home, path, dir string) (stri
 		return "", fmt.Errorf("java runtime discovery interrupted: %w", ctx.Err())
 	}
 
-	if waitErr != nil {
-		return "", safeexec.WrapError(waitErr, "java", "runtime discovery")
+	return parseMavenJavaHome(string(settings))
+}
+
+func mavenRuntimeOmissions() []string {
+	return secretenv.Names("JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS", "MAVEN_OPTS", "MAVEN_ARGS")
+}
+
+// Only failed discovery emits the bounded stderr. Redact known credentials and
+// option-injection values, preserving nonsecret runtime paths in diagnostics;
+// key/JWT detection also covers material printed from wrapper configuration.
+func mavenDiscoveryDiagnostic(stderr []byte, environment []string) string {
+	values := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		if name, value, ok := strings.Cut(entry, "="); ok && value != "" && slices.Contains(mavenRuntimeOmissions(), name) {
+			values = append(values, value)
+		}
 	}
 
-	return parseMavenJavaHome(string(settings))
+	return secrettext.Redact(string(safeexec.RedactKeyMaterial(stderr)), values...)
 }
 
 func parseMavenJavaHome(settings string) (string, error) {
@@ -285,7 +313,7 @@ func parseMavenJavaHome(settings string) (string, error) {
 func importMavenCAs(ctx context.Context, home, store, work string, env []string, certificates [][]byte) error {
 	// Lab runners supply a bundle with public roots as well as their CA.
 	// Import only roots missing from Java, avoiding one JVM launch per public root.
-	keytoolEnv := safeexec.EnvWithout(env, "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS", "MAVEN_OPTS", "MAVEN_ARGS")
+	keytoolEnv := safeexec.EnvWithout(env, mavenRuntimeOmissions()...)
 	list := safeexec.Command(ctx, filepath.Join(home, "bin", "keytool"), "-list", "-rfc", "-keystore", store, "-storepass", "changeit")
 	list.Env = keytoolEnv
 
@@ -320,15 +348,19 @@ func importMavenCAs(ctx context.Context, home, store, work string, env []string,
 			return err
 		}
 
-		cmd := safeexec.Command(ctx, filepath.Join(home, "bin", "keytool"), "-importcert", "-noprompt", "-alias", fmt.Sprintf("forge-ci-public-ca-%d", i), "-keystore", store, "-storepass", "changeit", "-file", file)
-		// Do not give keytool caller JVM options or private source arguments.
-		cmd.Env = keytoolEnv
-		if err = cmd.Run(); err != nil {
-			return safeexec.WrapError(err, "keytool", "importcert")
+		if err = importMavenCA(ctx, home, store, file, fmt.Sprintf("forge-ci-public-ca-%d", i), keytoolEnv); err != nil {
+			return err
 		}
 
 		known[string(block.Bytes)] = true
 	}
 
 	return nil
+}
+
+func importMavenCA(ctx context.Context, home, store, file, alias string, env []string) error {
+	cmd := safeexec.Command(ctx, filepath.Join(home, "bin", "keytool"), "-importcert", "-noprompt", "-alias", alias, "-keystore", store, "-storepass", "changeit", "-file", file)
+	cmd.Env = env
+
+	return safeexec.WrapError(cmd.Run(), "keytool", "importcert")
 }

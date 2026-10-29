@@ -17,11 +17,11 @@ import (
 	apprelease "github.com/diggsweden/forge-ci/internal/app/release"
 	appsbom "github.com/diggsweden/forge-ci/internal/app/sbom"
 	"github.com/diggsweden/forge-ci/internal/cli/cienv"
-	"github.com/diggsweden/forge-ci/internal/cli/secretenv"
 	"github.com/diggsweden/forge-ci/internal/cli/signflags"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
 	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
+	"github.com/diggsweden/forge-ci/internal/secretenv"
 )
 
 // assembleCmd wires `forge-ci sbom assemble` — assemble a project's CISA

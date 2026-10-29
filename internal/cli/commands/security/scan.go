@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/diggsweden/forge-ci/internal/cli/secretenv"
+	"github.com/diggsweden/forge-ci/internal/secretenv"
 
 	"github.com/urfave/cli/v3"
 

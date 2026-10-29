@@ -14,7 +14,7 @@ import (
 	appversion "github.com/diggsweden/forge-ci/internal/app/version"
 	"github.com/diggsweden/forge-ci/internal/cli/clitoken"
 	"github.com/diggsweden/forge-ci/internal/cli/commonflags"
-	"github.com/diggsweden/forge-ci/internal/cli/secretenv"
+	"github.com/diggsweden/forge-ci/internal/secretenv"
 )
 
 func renderChangelogCmd() *cli.Command {

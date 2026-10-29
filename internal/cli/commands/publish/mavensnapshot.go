@@ -12,9 +12,9 @@ import (
 	"github.com/diggsweden/forge-ci/internal/adapters/maven"
 	apppublish "github.com/diggsweden/forge-ci/internal/app/publish"
 	"github.com/diggsweden/forge-ci/internal/cli/commonflags"
-	"github.com/diggsweden/forge-ci/internal/cli/secretenv"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
 	"github.com/diggsweden/forge-ci/internal/safeexec"
+	"github.com/diggsweden/forge-ci/internal/secretenv"
 )
 
 func snapshotMavenAdapter() *maven.Adapter {
