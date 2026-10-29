@@ -353,6 +353,19 @@ EXAMPLE:
 
 maven build wrappers
 
+#### `forge-ci build maven exec`
+
+run Maven goals with job-local CA trust and scoped dependency credentials
+
+**Usage:** `forge-ci build maven exec -- <maven arguments...>`
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--private-dependencies` | explicitly allow dependency resolution to use the read-only dependency credential | bool | `false` | `$PRIVATE_DEPENDENCIES` |
+| `--dependency-token-file` | read-only package token file; defaults to $DEPENDENCY_TOKEN | string | `""` | n/a |
+| `--dependency-username` | username for the project's dependency repository settings | string | `""` | `$DEPENDENCY_USERNAME` |
+| `--working-dir` | directory in which Maven executes | string | `"."` | `$WORKING_DIRECTORY` |
+
 #### `forge-ci build maven metadata`
 
 parse pom.xml for {version,groupId,artifactId} and emit CI outputs (falls back to `mvn help:evaluate` only for ${property} references)

@@ -159,14 +159,14 @@ jobs:
           trap 'rm -rf "$fresh"' EXIT
           forge-ci artifact download --name "library-$SOURCE_SHA" --dir "$fresh/producer"
           cd .forge-ci/registry-consumer
-          mvn --batch-mode --no-transfer-progress -U -Dmaven.repo.local="$fresh" package org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy-dependencies
+           forge-ci build maven exec --working-dir . -- --batch-mode --no-transfer-progress -U -Dmaven.repo.local="$fresh" package org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy-dependencies
           for type in pom jar sources javadoc; do
             case "$type" in
               pom) coordinate='@GROUP@:@ARTIFACT@:@VERSION@:pom' ;;
               jar) coordinate='@GROUP@:@ARTIFACT@:@VERSION@:jar' ;;
               *) coordinate="@GROUP@:@ARTIFACT@:@VERSION@:jar:$type" ;;
             esac
-            mvn --batch-mode --no-transfer-progress -U -Dmaven.repo.local="$fresh" org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get -Dartifact="$coordinate" -DremoteRepositories="scratch::default::$MAVEN_REGISTRY_URL"
+             forge-ci build maven exec --working-dir . -- --batch-mode --no-transfer-progress -U -Dmaven.repo.local="$fresh" org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get -Dartifact="$coordinate" -DremoteRepositories="scratch::default::$MAVEN_REGISTRY_URL"
           done
           group='@GROUP@'
           localpath="$fresh/${group//.//}/@ARTIFACT@/@VERSION@"

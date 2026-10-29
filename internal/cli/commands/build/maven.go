@@ -26,6 +26,31 @@ func mavenCmd() *cli.Command {
 		Commands: []*cli.Command{
 			mavenRunCmd(),
 			mavenMetadataCmd(),
+			mavenExecCmd(),
+		},
+	}
+}
+
+func mavenExecCmd() *cli.Command {
+	return &cli.Command{
+		Name: "exec", Usage: "run Maven goals with job-local CA trust and scoped dependency credentials",
+		ArgsUsage: "-- <maven arguments...>",
+		Flags:     append(dependencyAccessFlags(), commonflags.WorkingDir("directory in which Maven executes")),
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			if cmd.Args().Len() == 0 {
+				return fmt.Errorf("maven exec requires Maven arguments after --: %w", errs.ErrUsage)
+			}
+
+			environment, err := resolveDependencyEnvironment(cmd)
+			if err != nil {
+				return err
+			}
+
+			return dependencyDiagnostics(environment.token, func(out, stderr io.Writer) error {
+				adapter := &maven.Adapter{Env: environment.authenticated}
+
+				return adapter.RunInheritIn(ctx, cmd.String(flagWorkingDir), out, stderr, cmd.Args().Slice()...)
+			})
 		},
 	}
 }
