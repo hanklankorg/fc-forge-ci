@@ -40,10 +40,11 @@ jobs:
           set -euo pipefail
           if command -v apt-get >/dev/null; then
             apt-get update
-            apt-get install -y git curl ca-certificates pipx fish jq gettext diffutils unzip xz-utils
+            apt-get install -y git curl ca-certificates pipx fish jq gettext diffutils unzip xz-utils nodejs
           else
-            dnf install -y git curl ca-certificates just pipx fish gettext jq diffutils unzip xz
+            dnf install -y git curl ca-certificates just pipx fish gettext jq diffutils unzip xz nodejs
           fi
+          node --version
       - uses: %q
         with:
           expected-sha256: %q
@@ -93,6 +94,7 @@ func TestMigrationPRWorkflow(t *testing.T) {
 					Steps []struct {
 						Uses string            `yaml:"uses"`
 						With map[string]string `yaml:"with"`
+						Run  string            `yaml:"run"`
 					} `yaml:"steps"`
 				} `yaml:"jobs"`
 			}
@@ -101,6 +103,26 @@ func TestMigrationPRWorkflow(t *testing.T) {
 			}
 
 			job := doc.Jobs["units"]
+			// Unlike GitHub's hosted execution, Forgejo invokes a JavaScript
+			// action with the job container's own Node executable. Both distro
+			// branches must provide it before the first action is entered.
+			if len(job.Steps) == 0 || job.Steps[0].Uses != "" {
+				t.Fatal("container prerequisites must precede actions")
+			}
+			for _, install := range []string{"apt-get install", "dnf install"} {
+				found := false
+				for line := range strings.SplitSeq(job.Steps[0].Run, "\n") {
+					if strings.Contains(line, install) && strings.Contains(" "+line+" ", " nodejs ") {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatalf("%s must supply Node before JavaScript actions", install)
+				}
+			}
+			if !strings.Contains(job.Steps[0].Run, "node --version") {
+				t.Fatal("container must prove Node is executable before actions")
+			}
 			if doc.Permissions != nil || job.Runner != variant.runner {
 				t.Fatal("ignored permissions or altered runner")
 			}
