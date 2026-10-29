@@ -177,6 +177,47 @@ func TestRenderGitHubConsumer_PinsTheEngineUnderTest(t *testing.T) {
 // A setting replaces a value the workflow passes, keeping its indentation, and
 // reports which inputs it replaced, so the trial can refuse a setting that no
 // workflow of the fixture passes rather than silently ignore it.
+func TestRenderGitHubConsumer_CargoLintImageOverride(t *testing.T) {
+	t.Parallel()
+
+	// Shape of Nanolinter's tests/live/github fixture: cargo does not undo
+	// an explicit Go image. Only the operator's declared override changes it.
+	const fixture = `jobs:
+  pr-checks:
+    uses: diggsweden/forge-ci/.github/workflows/pullrequest-orchestrator.yml@v0.90.0
+    with:
+      forge-ci-binary-ref: v0.90.0
+      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0
+      project-type: cargo
+      lint-engine: nanolinter
+      nanolinter-image: codefloe.com/itiquette/nanolinter:go
+`
+	unchanged, applied, err := RenderGitHubConsumer("pullrequest.yml", fixture, trialEngine, nil)
+	if err != nil || len(applied) != 0 || !strings.Contains(unchanged, "nanolinter-image: codefloe.com/itiquette/nanolinter:go") {
+		t.Fatalf("explicit fixture image was not preserved: applied=%q, err=%v\n%s", applied, err, unchanged)
+	}
+
+	image := "ghcr.io/example-org/nanolinter:rust-source@sha256:" + strings.Repeat("a", 64)
+	settings, err := ParseGitHubTrialSettings(TrialPullRequest, []string{"nanolinter-image=" + image, "RELEASE_PLATFORMS=linux/amd64"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, applied, err := RenderGitHubConsumer("pullrequest.yml", fixture, trialEngine, settings.Overrides)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(applied, []string{"nanolinter-image"}) ||
+		!strings.Contains(rendered, "nanolinter-image: "+image+"\n") ||
+		strings.Contains(rendered, "codefloe.com/itiquette/nanolinter:go") {
+		t.Fatalf("declared image override not applied: applied=%q\n%s", applied, rendered)
+	}
+	for _, input := range []string{"project-type: cargo", "lint-engine: nanolinter"} {
+		if !strings.Contains(rendered, input) {
+			t.Errorf("rendering lost %q", input)
+		}
+	}
+}
+
 func TestRenderGitHubConsumer_Overrides(t *testing.T) {
 	t.Parallel()
 

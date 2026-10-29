@@ -1411,6 +1411,58 @@ What the caller brings:
 - **A committed checkout.** Both checkouts are read at `HEAD`, never the
   working tree. The engine's `main` in the organization is overwritten.
 
+##### Nanolinter's Cargo consumer: lint image preparation
+
+Nanolinter's `tests/live/github/workflows/pullrequest.yml` is a Cargo
+consumer but explicitly passes `codefloe.com/itiquette/nanolinter:go`.
+`project-type: cargo` does not replace an explicit image. A missing image at
+that reference is an image-preparation failure, before any lint findings.
+The trial renderer preserves the fixture's value unless the operator supplies
+the supported `nanolinter-image=<repository>@sha256:<full digest>` setting.
+
+Choose the payload for the checks actually run: Nanolinter's Rust consumer
+needs the `rust` flavour (including Rust checks), while this Go engine needs
+`go`. `core` supplies shared checks only; substituting it for a language
+flavour is not evidence that the full gate ran. Keep the required lint floor
+and consumer configuration intact.
+
+The source checkout's existing `build-image-local` recipe builds
+`packaging/container/Containerfile` target `runtime-source-<flavour>` and stamps
+the binary and OCI revision. For an operator-approved, clean checkout at the
+exact candidate commit, build the Rust consumer image with:
+
+```sh
+TEST_PLATFORMS=linux/amd64 CONTAINER_ENGINE=podman \
+  NANOLINTER_CONTAINER_FLAVOR=rust \
+  NANOLINTER_CONTAINER_IMAGE=localhost/nanolinter-ci:rust-source \
+  NANOLINTER_BUILT_BY=local \
+  just --justfile /home/jos/development/codefloe/itiquette/nanolinter/justfile build-image-local
+podman image inspect localhost/nanolinter-ci:rust-source
+podman run --rm --network=none localhost/nanolinter-ci:rust-source --version
+```
+
+Use `NANOLINTER_CONTAINER_FLAVOR=go` and a separate
+`localhost/nanolinter-ci:go-source` image for the engine's Go gate. Do not
+override `NANOLINTER_VERSION` to claim a release that was not built: record the
+actual version output, full source commit, image ID, platform and OCI labels.
+The local image ID is not a registry manifest digest.
+
+The operator publishes the prepared image to their externally configured,
+owned public repository, records the resulting manifest digest, and verifies
+anonymous access to that digest and its `linux/amd64` payload before invoking
+the trial. Pass that published reference verbatim, for example
+`nanolinter-image=ghcr.io/<owned-namespace>/<image>@sha256:<verified-digest>`,
+with `RELEASE_PLATFORMS=linux/amd64` and
+`FORGE_CI_LIVE_CONSUMER_VISIBILITY=public`. Namespace, organization ID and Forge
+Lab session configuration belong to the operator, not the fixture. An example
+reference or a successful authenticated pull is not public-access evidence.
+
+`test-live-nanolinter-job-image` is not a recipe in this checkout. The reduced
+consumer release fixture's single binary image is also not a substitute for
+the lint flavour image with its tools. Image preparation and the three trials
+(`pull-request`, `dev-release`, `release`) are separate operator steps; success
+of one does not establish success of the others.
+
 #### GitLab live acceptance
 
 How the [GitLab layer](gitlab.md)'s components are accepted on a real
