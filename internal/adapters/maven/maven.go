@@ -34,9 +34,16 @@ func New() *Adapter { return &Adapter{} }
 // output is appended after the error sentinel chain so operators
 // see Maven's own diagnostic text in CI logs.
 func (a *Adapter) EvalExpression(ctx context.Context, expr string) (string, error) {
-	args := []string{"help:evaluate", "-Dexpression=" + expr, "-q", "-DforceStdout"}
-	cmd := safeexec.Command(ctx, a.bin(), append(append([]string{}, a.Options...), args...)...)
-	cmd.Env = a.Env
+	args := append(append([]string{}, a.Options...), "help:evaluate", "-Dexpression="+expr, "-q", "-DforceStdout")
+
+	env, cleanup, err := a.trustedEnvironment(ctx, "", args...)
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+
+	cmd := safeexec.Command(ctx, a.bin(), args...)
+	cmd.Env = env
 
 	// The value is stdout alone. A JVM that prints a notice on stderr
 	// ("Picked up JAVA_TOOL_OPTIONS: ...") must not have it read back as the
@@ -72,8 +79,16 @@ func (a *Adapter) RunInherit(ctx context.Context, stdout, stderr io.Writer, args
 // RunInheritIn is like RunInherit but runs mvn inside dir. dir="" runs
 // in the current working directory.
 func (a *Adapter) RunInheritIn(ctx context.Context, dir string, stdout, stderr io.Writer, args ...string) error {
-	cmd := safeexec.Command(ctx, a.bin(), append(append([]string{}, a.Options...), args...)...)
-	cmd.Env = a.Env
+	effectiveArgs := append(append([]string{}, a.Options...), args...)
+
+	env, cleanup, err := a.trustedEnvironment(ctx, dir, effectiveArgs...)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	cmd := safeexec.Command(ctx, a.bin(), effectiveArgs...)
+	cmd.Env = env
 	cmd.Dir = dir
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr

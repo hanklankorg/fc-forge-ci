@@ -7,6 +7,25 @@ defines the orchestrator configuration.
 
 ## How forge-ci classifies ecosystems
 
+### Maven HTTPS trust in job images
+
+Maven uses JVM trust roots independently of Go, curl and the OS certificate
+bundle. When `CI_SERVER_TLS_CA_FILE` is set (or, as a fallback, `SSL_CERT_FILE`),
+the Maven adapter validates that file as public PEM CA certificates and copies
+the selected Java runtime's `jssecacerts` or `cacerts` into a private temporary
+directory. The runtime's `keytool` adds those CAs to the copy. Maven receives
+the copy through `MAVEN_OPTS`; the directory is removed after that invocation.
+This covers builds, model queries and isolated snapshot deployment from build
+artifacts. The job image needs Java and keytool, with the standard `changeit`
+truststore password. `JAVA_HOME` selects the runtime; otherwise the adapter
+resolves `java` from PATH.
+
+Existing JVM options and installed roots are retained. An explicit caller JVM
+truststore combined with an explicit PEM CA is refused rather than overridden.
+Use a `TMPDIR` without whitespace or quotes for Maven's launcher. With no
+explicit CA environment variable, the adapter leaves JVM trust unchanged,
+including for public GitHub jobs. No host or installed Java truststore is edited.
+
 Different language ecosystems have different deliverable shapes, so
 forge-ci handles them in two complementary patterns. The pattern is
 determined by **where platform commitment naturally happens** in the
