@@ -74,6 +74,7 @@ mkdir -p dist
 echo "par-sign-2 payload" > dist/artifact.tgz
 
 sign_status=0
+FORGE_CI_COSIGN_TRANSPARENCY=none \
 SIGSTORE_ID_TOKEN="$rc_sigstore_id_token" ./forge-ci release sign \
   --method=sigstore \
   --release-artifacts-dir dist \

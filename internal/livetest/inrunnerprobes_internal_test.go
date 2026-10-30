@@ -236,6 +236,7 @@ func TestKeylessSignProbe_ChildrenReceiveOnlyInvocationScopedCredential(t *testi
 [ "${rc_sigstore_id_token+x}" != x ] || exit 93
 [ "${rc_actions_id_token_request_url+x}" != x ] || exit 94
 [ "${rc_actions_id_token_request_token+x}" != x ] || exit 95
+[ "${FORGE_CI_COSIGN_TRANSPARENCY:-}" = public ] || exit 89
 `
 
 	for _, forge := range []provider.ForgeAPI{provider.ForgeGitLab, provider.ForgeForgejo} {
@@ -311,6 +312,7 @@ set -eu
 [ "${rc_sigstore_id_token+x}" != x ] || exit 99
 [ "${rc_actions_id_token_request_url+x}" != x ] || exit 100
 [ "${rc_actions_id_token_request_token+x}" != x ] || exit 101
+[ "${FORGE_CI_COSIGN_TRANSPARENCY:-}" = none ] || exit 102
 : > exact-product-environment
 : > dist/artifact.bundle
 printf '%s\n' 'product invocation complete'
@@ -359,6 +361,7 @@ while :; do sleep 1; done
 					"LC_ALL=C",
 					"CI_PROJECT_PATH=fixture/project",
 					"GITHUB_REPOSITORY=fixture/project",
+					"FORGE_CI_COSIGN_TRANSPARENCY=public",
 				)
 				if forge == provider.ForgeGitLab {
 					environment = append(environment, "SIGSTORE_ID_TOKEN=generated-signing-secret")
