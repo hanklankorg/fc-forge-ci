@@ -152,7 +152,7 @@ func minimalEngineSource(t *testing.T, trial *GitHubTrial, root, destination str
 		minimalCopy(t, filepath.Join(root, relative), filepath.Join(destination, relative))
 	}
 
-	for _, name := range []string{"version-bump.yml", "release-prepare-stage.yml", "generate-changelog.yml"} {
+	for _, name := range minimalPreparationWorkflows {
 		minimalCopy(t, filepath.Join(root, ".github/workflows", name), filepath.Join(destination, ".github/workflows", name))
 	}
 }

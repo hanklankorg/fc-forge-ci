@@ -184,8 +184,11 @@ func TestSnapshotForgejoAutomaticProducerAndGatherOrdering(t *testing.T) {
 	if err := yaml.Unmarshal(reporoot.ReadFile(t, ".forgejo/workflows/snapshot-images.yml"), &workflow); err != nil {
 		t.Fatal(err)
 	}
-	if workflow.Jobs["produce"].Strategy.Matrix["artifact"] != "${{ fromJSON(needs.plan.outputs.artifacts) }}" {
-		t.Fatal("producers must use the shared unique artifact projection")
+	if workflow.Jobs["produce"].Strategy.Matrix["artifact"] != "${{ fromJSON(needs.plan.outputs.has-artifacts == 'true' && needs.plan.outputs.artifacts || '[{}]') }}" {
+		t.Fatal("producers must use the unique artifact projection, with a skipped placeholder when empty so Forgejo can settle downstream dependencies")
+	}
+	if !strings.Contains(workflow.Jobs["produce"].If, "needs.plan.outputs.has-artifacts == 'true'") {
+		t.Fatal("the empty-plan placeholder must never execute an artifact producer")
 	}
 	if !strings.Contains(fmt.Sprint(workflow.Jobs["context"].Needs), "produce") || !strings.Contains(workflow.Jobs["context"].If, "!failure()") {
 		t.Fatal("gather must wait for every producer to succeed")

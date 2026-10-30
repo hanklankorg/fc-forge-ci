@@ -220,7 +220,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        artifact: ${{ fromJSON(needs.plan.outputs.artifacts) }}
+        # Keep a skipped job in Forgejo's dependency graph when there are no
+        # producers; an empty matrix leaves the downstream context job blocked.
+        artifact: ${{ fromJSON(needs.plan.outputs.has-artifacts == 'true' && needs.plan.outputs.artifacts || '[{}]') }}
     steps:
       - name: Bootstrap pinned native snapshot layer
         shell: bash
