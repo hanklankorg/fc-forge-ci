@@ -245,6 +245,9 @@ func minimalPreparation(t *testing.T, trial *GitHubTrial, engine, commit string,
 
 	manifest := map[string]any{"name": "minimal-preparation", "version": "0.0.1", "private": true,
 		"scripts": map[string]string{"preversion": `node -e 'for (const n of ["SSH_SIGNING_KEY","GPG_PRIVATE_KEY","RELEASE_TOKEN","RELEASE_SSH_SIGNING_KEY"]) if (process.env[n]) process.exit(91); console.log("NATIVE_KEYFREE_PROBE_OK")'`}}
+	if multi {
+		manifest["engines"] = map[string]string{"node": ">=18"}
+	}
 
 	body, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -258,6 +261,8 @@ func minimalPreparation(t *testing.T, trial *GitHubTrial, engine, commit string,
 	with := "      project-type: npm\n"
 
 	if multi {
+		// npm reformats this valid inline object while updating the lockfile.
+		minimalWrite(t, dir, "package-lock.json", "{\n  \"name\": \"minimal-preparation\",\n  \"version\": \"0.0.1\",\n  \"lockfileVersion\": 3,\n  \"requires\": true,\n  \"packages\": {\n    \"\": {\n      \"name\": \"minimal-preparation\",\n      \"version\": \"0.0.1\",\n      \"engines\": { \"node\": \">=18\" }\n    }\n  }\n}\n")
 		minimalWrite(t, dir, "second/gradle.properties", "version=0.0.1\n")
 
 		plan := pipeline.ReleasePrepareStagePlan{Version: pipeline.ReleasePlanVersion, Stage: "prepare", Targets: pipeline.ReleasePrepareTargets{
@@ -331,6 +336,15 @@ WITH    secrets:
 	}
 
 	if multi {
+		var lock struct {
+			Version  string `json:"version"`
+			Packages map[string]struct {
+				Version string `json:"version"`
+			} `json:"packages"`
+		}
+		if err := json.Unmarshal([]byte(trial.git(dir, "show", head+":package-lock.json")), &lock); err != nil || lock.Version != "0.0.2" || lock.Packages[""].Version != "0.0.2" {
+			t.Fatal("native lockfile versions were not released with the manifest")
+		}
 		if !strings.Contains(trial.git(dir, "show", head+":second/gradle.properties"), "version=0.0.2") {
 			t.Fatal("engine-owned text version was not released")
 		}
