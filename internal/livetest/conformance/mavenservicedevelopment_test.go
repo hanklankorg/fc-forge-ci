@@ -128,12 +128,11 @@ func runForgejoMavenServiceDevelopment(t *testing.T) {
 	if r.SourceSHA != head || r.SourceBranch != c.Branch || r.ImageRepository != image || r.Ref != image+"@"+r.Digest || r.Tag != frozen.Tag || string(evidence["image-ref.txt"]) != r.Ref+"\n" || string(evidence["source-sha.txt"]) != head+"\n" || string(evidence["readiness-url.txt"]) != c.ReadinessURL+"\n" || len(evidence["readiness-body.txt"]) == 0 {
 		t.Fatalf("readiness evidence does not bind selected source and published image: %+v", r)
 	}
-	work := t.TempDir()
-	auth := livetest.RegistryAuthFile(t, target, work)
-	readback := livetest.CLIIn(t, target, repo, livetest.RunOptions{Dir: work}, "container", "image", "usable-digest", "--ref", r.Ref, "--arch", "amd64", "--auth-file", auth,
-		"--require-label", "org.opencontainers.image.revision="+head, "--require-label", "org.opencontainers.image.ref.name="+c.Branch)
-	if readback.ExitCode != 0 || strings.TrimSpace(readback.Stdout) != r.Digest {
-		t.Fatalf("registry source/digest readback failed: %s", readback.Stderr)
+	imageConfig := livetest.ImageConfig(t, target, repo, r.Digest)
+	if imageConfig.OS != "linux" || imageConfig.Architecture != "amd64" ||
+		imageConfig.Config.Labels["org.opencontainers.image.revision"] != head ||
+		imageConfig.Config.Labels["org.opencontainers.image.ref.name"] != c.Branch {
+		t.Fatal("published platform image does not match the selected architecture, source and branch")
 	}
 	if digest, found := livetest.ImageDigest(t, target, repo, r.Tag); !found || digest != r.Digest {
 		t.Fatalf("snapshot tag does not resolve to receipt digest: %s", digest)

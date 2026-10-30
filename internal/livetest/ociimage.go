@@ -150,6 +150,32 @@ func PushImage(tb TB, target Target, repo, tag string) Image {
 // it neither executes the image nor writes archive paths to the host filesystem.
 func ImageFileSHA256(tb TB, target Target, repo, digest string, paths []string) map[string]string {
 	tb.Helper()
+	ctx, cancel := context.WithTimeout(Context(tb), timeoutScratch)
+	defer cancel()
+	image := publishedAMD64Image(ctx, tb, target, repo, digest)
+	stream := mutate.Extract(image)
+	defer func() { _ = stream.Close() }()
+
+	return imageFileHashes(tb, stream, paths)
+}
+
+// ImageConfig independently reads the linux/amd64 image config selected by an
+// exact published image or index digest. The selected image's digest need not
+// equal an enclosing index digest.
+func ImageConfig(tb TB, target Target, repo, digest string) *v1.ConfigFile {
+	tb.Helper()
+	ctx, cancel := context.WithTimeout(Context(tb), timeoutScratch)
+	defer cancel()
+	config, err := publishedAMD64Image(ctx, tb, target, repo, digest).ConfigFile()
+	if err != nil {
+		tb.Fatalf("read exact published image config: %v", err)
+	}
+
+	return config
+}
+
+func publishedAMD64Image(ctx context.Context, tb TB, target Target, repo, digest string) v1.Image {
+	tb.Helper()
 	requireAccepted(tb, target)
 
 	if !inRunNamespace(target, repo) || !container.ValidDigest(digest) {
@@ -171,18 +197,12 @@ func ImageFileSHA256(tb TB, target Target, repo, digest string, paths []string) 
 		tb.Fatalf("registry transport: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(Context(tb), timeoutScratch)
-	defer cancel()
-
 	image, err := remote.Image(ref, append(options, remote.WithContext(ctx), remote.WithPlatform(v1.Platform{OS: "linux", Architecture: "amd64"}))...)
 	if err != nil {
 		tb.Fatalf("read exact registry image: %v", err)
 	}
 
-	stream := mutate.Extract(image)
-	defer func() { _ = stream.Close() }()
-
-	return imageFileHashes(tb, stream, paths)
+	return image
 }
 
 func imageFileHashes(tb TB, stream io.Reader, paths []string) map[string]string {
