@@ -80,6 +80,52 @@ func runProbeShell(t *testing.T, script string, env ...string) error {
 	return err
 }
 
+func summaryWorkflow(forge provider.ForgeAPI, prelude string) string {
+	const report = `run_product report build xcode --xcode-version 16.0 \
+  --scheme Demo --version v1.0.0`
+	if forge == provider.ForgeGitLab {
+		return `detect:
+  image: ` + livetest.ProbeImage + `
+  variables:
+    CI_SUMMARY_FILE: summary.md
+  script:
+    - |
+      ` + indent(prelude, 6) + `
+      ` + indent(report, 6) + `
+      cat summary.md
+      grep -q 'Xcode Build Summary' summary.md
+`
+	}
+	return `on: [push]
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: the summary must reach the job log when no file is nominated
+        run: |
+          ` + indent(prelude, 10) + `
+          unset FORGEJO_STEP_SUMMARY GITHUB_STEP_SUMMARY CI_SUMMARY_FILE
+          ` + indent(report, 10) + ` > summary-log.txt
+          cat summary-log.txt
+          grep -q 'Xcode Build Summary' summary-log.txt
+`
+}
+
+func TestSummaryFallbackProbeClearsRunnerFileAliases(t *testing.T) {
+	t.Parallel()
+	prelude := `run_product() {
+  test "${FORGEJO_STEP_SUMMARY+x}" != x
+  test "${GITHUB_STEP_SUMMARY+x}" != x
+  test "${CI_SUMMARY_FILE+x}" != x
+  printf '%s\n' 'Xcode Build Summary'
+}`
+	fixture := decodeProbeFixture(t, summaryWorkflow(provider.ForgeForgejo, prelude))
+	script := fixture.Jobs["detect"].Steps[0].Run
+	if err := runProbeShell(t, script, "FORGEJO_STEP_SUMMARY=native.md", "GITHUB_STEP_SUMMARY=alias.md", "CI_SUMMARY_FILE=generic.md"); err != nil {
+		t.Fatalf("fallback probe retained a nominated summary file: %v", err)
+	}
+}
+
 func TestProbeFixtures_AnnotationRequiresExecutedReport(t *testing.T) {
 	t.Parallel()
 

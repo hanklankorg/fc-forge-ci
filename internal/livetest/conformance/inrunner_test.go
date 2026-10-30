@@ -214,10 +214,9 @@ func TestInRunner_NoGitHubAnnotationsOnOtherForges(t *testing.T) {
 
 // PAR-RUN-4: a step summary reaches a reader on every runner.
 //
-// Only GitHub has a summary pane. Forgejo documents no job-summary variable and
-// renders none (go-gitea/gitea#27898), so the product routes its summary to the
-// job log; GitLab has no native equivalent and takes the file the pipeline
-// nominates. Three destinations for one intent — and the intent is what matters,
+// GitHub has a summary pane. This Forgejo case checks the job-log fallback when
+// no native or compatibility summary file is nominated. GitLab takes the file
+// the pipeline nominates. Three destinations for one intent — and the intent matters,
 // because a summary that goes nowhere is indistinguishable from one never
 // written, and both look like success.
 //
@@ -258,38 +257,7 @@ func TestInRunner_StepSummaryReachesAReader(t *testing.T) {
 // given none — the claim there is exactly that the summary falls back to the job
 // log rather than vanishing.
 func summaryProbe(target livetest.Target, assetURL string) string {
-	const report = `run_product report build xcode --xcode-version 16.0 \
-  --scheme Demo --version v1.0.0`
-
-	if target.Forge == provider.ForgeGitLab {
-		return `detect:
-  image: ` + livetest.ProbeImage + `
-  variables:
-    CI_SUMMARY_FILE: summary.md
-  script:
-    - |
-      ` + indent(livetest.ProbePrelude(target, assetURL), 6) + `
-      ` + indent(report, 6) + `
-      cat summary.md
-      grep -q 'Xcode Build Summary' summary.md
-`
-	}
-
-	return `on: [push]
-jobs:
-  detect:
-    runs-on: ubuntu-latest
-    steps:
-      - name: the summary must reach the job log when the runner renders none
-        run: |
-          ` + indent(livetest.ProbePrelude(target, assetURL), 10) + `
-
-          # No GITHUB_STEP_SUMMARY is exported: the claim is the fallback.
-          unset GITHUB_STEP_SUMMARY
-          ` + indent(report, 10) + ` > summary-log.txt
-          cat summary-log.txt
-          grep -q 'Xcode Build Summary' summary-log.txt
-`
+	return summaryWorkflow(target.Forge, livetest.ProbePrelude(target, assetURL))
 }
 
 // PAR-RUN-5: step outputs land where the runner will actually read them.
