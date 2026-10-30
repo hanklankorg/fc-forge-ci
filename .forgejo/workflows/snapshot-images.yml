@@ -273,7 +273,7 @@ jobs:
             --dir "snapshot-source/_snapshot-artifacts/${ARTIFACT_NAME}" --include-hidden --if-no-files error --retention-days 1
   context:
     needs: [coordinates, plan, produce]
-    if: ${{ !failure() && !cancelled() && needs.plan.outputs.enabled == 'true' && inputs['context-artifact'] == '' }}
+    if: ${{ always() && !failure() && !cancelled() && needs.plan.outputs.enabled == 'true' && inputs['context-artifact'] == '' }}
     runs-on: ${{ fromJSON(inputs['runner-label']) }}
     env:
       FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
@@ -316,7 +316,7 @@ jobs:
             --dir snapshot-source/snapshot-context --include-hidden --if-no-files error --retention-days 1
   build:
     needs: [coordinates, plan, context]
-    if: ${{ !failure() && !cancelled() && needs.plan.outputs.enabled == 'true' && (needs.context.result == 'success' || inputs['context-artifact'] != '') }}
+    if: ${{ always() && !failure() && !cancelled() && needs.plan.outputs.enabled == 'true' && (needs.context.result == 'success' || inputs['context-artifact'] != '') }}
     runs-on: ${{ fromJSON(matrix.build.arch == 'arm64' && inputs['runner-label-arm64'] || inputs['runner-label']) }}
     container: ${{ needs.coordinates.outputs.builder_job_image }}
     env:
@@ -452,7 +452,7 @@ jobs:
           run_forge_ci artifact upload --name "${SNAPSHOT_NAMESPACE}-evidence-${IMAGE_NAME}" --dir "snapshot-evidence/${IMAGE_NAME}" --if-no-files ignore
   collect:
     needs: [coordinates, plan, build, publish]
-    if: ${{ !failure() && !cancelled() && needs.plan.result == 'success' }}
+    if: ${{ always() && !failure() && !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ fromJSON(inputs['runner-label']) }}
     env:
       FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}

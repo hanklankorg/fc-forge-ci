@@ -196,6 +196,12 @@ func TestSnapshotForgejoAutomaticProducerAndGatherOrdering(t *testing.T) {
 	if !strings.Contains(fmt.Sprint(workflow.Jobs["build"].Needs), "context") || !strings.Contains(workflow.Jobs["build"].If, "needs.context.result == 'success'") {
 		t.Fatal("image builds must wait for validated gathered context")
 	}
+	for _, name := range []string{"context", "build", "collect"} {
+		condition := workflow.Jobs[name].If
+		if !strings.Contains(condition, "always()") || !strings.Contains(condition, "!failure()") || !strings.Contains(condition, "!cancelled()") {
+			t.Fatalf("%s must evaluate after optional dependencies are skipped, while refusing failed or cancelled work", name)
+		}
+	}
 	for _, name := range []string{"produce", "context"} {
 		pinned := false
 		for _, step := range workflow.Jobs[name].Steps {
