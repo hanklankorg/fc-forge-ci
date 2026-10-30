@@ -50,7 +50,7 @@ func TestIsolatedVersionBump_TwoNativeNPMCargoRounds(t *testing.T) {
 			t.Setenv("NPM_CONFIG_GLOBALCONFIG", globalConfig)
 			t.Setenv("CARGO_HOME", t.TempDir())
 			if kind == projecttype.NPM {
-				repo.AddFile("package.json", "{\n  \"name\": \"version-canary\",\n  \"version\": \"1.2.2\",\n  \"private\": true,\n  \"engines\": { \"node\": \">=18\" }\n}\n", "chore: package")
+				repo.AddFile("package.json", "{\n  \"name\": \"version-canary\",\n  \"version\": \"1.2.2\",\n  \"private\": true,\n  \"engines\": { \"node\": \"\\u003e=18\" }\n}\n", "chore: package")
 				repo.AddFile("package-lock.json", "{\n  \"name\": \"version-canary\",\n  \"version\": \"1.2.2\",\n  \"lockfileVersion\": 3,\n  \"requires\": true,\n  \"packages\": {\n    \"\": {\n      \"name\": \"version-canary\",\n      \"version\": \"1.2.2\",\n      \"engines\": { \"node\": \">=18\" }\n    }\n  }\n}\n", "chore: lock")
 			} else {
 				repo.AddFile("Cargo.toml", "[workspace]\nmembers = [\"worker\", \"keytool\"]\nresolver = \"2\"\n[workspace.package]\nversion = \"1.2.2\"\nedition = \"2021\"\n", "chore: workspace")

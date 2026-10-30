@@ -97,12 +97,41 @@ func TestVerifyBumpPatch_NPMFormattingPreservesJSONValues(t *testing.T) {
 		"injected field":      strings.Replace(npmReformattedBump, `+        "node": "26.x"`, `+        "node": "26.x", "extra": true`, 1),
 		"invalid JSON":        strings.Replace(npmReformattedBump, `+        "node": "26.x"`, `+        "node": "26.x",`, 1),
 		"invalid hunk counts": strings.Replace(npmReformattedBump, "+1,11", "+1,12", 1),
-		"no version changed":  strings.ReplaceAll(npmReformattedBump, "+  \"version\": \"1.2.3\"", "+  \"version\": \"1.2.2\""),
+		"no version changed":  strings.ReplaceAll(npmReformattedBump, `"1.2.3"`, `"1.2.2"`),
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := version.VerifyBumpPatch([]byte(changed), files, "1.2.3")
 			require.ErrorIs(t, err, errs.ErrValidation)
 		})
+	}
+}
+
+func TestVerifyBumpPatch_NPMHTMLEscapesDoNotHideStringOrKeyChanges(t *testing.T) {
+	t.Parallel()
+	const patch = `diff --git a/package.json b/package.json
+index 1111111..2222222 100644
+--- a/package.json
++++ b/package.json
+@@ -1,5 +1,5 @@
+ {
+-  "engines": { "node": "\u003e=18" },
++  "engines": { "node": ">=18" },
+   "name": "fixture",
+-  "version": "1.2.2"
++  "version": "1.2.3"
+ }
+`
+	files, _ := version.BumpPatchFiles(projecttype.NPM)
+	got, err := version.VerifyBumpPatch([]byte(patch), files, "1.2.3")
+	require.NoError(t, err)
+	require.Equal(t, "1.2.2", got.OldVersion)
+	for _, changed := range []string{
+		`+  "engines": { "node": "\\u003e=18" },`,
+		`+  "engines": { "node": "bad", "node": ">=18" },`,
+		`+  "engines": { "node": ">= 18" },`,
+	} {
+		_, err := version.VerifyBumpPatch([]byte(strings.Replace(patch, `+  "engines": { "node": ">=18" },`, changed, 1)), files, "1.2.3")
+		require.ErrorIs(t, err, errs.ErrValidation)
 	}
 }
 

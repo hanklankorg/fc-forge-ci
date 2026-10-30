@@ -287,17 +287,14 @@ func (p *bumpPatchParser) change(file string) (int, int, error) {
 	removed := p.run(p.at, "-")
 	added := p.run(p.at+removed, "+")
 
-	if added != removed {
-		npmFiles, _ := BumpPatchFiles(projecttype.NPM)
-		if slices.Contains(npmFiles, path.Base(file)) {
-			before, beforeComma, beforeOK := compactBumpJSON(p.lines[p.at : p.at+removed])
-			after, afterComma, afterOK := compactBumpJSON(p.lines[p.at+removed : p.at+removed+added])
-			if beforeOK && afterOK && beforeComma == afterComma {
+	npmFiles, _ := BumpPatchFiles(projecttype.NPM)
+	if slices.Contains(npmFiles, path.Base(file)) {
+		before, beforeComma, beforeOK := compactBumpJSON(p.lines[p.at : p.at+removed])
+		after, afterComma, afterOK := compactBumpJSON(p.lines[p.at+removed : p.at+removed+added])
+		if beforeOK && afterOK && beforeComma == afterComma {
+			old, substitutionErr := bumpPatchSubstitution(before, after, p.newVersion)
+			if before == after || substitutionErr == nil {
 				if before != after {
-					old, err := bumpPatchSubstitution(before, after, p.newVersion)
-					if err != nil {
-						return 0, 0, fmt.Errorf("%s: JSON reformat changes more than the expected version: %w", file, errs.ErrValidation)
-					}
 					if err := p.versionPair(file, old); err != nil {
 						return 0, 0, err
 					}
@@ -306,6 +303,8 @@ func (p *bumpPatchParser) change(file string) (int, int, error) {
 				return removed, added, nil
 			}
 		}
+	}
+	if added != removed {
 		return 0, 0, fmt.Errorf("%s: %d removed lines meet %d added lines; a bump changes each line in place: %w",
 			file, removed, added, errs.ErrValidation)
 	}
@@ -354,7 +353,11 @@ func compactBumpJSON(lines []string) (string, bool, bool) {
 	if err := json.Compact(&compact, []byte("{"+strings.TrimSuffix(body, ",")+"}")); err != nil {
 		return "", false, false
 	}
-	return compact.String(), comma, true
+	// Normalize only the standard HTML escapes used by encoding/json. Unlike
+	// decoding into a map, this preserves key order, duplicate keys and numbers.
+	var escaped bytes.Buffer
+	json.HTMLEscape(&escaped, compact.Bytes())
+	return escaped.String(), comma, true
 }
 
 // outputTimestampChange reports whether a line pair moves the reproducible
