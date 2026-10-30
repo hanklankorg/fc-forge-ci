@@ -419,7 +419,7 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, scenario gitlab
 		policyIncludes = append(policyIncludes, map[string]any{
 			"component": strings.TrimPrefix(target.BaseURL(), "https://") + "/" + layer.Repository + "/check@" + layer.Commit,
 			"inputs": map[string]any{"forge-ci-repository": layer.Repository, "job-image": jobImage,
-				"job-name": "candidate-check", "commands": []string{"test -f warm-request.txt"}},
+				"job-name": "candidate-check", "commands": []string{"test -f next-release-request.txt"}},
 		})
 		policyConfig["candidate-check"] = map[string]any{
 			"rules": []any{map[string]string{"if": `$CI_PIPELINE_SOURCE == "merge_request_event"`}},
