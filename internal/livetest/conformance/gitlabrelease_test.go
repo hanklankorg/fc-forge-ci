@@ -135,6 +135,7 @@ func TestGitLabRelease_BuildImageCapability(t *testing.T) {
 	}
 
 	target := livetest.Accept(t, provider.ForgeGitLab)
+	label := privilegedRunner(t, target)
 	repo := livetest.NewScratchRepo(t, target, "build-image-probe")
 	image := livetest.PushJobImage(t, target, repo, archive)
 
@@ -146,6 +147,7 @@ func TestGitLabRelease_BuildImageCapability(t *testing.T) {
 	body, err := yaml.Marshal(map[string]any{"probe": map[string]any{
 		// As release-jobs.yml declares a build image: its own entrypoint is not the job's shell.
 		"image":     map[string]any{"name": image, "entrypoint": []string{""}},
+		"tags":      []string{label},
 		"variables": map[string]string{"GIT_STRATEGY": "empty"},
 		"script":    []string{"set -euo pipefail", prelude, gitlabBuildImageProbe},
 	}})
