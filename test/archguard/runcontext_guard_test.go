@@ -176,7 +176,7 @@ func envGuardPackagesForOS(t *testing.T, goos string, patterns ...string) ([]env
 	cmd := exec.CommandContext(t.Context(), filepath.Join(goRoot, "bin", "go"), args...)
 	cmd.Dir = reporoot.Path(t)
 
-	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOOS="+goos, "GOARCH="+runtime.GOARCH, "CGO_ENABLED=0")
+	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "TEST_TELEMETRY_DIR="+os.DevNull, "GOOS="+goos, "GOARCH="+runtime.GOARCH, "CGO_ENABLED=0")
 
 	var stderr bytes.Buffer
 

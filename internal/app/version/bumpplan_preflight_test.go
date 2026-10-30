@@ -79,7 +79,7 @@ func bumpOwnedTree(t *testing.T, root string) map[string]bumpFileState {
 }
 
 func TestBumpPlanPreflight_LateLocalFailureHasNoEffects(t *testing.T) {
-	for _, kind := range []string{"missing-gradle", "missing-custom-gradle", "missing-cargo", "cargo-no-section", "cargo-no-version", "changelog-directory", "changelog-link", "changelog-internal-link", "version-link", "version-internal-link", "parent-link", "escaping-override", "gradle-parent", "xcconfig-parent", "xcconfig-directory", "nil-npm", "nil-maven"} {
+	for _, kind := range []string{"missing-gradle", "missing-custom-gradle", "missing-cargo", "cargo-no-section", "cargo-no-version", "changelog-directory", "changelog-link", "changelog-internal-link", "version-link", "version-internal-link", "parent-link", "parent-internal-link", "working-directory-link", "escaping-override", "gradle-parent", "xcconfig-parent", "xcconfig-directory", "nil-npm", "nil-maven"} {
 		t.Run(kind, func(t *testing.T) {
 			root := t.TempDir()
 			t.Chdir(root)
@@ -152,6 +152,19 @@ func TestBumpPlanPreflight_LateLocalFailureHasNoEffects(t *testing.T) {
 				require.NoError(t, os.Symlink("../outside", "late/linked"))
 
 				late.Gradle = &config.GradleConfig{GradleVersionFile: "linked/canary"}
+				want = errs.ErrValidation
+			case "parent-internal-link":
+				require.NoError(t, os.Mkdir("late/real", 0o700))
+				writeFile(t, root, "late/real/version.properties", "version=1.0.0\n")
+				require.NoError(t, os.Symlink("real", "late/linked"))
+
+				late.Gradle = &config.GradleConfig{GradleVersionFile: "linked/version.properties"}
+				want = errs.ErrValidation
+			case "working-directory-link":
+				writeFile(t, root, "late/gradle.properties", "version=1.0.0\n")
+				require.NoError(t, os.Symlink("late", "linked-artifact"))
+
+				late.WorkingDirectory = "linked-artifact"
 				want = errs.ErrValidation
 			case "escaping-override":
 				late.Gradle = &config.GradleConfig{GradleVersionFile: "../outside/canary"}

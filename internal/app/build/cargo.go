@@ -487,6 +487,12 @@ func copyFile(src, dst string) error {
 		return fmt.Errorf("copy %s -> %s: %w", src, dst, err)
 	}
 
+	// The published executable has a canonical mode, independent of the
+	// build process's umask. Only change the new, privately staged inode.
+	if err := out.Chmod(0o755); err != nil {
+		return fmt.Errorf("set executable mode %s: %w", dst, err)
+	}
+
 	if err := out.Close(); err != nil {
 		return err
 	}

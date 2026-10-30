@@ -38,7 +38,7 @@ func TestUpdateCargoVersion_EncodesVersionString(t *testing.T) {
 			t.Parallel()
 
 			const (
-				prefix = "[package]\nversion = \"child-canary\"\n\n[workspace.package]\n"
+				prefix = "[package]\nversion.workspace = true\n\n[workspace.package]\n"
 				suffix = "\nkeep = true\n\n[dependencies]\nserde = \"1\"\n"
 			)
 
@@ -51,7 +51,7 @@ func TestUpdateCargoVersion_EncodesVersionString(t *testing.T) {
 			var parsed map[string]any
 			require.NoError(t, toml.Unmarshal([]byte(got), &parsed))
 			require.Equal(t, map[string]any{
-				"package":      map[string]any{"version": "child-canary"},
+				"package":      map[string]any{"version": map[string]any{"workspace": true}},
 				"workspace":    map[string]any{"package": map[string]any{"version": ver, "keep": true}},
 				"dependencies": map[string]any{"serde": "1"},
 			}, parsed)
@@ -67,6 +67,47 @@ func TestUpdateCargoVersion_RefusesInvalidUTF8(t *testing.T) {
 	got, _, err := version.UpdateCargoVersion(body, "2.0.0\xff")
 	require.ErrorIs(t, err, errs.ErrValidation)
 	require.Equal(t, body, got)
+}
+
+func TestUpdateCargoVersion_OwnershipAndPreservation(t *testing.T) {
+	t.Parallel()
+
+	for _, shared := range []string{"rust-version = '1.85'", "version = '9.0.0'"} {
+		body := "# provenance: [workspace.package]\r\n[package]\r\nname = 'nano'\r\n  version\t= '0.8.5' # release owner\r\n[workspace.package]\r\n" + shared + "\r\n[dependencies.serde]\r\nversion = '1'\r\n"
+		got, section, err := version.UpdateCargoVersion(body, "0.8.6")
+		require.NoError(t, err)
+		require.Equal(t, version.CargoSectionPackage, section)
+		require.Equal(t, strings.Replace(body, "'0.8.5'", `"0.8.6"`, 1), got)
+	}
+
+	for _, body := range []string{
+		"[package]\nversion = { workspace = true }\n[workspace.package]\nversion = '1.0.0'",
+		"[workspace.package]\nversion = '1.0.0'",
+		"[package.version]\nworkspace = true\n[workspace.package]\nversion = '1.0.0'",
+	} {
+		got, section, err := version.UpdateCargoVersion(body, "2.0.0")
+		require.NoError(t, err)
+		require.Equal(t, version.CargoSectionWorkspacePackage, section)
+		require.Equal(t, strings.Replace(body, "'1.0.0'", `"2.0.0"`, 1), got)
+	}
+}
+
+func TestUpdateCargoVersion_InvalidOwnershipDoesNotMutate(t *testing.T) {
+	t.Parallel()
+
+	for _, body := range []string{
+		"[package]\nversion = 7\n[workspace.package]\nversion = '1.0.0'\n",
+		"[package]\nname = 'missing'\n[workspace.package]\nversion = '1.0.0'\n",
+		"[package]\nversion.workspace = false\n[workspace.package]\nversion = '1.0.0'\n",
+		"[package]\nversion.workspace = true\n[workspace.package]\nrust-version = '1.85'\n",
+		"[package]\nversion = '1'\nversion = '2'\n",
+		"# [package]\n[dependencies.serde]\nversion = '1'\n",
+		"[package]\nname = 'missing'\n  [dependencies.serde]\nversion = '1'\n",
+	} {
+		got, _, err := version.UpdateCargoVersion(body, "2.0.0")
+		require.ErrorIs(t, err, errs.ErrValidation)
+		require.Equal(t, body, got)
+	}
 }
 
 func TestUpdateOrAddProperty_DoesNotRewriteAKeyPrefix(t *testing.T) {
@@ -183,12 +224,12 @@ func TestUpdateXcodeMarketingVersion_AppendsToEmpty(t *testing.T) {
 	}
 }
 
-func TestUpdateCargoVersion_WorkspacePackagePreferred(t *testing.T) {
+func TestUpdateCargoVersion_WorkspacePackageInherited(t *testing.T) {
 	t.Parallel()
 
 	body := `[package]
 name = "child"
-version = "0.0.1"
+version.workspace = true
 
 [workspace.package]
 version = "0.5.0"
@@ -211,8 +252,8 @@ serde = "1"
 version = "1.0.0"`) {
 		t.Errorf("workspace version not updated:\n%s", got)
 	}
-	// [package] version should be untouched because workspace wins.
-	if !strings.Contains(got, `version = "0.0.1"`) {
+	// Inheritance must remain intact.
+	if !strings.Contains(got, `version.workspace = true`) {
 		t.Errorf("[package] version was unexpectedly touched:\n%s", got)
 	}
 }

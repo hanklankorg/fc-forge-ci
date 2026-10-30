@@ -57,6 +57,7 @@ RUN set -eux; \
     git \
     gnupg \
     grep \
+    openssh-client \
     sed \
     skopeo \
     tar; \

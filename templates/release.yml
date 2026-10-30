@@ -41,11 +41,15 @@ spec:
       type: string
     checks:
       type: array
+    checks-runner-tags:
+      description: Runner tags for consumer checks after restricted signed-request authorization. Empty leaves checks untagged. Select stronger capacity only for trusted checks requiring it.
+      type: array
+      default: []
     build:
       type: array
     build-runner-tags:
       description: >-
-        Runner tags for the build job alone, for example [privileged] where only a tagged runner lets an image build enter user namespaces. Every other job, the signer's included, stays on untagged runners. Empty, the default, leaves the build job untagged.
+        Runner tags for the build job alone, for example [privileged] where only a tagged runner lets an image build enter user namespaces. Request authorization and signing stay on untagged runners. Empty, the default, leaves the build job untagged.
       type: array
       default: []
     changelog-creator:
@@ -120,6 +124,7 @@ release:
           bot-name: $[[ inputs.bot-name ]]
           bot-email: $[[ inputs.bot-email ]]
           checks: $[[ inputs.checks ]]
+          checks-runner-tags: $[[ inputs.checks-runner-tags ]]
           build: $[[ inputs.build ]]
           build-runner-tags: $[[ inputs.build-runner-tags ]]
           changelog-creator: $[[ inputs.changelog-creator ]]

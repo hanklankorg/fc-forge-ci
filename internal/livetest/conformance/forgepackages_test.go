@@ -185,6 +185,21 @@ run_product publish npm write-npmrc --registry "$registry" --output "$consumer/.
   printf '%s\n' '{"name":"registry-consumer","version":"1.0.0","private":true}' > package.json
   export npm_config_userconfig="$consumer/.npmrc"
   export npm_config_cache="$consumer/cache"
+  # GitLab acknowledges uploads before its package/metadata workers finish.
+  # Wait for this exact version, not a successful install or a moving dist-tag.
+  attempt=0
+  until npm view '` + name + `@` + version + `' version --json --registry "$registry" --fetch-retries=0 --fetch-timeout=10000 > version.json 2> metadata.err; do
+    attempt=$((attempt + 1))
+    if [ "$attempt" -ge 30 ] || ! grep -Eq '^npm (error|ERR!) code E404$' metadata.err; then
+      cat metadata.err >&2
+      exit 1
+    fi
+    sleep 2
+  done
+  node <<'VERIFY'
+const assert = require('node:assert/strict');
+assert.equal(require('./version.json'), '` + version + `');
+VERIFY
   npm install --registry "$registry" --ignore-scripts --no-audit --no-fund --package-lock=false --save-exact '` + name + `@` + version + `'
   node <<'VERIFY'
 const assert = require('node:assert/strict');
@@ -286,6 +301,28 @@ npm() {
   test "$PWD" != "$origin"
   test -f "$npm_config_userconfig"
   test "$npm_config_cache" = "$PWD/cache"
+  if [ "$1" = view ] && [ "$3" = version ]; then
+    test "$5" = --registry
+    test "$6" = "$EXPECTED_REGISTRY"
+    test "$7" = --fetch-retries=0
+    test "$8" = --fetch-timeout=10000
+    attempts=$((attempts + 1))
+    if [ "$METADATA_STATE" = auth ]; then
+      printf '%s\n' 'npm error code E401' >&2
+      return 1
+    fi
+    if [ "$METADATA_STATE" = missing ] || [ "$attempts" -lt 3 ]; then
+      printf '%s\n' 'npm error code E404' >&2
+      return 1
+    fi
+    printf '%s\n' '"1.2.3"'
+  elif [ "$1" = install ]; then
+    test "$METADATA_STATE" = ready
+    test "$attempts" = 3
+  fi
+}
+sleep() {
+  test "$1" = 2
 }
 node() {
   test "$PWD" != "$origin"
@@ -298,10 +335,15 @@ node() {
 				registry = "https://fixture.invalid/api/v4/projects/123/packages/npm/"
 			}
 
-			if err := runProbeShell(t, stub+consume,
-				"EXPECTED_REGISTRY="+registry, "CI_API_V4_URL=https://fixture.invalid/api/v4",
-				"CI_PROJECT_ID=123", "CI_JOB_TOKEN=inert", "FORGEJO_TOKEN=inert"); err != nil {
-				t.Fatalf("consumer working-directory/config boundary: %v", err)
+			for _, state := range []string{"ready", "missing", "auth"} {
+				t.Run(state, func(t *testing.T) {
+					err := runProbeShell(t, "attempts=0\n"+stub+consume,
+						"METADATA_STATE="+state, "EXPECTED_REGISTRY="+registry, "CI_API_V4_URL=https://fixture.invalid/api/v4",
+						"CI_PROJECT_ID=123", "CI_JOB_TOKEN=inert", "FORGEJO_TOKEN=inert")
+					if (err == nil) != (state == "ready") {
+						t.Fatalf("metadata state %s: consumer exit %v", state, err)
+					}
+				})
 			}
 		})
 	}

@@ -5,14 +5,19 @@ package livetest
 
 import (
 	"cmp"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
+
+	gitlabapi "gitlab.com/gitlab-org/api/client-go"
 
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
 )
@@ -60,6 +65,11 @@ func RetainJobLog(tb TB, target Target, repo string, job RunJob, secrets ...map[
 		tb.Logf("livetest: job %d log unavailable; no full evidence retained", job.ID)
 		return ""
 	}
+	return retainJobLogText(tb, target, repo, job, log, secrets...)
+}
+
+func retainJobLogText(tb TB, target Target, repo string, job RunJob, log string, secrets ...map[string]string) string {
+	tb.Helper()
 	log = redactJobLog(target, log, secrets...)
 	if root := snapshotEvidenceRoot(); root != "" {
 		location, saveErr := retainJobLog(root, repo, job, log)
@@ -76,6 +86,58 @@ func RetainJobLog(tb TB, target Target, repo string, job RunJob, secrets ...map[
 		log = log[len(log)-jobLogTail:]
 	}
 	return log
+}
+
+// RetainGitLabJobLogsAfter captures every executed job in an owned scratch
+// project, including child pipelines and retries, before earlier-registered
+// repository cleanup. Register after creating the repository and credentials.
+func RetainGitLabJobLogsAfter(tb TB, target Target, repo string, secrets ...map[string]string) {
+	tb.Helper()
+	requireAccepted(tb, target)
+	tb.Cleanup(func() {
+		// The scenario's context may already be canceled on failure or return.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		client, err := gitlabapi.NewClient(target.Token, gitlabapi.WithBaseURL(target.BaseURL()+"/api/v4/"),
+			gitlabapi.WithHTTPClient(HTTPClient(tb, target, time.Minute)))
+		if err != nil {
+			tb.Errorf("livetest: could not initialize GitLab log retention")
+			return
+		}
+		for page := int64(1); ; {
+			jobs, response, err := client.Jobs.ListProjectJobs(RepoSlug(target, repo), &gitlabapi.ListJobsOptions{
+				PerPage: 100, Page: page,
+			}, gitlabapi.WithContext(ctx))
+			if err != nil {
+				tb.Errorf("livetest: could not list GitLab jobs for evidence")
+				return
+			}
+			for _, job := range jobs {
+				if job.Status == "skipped" || job.Status == "manual" || job.Status == "created" {
+					continue
+				}
+				trace, _, err := client.Jobs.GetTraceFile(RepoSlug(target, repo), job.ID, gitlabapi.WithContext(ctx))
+				if err != nil {
+					tb.Logf("livetest: job %d log unavailable; no full evidence retained", job.ID)
+					continue
+				}
+				body, err := io.ReadAll(io.LimitReader(trace, maxJobLog+1))
+				if err != nil || len(body) > maxJobLog {
+					tb.Errorf("livetest: job %d log unreadable or exceeds evidence limit", job.ID)
+					continue
+				}
+				id := RunJob{ID: job.ID, RunID: job.Pipeline.ID, Attempt: 1}
+				tail := retainJobLogText(tb, target, repo, id, string(body), secrets...)
+				if job.Status != "success" && tail != "" {
+					tb.Logf("job %d log (tail):\n%s", job.ID, tail)
+				}
+			}
+			if response.NextPage == 0 {
+				return
+			}
+			page = response.NextPage
+		}
+	})
 }
 
 func redactJobLog(target Target, log string, secrets ...map[string]string) string {

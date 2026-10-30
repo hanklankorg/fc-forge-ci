@@ -6,6 +6,7 @@ package publish_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,7 @@ import (
 	apppublish "github.com/diggsweden/forge-ci/internal/app/publish"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
+	"github.com/diggsweden/forge-ci/internal/testutil/evidence"
 )
 
 type npmTagProbe struct {
@@ -44,9 +46,13 @@ func (p *localNPMTagProbe) RunInherit(ctx context.Context, dir string, stdout, s
 
 	p.calls = append(p.calls, args)
 	cmd := exec.CommandContext(ctx, "npm", args...)
-	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, p.env, stdout, stderr
+	var diagnostic evidence.Diagnostic
+	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, p.env, stdout, io.MultiWriter(stderr, &diagnostic)
 
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("npm query: %w; stderr: %s", err, diagnostic.Text(p.env, "synthetic"))
+	}
+	return nil
 }
 
 func TestNPMPublishNativeQueryWithoutLatest(t *testing.T) {
@@ -100,8 +106,10 @@ func TestNPMPublishNativeQueryWithoutLatest(t *testing.T) {
 			// but no JSON because the registry has no latest binding.
 			cmd := exec.CommandContext(t.Context(), "npm", "view", "@fixture/pkg", "dist-tags", "--json", "--registry", server.URL)
 			cmd.Dir, cmd.Env = dir, env
+			var diagnostic evidence.Diagnostic
+			cmd.Stderr = &diagnostic
 			output, err := cmd.Output()
-			require.NoError(t, err)
+			require.NoError(t, err, "npm query stderr: %s", diagnostic.Text(env))
 			require.Empty(t, strings.TrimSpace(string(output)))
 
 			writeNPMPackage(t, filepath.Join(dir, "pkg.tgz"), "@fixture/pkg", "1.2.3")

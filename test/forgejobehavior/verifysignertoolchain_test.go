@@ -53,11 +53,30 @@ func signerToolchainSandbox(t *testing.T) (*sandbox, string) {
 		}
 	}
 
-	for _, tool := range []string{"git", "curl", "jq", "gpg", "cosign", "skopeo", "syft", "tar", "mktemp", "find", "grep", "tr", "cut", "sort", "wc"} {
+	for _, tool := range []string{"git", "ssh-keygen", "curl", "jq", "gpg", "cosign", "skopeo", "syft", "tar", "mktemp", "find", "grep", "tr", "cut", "sort", "wc"} {
 		box.write("tools/"+tool, "#!/bin/sh\nexit 0\n", 0o700)
 	}
 
 	return box, tools
+}
+
+func TestVerifySignerToolchainRequiresSSHAndRejectsCompilers(t *testing.T) {
+	for _, tool := range []string{"ssh-keygen", "go", "rustc", "gcc"} {
+		t.Run(tool, func(t *testing.T) {
+			box, tools := signerToolchainSandbox(t)
+			if tool == "ssh-keygen" {
+				if err := os.Remove(filepath.Join(tools, tool)); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				box.write("tools/"+tool, "#!/bin/sh\nexit 0\n", 0700)
+			}
+			got := box.run(`bash "${CHECK:?}"`, "PATH="+tools, "SIGNER_STRICT=1", "CHECK="+filepath.Join(box.root, filepath.FromSlash(signerToolchainScript)))
+			if got.status == 0 || !strings.Contains(got.stdout+got.stderr, tool) {
+				t.Fatal("signing capability boundary did not refuse missing SSH/compiler")
+			}
+		})
+	}
 }
 
 // The strict toolchain check finds the engine of the checkout it runs from at

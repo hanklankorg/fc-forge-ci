@@ -381,6 +381,18 @@ func requireReleaseGit(t *testing.T, target livetest.Target, repo string, keys r
 		t.Errorf("%s is not a tag signed by the bot's key: %v", finalTag, err)
 	}
 
+	// Read fixture expectations from the admitted request, never mutable host
+	// files or self-reported published metadata. Git modes reject symlink blobs.
+	if listed := git("ls-tree", request, "--", ".gitlab/generic-cli-kind"); listed != "" {
+		for _, path := range []string{".gitlab/generic-cli-kind", ".gitlab/generic-cli-source.json"} {
+			if !strings.HasPrefix(git("ls-tree", request, "--", path), "100644 blob ") {
+				t.Fatalf("CLI expectation is not a regular Git blob: %s", path)
+			}
+		}
+		requireCLIRelease(t, target, repo, keys, finalTag, main,
+			strings.TrimSpace(git("show", request+":.gitlab/generic-cli-kind")),
+			[]byte(git("show", request+":.gitlab/generic-cli-source.json")))
+	}
 	return main
 }
 

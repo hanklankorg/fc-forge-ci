@@ -269,7 +269,8 @@ func (progress *runProgress) report(tb TB, run WorkflowRun, file string) {
 // scenario's subject and says nothing about it, so a push run is passed over
 // when another event is awaited, and returned so the caller can say so. Nothing
 // else is: a run of the workflow with
-// any other event, an empty one included, is a run nobody can account for,
+// any other event is a run nobody can account for. An empty event is accepted
+// only for a manual dispatch with its authoritative matching trigger_event;
 // and two runs of the awaited event leave no way to say which is judged.
 // A nonzero afterID limits this judgment to newer runs of a consecutive trial.
 func selectRun(runs []WorkflowRun, file, event string, afterID int64) (WorkflowRun, []WorkflowRun, error) {
@@ -302,7 +303,7 @@ func selectRun(runs []WorkflowRun, file, event string, afterID int64) (WorkflowR
 }
 
 func runMatchesEvent(run WorkflowRun, event string) bool {
-	return run.Event == event && run.TriggerEvent == event
+	return run.TriggerEvent == event && (run.Event == event || (event == "workflow_dispatch" && run.Event == ""))
 }
 
 // The statuses Forgejo and GitLab both spell this way, for a run and for a job.

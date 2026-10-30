@@ -7,9 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/pelletier/go-toml/v2"
+	"github.com/pelletier/go-toml/v2/unstable"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
@@ -126,7 +130,7 @@ func UpdateXcodeMarketingVersion(body, version string) (string, UpdatePropertyRe
 }
 
 // CargoSection identifies which Cargo.toml section drives the version.
-// Workspaces win when both [workspace.package] and [package] exist.
+// Explicit package versions own the release; inherited versions use the workspace.
 type CargoSection int
 
 // Recognised CargoSection values.
@@ -136,23 +140,9 @@ const (
 	CargoSectionPackage
 )
 
-const (
-	cargoWorkspaceHeader = "[workspace.package]"
-	cargoPackageHeader   = "[package]"
-)
-
-// cargoVersionLine matches a top-level `version = ...` line in Cargo.toml.
-// Regex pattern stored as a package var rather than rebuilt per call so
-// MustCompile runs once at init; the value is read-only.
-var cargoVersionLine = regexp.MustCompile(`(?m)^version[[:space:]]*=.*`)
-
-// UpdateCargoVersion finds the active version section ([workspace.package]
-// preferred, [package] as fallback) and rewrites the first `version =`
-// line within that section's body. Mirrors the sed range expressions in
-// bump-version.sh's cargo branch.
-//
-// Returns the section that was rewritten (NotFound when neither header
-// is present) and the new body.
+// UpdateCargoVersion replaces only the owning version's string token, preserving
+// comments, formatting and unrelated manifest content. A package must either
+// declare a string version or explicitly inherit the workspace version.
 func UpdateCargoVersion(body, version string) (string, CargoSection, error) {
 	if !utf8.ValidString(version) {
 		return body, CargoSectionNone, fmt.Errorf("cargo version must be valid UTF-8: %w", errs.ErrValidation)
@@ -164,55 +154,77 @@ func UpdateCargoVersion(body, version string) (string, CargoSection, error) {
 		return body, CargoSectionNone, fmt.Errorf("encode cargo version: %w: %w", err, errs.ErrValidation)
 	}
 
-	var section CargoSection
-
-	switch {
-	case strings.Contains(body, cargoWorkspaceHeader):
-		section = CargoSectionWorkspacePackage
-	case strings.Contains(body, cargoPackageHeader):
-		section = CargoSectionPackage
-	default:
-		return body, CargoSectionNone, fmt.Errorf("cargo manifest has neither [package] nor [workspace.package] sections"+": %w", errs.ErrValidation)
+	var document map[string]any
+	if err := toml.Unmarshal([]byte(body), &document); err != nil {
+		return body, CargoSectionNone, fmt.Errorf("parse cargo manifest: %w: %w", err, errs.ErrValidation)
 	}
 
-	header := cargoWorkspaceHeader
+	section, err := cargoVersionOwner(document)
+	if err != nil {
+		return body, CargoSectionNone, err
+	}
+
+	target := []string{"workspace", "package", "version"}
 	if section == CargoSectionPackage {
-		header = cargoPackageHeader
+		target = []string{"package", "version"}
 	}
 
-	// Find the section's body range: [start of section line ... start of
-	// next "[" line], matching the sed `/header/,/^\[/` range.
-	start := strings.Index(body, header)
-	// Skip past the header line.
-	headerEnd := start + len(header)
-	if nl := strings.IndexByte(body[headerEnd:], '\n'); nl >= 0 {
-		headerEnd += nl + 1
-	} else {
-		// Header is the last line — nothing to rewrite.
-		return body, section, fmt.Errorf("section %s has no body: %w", header, errs.ErrValidation)
+	// Decode first to reject duplicate keys/tables; use syntax ranges only for
+	// the edit, so quoted keys and multiline strings cannot impersonate headers.
+	var parser unstable.Parser
+	parser.Reset([]byte(body))
+
+	var table []string
+
+	for parser.NextExpression() {
+		node := parser.Expression()
+		if node.Kind != unstable.Table && node.Kind != unstable.ArrayTable && node.Kind != unstable.KeyValue {
+			continue
+		}
+
+		var key []string
+		for keys := node.Key(); keys.Next(); {
+			key = append(key, string(keys.Node().Data))
+		}
+
+		if node.Kind != unstable.KeyValue {
+			table = key
+
+			continue
+		}
+
+		if !slices.Equal(append(append([]string{}, table...), key...), target) || node.Value().Kind != unstable.String {
+			continue
+		}
+
+		raw := node.Value().Raw
+		start, end := int(raw.Offset), int(raw.Offset)+int(raw.Length)
+
+		return body[:start] + strings.ReplaceAll(string(encoded), "\x7f", `\u007f`) + body[end:], section, nil
 	}
 
-	// Find the next "[" at line start.
-	rest := body[headerEnd:]
+	return body, section, fmt.Errorf("cargo manifest has no writable string version in [package] or [workspace.package]: %w", errs.ErrValidation)
+}
 
-	endOffset := len(rest)
-	for i := range len(rest) {
-		if rest[i] == '\n' && i+1 < len(rest) && rest[i+1] == '[' {
-			endOffset = i + 1
+func cargoVersionOwner(document map[string]any) (CargoSection, error) {
+	raw, exists := document["package"]
+	if !exists {
+		return CargoSectionWorkspacePackage, nil
+	}
 
-			break
+	pkg, ok := raw.(map[string]any)
+	if !ok {
+		return CargoSectionNone, fmt.Errorf("invalid [package] table: %w", errs.ErrValidation)
+	}
+
+	switch value := pkg["version"].(type) {
+	case string:
+		return CargoSectionPackage, nil
+	case map[string]any:
+		if value["workspace"] == true && len(value) == 1 {
+			return CargoSectionWorkspacePackage, nil
 		}
 	}
 
-	sectionBody := rest[:endOffset]
-	tail := rest[endOffset:]
-
-	location := cargoVersionLine.FindStringIndex(sectionBody)
-	if location == nil {
-		return body, section, fmt.Errorf("section %s has no version field: %w", header, errs.ErrValidation)
-	}
-
-	newSection := sectionBody[:location[0]] + "version = " + strings.ReplaceAll(string(encoded), "\x7f", `\u007f`) + sectionBody[location[1]:]
-
-	return body[:headerEnd] + newSection + tail, section, nil
+	return CargoSectionNone, fmt.Errorf("[package] has no version field of string or workspace = true inheritance type: %w", errs.ErrValidation)
 }

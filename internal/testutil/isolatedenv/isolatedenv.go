@@ -71,6 +71,11 @@ func scrubCIEnv(setenv func(key, value string)) {
 	for _, key := range append(runcontext.Token().Keys(), runcontext.ReleaseToken().Keys()...) {
 		exact[key] = struct{}{}
 	}
+	// Orchestrated tag aliases have no CI prefix but also satisfy required CLI
+	// flags. A release job's tag must not leak into missing-input fixtures.
+	for _, key := range runcontext.Tag().Keys() {
+		exact[key] = struct{}{}
+	}
 
 	for _, kv := range os.Environ() {
 		key, _, found := strings.Cut(kv, "=")
@@ -154,6 +159,12 @@ func isolate(home string, setenv func(key, value string), unset func(key string)
 	// Core HOME isolation. USERPROFILE for Windows-targeting tests.
 	setenv("HOME", home)
 	setenv("USERPROFILE", home)
+
+	// Go's telemetry uploader can outlive a subprocess and race removal of
+	// this throwaway HOME. Disable it before any fixture invokes Go.
+	// GOTELEMETRY is read-only; Go's test override must target a path that
+	// cannot contain telemetry files (including when tests run as root).
+	setenv("TEST_TELEMETRY_DIR", os.DevNull)
 
 	// XDG base-directory spec. Tools that read XDG (e.g. mise, devbase,
 	// most modern CLIs) look here first; pointing them at $HOME/.config

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/diggsweden/forge-ci/internal/retry"
 	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -137,18 +138,17 @@ func TestGitHubSourceImageConsumerPullRequest(t *testing.T) {
 	} else {
 		t.Logf("source image publication starting: package=%s source=%s original_config=%s", packageName, source, configHash)
 		writeErr = remote.Write(reference, mirrored, options...)
-		for attempt := 0; attempt < 15; attempt++ {
-			identity, err = trial.ReadContainerPackageIdentity(t.Context(), packageName, repoID)
-			if err == nil {
-				break
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		defer cancel()
+		identity, err = retry.Do(ctx, nil, 15, 2*time.Second, func() (GitHubPackageIdentity, error) {
+			observed, readErr := trial.ReadContainerPackageIdentity(ctx, packageName, repoID)
+			if readErr == nil || errors.Is(readErr, os.ErrNotExist) {
+				return observed, readErr
 			}
-			if !errors.Is(err, os.ErrNotExist) {
-				t.Fatal("published package binding unavailable; refusing adoption/deletion")
-			}
-			time.Sleep(2 * time.Second)
-		}
+			return observed, retry.Permanent(readErr)
+		}, retry.WithBackoff(retry.Constant))
 		if err != nil {
-			t.Fatal("published package ID unavailable; inspect exact coordinate before retry")
+			t.Fatalf("published package identity unavailable; refusing adoption/deletion; inspect exact coordinate before retry: %v", err)
 		}
 	}
 	t.Cleanup(func() {

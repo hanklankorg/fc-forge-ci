@@ -151,7 +151,9 @@ func normalizedNPMBump(name string, body []byte, version string) (map[string]any
 
 func normalizeCargoManifest(document map[string]any, version string) error {
 	project, _ := document["package"].(map[string]any)
-	if workspace, ok := document["workspace"].(map[string]any); ok {
+
+	_, explicit := project["version"].(string)
+	if workspace, ok := document["workspace"].(map[string]any); ok && !explicit {
 		if shared, ok := workspace["package"].(map[string]any); ok && shared["version"] != nil {
 			project = shared
 		}

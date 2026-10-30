@@ -366,7 +366,7 @@ func bumpXcodeIOS(root *os.Root, relative, display, ver string, writer io.Writer
 		_, _ = fmt.Fprintf(writer, "Creating %s\n", display)
 
 		out := "MARKETING_VERSION = " + ver + "\n"
-		if werr := root.WriteFile(relative, []byte(out), 0o644); werr != nil {
+		if werr := writeNewPublicVersionFile(root, relative, []byte(out)); werr != nil {
 			return fmt.Errorf("create %s: %w", display, werr)
 		}
 

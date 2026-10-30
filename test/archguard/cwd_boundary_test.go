@@ -31,7 +31,7 @@ func TestGuardWorkingDirectoryBoundary_CompiledTestsRunFromRoot(t *testing.T) {
 		"PATH=/usr/bin:/bin", "HOME=" + root, "TMPDIR=" + root,
 		"GOROOT=" + goRoot, "GOMODCACHE=" + moduleCache,
 		"GOCACHE=" + filepath.Join(root, "go-build"), "CGO_ENABLED=0", "GOENV=off",
-		"GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local",
+		"GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "TEST_TELEMETRY_DIR=" + os.DevNull,
 	}
 	body, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(body))
@@ -53,7 +53,7 @@ func guardGoRoot(t *testing.T) string {
 	cmd := exec.CommandContext(t.Context(), "go", "env", "GOROOT")
 	cmd.Dir = reporoot.Path(t)
 
-	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local")
+	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "TEST_TELEMETRY_DIR="+os.DevNull)
 
 	body, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(body))
@@ -70,7 +70,7 @@ func guardModuleCache(t *testing.T, env []string) string {
 	cmd := exec.CommandContext(t.Context(), filepath.Join(goRoot, "bin", "go"), "env", "GOMODCACHE")
 	cmd.Dir = reporoot.Path(t)
 	cmd.Env = env
-	cmd.Env = append(cmd.Env, "GOROOT="+goRoot, "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local")
+	cmd.Env = append(cmd.Env, "GOROOT="+goRoot, "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "TEST_TELEMETRY_DIR="+os.DevNull)
 	body, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(body))
 	cache := strings.TrimSpace(string(body))
@@ -84,6 +84,11 @@ func TestGuardWorkingDirectoryBoundary_EffectiveModuleCache(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+	// Runs after the parallel children, before TempDir cleanup. A metadata
+	// query must not start telemetry work in this hermetic HOME.
+	t.Cleanup(func() {
+		require.NoDirExists(t, filepath.Join(root, ".config", "go", "telemetry"))
+	})
 	for _, tc := range []struct {
 		name string
 		env  []string

@@ -124,8 +124,23 @@ func stageInto(root *os.Root, source, destination, want string) (string, error) 
 	// A temporary neighbour, then a rename: a reader of the destination sees
 	// either the previous file or the whole new one, never a partial write.
 	temporary := destination + ".staging"
-	if err := root.WriteFile(temporary, key, 0o644); err != nil {
+	file, err := root.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
 		return "", fmt.Errorf("stage-public-key: write staged key: %w", err)
+	}
+	if _, err := file.Write(key); err != nil {
+		_ = file.Close()
+		_ = root.Remove(temporary)
+		return "", fmt.Errorf("stage-public-key: write staged key: %w", err)
+	}
+	if err := file.Chmod(0o644); err != nil {
+		_ = file.Close()
+		_ = root.Remove(temporary)
+		return "", fmt.Errorf("stage-public-key: set public mode: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = root.Remove(temporary)
+		return "", fmt.Errorf("stage-public-key: close staged key: %w", err)
 	}
 
 	staged, readErr := root.ReadFile(temporary)

@@ -311,7 +311,7 @@ func readPlanBumpFile(dir, relative string, optional bool) ([]byte, error) {
 		return nil, fmt.Errorf("version/changelog file must be relative to the project: %w", errs.ErrUsage)
 	}
 
-	root, err := pathsafe.OpenRoot(filepath.Join(dir, filepath.Dir(relative)))
+	root, err := openPlanBumpParent(filepath.Join(dir, filepath.Dir(relative)))
 	if err != nil {
 		return nil, planBumpReadError(err)
 	}
@@ -334,6 +334,59 @@ func readPlanBumpFile(dir, relative string, optional bool) ([]byte, error) {
 	}
 
 	return cliio.ReadFileInRoot(root, name)
+}
+
+// System-layout links may precede the checkout, but no repository-controlled
+// directory is a system-layout exception, even when the job runs as root.
+func openPlanBumpParent(relative string) (*os.Root, error) {
+	if !pathsafe.Relative(relative) {
+		return nil, fmt.Errorf("version/changelog parent must stay inside the checkout: %w", errs.ErrValidation)
+	}
+
+	root, err := pathsafe.OpenRoot(".")
+	if err != nil {
+		return nil, err
+	}
+
+	for component := range strings.SplitSeq(filepath.Clean(relative), string(filepath.Separator)) {
+		if component == "." {
+			continue
+		}
+
+		info, err := root.Lstat(component)
+		if err != nil {
+			_ = root.Close()
+
+			return nil, err
+		}
+
+		if !info.IsDir() {
+			_ = root.Close()
+
+			return nil, fmt.Errorf("version/changelog parent %q must be a nonlinked directory: %w", relative, errs.ErrValidation)
+		}
+
+		child, err := root.OpenRoot(component)
+		if err != nil {
+			_ = root.Close()
+
+			return nil, err
+		}
+
+		opened, openedErr := child.Stat(".")
+		current, currentErr := root.Lstat(component)
+		_ = root.Close()
+
+		if openedErr != nil || currentErr != nil || !current.IsDir() || !os.SameFile(info, opened) || !os.SameFile(current, opened) {
+			_ = child.Close()
+
+			return nil, fmt.Errorf("version/changelog parent %q changed while opening: %w", relative, errs.ErrValidation)
+		}
+
+		root = child
+	}
+
+	return root, nil
 }
 
 func planBumpReadError(err error) error {
@@ -376,7 +429,7 @@ func installPlanChangelog(workingDir string, body []byte) error {
 	}
 	defer func() { _ = root.Close() }()
 
-	if err := root.WriteFile(defaultChangelogFile, body, 0o644); err != nil {
+	if err := writePlanChangelog(root, body); err != nil {
 		return fmt.Errorf("install changelog in %q: %w", workingDir, err)
 	}
 

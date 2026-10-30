@@ -44,6 +44,9 @@ func nativeModeFixture(t *testing.T, kind string) (snapshotimage.Plan, string, s
 	require.NoError(t, os.MkdirAll("raw/linux-amd64", 0o700))
 	require.NoError(t, os.WriteFile("raw/linux-amd64/renamed-linux-amd64", []byte("planned executable bytes"), 0o644))
 	require.NoError(t, os.WriteFile("raw/linux-amd64/z-data.txt", []byte("not executable"), 0o644))
+	// Model the download transport's exact normalization, not creation umask.
+	require.NoError(t, os.Chmod("raw/linux-amd64/renamed-linux-amd64", 0o644))
+	require.NoError(t, os.Chmod("raw/linux-amd64/z-data.txt", 0o644))
 	return p, "dist/linux-amd64/renamed-linux-amd64", "dist/linux-amd64/z-data.txt"
 }
 

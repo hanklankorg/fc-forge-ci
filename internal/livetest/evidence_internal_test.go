@@ -5,11 +5,74 @@ package livetest
 
 import (
 	"encoding/pem"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/diggsweden/forge-ci/internal/domain/provider"
 )
+
+func TestGitLabJobEvidenceBeforeTeardown(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("FORGE_CI_LIVE_SNAPSHOT_EVIDENCE_DIR", root)
+	server, ca := labTLSServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/jobs"):
+			_, _ = io.WriteString(w, `[{"id":7,"status":"success","pipeline":{"id":547}},{"id":8,"status":"failed","pipeline":{"id":548}}]`)
+		case strings.HasSuffix(r.URL.Path, "/trace"):
+			_, _ = io.WriteString(w, "ACCESS_JOB_EVIDENCE synthetic-signing-password\n"+strings.Repeat("x", jobLogTail+1))
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	original := http.DefaultTransport
+	transport := original.(*http.Transport).Clone()
+	transport.DialContext = (&dialRecorder{to: server.Listener.Addr().String()}).dial
+	http.DefaultTransport = transport
+	defer func() { http.DefaultTransport = original }()
+	defer transport.CloseIdleConnections()
+	target := Target{Forge: provider.ForgeGitLab, Host: labHost, Owner: "fixture", CAFile: "captured", caPEM: ca, accepted: true}
+	for _, failed := range []bool{false, true} {
+		tb := &evidenceCleanupTB{TB: t}
+		tb.Cleanup(func() {
+			files, err := filepath.Glob(filepath.Join(root, "job-*.log"))
+			if err != nil || len(files) != 2 {
+				t.Fatalf("teardown reached without both successful and failed traces: %v", files)
+			}
+			for _, file := range files {
+				body, err := os.ReadFile(file)
+				if err != nil || !strings.Contains(string(body), "ACCESS_JOB_EVIDENCE") || strings.Contains(string(body), "synthetic-signing-password") || len(body) <= jobLogTail {
+					t.Fatal("full redacted evidence missing before teardown")
+				}
+			}
+		})
+		RetainGitLabJobLogsAfter(tb, target, "fci-owned", map[string]string{"password": "synthetic-signing-password"})
+		func() {
+			defer func() { _ = recover() }()
+			defer tb.finish()
+			if failed {
+				panic("scenario failed before assertions completed")
+			}
+		}()
+	}
+}
+
+type evidenceCleanupTB struct {
+	TB
+	callbacks []func()
+}
+
+func (tb *evidenceCleanupTB) Cleanup(callback func()) { tb.callbacks = append(tb.callbacks, callback) }
+func (tb *evidenceCleanupTB) finish() {
+	for i := len(tb.callbacks) - 1; i >= 0; i-- {
+		tb.callbacks[i]()
+	}
+}
 
 func TestJobLogEvidenceFullBoundedRedacted(t *testing.T) {
 	root := t.TempDir()

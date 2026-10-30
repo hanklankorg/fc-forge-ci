@@ -139,6 +139,8 @@ type SetupMiseEnvInput struct {
 // under the runner temp directory.
 // Runner export files are append-only: identical reruns append identical entries
 // rather than rewriting exports left by an earlier command in the same step.
+// Existing export permissions are preserved; new exports honor the caller's
+// umask. These runner-local files do not have a public artifact mode contract.
 // Known local obstacles refuse before any creation or append. Later I/O failures
 // may leave created directories or earlier appends; this is not a transaction.
 func SetupMiseEnv(in SetupMiseEnvInput) error { //nolint:cyclop // plan both runner files and every directory before effects.

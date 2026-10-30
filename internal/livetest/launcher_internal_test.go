@@ -4,9 +4,9 @@
 package livetest
 
 import (
-	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/diggsweden/forge-ci/internal/testutil/evidence"
 	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
 	"github.com/diggsweden/forge-ci/internal/testutil/testenv"
 )
@@ -38,7 +39,7 @@ func TestLiveLauncherWaitsForCleanupAndReleasesLock(t *testing.T) {
 				"FORGE_CI_LIVE_CLEANUP_HANDSHAKE=1"}
 			command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-			var output bytes.Buffer
+			var output evidence.Diagnostic
 
 			command.Stdout, command.Stderr = &output, &output
 			if err := command.Start(); err != nil {
@@ -48,7 +49,13 @@ func TestLiveLauncherWaitsForCleanupAndReleasesLock(t *testing.T) {
 			defer func() { _ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL) }()
 
 			done := make(chan error, 1)
-			go func() { done <- command.Wait() }()
+			go func() {
+				err := command.Wait()
+				if err != nil {
+					err = fmt.Errorf("%w\n%s", err, output.Text(command.Env))
+				}
+				done <- err
+			}()
 
 			waitFixtureFile(t, ctx, root, "ready", done)
 			lock := filepath.Join(root, "state/forge-ci/live.lock")
@@ -73,15 +80,15 @@ func TestLiveLauncherWaitsForCleanupAndReleasesLock(t *testing.T) {
 
 			var exit *exec.ExitError
 			if !errors.As(err, &exit) || exit.ExitCode() != 130 {
-				t.Fatalf("launcher status: %v\n%s", err, output.String())
+				t.Fatalf("launcher status: %v", err)
 			}
 
 			if _, err := os.Stat(filepath.Join(root, "cleaned")); err != nil {
-				t.Fatalf("launcher returned before test cleanup: %v\n%s", err, output.String())
+				t.Fatalf("launcher returned before test cleanup: %v\n%s", err, output.Text(command.Env))
 			}
 
-			if !strings.Contains(output.String(), "Live log:") || !strings.Contains(output.String(), "fixture interrupted") {
-				t.Fatalf("interruption lost the log: %s", output.String())
+			if !strings.Contains(output.Text(command.Env), "Live log:") || !strings.Contains(output.Text(command.Env), "fixture interrupted") {
+				t.Fatalf("interruption lost the log: %s", output.Text(command.Env))
 			}
 
 			requireLiveLock(t, ctx, lock, false)

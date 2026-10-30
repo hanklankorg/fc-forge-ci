@@ -134,6 +134,16 @@ func WriteDigestMarker(in WriteDigestMarkerInput) (string, error) {
 		return "", err
 	}
 
+	// Newly created markers are public artifact metadata with an exact mode.
+	// Apply it through the exclusively created descriptor so the caller's
+	// restrictive umask and preexisting entries remain untouched.
+	if err := file.Chmod(0o644); err != nil {
+		_ = file.Close()
+		_ = root.Remove(digest)
+
+		return "", err
+	}
+
 	if err := file.Close(); err != nil {
 		return "", err
 	}

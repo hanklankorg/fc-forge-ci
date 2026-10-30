@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: The Forge CI Authors
+# SPDX-License-Identifier: CC0-1.0
+name: npm application development
+on:
+  workflow_dispatch:
+jobs:
+  snapshot:
+    uses: @WORKFLOWS@snapshot-images.yml@@PIN@
+    with:
+      branch: @BRANCH@
+      artifacts-config: .forge-ci/npm-application.yml
+      forge-ci-repository: ${{ vars.FORGE_CI_REPOSITORY }}
+      forge-ci-sha: @PIN@
+      runner-label: ${{ vars.CI_RUNNER_LABEL_CONTAINER }}
+      image-repository: ${{ vars.SERVICE_IMAGE_REPOSITORY }}
+      registry-user: ${{ vars.DEVELOPMENT_REGISTRY_USERNAME }}
+    secrets:
+      SNAPSHOT_REGISTRY_PASSWORD: ${{ secrets.DEVELOPMENT_REGISTRY_TOKEN }}
+  checked-package:
+    needs: snapshot
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    container:
+      image: @IMAGE@
+    steps:
+      - uses: @ACTIONS@setup-forge-ci@@PIN@
+      - uses: @ACTIONS@checkout-consumer@@PIN@
+        with:
+          ref: ${{ needs.snapshot.outputs.source-sha }}
+      - name: Original npm lifecycle
+        env:
+          NODE_VERSION: '24.17.0'
+          CYCLONEDX_VERSION: '6.0.0'
+        run: forge-ci build npm run
+      - name: Retain checked package before installed oracle
+        env:
+          SOURCE_SHA: ${{ needs.snapshot.outputs.source-sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          mkdir -p retained-package
+          cp -- ./*.tgz retained-package/
+          printf '%s\n' "$SOURCE_SHA" > retained-package/source-sha.txt
+          sha256sum retained-package/*.tgz > retained-package/SHA256SUMS
+          forge-ci artifact upload --name "npm-application-$SOURCE_SHA" --dir retained-package --if-no-files error
+          bash .forge-ci/npm-oracle.sh "$PWD/retained-package"
+          echo "NPM_APPLICATION_ORACLE_OK:$SOURCE_SHA"

@@ -68,8 +68,9 @@ func TestIsolatedVersionBump_TwoNativeNPMCargoRounds(t *testing.T) {
 			}
 			t.Chdir(repo.Dir)
 			for _, release := range []string{"1.2.3", "1.2.4"} {
-				if err := appversion.Bump(t.Context(), appversion.BumpOps{NPM: npmadapter.New(), Cargo: cargoadapter.New()}, io.Discard, io.Discard, output.Annotator{}, appversion.BumpInput{ProjectType: kind, Version: release, WorkingDir: "."}); err != nil {
-					t.Fatal(err)
+				var diagnostic evidence.Diagnostic
+				if err := appversion.Bump(t.Context(), appversion.BumpOps{NPM: npmadapter.New(), Cargo: cargoadapter.New()}, io.Discard, &diagnostic, output.Annotator{}, appversion.BumpInput{ProjectType: kind, Version: release, WorkingDir: "."}); err != nil {
+					t.Fatalf("%v\nstderr: %s", err, diagnostic.Text(os.Environ()))
 				}
 				patch := []byte(repo.Git("diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/") + "\n")
 				repo.Git("checkout", "--", ".")

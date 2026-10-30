@@ -86,6 +86,16 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 	}
 
 	consumer := livetest.OpenConsumer(t, target, root)
+	if image := os.Getenv("FORGE_CI_LIVE_NPM_APPLICATION_IMAGE"); image != "" {
+		if private || livetest.RunnerArch(t, target) != "amd64" || livetest.DemoName() != "" {
+			t.Fatal("npm application acceptance requires public disposable native amd64 repositories")
+		}
+		recipe, err := filepath.Abs("../../../test/live/demos/hello-npm-service/consumer")
+		if err != nil {
+			t.Fatal(err)
+		}
+		consumer = livetest.NewNPMApplicationFixture(t, consumer, livetest.NPMApplicationFixtureConfig{RecipeDirectory: recipe, NodeImage: image, Oracle: os.Getenv("FORGE_CI_LIVE_NPM_APPLICATION_ORACLE")}, false)
+	}
 	if image := os.Getenv("FORGE_CI_LIVE_MAVEN_APPLICATION_IMAGE"); image != "" {
 		recipe, err := filepath.Abs("../../../test/live/demos/hello-maven/consumer")
 		if err != nil {
@@ -165,6 +175,9 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 	// The layer's own variables, then the consumer's names for the lab's
 	// facts, then the caller's. One name has one source.
 	variables := map[string]string{layerRunnerVariable: runnerLabelsJSON(t, scenario.label), "FORGE_CI_REPOSITORY": scenario.layer.Repository}
+	if os.Getenv("FORGE_CI_LIVE_NPM_APPLICATION_IMAGE") != "" {
+		variables["NPM_APPLICATION_REGISTRY"] = strings.TrimRight(target.BaseURL(), "/") + "/api/packages/" + target.Owner + "/npm/"
+	}
 	// Buildah's image builds go to the contract's runner that permits user
 	// namespaces; kaniko's stay on the ordinary runner, which may deny them.
 	if privileged := livetest.PrivilegedRunnerLabel(t, target); privileged != "" && settings.Variables["CI_IMAGE_BUILDER"] != "kaniko" {

@@ -9,6 +9,7 @@ missing_tools=()
 required_tools=(
 	bash
 	git
+	ssh-keygen
 	curl
 	jq
 	gpg
@@ -42,7 +43,7 @@ if [ "${#missing_tools[@]}" -gt 0 ]; then
 fi
 
 if [ "${SIGNER_STRICT:-0}" = "1" ]; then
-	forbidden_tools=(sudo gh bun python python3 ruby node npm mise)
+	forbidden_tools=(sudo gh bun python python3 ruby node npm mise go rustc cargo cc gcc g++ c++ clang clang++ javac)
 	found_forbidden=()
 	for tool in "${forbidden_tools[@]}"; do
 		if command -v "${tool}" >/dev/null 2>&1; then

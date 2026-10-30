@@ -189,7 +189,8 @@ images and pins, a validating regex. The inputs that are not obvious:
 | | `request-allowed-signers` | OpenSSH allowed-signers text for the people who may sign a request tag. |
 | | `bot-name`, `bot-email` | The release bot identity; no default. |
 | | `checks`, `build` | Consumer commands: checks on the request commit, and the build that writes `dist/release-files.json` and `release-notes.md`. |
-| | `build-runner-tags` | Runner tags for the build job alone, for example `[privileged]`. Empty, the default, leaves it untagged; every other job stays untagged. |
+| | `build-runner-tags` | Runner tags for the build job alone, for example `[privileged]`. Empty, the default, leaves it untagged. |
+| | `checks-runner-tags` | Runner tags for consumer checks after restricted signed-request authorization. Empty, the default, leaves checks untagged. Authorization and signing stay untagged. |
 | | `changelog-creator`, `changelog-config`, `commit-body-config` | `git-cliff` (default) or `git-chglog`, and the consumer's configuration files, by default `.forge-ci/gitcliff/keepachangelog.toml` and `.forge-ci/gitcliff/minimal.toml`, copies of this repository's [`templates/gitcliff/`](../templates/gitcliff/). git-cliff renders offline, without remote metadata, and reads stable `vX.Y.Z` tags only, overriding any `tag_pattern` in the configuration. A SHA-256 repository needs `git-chglog`, since git-cliff cannot read one. |
 | | `release-policy` | `stable` (default) or `stable-prerelease`, selected in the trusted external policy. GitLab has no native prerelease flag; see [release policy](workflows.md#stable-and-prerelease-policy). |
 | | `release-branch` | The branch a release lands on; empty, the default, takes the project's default branch. The request must be its head. |
@@ -283,6 +284,14 @@ Pass the same image for both inputs when the build needs no separate environment
 Buildah needs user namespaces. Where only some runners allow them, tag those
 runners and name the tags in `build-runner-tags`: the build job alone moves
 there, and the signing jobs stay on the untagged runners.
+Integration checks that execute Buildah need the same capability. Set
+`checks-runner-tags` in the trusted release policy for those checks. The
+restricted `Check: release request` must succeed before the selected runner
+starts `Check: consumer checks`; that job freshly checks out the immutable
+request commit and repeats signature and branch-head validation before running
+`checks`. Both jobs refuse release credentials. Changelog and version
+preparation wait for successful consumer checks. This selector does not route
+merge-request checks or change the ordinary runner default.
 The components clear the entrypoint of `job-image` and `build-image`, here and
 in `check`, and of the lint images in `nanolinter` and `megalinter`, so an
 image that starts a tool of its own still runs the job's shell on a Docker
@@ -659,7 +668,8 @@ The child runs these jobs, in five stages that read the same on every forge
 | Job | Image | Does |
 |---|---|---|
 | `Check: signing access`, `Check: publishing access`, `Check: registry access` | signer | The toolchain check, the Cosign key against the trusted public key, and the release and registry tokens, before anything else. |
-| `Check: release request` | job | Validates the signed request and that it is the head of the release branch, then runs `checks`. |
+| `Check: release request` | job | On the restricted runner, validates the signed request and that it is the head of the release branch; executes no consumer commands. |
+| `Check: consumer checks` | job | After authorization, freshly checks out and revalidates the immutable request, then runs `checks` on `checks-runner-tags` (untagged by default). |
 | `Prepare: changelog` | job | Renders the changelog and commit message. Consumer configuration runs only here and in `Prepare: version`. |
 | `Prepare: version` | job | With `version-bump`, sets the release version in the project files and hands over the patch; holds no credential. |
 | `Prepare: release commit and tag` | job | Verifies the version patch, commits it with the changelog and pushes the signed release commit and final tag with `RELEASE_SSH_SIGNING_KEY`. |

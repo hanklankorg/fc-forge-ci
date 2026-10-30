@@ -159,24 +159,24 @@ func requireObjectFormats(t *testing.T, objectFormat, consumerCommit, engineComm
 	t.Logf("object formats verified: consumer=%s, engine=sha1, mixed=%t", objectFormat, objectFormat != "sha1")
 }
 
-// requireStatus reads the run's jobs and, when the run did not end as the
-// scenario expects, prints them before failing.
+// requireStatus retains the run's job evidence before checking its verdict.
 func (s layerScenario) requireStatus(t *testing.T, run livetest.WorkflowRun, want string, secrets ...map[string]string) []livetest.RunJob {
 	t.Helper()
 
 	jobs := livetest.RunJobs(t, s.target, s.repo, run.ID)
+	s.logJobs(t, jobs, secrets...)
 	if run.Status == want {
 		return jobs
 	}
 
-	s.logJobs(t, jobs, secrets...)
 	t.Fatalf("run %d of %s ended %q, want %s", run.ID, run.WorkflowID, run.Status, want)
 
 	return nil
 }
 
-// logJobs prints every job with its status, and the end of the log of each
-// that ran on a runner and did not succeed.
+// logJobs retains bounded redacted runner traces before scratch cleanup,
+// including successful builds whose test counts would otherwise disappear.
+// Only unsuccessful jobs print a tail to the operator log.
 func (s layerScenario) logJobs(t *testing.T, jobs []livetest.RunJob, secrets ...map[string]string) {
 	t.Helper()
 
@@ -185,11 +185,14 @@ func (s layerScenario) logJobs(t *testing.T, jobs []livetest.RunJob, secrets ...
 		// for a token followed by a colon and a word has that shape.
 		t.Logf("%-9s job %q", job.Status, job.Name)
 
-		if job.Status == jobSuccess || job.Status == "skipped" || len(job.RunsOn) == 0 {
+		if job.Status == "skipped" || len(job.RunsOn) == 0 {
 			continue
 		}
 
 		if log := livetest.RetainJobLog(t, s.target, s.repo, job, secrets...); log != "" {
+			if job.Status == jobSuccess {
+				continue
+			}
 			t.Logf("job %q log (tail):\n%s", job.Name, log)
 		} else {
 			t.Logf("job %q: the forge served no log", job.Name)

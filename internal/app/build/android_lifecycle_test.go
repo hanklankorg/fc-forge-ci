@@ -209,6 +209,9 @@ func TestAndroidReleaseBuild_SignedCallPrefixesAndCleanup(t *testing.T) {
 			fsys.WriteFile("gradle.properties", []byte("versionName=wrong-cwd\nversionCode=999\n"))
 			fsys.WriteFile("project/gradlew", []byte("inert selected wrapper"))
 			fsys.WriteFile("project/gradle.properties", []byte("versionName=3.2.1\nversionCode=37\n"))
+			for _, path := range []string{"gradlew", "gradle.properties", "project/gradlew", "project/gradle.properties"} {
+				require.NoError(t, os.Chmod(fsys.Path(path), 0o644))
+			}
 
 			if fail == "missing_metadata" {
 				require.NoError(t, os.Remove(fsys.Path("project/gradle.properties")))

@@ -37,7 +37,8 @@ import (
 
 // hermeticContext writes a network-free build context: FROM scratch + COPY
 // needs no base-image pull and no RUN, so it builds in an isolated vfs store
-// without network, root, or user namespaces.
+// without base-image network access or RUN privileges. Rootless Buildah still
+// needs user namespaces to initialize the store, even with chroot isolation.
 func hermeticContext(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -111,10 +112,14 @@ func requireBuildahStore(t *testing.T, global []string) {
 
 	evidence.RequireTool(t, "buildah")
 
-	out, err := exec.CommandContext(t.Context(), "buildah", append(append([]string{}, global...), "from", "scratch")...).CombinedOutput() //nolint:gosec // test-controlled args.
+	cmd := exec.CommandContext(t.Context(), "buildah", append(append([]string{}, global...), "from", "scratch")...) //nolint:gosec // test-controlled args.
+	out, stderr, err := buildahCommandOutput(cmd)
 	if err != nil {
 		t.Fatalf("buildah is installed but cannot create a container in the hermetic store "+
-			"(storage driver, permissions, or configuration): %v\n%s", err, out)
+			"(storage driver, permissions, or configuration): %v", err)
+	}
+	if stderr != "" {
+		t.Logf("buildah from scratch stderr:\n%s", stderr)
 	}
 
 	lines := strings.Fields(string(out))
@@ -504,15 +509,4 @@ func TestBuild_BuildahSeesOnlyOwnedHostState(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(host, "graph")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the host storage.conf graphroot was used: %v", err)
 	}
-}
-
-func runBuildah(t *testing.T, global []string, args ...string) string {
-	t.Helper()
-
-	out, err := exec.Command("buildah", append(global, args...)...).CombinedOutput() //nolint:gosec // test-controlled args.
-	if err != nil {
-		t.Fatalf("buildah %v: %v\n%s", args, err, out)
-	}
-
-	return string(out)
 }

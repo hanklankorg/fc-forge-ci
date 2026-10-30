@@ -673,6 +673,25 @@ serde = "1"
 	}
 }
 
+func TestBump_Cargo_ExplicitPackageBesideWorkspaceDefaults(t *testing.T) {
+	t.Parallel()
+	fsys := testfs.NewReal(t)
+
+	const body = "[package]\nname = 'nano'\nversion = '0.8.5' # provenance\n[workspace.package]\nrust-version = '1.85'\n"
+	fsys.WriteFile("Cargo.toml", []byte(body))
+
+	var out bytes.Buffer
+
+	err := appversion.Bump(t.Context(), appversion.BumpOps{}, &out, io.Discard, output.Annotator{}, appversion.BumpInput{
+		ProjectType: projecttype.Cargo,
+		Version:     "0.8.6",
+		WorkingDir:  fsys.Root,
+	})
+	require.NoError(t, err)
+	require.Equal(t, strings.Replace(body, "'0.8.5'", `"0.8.6"`, 1), string(fsys.ReadFile("Cargo.toml")))
+	require.Contains(t, out.String(), "Updated [package].version to 0.8.6")
+}
+
 func TestBump_Cargo_RefreshesLockWhenPresent(t *testing.T) {
 	t.Parallel()
 	fsys := testfs.NewReal(t)

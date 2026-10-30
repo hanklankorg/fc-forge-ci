@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
 
 # Trusted GitLab orchestration. The project must select a pinned external CI
-# policy. Only "Check: release request", "Prepare: changelog", "Prepare:
+# policy. Only "Check: consumer checks", "Prepare: changelog", "Prepare:
 # version" and "Build: release files" execute consumer code. Native artifacts carry data; they are never dotenv reports or sourced.
 
 rc_engine() { "${FORGE_CI_BIN:?}" "$@"; }
@@ -378,7 +378,7 @@ rc_cleanup_release() {
 rc_release_summary() {
 	local name jobs=()
 	for name in "Check: signing access" "Check: publishing access" "Check: registry access" \
-		"Check: release request" "Prepare: changelog" "Prepare: version" \
+		"Check: release request" "Check: consumer checks" "Prepare: changelog" "Prepare: version" \
 		"Prepare: release commit and tag" "Build: release files" "Sign: files and images" \
 		"Publish: images" "Publish: release" "Publish: tidy up"; do
 		if [ "${name}" = "Prepare: version" ] && [ -z "${RC_VERSION_BUMP:-}" ]; then continue; fi

@@ -1,0 +1,91 @@
+# SPDX-FileCopyrightText: The Forge CI Authors
+# SPDX-License-Identifier: CC0-1.0
+name: Maven service development
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    uses: @WORKFLOWS@snapshot-images.yml@@PIN@
+    with:
+      branch: @BRANCH@
+      artifacts-config: .forge-ci/service-development.yml
+      forge-ci-repository: ${{ vars.FORGE_CI_REPOSITORY }}
+      forge-ci-sha: @PIN@
+      runner-label: ${{ vars.CI_RUNNER_LABEL_CONTAINER }}
+      image-repository: ${{ vars.SERVICE_IMAGE_REPOSITORY }}
+      registry-user: ${{ vars.DEVELOPMENT_REGISTRY_USERNAME }}
+    secrets:
+      SNAPSHOT_REGISTRY_PASSWORD: ${{ secrets.DEVELOPMENT_REGISTRY_TOKEN }}
+  check:
+    needs: snapshot
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    container:
+      image: @IMAGE@
+    steps:
+      - uses: @ACTIONS@setup-forge-ci@@PIN@
+      - uses: @ACTIONS@checkout-consumer@@PIN@
+        with:
+          ref: ${{ needs.snapshot.outputs.source-sha }}
+      - uses: @ACTIONS@build-maven@@PIN@
+        with:
+          commit: ${{ needs.snapshot.outputs.source-sha }}
+          build-type: app
+      - name: Retain checked source JAR and nonsecret runtime fixture
+        env:
+          SOURCE_SHA: ${{ needs.snapshot.outputs.source-sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          mkdir -p checked-jars trial-runtime
+          cp target/@ARTIFACT@-*.jar checked-jars/
+          printf '%s\n' "$SOURCE_SHA" > checked-jars/source-sha.txt
+          sha256sum checked-jars/*.jar > checked-jars/SHA256SUMS
+          touch trial-runtime/runtime.env
+          bash .forge-ci/service-fixture.sh
+          chmod -R a+rX trial-runtime
+          forge-ci artifact upload --name "service-jars-$SOURCE_SHA" --dir checked-jars --if-no-files error
+          forge-ci artifact upload --name service-runtime --dir trial-runtime --if-no-files error --retention-days 1
+  readiness:
+    needs: [snapshot, check]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL_CONTAINER) }}
+    steps:
+      - uses: @ACTIONS@setup-forge-ci@@PIN@
+      - name: Pull and start the immutable published digest
+        env:
+          SOURCE_SHA: ${{ needs.snapshot.outputs.source-sha }}
+          IMAGES_JSON: ${{ needs.snapshot.outputs.container-images-json }}
+          READINESS_URL: @URL@
+        run: |
+          set -euo pipefail
+          command -v podman
+          command -v curl
+          forge-ci artifact download --name service-runtime --dir trial-runtime
+          mkdir -p service-evidence
+          printf '%s\n' "$IMAGES_JSON" > service-evidence/container-images.json
+          ref=$(jq -er 'if length == 1 then .[0].ref else error("one image required") end' service-evidence/container-images.json)
+          [[ "$ref" =~ @sha256:[0-9a-f]{64}$ ]]
+          cid=
+          cleanup() { if [ -n "$cid" ]; then podman rm -f "$cid" >/dev/null; fi; }
+          trap cleanup EXIT
+          podman pull "$ref"
+          port_path=${READINESS_URL#http://127.0.0.1:}
+          port=${port_path%%/*}
+          cid=$(podman run -d --pull=never -p "127.0.0.1::$port" --env-file trial-runtime/runtime.env -v "$PWD/trial-runtime:/trial:ro" "$ref")
+          binding=$(podman port "$cid" "$port/tcp")
+          [[ "$binding" =~ ^127\.0\.0\.1:[0-9]+$ ]]
+          probe_url="http://$binding/${port_path#*/}"
+          ready=false
+          for attempt in $(seq 1 60); do
+            test "$(podman inspect --format '{{.State.Running}}' "$cid")" = true || break
+            code=$(curl --noproxy '*' --silent --show-error --max-time 2 --max-filesize 65536 --output service-evidence/readiness-body.txt --write-out '%{http_code}' "$probe_url") || code=000
+            if [ "$code" = 200 ]; then ready=true; break; fi
+            sleep 2
+          done
+          test "$ready" = true
+          printf '%s\n' "$SOURCE_SHA" > service-evidence/source-sha.txt
+          printf '%s\n' "$ref" > service-evidence/image-ref.txt
+          printf '%s\n' "$READINESS_URL" > service-evidence/readiness-url.txt
+          forge-ci artifact upload --name "service-evidence-$SOURCE_SHA" --dir service-evidence --if-no-files error
+          echo "SERVICE_READINESS_OK:$SOURCE_SHA:$ref"

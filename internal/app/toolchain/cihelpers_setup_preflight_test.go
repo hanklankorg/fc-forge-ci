@@ -152,7 +152,7 @@ func TestSetupMiseEnv_ExactExportsAndAppendOnlyReruns(t *testing.T) {
 
 				if planned {
 					in.PathFile, in.EnvFile = filepath.Join(in.BinHome, runnerPathName), filepath.Join(config, "ENV")
-					prefixPath, prefixEnv, pathMode, envMode = "", "", 0o644, 0o644
+					prefixPath, prefixEnv, pathMode, envMode = "", "", runnerCreationMode(t), runnerCreationMode(t)
 				} else {
 					writeChangelogCanary(t, in.PathFile, prefixPath, pathMode)
 					writeChangelogCanary(t, in.EnvFile, prefixEnv, envMode)
@@ -242,7 +242,7 @@ func TestSetupMiseEnv_UsesCanonicalOSTempFallback(t *testing.T) {
 			config := filepath.Join(temp, "setup-toolchain-mise-config")
 			base := filepath.Join(temp, "setup-toolchain-mise-data")
 			assertChangelogFile(t, in.EnvFile, "MISE_CONFIG_DIR="+config+"\nMISE_DATA_DIR="+filepath.Join(base, dataSubdir)+
-				"\nMISE_CACHE_DIR="+filepath.Join(base, cacheSubdir)+"\nMISE_STATE_DIR="+filepath.Join(base, stateSubdir)+"\n", 0o644)
+				"\nMISE_CACHE_DIR="+filepath.Join(base, cacheSubdir)+"\nMISE_STATE_DIR="+filepath.Join(base, stateSubdir)+"\n", runnerCreationMode(t))
 
 			for _, dir := range []string{config, filepath.Join(base, dataSubdir), filepath.Join(base, cacheSubdir), filepath.Join(base, stateSubdir)} {
 				if info, err := os.Lstat(dir); err != nil || !info.IsDir() {

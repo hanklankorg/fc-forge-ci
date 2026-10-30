@@ -6,6 +6,7 @@
 package livetest
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/diggsweden/forge-ci/internal/retry"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
@@ -87,16 +89,15 @@ func TestGitHubSourceImageRestoreForBatch(t *testing.T) {
 			}
 			t.Fatalf("documented exact fixture restore unavailable HTTP%d; no upload or visibility changes attempted", status)
 		}
-		for attempt := 0; attempt < 15; attempt++ {
-			current, e = trial.ReadContainerPackageIdentity(t.Context(), expectedName, repoID)
-			if e == nil {
-				break
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		defer cancel()
+		current, e = retry.Do(ctx, nil, 15, 2*time.Second, func() (GitHubPackageIdentity, error) {
+			observed, readErr := trial.ReadContainerPackageIdentity(ctx, expectedName, repoID)
+			if readErr == nil || errors.Is(readErr, os.ErrNotExist) {
+				return observed, readErr
 			}
-			if !errors.Is(e, os.ErrNotExist) {
-				t.Fatal("restored binding missing/foreign; refusing adoption")
-			}
-			time.Sleep(2 * time.Second)
-		}
+			return observed, retry.Permanent(readErr)
+		}, retry.WithBackoff(retry.Constant))
 	}
 	if e != nil || current != receipt.Package {
 		t.Fatal("restored package ID or repository differs; refusing reuse")

@@ -82,7 +82,11 @@ func TestGradleAndroidRun_BindsSigningEnvironmentAndBlobSources(t *testing.T) {
 					fsys.WriteFile("gradle.properties", []byte("versionName=wrong-cwd\nversionCode=999\n"))
 					fsys.WriteFile("decoy/gradlew", []byte("env decoy wrapper"))
 					fsys.WriteFile("decoy/gradle.properties", []byte("versionName=wrong-env\nversionCode=999\n"))
+					for _, path := range []string{"selected/gradlew", "selected/gradle.properties", "gradlew", "gradle.properties", "decoy/gradlew", "decoy/gradle.properties"} {
+						require.NoError(t, os.Chmod(fsys.Path(path), 0o644))
+					}
 					fsys.WriteFile("decoy/build/reports/bom.json", []byte("unselected report"))
+					require.NoError(t, os.Chmod(fsys.Path("decoy/build/reports/bom.json"), 0o644))
 
 					for key, value := range map[string]string{
 						"WORKING_DIRECTORY": "selected", "INCLUDE_DATE_STAMP": "false", "ARTIFACT_NAME_PREFIX": "agency",

@@ -77,6 +77,24 @@ func writeChangelogCanary(t *testing.T, path, body string, mode os.FileMode) {
 	if err := os.WriteFile(path, []byte(body), mode); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(path, mode); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Runner exports use ordinary creation permissions, filtered by the caller's
+// umask, rather than a public artifact mode. Probe without changing process state.
+func runnerCreationMode(t *testing.T) os.FileMode {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "creation-reference")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Mode().Perm()
 }
 
 func changelogSymlink(t *testing.T, target, path string) {
