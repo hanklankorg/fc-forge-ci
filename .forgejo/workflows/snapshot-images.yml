@@ -212,7 +212,7 @@ jobs:
         run: test -n "${ARM64_RUNNER}"
   produce:
     needs: [coordinates, plan]
-    if: ${{ needs.plan.outputs.has-artifacts == 'true' && inputs['context-artifact'] == '' }}
+    if: ${{ needs.plan.outputs.enabled == 'true' && inputs['context-artifact'] == '' }}
     runs-on: ${{ fromJSON(inputs['runner-label']) }}
     container: ${{ (matrix.artifact.project_type == 'go' && needs.coordinates.outputs.artifact_job_image_go) || ((matrix.artifact.project_type == 'maven' || matrix.artifact.project_type == 'gradle') && needs.coordinates.outputs.artifact_job_image_java) || (matrix.artifact.project_type == 'npm' && needs.coordinates.outputs.artifact_job_image_node) || (matrix.artifact.project_type == 'cargo' && needs.coordinates.outputs.artifact_job_image_rust) || '' }}
     env:
@@ -220,11 +220,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Keep a skipped job in Forgejo's dependency graph when there are no
-        # producers; an empty matrix leaves the downstream context job blocked.
+        # Complete a no-op job when there are no producers. An empty matrix
+        # blocks downstream jobs on Forgejo (forgejo/forgejo#12191).
         artifact: ${{ fromJSON(needs.plan.outputs.has-artifacts == 'true' && needs.plan.outputs.artifacts || '[{}]') }}
     steps:
+      - name: No artifact producer required
+        if: ${{ !matrix.artifact.name }}
+        run: echo 'Container-first snapshot has no artifact producer'
       - name: Bootstrap pinned native snapshot layer
+        if: ${{ matrix.artifact.name != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -241,6 +245,7 @@ jobs:
           fetch_forge_ci
           printf 'SNAPSHOT_HELPERS=%s\n' "${helpers}" >> "${FORGEJO_ENV:?}"
       - name: Fetch exact artifact source and frozen settings
+        if: ${{ matrix.artifact.name != '' }}
         shell: bash
         env:
           FORGEJO_TOKEN: ${{ forgejo.token }}
@@ -252,6 +257,7 @@ jobs:
           run_forge_ci artifact download --name "${SNAPSHOT_NAMESPACE}-plan" --dir .
           snapshot_checkout "${SOURCE_SHA}"
       - name: Build required artifact using the shared ecosystem runner
+        if: ${{ matrix.artifact.name != '' }}
         shell: bash
         env:
           ARTIFACT_NAME: ${{ matrix.artifact.name }}
@@ -263,6 +269,7 @@ jobs:
           test "${HELPERS_ENGINE_ARCH}" = amd64
           snapshot_build_artifact "${ARTIFACT_NAME}"
       - name: Retain bound artifact producer output
+        if: ${{ matrix.artifact.name != '' }}
         shell: bash
         env:
           ARTIFACT_NAME: ${{ matrix.artifact.name }}
@@ -273,7 +280,7 @@ jobs:
             --dir "snapshot-source/_snapshot-artifacts/${ARTIFACT_NAME}" --include-hidden --if-no-files error --retention-days 1
   context:
     needs: [coordinates, plan, produce]
-    if: ${{ always() && !failure() && !cancelled() && needs.plan.outputs.enabled == 'true' && inputs['context-artifact'] == '' }}
+    if: ${{ !failure() && !cancelled() && needs.plan.outputs.enabled == 'true' && inputs['context-artifact'] == '' }}
     runs-on: ${{ fromJSON(inputs['runner-label']) }}
     env:
       FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
@@ -316,7 +323,7 @@ jobs:
             --dir snapshot-source/snapshot-context --include-hidden --if-no-files error --retention-days 1
   build:
     needs: [coordinates, plan, context]
-    if: ${{ always() && !failure() && !cancelled() && needs.plan.outputs.enabled == 'true' && (needs.context.result == 'success' || inputs['context-artifact'] != '') }}
+    if: ${{ !failure() && !cancelled() && needs.plan.outputs.enabled == 'true' && (needs.context.result == 'success' || inputs['context-artifact'] != '') }}
     runs-on: ${{ fromJSON(matrix.build.arch == 'arm64' && inputs['runner-label-arm64'] || inputs['runner-label']) }}
     container: ${{ needs.coordinates.outputs.builder_job_image }}
     env:
@@ -452,7 +459,7 @@ jobs:
           run_forge_ci artifact upload --name "${SNAPSHOT_NAMESPACE}-evidence-${IMAGE_NAME}" --dir "snapshot-evidence/${IMAGE_NAME}" --if-no-files ignore
   collect:
     needs: [coordinates, plan, build, publish]
-    if: ${{ always() && !failure() && !cancelled() && needs.plan.result == 'success' }}
+    if: ${{ !failure() && !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ fromJSON(inputs['runner-label']) }}
     env:
       FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}

@@ -178,6 +178,7 @@ func TestSnapshotForgejoAutomaticProducerAndGatherOrdering(t *testing.T) {
 			Steps    []struct {
 				Run string
 				Env map[string]string
+				If  string
 			}
 		} `yaml:"jobs"`
 	}
@@ -185,22 +186,25 @@ func TestSnapshotForgejoAutomaticProducerAndGatherOrdering(t *testing.T) {
 		t.Fatal(err)
 	}
 	if workflow.Jobs["produce"].Strategy.Matrix["artifact"] != "${{ fromJSON(needs.plan.outputs.has-artifacts == 'true' && needs.plan.outputs.artifacts || '[{}]') }}" {
-		t.Fatal("producers must use the unique artifact projection, with a skipped placeholder when empty so Forgejo can settle downstream dependencies")
+		t.Fatal("producers must use the unique artifact projection, with a no-op placeholder when empty so Forgejo can settle downstream dependencies")
 	}
-	if !strings.Contains(workflow.Jobs["produce"].If, "needs.plan.outputs.has-artifacts == 'true'") {
-		t.Fatal("the empty-plan placeholder must never execute an artifact producer")
+	if !strings.Contains(workflow.Jobs["produce"].If, "needs.plan.outputs.enabled == 'true'") {
+		t.Fatal("enabled container-first plans must complete the no-op producer dependency")
+	}
+	for _, step := range workflow.Jobs["produce"].Steps {
+		artifactStep := strings.Contains(step.Run, "snapshot_build_artifact") ||
+			strings.Contains(step.Run, "snapshot_checkout") ||
+			strings.Contains(step.Run, "fetch_forge_ci") ||
+			strings.Contains(step.Run, "artifact upload")
+		if artifactStep && step.If != "${{ matrix.artifact.name != '' }}" {
+			t.Fatal("the empty-plan placeholder must not fetch source, build or upload an artifact")
+		}
 	}
 	if !strings.Contains(fmt.Sprint(workflow.Jobs["context"].Needs), "produce") || !strings.Contains(workflow.Jobs["context"].If, "!failure()") {
 		t.Fatal("gather must wait for every producer to succeed")
 	}
 	if !strings.Contains(fmt.Sprint(workflow.Jobs["build"].Needs), "context") || !strings.Contains(workflow.Jobs["build"].If, "needs.context.result == 'success'") {
 		t.Fatal("image builds must wait for validated gathered context")
-	}
-	for _, name := range []string{"context", "build", "collect"} {
-		condition := workflow.Jobs[name].If
-		if !strings.Contains(condition, "always()") || !strings.Contains(condition, "!failure()") || !strings.Contains(condition, "!cancelled()") {
-			t.Fatalf("%s must evaluate after optional dependencies are skipped, while refusing failed or cancelled work", name)
-		}
 	}
 	for _, name := range []string{"produce", "context"} {
 		pinned := false
