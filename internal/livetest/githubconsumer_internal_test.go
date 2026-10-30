@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -23,6 +24,79 @@ import (
 )
 
 var trialEngine = GitHubEngine{Owner: "Example-Org", Repository: "fc-forge-ci", Commit: strings.Repeat("a", 40)}
+
+func TestReportRunRetriesTransientJobReads(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		status    int
+		recover   bool
+		wantCalls int
+	}{
+		{"temporary gateway failure", http.StatusBadGateway, true, 2},
+		{"permission denied", http.StatusForbidden, false, 1},
+		{"persistent gateway failure", http.StatusBadGateway, false, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				calls++
+				if request.Method != http.MethodGet || request.URL.Path != "/repos/fixture/fc-app/actions/runs/99/jobs" {
+					t.Errorf("unexpected diagnostic request: %s %s", request.Method, request.URL)
+				}
+				if !tc.recover || calls == 1 {
+					response.WriteHeader(tc.status)
+					_ = json.NewEncoder(response).Encode(map[string]string{"message": "fixture API failure"})
+					return
+				}
+				_ = json.NewEncoder(response).Encode(map[string]any{"jobs": []map[string]string{{"name": "build", "status": "completed", "conclusion": "success"}}})
+			}))
+			defer server.Close()
+			api, err := github.NewClient(github.WithHTTPClient(server.Client()), github.WithURLs(new(server.URL+"/"), nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			tb := &recordingTB{}
+			trial := GitHubTrial{tb: tb, api: api, org: "fixture"}
+			trial.ReportRun("fc-app", &github.WorkflowRun{ID: new(int64(99))})
+			if calls != tc.wantCalls || (len(tb.errors) == 0) != tc.recover {
+				t.Fatalf("calls=%d errors=%v; want calls=%d recovered=%t", calls, tb.errors, tc.wantCalls, tc.recover)
+			}
+		})
+	}
+}
+
+func TestReportRunIncludesNonSuccessJobDiagnostics(t *testing.T) {
+	for _, conclusion := range []string{"failure", "timed_out", "cancelled", "action_required", ""} {
+		t.Run("conclusion="+conclusion, func(t *testing.T) {
+			logReads := 0
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				switch request.URL.Path {
+				case "/repos/fixture/fc-app/actions/runs/99/jobs":
+					_ = json.NewEncoder(response).Encode(map[string]any{"jobs": []map[string]any{{"id": 42, "name": "build", "status": "completed", "conclusion": conclusion}}})
+				case "/repos/fixture/fc-app/actions/jobs/42/logs":
+					http.Redirect(response, request, "http://"+request.Host+"/download", http.StatusFound)
+				case "/download":
+					logReads++
+					_, _ = io.WriteString(response, "##[error]fixture terminal reason\n")
+				default:
+					t.Errorf("unexpected diagnostic request: %s", request.URL)
+					response.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			api, err := github.NewClient(github.WithHTTPClient(server.Client()), github.WithURLs(new(server.URL+"/"), nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			tb := &recordingTB{}
+			trial := GitHubTrial{tb: tb, api: api, org: "fixture"}
+			trial.ReportRun("fc-app", &github.WorkflowRun{ID: new(int64(99))})
+			if logReads != 1 || !strings.Contains(strings.Join(tb.logs, "\n"), "fixture terminal reason") {
+				t.Fatalf("conclusion %q lost its diagnostics: reads=%d logs=%v errors=%v", conclusion, logReads, tb.logs, tb.errors)
+			}
+		})
+	}
+}
 
 func TestFailedJobAnnotationsUseExactRepositoryAndBoundOutput(t *testing.T) {
 	calls := 0

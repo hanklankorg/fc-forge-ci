@@ -450,14 +450,29 @@ func (trial *GitHubTrial) WaitRun(repo, workflow, event, headSHA string, timeout
 	}
 }
 
-// ReportRun prints every job of the run with its conclusion, and the end of
-// the log of each that failed.
+// ReportRun prints each job's conclusion (or observed status when absent) and
+// bounded log diagnostics for non-successful jobs.
 func (trial *GitHubTrial) ReportRun(repo string, run *github.WorkflowRun) {
 	trial.tb.Helper()
 
 	ctx := trial.tb.Context()
 
-	jobs, _, err := trial.api.Actions.ListWorkflowJobs(ctx, trial.org, repo, run.GetID(), &github.ListWorkflowJobsOptions{Filter: "latest", PerPage: 100})
+	var jobs *github.Jobs
+	err := retry.Run(ctx, nil, 3, time.Second, func() error {
+		var response *github.Response
+		var err error
+		jobs, response, err = trial.api.Actions.ListWorkflowJobs(ctx, trial.org, repo, run.GetID(), &github.ListWorkflowJobsOptions{Filter: "latest", PerPage: 100})
+		if err == nil {
+			return nil
+		}
+		if response != nil {
+			switch response.StatusCode {
+			case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+				return err
+			}
+		}
+		return retry.Permanent(err)
+	}, retry.WithBackoff(retry.Constant))
 	if err != nil {
 		trial.tb.Errorf("livetest: list jobs of run %d: %v", run.GetID(), err)
 
@@ -465,9 +480,14 @@ func (trial *GitHubTrial) ReportRun(repo string, run *github.WorkflowRun) {
 	}
 
 	for _, job := range jobs.Jobs {
-		trial.tb.Logf("  %-9s %s", job.GetConclusion(), job.GetName())
+		status := job.GetConclusion()
+		if status == "" {
+			status = job.GetStatus()
+		}
+		trial.tb.Logf("  %-9s %s", status, job.GetName())
 
-		if job.GetConclusion() != "failure" {
+		switch job.GetConclusion() {
+		case "success", "skipped", "neutral":
 			continue
 		}
 
