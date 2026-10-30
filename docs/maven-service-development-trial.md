@@ -25,9 +25,11 @@ Use the normal live-suite contract/session and strict base UID setup. Select:
 Filter: `^TestForgejoLayer_ConsumerDevelopment$` in
 `./internal/livetest/conformance` with `-tags=live`. The operator's normal live
 suite driver supplies the contract and session; no controller-side Java,
-Maven, container run or separate API script is needed. The container runner
-must provide rootless Buildah for the shared builder, plus Podman, jq and curl
-for the readiness job. Podman must trust and anonymously pull the public lab
+Maven, application container run or separate API script is needed. The container
+runner must permit the existing Buildah setup helper and apt package installation.
+The readiness job uses that same helper to provision Podman and jq in its isolated
+job storage, rather than assuming they are in the runner's default image.
+Podman must trust and anonymously pull the public lab
 registry; configure that in the runner fixture rather than bypassing TLS.
 
 Use Go **1.27.3** with its matching `GOROOT` and exact pinned toolchain directory

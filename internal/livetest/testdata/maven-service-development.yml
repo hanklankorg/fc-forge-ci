@@ -52,6 +52,8 @@ jobs:
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL_CONTAINER) }}
     steps:
       - uses: @ACTIONS@setup-forge-ci@@PIN@
+      - name: Prepare isolated runtime tools
+        run: forge-ci container setup-buildah --extra-packages "podman jq" --print-store=false --summary=false
       - name: Pull and start the immutable published digest
         env:
           SOURCE_SHA: ${{ needs.snapshot.outputs.source-sha }}
