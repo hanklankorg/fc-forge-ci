@@ -178,14 +178,8 @@ func TestNPMReleaseBuild_SkipTests(t *testing.T) {
 	err := appbuild.NPMReleaseBuild(context.Background(), &recordingSummarySink{}, npmRunner, &fakeNPMRunner{}, output.Annotator{}, io.Discard, io.Discard, appbuild.NPMReleaseBuildInput{
 		Dir: newNPMDir(t), SkipTests: true, EnableBuildSBOM: false,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// The rest of the sequence, not just the absence of "test": scanning
-	// for a missing step passes equally on a run that did nothing.
-	if got := strings.Join(npmRunner.firstArgs(), ","); got != "ci,run,pack" {
-		t.Errorf("npm calls = %v, want ci,run,pack", npmRunner.firstArgs())
+	if err == nil || len(npmRunner.calls) != 0 {
+		t.Fatalf("consumer test opt-out was not refused before effects: err=%v calls=%v", err, npmRunner.calls)
 	}
 }
 

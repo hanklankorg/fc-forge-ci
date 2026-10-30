@@ -18,6 +18,8 @@ import (
 // recordingResolver stands in for bin/lib-forge-ci.sh and records every
 // shell variable name (exported or not) visible when the action sources it.
 const recordingResolver = `compgen -v >"${FAKE_SHELL_VARS_LOG:?}"
+fetch_forge_ci() { :; }
+verify_forge_ci() { test "${SIGNER_STRICT:-}" = 1; }
 run_forge_ci() {
   "$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/forge-ci" "$@"
 }

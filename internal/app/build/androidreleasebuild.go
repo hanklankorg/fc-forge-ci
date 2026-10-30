@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
 	appsummary "github.com/diggsweden/forge-ci/internal/app/summary"
 	"github.com/diggsweden/forge-ci/internal/domain/build"
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
@@ -74,6 +75,9 @@ type AndroidReleaseBuildInput struct {
 // resolved artifact names + version are emitted on the sink as the job outputs
 // downstream upload/publish jobs consume.
 func AndroidReleaseBuild(ctx context.Context, sink ci.OutputSink, summarySink ci.SummarySink, ops AndroidGradleOps, annot output.Annotator, out, stderr io.Writer, in AndroidReleaseBuildInput) (err error) {
+	if err := appenforcement.RequireTests(in.SkipTests); err != nil {
+		return err
+	}
 	dir, err := filepath.Abs(defaultDir(in.Dir))
 	if err != nil {
 		return err

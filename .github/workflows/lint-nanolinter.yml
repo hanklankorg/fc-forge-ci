@@ -127,7 +127,7 @@ jobs:
             exit 1
           fi
           rc=0
-          docker run --rm --pull never --user "$(id -u):$(id -g)" \
+          forge-ci policy nanolinter --sarif-file "$NL_OUT/nanolinter-security.sarif" -- docker run --rm --pull never --user "$(id -u):$(id -g)" \
             -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8 \
             --cap-drop ALL --security-opt no-new-privileges \
             --tmpfs /home/nanolinter:rw,exec,mode=1777 \
@@ -135,7 +135,7 @@ jobs:
             -e CI -e GITHUB_ACTIONS -e GITHUB_EVENT_NAME -e GITHUB_REF -e GITHUB_SHA \
             -e GITHUB_BASE_REF -e GITHUB_HEAD_REF -e GITHUB_REPOSITORY -e GITHUB_SERVER_URL \
             -e GITHUB_STEP_SUMMARY=/out/step-summary.md \
-            "$NANOLINTER_IMAGE" verify "$@" --report sarif-security --out /out/nanolinter-security.sarif || rc=$?
+            "$NANOLINTER_IMAGE" verify "$@" --report sarif --out - || rc=$?
           if [ -f "$NL_OUT/step-summary.md" ]; then
             cat "$NL_OUT/step-summary.md" >>"$GITHUB_STEP_SUMMARY"
           fi

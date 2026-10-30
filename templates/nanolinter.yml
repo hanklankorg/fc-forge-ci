@@ -104,33 +104,9 @@ spec:
         fi
       fi
 
-      # --- Lint gate --------------------------------------------------------
-      # `nanolinter verify` runs the full plan and exits non-zero on blocking
-      # findings. Capture the exit but keep going, so the SAST report is still
-      # produced + published even when the gate is red (artifacts: when: always).
-      #
-      # Mandated lint floor: --require forces these checks to run AND block
-      # regardless of the project's nanolinter.toml, so they cannot be skipped
-      # (e.g. secrets, sast). Empty input → no floor.
-      require_args=()
-      [ -n "$REQUIRED_LINTS" ] && require_args=(--require "$REQUIRED_LINTS")
-      gate=0
-      # Bundled Python scanners read repository text using the process locale.
-      # GitLab's bare job environment may otherwise select ASCII.
-      LANG=C.UTF-8 LC_ALL=C.UTF-8 nanolinter verify "${require_args[@]}" --report sarif-security --out "$SARIF_FILE" || gate=$?
-      if [ "$gate" -ne 0 ]; then
-        echo "nanolinter gate failed — see the per-check output for findings or a tool/runtime failure."
-      fi
-
-      # --- SARIF -> GitLab SAST --------------------------------------------
-      # Convert nanolinter's unified SARIF to the GitLab SAST schema for the MR
-      # Security tab with the engine of forge-ci-repository at this component's
-      # commit; the binary must match the checksum that commit records.
-      # Best-effort: a SARIF tooling failure must not turn the lint gate red,
-      # so it never changes the exit code (the gate below is the only thing
-      # that gates).
-      if [ "$ENABLE_GITLAB_SAST" = "true" ] && [ -f "$SARIF_FILE" ]; then
-        (
+      # The checksum-bound engine owns admin policy even when SAST upload is
+      # disabled. Bootstrap failure stops before any consumer lint command.
+      (
           set -euo pipefail
           expected='$[[ component.sha ]]'
           export FORGE_CI_PACKAGE_PROVIDER=gitlab
@@ -154,19 +130,25 @@ spec:
           source "${helpers}/.engine/bin/lib-forge-ci.sh"
           fetch_forge_ci
           SIGNER_STRICT=1 verify_forge_ci
-          run_forge_ci security report to-gitlab-sast --input "$SARIF_FILE" --output "$GL_SAST_FILE"
-        )
-        # Read the status afterwards, not with `||` or `if !`: errexit is
-        # ignored inside a subshell in either context, so a failed step would
-        # not stop the conversion.
-        converted=$?
-        if [ "$converted" -ne 0 ]; then
-          echo "WARN: GitLab-SAST conversion skipped (engine checkout, download or conversion failed); SARIF kept as plain artifact."
-        fi
-      fi
 
-      # The lint gate is the only thing that decides the job result.
-      exit "$gate"
+          # --require runs the trusted caller's floor regardless of consumer
+          # configuration. Admin policy decides enforcement after execution.
+          require_args=()
+          if [ -n "$REQUIRED_LINTS" ]; then require_args=(--require "$REQUIRED_LINTS"); fi
+          gate=0
+          LANG=C.UTF-8 LC_ALL=C.UTF-8 run_forge_ci policy nanolinter --sarif-file "$SARIF_FILE" -- \
+            nanolinter verify "${require_args[@]}" --report sarif --out - || gate=$?
+          if [ "$gate" -ne 0 ]; then
+            echo "nanolinter gate failed — see the per-check output for findings or a tool/runtime failure."
+          fi
+
+          # Conversion remains best-effort; bootstrap and check execution do not.
+          if [ "$ENABLE_GITLAB_SAST" = "true" ] && [ -f "$SARIF_FILE" ]; then
+            run_forge_ci security report to-gitlab-sast --input "$SARIF_FILE" --output "$GL_SAST_FILE" || \
+              echo "WARN: GitLab-SAST conversion failed; SARIF kept as plain artifact."
+          fi
+          exit "$gate"
+      )
   artifacts:
     when: always
     paths:

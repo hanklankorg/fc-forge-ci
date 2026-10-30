@@ -44,6 +44,6 @@ const (
 	usageCargoDirectory = "directory containing the Cargo.toml file"
 	usageGoModDirectory = "directory containing the go.mod file"
 	usageNPMDirectory   = "directory containing package.json"
-	usageSkipTestTask   = "append -x test to skip the test task"
+	usageSkipTestTask   = "legacy opt-out; true is refused: admin policy controls enforcement, tests still run"
 	usageGradleTasks    = "whitespace-separated gradle tasks to run"
 )

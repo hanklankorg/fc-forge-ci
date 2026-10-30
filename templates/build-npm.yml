@@ -38,7 +38,7 @@ spec:
     skip-tests:
       type: boolean
       default: false
-      description: Skip the (soft) npm test run.
+      description: Legacy input; true is refused. Admin policy controls findings, and tests still run.
     enable-build-sbom:
       type: boolean
       default: true

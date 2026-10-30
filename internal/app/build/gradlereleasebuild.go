@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
 	appsummary "github.com/diggsweden/forge-ci/internal/app/summary"
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
@@ -58,6 +59,9 @@ type gradleDeps struct {
 // Enabled Build SBOM generation is mandatory: a
 // failure is summarized and returned so the release fails closed.
 func GradleReleaseBuild(ctx context.Context, summarySink ci.SummarySink, ops GradleOps, out, stderr io.Writer, in GradleReleaseBuildInput) error {
+	if err := appenforcement.RequireTests(in.SkipTests); err != nil {
+		return err
+	}
 	dir, err := filepath.Abs(defaultDir(in.Dir))
 	if err != nil {
 		return err

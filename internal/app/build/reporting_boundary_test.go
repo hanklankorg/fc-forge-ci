@@ -96,7 +96,7 @@ func TestProjectDirectoryBoundary_GradleAndAndroid(t *testing.T) {
 				}
 			}
 
-			err = appbuild.AndroidReleaseBuild(t.Context(), sink, summary, ops, output.Annotator{}, &out, &stderr, appbuild.AndroidReleaseBuildInput{Dir: "nested project/.", SkipTests: true, EnableBuildSBOM: true, RepoName: "mobile", GradleTasksOverride: "assembleWidget bundleWidget", SBOMToolVersion: "2.1.0", SecretsPropertiesBase64: base64.StdEncoding.EncodeToString([]byte("fixture=owned\n"))})
+			err = appbuild.AndroidReleaseBuild(t.Context(), sink, summary, ops, output.Annotator{}, &out, &stderr, appbuild.AndroidReleaseBuildInput{Dir: "nested project/.", SkipTests: false, EnableBuildSBOM: true, RepoName: "mobile", GradleTasksOverride: "assembleWidget bundleWidget", SBOMToolVersion: "2.1.0", SecretsPropertiesBase64: base64.StdEncoding.EncodeToString([]byte("fixture=owned\n"))})
 			if sink.Single("version") != "9.8.7" || sink.Single("version-code") != "41" {
 				t.Fatalf("Android metadata=%v", sink.AllScalar())
 			}
@@ -105,7 +105,7 @@ func TestProjectDirectoryBoundary_GradleAndAndroid(t *testing.T) {
 				t.Fatal("injected properties survived Android return")
 			}
 		} else {
-			err = appbuild.GradleReleaseBuild(t.Context(), summary, ops, &out, &stderr, appbuild.GradleReleaseBuildInput{Dir: "nested project/.", SkipTests: true, EnableBuildSBOM: true, Tasks: "assembleWidget bundleWidget", SBOMToolVersion: "2.1.0"})
+			err = appbuild.GradleReleaseBuild(t.Context(), summary, ops, &out, &stderr, appbuild.GradleReleaseBuildInput{Dir: "nested project/.", SkipTests: false, EnableBuildSBOM: true, Tasks: "assembleWidget bundleWidget", SBOMToolVersion: "2.1.0"})
 			if !strings.Contains(summary.buf.String(), "2.3.4") {
 				t.Fatalf("summary=%s", &summary.buf)
 			}
@@ -119,7 +119,7 @@ func TestProjectDirectoryBoundary_GradleAndAndroid(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if len(ops.calls) != 2 || !slices.Equal(ops.calls[0].Args, []string{"assembleWidget", "bundleWidget", "-x", "test"}) || !strings.Contains(ops.initBody, "2.1.0") {
+		if len(ops.calls) != 2 || !slices.Equal(ops.calls[0].Args, []string{"assembleWidget", "bundleWidget"}) || !strings.Contains(ops.initBody, "2.1.0") {
 			t.Fatalf("calls=%v init=%s", ops.calls, ops.initBody)
 		}
 

@@ -13,7 +13,9 @@ import (
 	"slices"
 	"strings"
 
+	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
 	"github.com/diggsweden/forge-ci/internal/clicolor"
+	"github.com/diggsweden/forge-ci/internal/domain/enforcement"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/output"
 	"github.com/diggsweden/forge-ci/internal/domain/security"
@@ -49,8 +51,8 @@ type ScanContainerInput struct {
 	// when a fixed package exists for it, and an unfixed CRITICAL blocks
 	// unless the ignore file approves it; other unfixed findings are
 	// reported without blocking. To skip the gate entirely, set the
-	// workflow's `enable-scan: false`; narrowing the filter (e.g.
-	// "CRITICAL") relaxes the threshold without disabling the scan.
+	// admin-owned enforcement policy; scan execution and report generation
+	// remain mandatory for exported/published layouts.
 	Severity string
 	// IgnoreFile is the Trivy ignore file that approves findings, with the
 	// reason and expiry Trivy's YAML format records. Empty takes the
@@ -113,6 +115,9 @@ func ScanContainer(
 	annot output.Annotator,
 	in ScanContainerInput,
 ) error {
+	if _, err := enforcement.Current(); err != nil {
+		return err
+	}
 	if in.ImageRef == "" {
 		return fmt.Errorf("image-ref is required: %w", errs.ErrUsage)
 	}
@@ -170,7 +175,7 @@ func ScanContainer(
 	if len(findings.Fixable)+len(findings.Unfixed) == 0 {
 		_, _ = fmt.Fprintf(out, "%s No vulnerabilities found at severity %s or above\n", clicolor.Check(out), severity)
 
-		return nil
+		return appenforcement.Findings(out, enforcement.Vulnerabilities, 0)
 	}
 
 	// Always derive SARIF + GitLab reports — even when the gate fails,
@@ -194,19 +199,21 @@ func ScanContainer(
 	if len(blocking) == 0 {
 		_, _ = fmt.Fprintf(out, "%s No blocking vulnerabilities at severity %s or above\n", clicolor.Check(out), severity)
 
-		return nil
+		return appenforcement.Findings(out, enforcement.Vulnerabilities, 0)
 	}
 
 	msg := fmt.Sprintf("Found %d blocking container %s at severity %s or above", len(blocking),
 		plural(len(blocking), "vulnerability", "vulnerabilities"), severity)
 	_, _ = fmt.Fprintf(out, "Scan report: %s\n", jsonPath)
 	_, _ = fmt.Fprintln(out, "Next: update the affected dependency or pinned base image, rebuild, and rerun the scan before publishing or promoting.")
-	_, _ = fmt.Fprintf(out, "If a fix cannot be deployed, request a reviewed CVE-specific exception in %s with a reason and expiry; the gate remains blocked until that review is applied.\n", cmp.Or(ignoreFile, defaultIgnoreFile))
+	_, _ = fmt.Fprintf(out, "If a fix cannot be deployed, request a reviewed CVE-specific exception in %s with a reason and expiry; the admin policy decides whether these findings block.\n", cmp.Or(ignoreFile, defaultIgnoreFile))
 
-	annot.Errorf("%s", msg)
-	// Domain rule failure (scan threshold exceeded) — wrap so the CLI
-	// exits with ExitCodeValidation (1), not ExitCodeSoftware (70).
-	return fmt.Errorf("%s: %w", msg, errs.ErrValidation)
+	if err := appenforcement.Findings(out, enforcement.Vulnerabilities, len(blocking)); err != nil {
+		annot.Errorf("%s", msg)
+		return fmt.Errorf("%s: %w", msg, err)
+	}
+	annot.Warningf("%s; reported under non-enforcing admin policy", msg)
+	return nil
 }
 
 // gateFindings splits the findings the gate blocks on from those it only

@@ -72,6 +72,12 @@ func TestCargoReleaseBuild_RunsStepsInOrder(t *testing.T) {
 				Version:   "1.2.3",
 				Platforms: "linux/amd64",
 			})
+			if tc.skipTests {
+				if err == nil || len(tool.calls) != 0 {
+					t.Fatalf("test opt-out: err=%v calls=%v", err, tool.calls)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

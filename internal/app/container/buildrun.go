@@ -11,6 +11,8 @@ import (
 	appsecurity "github.com/diggsweden/forge-ci/internal/app/security"
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
 	domaincontainer "github.com/diggsweden/forge-ci/internal/domain/container"
+	"github.com/diggsweden/forge-ci/internal/domain/enforcement"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/output"
 )
 
@@ -19,7 +21,8 @@ import (
 type BuildAndScanInput struct {
 	Build BuildImageInput
 
-	// EnableScan checks the exported layout before push-by-digest publication.
+	// EnableScan is retained for callers; false cannot disable admin-required
+	// scan execution for exported/published layouts.
 	EnableScan bool
 	// ScanSeverity is the trivy --severity filter AND fail-on threshold.
 	ScanSeverity string
@@ -46,8 +49,17 @@ func BuildAndScan(
 	annot output.Annotator,
 	in BuildAndScanInput,
 ) (string, error) {
-	if !in.EnableScan || (in.Build.Mode != domaincontainer.BuildModePushByDigest && in.Build.Mode != domaincontainer.BuildModeOCI) {
+	if _, err := enforcement.Current(); err != nil {
+		return "", err
+	}
+	if in.Build.Mode != domaincontainer.BuildModePushByDigest && in.Build.Mode != domaincontainer.BuildModeOCI {
 		return BuildImage(ctx, builder, pusher, sink, out, in.Build)
+	}
+	if trivy == nil {
+		return "", fmt.Errorf("admin policy requires a vulnerability scanner: %w", errs.ErrDependencyUnavailable)
+	}
+	if !in.EnableScan {
+		_, _ = fmt.Fprintln(out, "Consumer enable-scan=false ignored: admin policy requires scan execution.")
 	}
 
 	// --cache-to writes during the build, before a scan could refuse it.

@@ -109,7 +109,7 @@ func TestGradleReleaseBuild_RunsTasksAndMakesWrapperExecutable(t *testing.T) {
 	}
 }
 
-func TestGradleReleaseBuild_SkipTestsAppendsFlag(t *testing.T) {
+func TestGradleReleaseBuild_RefusesConsumerTestOptOut(t *testing.T) {
 	t.Parallel()
 
 	ops := &recordingGradle{}
@@ -118,12 +118,9 @@ func TestGradleReleaseBuild_SkipTestsAppendsFlag(t *testing.T) {
 		Dir: newGradleDir(t), SkipTests: true, EnableBuildSBOM: false,
 		Tasks: "assemble",
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || len(ops.calls) != 0 {
+		t.Fatalf("consumer test opt-out was not refused before effects: err=%v calls=%v", err, ops.calls)
 	}
-
-	// Appended after the tasks, as two argv entries.
-	assertGradleCalls(t, ops.calls, []string{"assemble", "-x", "test"})
 }
 
 func TestGradleReleaseBuild_MissingWrapperFails(t *testing.T) {

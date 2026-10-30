@@ -106,13 +106,9 @@ func TestGoReleaseBuild_SkipTests(t *testing.T) {
 		Version:   "1.2.3",
 		Platforms: "linux/amd64",
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || len(goTool.calls) != 0 {
+		t.Fatalf("consumer test opt-out was not refused before effects: err=%v calls=%v", err, goTool.calls)
 	}
-
-	// The whole remaining sequence, not just the absence of "test": a run
-	// that skipped everything would satisfy "no test step ran" too.
-	assertGoSequence(t, goTool.calls, "mod download", "build")
 }
 
 func TestGoReleaseBuild_NoBuildSBOM(t *testing.T) {

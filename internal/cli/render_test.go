@@ -20,7 +20,7 @@ import (
 func publicGroups() []string {
 	return []string{
 		"artifact", "build", "config", "container", "doctor", "init", "lint", "plan", "platform",
-		"publish", "release", "report", "sbom", "security", "toolchain", "validate", "version",
+		"policy", "publish", "release", "report", "sbom", "security", "toolchain", "validate", "version",
 	}
 }
 

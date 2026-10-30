@@ -70,6 +70,11 @@ block = [
 [verify.filters.container]
 exclude = '\.containerignore$'
 
+# These are Go text/template inputs, not YAML until the live harness renders
+# their reviewed placeholders. Their rendered workflows have fixture tests.
+[verify.filters.yaml]
+exclude = '^internal/livetest/testdata/(maven-service-development|npm-application-development)\.yml$'
+
 # Match development/golangci-lint/golangci.yml's bounded five-minute budget for cold-cache analysis.
 # The wrapper's default 60 seconds otherwise kills it before it can report.
 [linters.go-golangci]

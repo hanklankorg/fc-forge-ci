@@ -13,7 +13,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
 	domainbuild "github.com/diggsweden/forge-ci/internal/domain/build"
+	"github.com/diggsweden/forge-ci/internal/domain/enforcement"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	domainversion "github.com/diggsweden/forge-ci/internal/domain/version"
 	"github.com/diggsweden/forge-ci/internal/listval"
@@ -81,12 +83,15 @@ func CargoFetch(ctx context.Context, tool CargoTool, w, stderr io.Writer, dir st
 // remain caller-owned in pull-request quality flows; this is the release
 // build's pre-compile gate, opt-out via --skip-tests.
 func CargoTest(ctx context.Context, tool CargoTool, w, stderr io.Writer, in CargoTestInput) error {
-	return tool.Run(ctx, CargoRunInput{
-		Dir:    defaultCargoDir(in.Dir),
-		Args:   []string{"test", flagCargoLocked, "--all-targets"},
-		Stdout: w,
-		Stderr: stderr,
+	_, err := appenforcement.TestRun(ctx, w, stderr, enforcement.Cargo, func(stdout, stderr io.Writer) error {
+		return tool.Run(ctx, CargoRunInput{
+			Dir:    defaultCargoDir(in.Dir),
+			Args:   []string{"test", flagCargoLocked, "--all-targets"},
+			Stdout: stdout,
+			Stderr: stderr,
+		})
 	})
+	return err
 }
 
 // CargoBuildBinaries cross-compiles one release binary per requested

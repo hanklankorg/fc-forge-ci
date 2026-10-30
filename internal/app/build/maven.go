@@ -19,8 +19,10 @@ import (
 	"strconv"
 	"strings"
 
+	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
 	"github.com/diggsweden/forge-ci/internal/domain/build"
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
+	"github.com/diggsweden/forge-ci/internal/domain/enforcement"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
 
@@ -201,19 +203,30 @@ type MavenApplicationInput struct {
 // [-DskipTests]`. Subsumes the SKIP_TESTS branching in build-maven.yml so
 // the decision lives in Go, not shell.
 func MavenApplication(ctx context.Context, ops MavenOps, out, stderr io.Writer, in MavenApplicationInput) error {
+	if err := appenforcement.RequireTests(in.SkipTests); err != nil {
+		return err
+	}
+	if err := enforcement.MavenTestArguments(in.CLIOpts); err != nil {
+		return err
+	}
 	_, _ = fmt.Fprintln(out, "Building Maven application...")
 
 	args := make([]string, 0, len(in.CLIOpts)+3)
 	args = append(args, in.CLIOpts...)
 
 	args = append(args, "clean", "package")
-	if in.SkipTests {
-		args = append(args, "-DskipTests")
-	}
 
 	// The mvn adapter already labels its error with the subcommand
 	// ("mvn clean: …"); wrapping again here would double-prefix.
-	return ops.RunInherit(ctx, out, stderr, args...)
+	continued, err := appenforcement.TestRun(ctx, out, stderr, enforcement.Maven, func(stdout, stderr io.Writer) error {
+		return ops.RunInherit(ctx, stdout, stderr, args...)
+	})
+	if err != nil || !continued {
+		return err
+	}
+	// Tests already ran and their assertion failures were reported. Only package
+	// the artifact now; compilation/packaging errors are never waived.
+	return ops.RunInherit(ctx, out, stderr, append(append([]string{}, in.CLIOpts...), "package", "-DskipTests=true")...)
 }
 
 // MavenLibrary runs the library lifecycle and optional profile. The project
@@ -221,6 +234,12 @@ func MavenApplication(ctx context.Context, ops MavenOps, out, stderr io.Writer, 
 // deliberately does not invoke unpinned plugin goals. w receives the status
 // banner and mvn's output streams via ops.RunInherit.
 func MavenLibrary(ctx context.Context, ops MavenOps, writer, stderr io.Writer, in MavenLibraryInput) error {
+	if err := appenforcement.RequireTests(in.SkipTests); err != nil {
+		return err
+	}
+	if err := enforcement.MavenTestArguments(in.CLIOpts); err != nil {
+		return err
+	}
 	ops = unsignedMaven(ops)
 	_, _ = fmt.Fprintln(writer, "Building Maven library lifecycle...")
 
@@ -247,17 +266,17 @@ func MavenLibrary(ctx context.Context, ops MavenOps, writer, stderr io.Writer, i
 		return err
 	}
 
-	if !in.SkipTests {
-		_, _ = fmt.Fprintf(writer, "Running tests...\n")
-		// mvn $MAVEN_CLI_OPTS test $PROFILE_ARG
-		if err := ops.RunInherit(ctx, writer, stderr, mvn("test")...); err != nil {
-			return err
-		}
+	_, _ = fmt.Fprintf(writer, "Running tests...\n")
+	continued, err := appenforcement.TestRun(ctx, writer, stderr, enforcement.Maven, func(stdout, stderr io.Writer) error {
+		return ops.RunInherit(ctx, stdout, stderr, mvn("test")...)
+	})
+	if err != nil {
+		return err
 	}
 
 	_, _ = fmt.Fprintln(writer, "Packaging library with project-configured artifacts...")
 	// mvn $MAVEN_CLI_OPTS package -DskipTests=$SKIP_TESTS $PROFILE_ARG -Dgpg.skip=true
-	pkgArgs := mvn("package", "-DskipTests="+strconv.FormatBool(in.SkipTests))
+	pkgArgs := mvn("package", "-DskipTests="+strconv.FormatBool(continued))
 
 	if err := ops.RunInherit(ctx, writer, stderr, pkgArgs...); err != nil {
 		return err

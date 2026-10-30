@@ -226,7 +226,7 @@ func TestAndroidMetadata_RefusesNoncredentialInputBeforeAnyGradleCall(t *testing
 			fsys.WriteFile("project/gradle.properties", []byte("versionName=1.2.3\nversionCode=42\n"))
 
 			in := appbuild.AndroidReleaseBuildInput{
-				Dir: fsys.Path("project"), EnableBuildSBOM: true, SkipTests: true,
+				Dir: fsys.Path("project"), EnableBuildSBOM: true, SkipTests: false,
 				RepoName:        "wallet",
 				BuildTypes:      "release",
 				SBOMToolVersion: "2.3.4",
@@ -316,7 +316,7 @@ func TestAndroidSelection_NamesEveryPublishedArtifact(t *testing.T) {
 			rec := toolrecorder.New(t)
 			sink := fakeoutputsink.New(t)
 			in := appbuild.AndroidReleaseBuildInput{
-				Dir: newGradleDir(t), SkipTests: true,
+				Dir: newGradleDir(t), SkipTests: false,
 				RepoName:    "wallet",
 				BuildTypes:  "release",
 				BuildModule: "app",

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 
+	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
 	appsummary "github.com/diggsweden/forge-ci/internal/app/summary"
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
 )
@@ -46,6 +47,9 @@ func CargoBuildSBOM(ctx context.Context, tool CargoTool, w, stderr io.Writer, di
 // enabled Build SBOM generation is mandatory: failures are summarized and
 // returned so the release fails closed.
 func CargoReleaseBuild(ctx context.Context, summarySink ci.SummarySink, tool CargoTool, out, stderr io.Writer, in CargoReleaseBuildInput) error {
+	if err := appenforcement.RequireTests(in.SkipTests); err != nil {
+		return err
+	}
 	meta, err := resolveCargoMetadata(ctx, tool, CargoMetadataInput{
 		Dir:          in.Dir,
 		ArtifactName: in.ArtifactName,
@@ -63,10 +67,8 @@ func CargoReleaseBuild(ctx context.Context, summarySink ci.SummarySink, tool Car
 		return fmt.Errorf("cargo fetch: %w", err)
 	}
 
-	if !in.SkipTests {
-		if err := CargoTest(ctx, tool, out, stderr, CargoTestInput{Dir: in.Dir}); err != nil {
-			return fmt.Errorf("cargo test: %w", err)
-		}
+	if err := CargoTest(ctx, tool, out, stderr, CargoTestInput{Dir: in.Dir}); err != nil {
+		return fmt.Errorf("cargo test: %w", err)
 	}
 
 	outcome := outcomeSkipped

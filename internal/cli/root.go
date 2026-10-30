@@ -27,6 +27,7 @@ import (
 	cmdlint "github.com/diggsweden/forge-ci/internal/cli/commands/lint"
 	cmdplan "github.com/diggsweden/forge-ci/internal/cli/commands/plan"
 	cmdplatform "github.com/diggsweden/forge-ci/internal/cli/commands/platform"
+	cmdpolicy "github.com/diggsweden/forge-ci/internal/cli/commands/policy"
 	cmdpublish "github.com/diggsweden/forge-ci/internal/cli/commands/publish"
 	cmdrelease "github.com/diggsweden/forge-ci/internal/cli/commands/release"
 	cmdreport "github.com/diggsweden/forge-ci/internal/cli/commands/report"
@@ -399,6 +400,7 @@ func newRoot(info BuildInfo, versionString string) *cli.Command {
 			cmdlint.New(),
 			cmdplatform.New(),
 			cmdconfig.New(),
+			cmdpolicy.New(),
 			cmdcontainer.New(),
 			cmddoctor.New(),
 			cmdinit.New(),

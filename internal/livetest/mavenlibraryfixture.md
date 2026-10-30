@@ -56,3 +56,12 @@ registry acceptance. Fresh registry/classifier resolution, the consumer MAC0
 oracle, an independent dev lane, PR acceptance and provisional Nano findings
 remain separate work. `Mac0Smoke.java` is supplied as a consumer-specific oracle
 but this stable case does not execute it.
+
+## Native checkpoint — 2026-10-30
+
+Public Forgejo run **314** passed with the original `cose-lib` source at
+`25a3e92ceec72b869e2d04e4cbdebd9660ad8b7a` and release version `4.0.1`.
+The native signed-file verdict above passed; this does not establish Maven
+Central or stable package-registry publication. Independent snapshot registry
+consumption passed separately in development run **315**, described in
+`mavenlibrarydevelopment.md`.

@@ -172,7 +172,9 @@ exit "${FAKE_ENGINE_STATUS:-0}"
 `
 
 // fakeResolver stands in for bin/lib-forge-ci.sh and runs the adjacent fake.
-const fakeResolver = `run_forge_ci() {
+const fakeResolver = `fetch_forge_ci() { :; }
+verify_forge_ci() { test "${SIGNER_STRICT:-}" = 1; }
+run_forge_ci() {
   "$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/forge-ci" "$@"
 }
 `
@@ -309,6 +311,10 @@ func engineSandbox(t *testing.T, action string, tools map[string]string) (*sandb
 	engine := forgeCIEngine(t)
 	box := newSandbox(t, action)
 	box.write(".engine/bin/lib-forge-ci.sh", string(reporoot.ReadFile(t, ".engine/bin/lib-forge-ci.sh")), 0o600)
+	for _, arch := range []string{"amd64", "arm64"} {
+		file := ".engine/bin/forge-ci-linux-" + arch + ".sha256"
+		box.write(file, string(reporoot.ReadFile(t, file)), 0o600)
+	}
 	box.write("tools/forge-ci", "#!/usr/bin/env bash\nexec '"+engine+"' \"$@\"\n", 0o700)
 
 	for name, body := range tools {

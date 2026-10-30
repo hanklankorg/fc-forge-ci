@@ -42,7 +42,7 @@ on:
         default: ""
         type: string
       skip-tests:
-        description: "Skip tests during build"
+        description: "Legacy input; true is refused. Admin policy controls findings, and tests still run."
         required: false
         default: false
         type: boolean

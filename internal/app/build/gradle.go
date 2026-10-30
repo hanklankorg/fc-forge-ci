@@ -12,7 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
 	"github.com/diggsweden/forge-ci/internal/domain/build"
+	"github.com/diggsweden/forge-ci/internal/domain/enforcement"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
 )
@@ -76,21 +78,39 @@ type GradleApplicationInput struct {
 // directory, appending `-x test` when SkipTests is true. At least one
 // task is required; an empty tasks string fails with ErrUsage.
 func GradleApplication(ctx context.Context, ops GradleOps, out, stderr io.Writer, in GradleApplicationInput) error {
+	if err := appenforcement.RequireTests(in.SkipTests); err != nil {
+		return err
+	}
 	tasks := strings.Fields(in.Tasks)
 	if len(tasks) == 0 {
 		return fmt.Errorf("at least one gradle task is required: %w", errs.ErrUsage)
+	}
+	if err := enforcement.GradleTestArguments(tasks); err != nil {
+		return err
 	}
 
 	_, _ = fmt.Fprintf(out, "Running Gradle tasks: %s\n", strings.Join(tasks, " "))
 
 	args := tasks
-	if in.SkipTests {
-		args = append(args, "-x", "test")
-	}
 
 	// Adapter already labels its error with the binary + first task;
 	// wrapping with the full task list here would double-prefix.
-	return ops.RunInherit(ctx, out, stderr, args...)
+	continued, err := appenforcement.TestRun(ctx, out, stderr, enforcement.Gradle, func(stdout, stderr io.Writer) error {
+		return ops.RunInherit(ctx, stdout, stderr, args...)
+	})
+	if err != nil || !continued {
+		return err
+	}
+	// The first invocation ran the tests and reported their failures. Finish
+	// packaging without repeating those tests; this build invocation is not waived.
+	packageArgs := append(append([]string{}, args...), "-x", "test")
+	for _, task := range tasks {
+		name := task[strings.LastIndex(task, ":")+1:]
+		if strings.HasPrefix(name, "test") && strings.HasSuffix(name, "UnitTest") {
+			packageArgs = append(packageArgs, "-x", task)
+		}
+	}
+	return ops.RunInherit(ctx, out, stderr, packageArgs...)
 }
 
 // GradleSBOM applies the cyclonedx-gradle-plugin via a throwaway init

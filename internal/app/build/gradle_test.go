@@ -226,18 +226,17 @@ func TestGradleApplication_RunsTasks(t *testing.T) {
 	}
 }
 
-func TestGradleApplication_AppendsSkipTests(t *testing.T) {
+func TestGradleApplication_RefusesConsumerTestOptOut(t *testing.T) {
 	ops := &fakeGradle{}
 	if err := appbuild.GradleApplication(context.Background(), ops, &bytes.Buffer{}, &bytes.Buffer{}, appbuild.GradleApplicationInput{
 		Tasks:     "assemble",
 		SkipTests: true,
-	}); err != nil {
-		t.Fatal(err)
+	}); !errors.Is(err, errs.ErrUsage) {
+		t.Fatalf("test opt-out was not refused: %v", err)
 	}
 
-	want := []string{"assemble", "-x", "test"}
-	if !slices.Equal(ops.args, want) {
-		t.Errorf("args = %v, want %v", ops.args, want)
+	if len(ops.args) != 0 {
+		t.Fatalf("ran gradle before refusal: %v", ops.args)
 	}
 }
 

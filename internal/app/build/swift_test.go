@@ -170,16 +170,16 @@ func TestSwiftLintLint_PassedAppendsCheck(t *testing.T) {
 	}
 }
 
-func TestSwiftLintLint_NonZeroWithoutFailOnWarningIsWarning(t *testing.T) {
+func TestSwiftLintLint_ConsumerCannotDisableAdminLintEnforcement(t *testing.T) {
 	sl := &fakeSwiftLint{output: "x", exitCode: 2}
 
 	sink := &recordingSummarySink{}
-	if err := appbuild.SwiftLintLint(context.Background(), sl, sink, &bytes.Buffer{}, &bytes.Buffer{}, output.Annotator{}, appbuild.SwiftLintLintInput{}); err != nil {
-		t.Fatal(err)
+	if err := appbuild.SwiftLintLint(context.Background(), sl, sink, &bytes.Buffer{}, &bytes.Buffer{}, output.Annotator{}, appbuild.SwiftLintLintInput{}); !errors.Is(err, errs.ErrValidation) {
+		t.Fatalf("consumer disabled enforcement: %v", err)
 	}
 
-	if !strings.Contains(sink.buf.String(), "## SwiftLint Warnings ⚠️") {
-		t.Errorf("expected warning block:\n%s", sink.buf.String())
+	if !strings.Contains(sink.buf.String(), "## SwiftLint Issues 🔴") {
+		t.Errorf("expected actual findings block:\n%s", sink.buf.String())
 	}
 }
 

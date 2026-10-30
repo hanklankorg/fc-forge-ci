@@ -35,6 +35,7 @@ path = [
   "README.md",
   "CHANGELOG.md",
   "docs/DEVELOPMENT.md",
+  "docs/admin-policy.md",
   "docs/artifacts-reference.md",
   "docs/components.md",
   "docs/ecosystems.md",
@@ -147,6 +148,11 @@ SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
 path = "internal/domain/config/artifacts.schema.json.tmpl"
+SPDX-FileCopyrightText = "2026 Digg - Agency for Digital Government"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = "internal/domain/enforcement/policy.json"
 SPDX-FileCopyrightText = "2026 Digg - Agency for Digital Government"
 SPDX-License-Identifier = "CC0-1.0"
 

@@ -18,8 +18,10 @@ import (
 
 	"golang.org/x/mod/modfile"
 
+	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
 	domainbuild "github.com/diggsweden/forge-ci/internal/domain/build"
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
+	"github.com/diggsweden/forge-ci/internal/domain/enforcement"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	domainversion "github.com/diggsweden/forge-ci/internal/domain/version"
 	"github.com/diggsweden/forge-ci/internal/listval"
@@ -76,13 +78,23 @@ func GoDownload(ctx context.Context, tool GoTool, w, stderr io.Writer, dir strin
 // GoTest runs `go test ./...` with optional build tags.
 func GoTest(ctx context.Context, tool GoTool, out, stderr io.Writer, in GoTestInput) error {
 	args := []string{"test"}
+	policy, err := enforcement.Current()
+	if err != nil {
+		return err
+	}
+	if !policy.EnforceApplicationTests {
+		args = append(args, "-json")
+	}
 	if strings.TrimSpace(in.BuildTags) != "" {
 		args = append(args, "-tags", strings.TrimSpace(in.BuildTags))
 	}
 
 	args = append(args, "./...")
 
-	return tool.Run(ctx, GoRunInput{Dir: defaultGoDir(in.Dir), Args: args, Stdout: out, Stderr: stderr})
+	_, err = appenforcement.TestRun(ctx, out, stderr, enforcement.GoJSON, func(stdout, stderr io.Writer) error {
+		return tool.Run(ctx, GoRunInput{Dir: defaultGoDir(in.Dir), Args: args, Stdout: stdout, Stderr: stderr})
+	})
+	return err
 }
 
 // GoBuildSBOM generates a build-layer SBOM into the canonical forge-ci path.

@@ -44,3 +44,12 @@ This is development snapshot registry acceptance, not Maven Central acceptance
 or a new stable release. The supplied MAC0 oracle tests the real public API's
 correct-key round trip and wrong-key rejection. Other libraries supply their own
 regular Java oracle file; generic fixture code carries no library identity.
+
+## Native checkpoint — 2026-10-30
+
+Public Forgejo run **315** passed for original `cose-lib` source
+`25a3e92ceec72b869e2d04e4cbdebd9660ad8b7a`, with exact development source
+`dd54777419f58c059595045ef070b830ea1228d6`. Native build, snapshot publication,
+fresh Maven classifier resolution, original four-file byte identity and the
+runner's MAC0 oracle passed. The source POM and application code were preserved.
+Stable signed-file acceptance is recorded separately in `mavenlibraryfixture.md`.

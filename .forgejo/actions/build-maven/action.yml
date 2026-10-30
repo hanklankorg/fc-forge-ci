@@ -35,7 +35,7 @@ inputs:
     required: false
     default: ''
   skip-tests:
-    description: "'true' skips the Maven test phase."
+    description: "Legacy input; true is refused. Admin policy controls findings, and tests still run."
     required: false
     default: 'false'
   enable-build-sbom:
@@ -62,6 +62,8 @@ runs:
         set -euo pipefail
         # shellcheck source=.engine/bin/lib-forge-ci.sh
         source "${GITHUB_ACTION_PATH}/../../../.engine/bin/lib-forge-ci.sh"
+        if [ -z "${FORGE_CI_BIN:-}" ]; then fetch_forge_ci; fi
+        SIGNER_STRICT=1 verify_forge_ci
         version=${BUILD_MAVEN_VERSION#v}
         if [ -n "${version}" ]; then
           export FORGE_CI_VERSION=${version}

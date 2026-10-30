@@ -34,7 +34,7 @@ func npmRunCmd() *cli.Command {
 		Name:  subCmdRun,
 		Usage: "run the full npm release build (metadata, ci, test, build, SBOM, pack, summary)",
 		Description: `Runs the whole npm build sequence in one step: resolve metadata, npm ci,
-   test (when configured, unless --skip-tests; failures block), run the build script, generate the Build
+   test (when configured, under admin enforcement policy), run the build script, generate the Build
    SBOM with the pinned cyclonedx-npm (unless --no-build-sbom), and npm pack. The
    tarball is left at its default <name>-<version>.tgz path for the forge job to
    upload.
@@ -47,7 +47,7 @@ EXAMPLE:
 			&cli.StringFlag{Name: "scope", Sources: cli.EnvVars("SCOPE", "PACKAGE_SCOPE"), Usage: "expected scope (e.g. @examplescope); errors when package.json disagrees"},
 			&cli.StringFlag{Name: "expect-version", Sources: cli.EnvVars("EXPECT_VERSION"), Usage: "expected committed package version (with or without v); mismatch stops before npm ci"},
 			&cli.StringFlag{Name: "script", Value: subCmdBuild, Usage: "npm build script name to run (skipped when absent)"},
-			&cli.BoolFlag{Name: flagSkipTests, Sources: cli.EnvVars("SKIP_TESTS"), Usage: "skip the configured npm test script; otherwise test failures stop the build"},
+			&cli.BoolFlag{Name: flagSkipTests, Sources: cli.EnvVars("SKIP_TESTS"), Usage: usageSkipTestTask},
 			&cli.BoolFlag{Name: flagBuildSBOM, Value: true, Sources: cli.EnvVars("ENABLE_BUILD_SBOM"), Usage: "generate the CycloneDX Build SBOM (default true)"},
 			&cli.StringFlag{Name: flagSBOMToolVersion, Sources: cli.EnvVars("CYCLONEDX_VERSION"), Usage: "pinned @cyclonedx/cyclonedx-npm version run via npx (required when --build-sbom)"},
 			&cli.StringFlag{Name: "node-version", Sources: cli.EnvVars("NODE_VERSION"), Usage: "executed Node version, reported in the build summary"},

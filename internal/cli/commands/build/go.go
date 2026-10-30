@@ -36,7 +36,7 @@ func goRunCmd() *cli.Command {
 		Name:  subCmdRun,
 		Usage: "run the full Go release build (metadata, deps, test, SBOM, compile, summary)",
 		Description: `Runs the whole Go build sequence in one step: resolve metadata, download
-   dependencies, test (unless --skip-tests), generate the Build SBOM (unless
+   dependencies, run tests under the admin enforcement policy, generate the Build SBOM (unless
    --no-build-sbom), cross-compile per platform into dist/, and write the build
    summary. Binaries and the SBOM land at fixed paths the forge job uploads.
 
@@ -53,7 +53,7 @@ EXAMPLE:
 			&cli.StringFlag{Name: flagBuildTags, Sources: cli.EnvVars("BUILD_TAGS"), Usage: "comma-separated build tags passed via -tags (test + compile)"},
 			&cli.StringFlag{Name: "ldflags", Sources: cli.EnvVars("LD_FLAGS"), Usage: "extra -ldflags appended after the version-injection block"},
 			&cli.StringFlag{Name: "main-package", Value: ".", Sources: cli.EnvVars("MAIN_PACKAGE"), Usage: "main package import path relative to --working-dir"},
-			&cli.BoolFlag{Name: flagSkipTests, Sources: cli.EnvVars("SKIP_TESTS"), Usage: "skip 'go test ./...' during the release build"},
+			&cli.BoolFlag{Name: flagSkipTests, Sources: cli.EnvVars("SKIP_TESTS"), Usage: usageSkipTestTask},
 			&cli.BoolFlag{Name: flagBuildSBOM, Value: true, Sources: cli.EnvVars("ENABLE_BUILD_SBOM"), Usage: "generate the CycloneDX Build SBOM (default true)"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {

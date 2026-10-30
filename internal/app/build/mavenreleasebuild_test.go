@@ -182,6 +182,12 @@ func TestMavenReleaseBuild_RunsStepsInOrder(t *testing.T) {
 				CLIOpts:         opts,
 				SBOMToolVersion: "2.9.1",
 			})
+			if tc.skipTests {
+				if err == nil || len(ops.runs) != 0 {
+					t.Fatalf("test opt-out: err=%v runs=%v", err, ops.runs)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

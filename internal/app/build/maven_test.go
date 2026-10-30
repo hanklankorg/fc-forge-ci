@@ -219,32 +219,18 @@ func TestMavenLibrary_RunsCompileTestPackage_WithProfile(t *testing.T) {
 	}
 }
 
-func TestMavenLibrary_SkipTestsTrue_OmitsTestPhase(t *testing.T) {
+func TestMavenLibrary_RefusesConsumerTestOptOut(t *testing.T) {
 	ops := &fakeMaven{}
 
 	in := appbuild.MavenLibraryInput{
 		CLIOpts:   []string{"-q"},
 		SkipTests: true,
 	}
-	if err := appbuild.MavenLibrary(context.Background(), ops, io.Discard, io.Discard, in); err != nil {
-		t.Fatalf("MavenLibrary: %v", err)
+	if err := appbuild.MavenLibrary(context.Background(), ops, io.Discard, io.Discard, in); err == nil {
+		t.Fatal("consumer test opt-out was accepted")
 	}
-
-	if len(ops.runs) != 2 {
-		t.Fatalf("expected 2 mvn invocations (compile + package) got %d: %v", len(ops.runs), ops.runs)
-	}
-
-	// Both invocations, exactly, as the profile sibling above already does.
-	// Looking for two flags in the package args said nothing about the
-	// compile invocation, nor about anything else the package run carries --
-	// and the test phase being omitted is the claim in the name.
-	wantCompile := []string{"-q", "clean", "compile", "-Dgpg.skip=true"}
-	wantPackage := []string{"-q", "package", "-DskipTests=true", "-Dgpg.skip=true"}
-
-	for i, want := range [][]string{wantCompile, wantPackage} {
-		if !slices.Equal(ops.runs[i], want) {
-			t.Errorf("invocation %d:\n got: %v\nwant: %v", i, ops.runs[i], want)
-		}
+	if len(ops.runs) != 0 {
+		t.Fatalf("maven ran before refusal: %v", ops.runs)
 	}
 }
 
@@ -292,22 +278,16 @@ func TestMavenLibrary_BannerLinesGoToStdout(t *testing.T) {
 	}
 }
 
-func TestMavenApplication_AddsSkipTests(t *testing.T) {
+func TestMavenApplication_RefusesConsumerTestOptOut(t *testing.T) {
 	ops := &fakeMaven{}
 	if err := appbuild.MavenApplication(context.Background(), ops, &bytes.Buffer{}, &bytes.Buffer{}, appbuild.MavenApplicationInput{
 		CLIOpts:   []string{"--batch-mode", "--errors"},
 		SkipTests: true,
-	}); err != nil {
-		t.Fatal(err)
+	}); err == nil {
+		t.Fatal("consumer test opt-out was accepted")
 	}
-
-	if len(ops.runs) != 1 {
-		t.Fatalf("runs = %d, want 1", len(ops.runs))
-	}
-
-	want := []string{"--batch-mode", "--errors", "clean", "package", "-DskipTests"}
-	if !slices.Equal(ops.runs[0], want) {
-		t.Errorf("args = %v, want %v", ops.runs[0], want)
+	if len(ops.runs) != 0 {
+		t.Fatalf("maven ran before refusal: %v", ops.runs)
 	}
 }
 

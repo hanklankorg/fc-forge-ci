@@ -33,7 +33,7 @@ func cargoRunCmd() *cli.Command {
 		Name:  subCmdRun,
 		Usage: "run the full Cargo release build (metadata, fetch, test, SBOM, compile, status)",
 		Description: `Runs the whole Cargo build sequence in one step: resolve metadata, fetch
-   deps, test (unless --skip-tests), generate the Build SBOM with cargo-cyclonedx
+   deps, run tests under the admin enforcement policy, generate the Build SBOM with cargo-cyclonedx
    (unless --no-build-sbom), and cross-compile per platform into dist/. The
    forge job wraps this with checkout + artifact upload only.
 
@@ -47,7 +47,7 @@ EXAMPLE:
 			&cli.StringFlag{Name: flagRefName, Sources: cienv.RefName(), Usage: usageVersionRef},
 			&cli.StringFlag{Name: "commit", Sources: cienv.Commit(), Usage: "prepared release commit exposed as FORGE_CI_COMMIT during compilation"},
 			&cli.StringFlag{Name: flagPlatforms, Value: build.DefaultPlatform, Sources: cli.EnvVars("PLATFORMS"), Usage: "comma/space/newline-separated GOOS/GOARCH targets to cross-compile (each must have a Rust target triple mapping)"},
-			&cli.BoolFlag{Name: flagSkipTests, Sources: cli.EnvVars("SKIP_TESTS"), Usage: "skip 'cargo test' during the release build"},
+			&cli.BoolFlag{Name: flagSkipTests, Sources: cli.EnvVars("SKIP_TESTS"), Usage: usageSkipTestTask},
 			&cli.BoolFlag{Name: flagBuildSBOM, Value: true, Sources: cli.EnvVars("ENABLE_BUILD_SBOM"), Usage: "generate the cargo-cyclonedx Build SBOM (default true)"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {

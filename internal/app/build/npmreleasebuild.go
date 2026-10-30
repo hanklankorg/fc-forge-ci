@@ -14,10 +14,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
 	appsummary "github.com/diggsweden/forge-ci/internal/app/summary"
 	"github.com/diggsweden/forge-ci/internal/archive"
 	"github.com/diggsweden/forge-ci/internal/cliio"
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
+	"github.com/diggsweden/forge-ci/internal/domain/enforcement"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/output"
 	domainversion "github.com/diggsweden/forge-ci/internal/domain/version"
@@ -76,6 +78,9 @@ type npmSBOMDeps struct {
 // <name>-<version>.tgz path for the forge job to upload by glob, so no scalar
 // output (and no $CI_OUTPUT) is needed.
 func NPMReleaseBuild(ctx context.Context, summarySink ci.SummarySink, npmRunner, npxRunner NPMRunner, annot output.Annotator, out, stderr io.Writer, in NPMReleaseBuildInput) error { //nolint:cyclop // metadata, tool steps and evidence each have distinct failure boundaries.
+	if err := appenforcement.RequireTests(in.SkipTests); err != nil {
+		return err
+	}
 	in.SBOMToolVersion = strings.TrimSpace(in.SBOMToolVersion)
 	if in.EnableBuildSBOM && !domainversion.IsStableSemverTag("v"+in.SBOMToolVersion) {
 		return fmt.Errorf("SBOM tool version must be an exact stable version: %w", errs.ErrUsage)
@@ -114,12 +119,9 @@ func NPMReleaseBuild(ctx context.Context, summarySink ci.SummarySink, npmRunner,
 		return fmt.Errorf("npm ci: %w", err)
 	}
 
-	testsSkipped := in.SkipTests
-	if !in.SkipTests {
-		testsSkipped, err = runNPMReleaseTests(ctx, npmRunner, out, stderr, dir)
-		if err != nil {
-			return err
-		}
+	testsSkipped, err := runNPMReleaseTests(ctx, npmRunner, out, stderr, dir)
+	if err != nil {
+		return err
 	}
 
 	if err := NPMApplication(ctx, npmRunner, out, stderr, NPMApplicationInput{Dir: dir, ScriptName: in.ScriptName}); err != nil {
@@ -159,7 +161,9 @@ func runNPMReleaseTests(ctx context.Context, runner NPMRunner, out, stderr io.Wr
 		return true, nil
 	}
 
-	if err := runner.RunInherit(ctx, dir, out, stderr, "test"); err != nil {
+	if _, err := appenforcement.TestRun(ctx, out, stderr, enforcement.Node, func(stdout, stderr io.Writer) error {
+		return runner.RunInherit(ctx, dir, stdout, stderr, "test")
+	}); err != nil {
 		return false, fmt.Errorf("npm test: %w", err)
 	}
 

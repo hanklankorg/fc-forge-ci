@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 
+	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
 	appsummary "github.com/diggsweden/forge-ci/internal/app/summary"
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
 )
@@ -39,6 +40,9 @@ type GoReleaseBuildInput struct {
 // in-process, so — unlike the granular subcommands — no scalar-output round
 // trip (and thus no $CI_OUTPUT) is needed.
 func GoReleaseBuild(ctx context.Context, summarySink ci.SummarySink, goTool GoTool, sbomTool CycloneDXGoModTool, out, stderr io.Writer, in GoReleaseBuildInput) error {
+	if err := appenforcement.RequireTests(in.SkipTests); err != nil {
+		return err
+	}
 	meta, err := resolveGoMetadata(GoMetadataInput{
 		Dir:             in.Dir,
 		ArtifactName:    in.ArtifactName,
@@ -56,10 +60,8 @@ func GoReleaseBuild(ctx context.Context, summarySink ci.SummarySink, goTool GoTo
 		return fmt.Errorf("download dependencies: %w", err)
 	}
 
-	if !in.SkipTests {
-		if err := GoTest(ctx, goTool, out, stderr, GoTestInput{Dir: in.Dir, BuildTags: in.BuildTags}); err != nil {
-			return fmt.Errorf("go test: %w", err)
-		}
+	if err := GoTest(ctx, goTool, out, stderr, GoTestInput{Dir: in.Dir, BuildTags: in.BuildTags}); err != nil {
+		return fmt.Errorf("go test: %w", err)
 	}
 
 	if in.EnableBuildSBOM {

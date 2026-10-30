@@ -110,7 +110,7 @@ func TestBuildAndScan_FailurePreventsImageAndCachePublication(t *testing.T) {
 	assertPublicationLayoutRemoved(t, builder.layout)
 }
 
-func TestBuildAndScan_NoScanWhenDisabled(t *testing.T) {
+func TestBuildAndScan_ConsumerCannotDisableAdminScan(t *testing.T) {
 	t.Parallel()
 
 	scanner := &fakeTrivy{}
@@ -123,8 +123,8 @@ func TestBuildAndScan_NoScanWhenDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(scanner.runs) != 0 {
-		t.Errorf("scan ran despite EnableScan=false: %v", scanner.runs)
+	if len(scanner.runs) != 1 {
+		t.Errorf("consumer disabled the admin scan: %v", scanner.runs)
 	}
 }
 

@@ -91,7 +91,25 @@ runtime JAR independently. A failure caused by those original inputs is a
 **CI integration blocker**, not an application/linter defect to fix in this
 trial. Preserve the source Containerfile and report the exact failing job.
 
-No live image/service result is implied by offline fixture tests. The existing
-stable signed-file result is separate evidence; a future successful run must
-provide the actual digest and readiness artifacts before development is marked
-accepted.
+## Native acceptance checkpoint — 2026-10-30
+
+Public Forgejo run **309** passed against admitted wallet-attestation-issuer
+source `8ab871fdc5581234f48a6c376bc74c4313d11495`, with selected development source
+`4230fad5e56c27f50baba1317a4db75f5525a541`. The published image was read back and
+started by immutable digest:
+
+```text
+sha256:4ca2f29694fc5ceacdf6edac00addb8a1e00920902b574e613a03c1abed80b32
+```
+
+The native verdict checked HTTP readiness, one checked JAR, independent
+linux/amd64 image metadata and source labels, unchanged branches, and no stable
+tags/releases. Full redacted job logs were retained before cleanup. Controller
+`fb5183bc` correctly distinguishes the root index digest from its selected
+platform image; comparing those two digests as if they were identical had
+previously rejected a successful service run.
+
+This is the named public Forgejo development case, not GitLab/GitHub acceptance
+or proof that the separately built checked JAR is byte-identical to the JAR in
+the original Containerfile's image. Offline tests and stable signed-file results
+remain separate evidence.

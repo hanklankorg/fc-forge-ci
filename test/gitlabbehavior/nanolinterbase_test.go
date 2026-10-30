@@ -95,6 +95,34 @@ exit 3
 
 func runNanolinterScript(t *testing.T, dir, workspace string, env ...string) (string, error) {
 	t.Helper()
+	// This suite checks checkout and environment transport. Policy semantics
+	// execute against real compiled engines in commands/policy integration tests.
+	const policyDriver = "#!/bin/sh\n[ \"$1\" = policy ] && [ \"$2\" = nanolinter ] || exit 98\nshift 2\nif [ \"$1\" = --sarif-file ]; then shift 2; fi\n[ \"$1\" = -- ] || exit 98\nshift\nexec \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "forge-ci"), []byte(policyDriver), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A separately pinned, inert local engine repository supplies bootstrap.
+	// It proves the component resolves its admin engine before the lint call;
+	// the transport assertions below still run against the real local git.
+	engine := filepath.Join(dir, "engine.git")
+	gitIn(t, dir, "init", "--quiet", "--initial-branch=main", engine)
+	if err := os.MkdirAll(filepath.Join(engine, ".engine", "bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const resolver = "fetch_forge_ci() { :; }\nverify_forge_ci() { test \"${SIGNER_STRICT:-}\" = 1; }\nrun_forge_ci() { forge-ci \"$@\"; }\n"
+	if err := os.WriteFile(filepath.Join(engine, ".engine", "bin", "lib-forge-ci.sh"), []byte(resolver), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, engine, "add", ".engine/bin/lib-forge-ci.sh")
+	commit := exec.CommandContext(t.Context(), "git", "-C", engine, "-c", "user.name=test", "-c", "user.email=test@invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "fixture: pinned engine")
+	if output, err := commit.CombinedOutput(); err != nil {
+		t.Fatalf("engine commit: %v %s", err, output)
+	}
+	read := exec.CommandContext(t.Context(), "git", "-C", engine, "rev-parse", "HEAD")
+	pin, err := read.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	content := reporoot.ReadFile(t, "templates/nanolinter.yml")
 	decoder := yaml.NewDecoder(bytes.NewReader(content))
@@ -119,13 +147,15 @@ func runNanolinterScript(t *testing.T, dir, workspace string, env ...string) (st
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
-	command := exec.CommandContext(ctx, "/bin/bash", "--noprofile", "--norc", "-c", script[0])
+	rendered := strings.ReplaceAll(script[0], "$[[ component.sha ]]", strings.TrimSpace(string(pin)))
+	command := exec.CommandContext(ctx, "/bin/bash", "--noprofile", "--norc", "-c", rendered)
 	command.Dir = workspace
 
 	command.Env = append([]string{
 		"PATH=" + dir + ":/usr/bin:/bin", "TMPDIR=" + dir, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
 		"CI_SERVER_URL=file://" + dir, "CI_PROJECT_PATH=group/app", "CI_JOB_TOKEN=job-token",
 		"REQUIRED_LINTS=secrets,sast", "ENABLE_GITLAB_SAST=false",
+		"RC_FORGE_CI_REPOSITORY=engine",
 		"SARIF_FILE=" + filepath.Join(dir, "out.sarif"), "GL_SAST_FILE=" + filepath.Join(dir, "gl.json"),
 	}, env...)
 

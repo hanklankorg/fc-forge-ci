@@ -116,6 +116,9 @@ func forgeCIInvocations(t *testing.T) []forgeCIInvocation {
 				verbs, _, _ := strings.Cut(forgeCIVerbs.FindString(command), " -")
 
 				arguments := forgeCINested.ReplaceAllString(command, "")
+				// A literal end-of-options delimiter transfers subsequent flags
+				// to the child command, for example policy nanolinter -- docker.
+				arguments, _, _ = strings.Cut(arguments, " -- ")
 				arguments += arrayOptions(source[:call[0]], arguments)
 
 				var flags []string

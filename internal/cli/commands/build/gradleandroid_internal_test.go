@@ -92,7 +92,7 @@ func TestGradleAndroidRun_BindsSigningEnvironmentAndBlobSources(t *testing.T) {
 						"WORKING_DIRECTORY": "selected", "INCLUDE_DATE_STAMP": "false", "ARTIFACT_NAME_PREFIX": "agency",
 						"REPOSITORY_NAME": "mobile", "PRODUCT_FLAVOR": "demoFree", "ARTIFACT_NAME": "", "ENABLE_SIGNING": "true",
 						"GRADLE_TASKS_OVERRIDE": "", "BUILD_TYPES": "release,debug", "INCLUDE_AAB": "true", "BUILD_MODULE": "widget",
-						"SKIP_TESTS": "true", "ENABLE_BUILD_SBOM": "true", "CYCLONEDX_GRADLE_VERSION": "3.2.1",
+						"SKIP_TESTS": "false", "ENABLE_BUILD_SBOM": "true", "CYCLONEDX_GRADLE_VERSION": "3.2.1",
 						"CI_TEMP_DIR": fsys.MkdirAll("scratch"), "RUNNER_TEMP": fsys.MkdirAll("decoy-scratch"),
 					} {
 						t.Setenv(key, value)
@@ -114,25 +114,25 @@ func TestGradleAndroidRun_BindsSigningEnvironmentAndBlobSources(t *testing.T) {
 					t.Setenv("SECRETS_PROPERTIES_BASE64", properties)
 
 					args := []string{"run"}
-					wantArgs := []string{"assembleDemoFreeDebug", "assembleDemoFreeRelease", "widget:bundleDemoFreeRelease", "-x", "test"}
+					wantArgs := []string{"widget:test", "assembleDemoFreeDebug", "assembleDemoFreeRelease", "widget:bundleDemoFreeRelease"}
 
 					if source == "file" || source == "stdin" {
 						for key, value := range map[string]string{
 							"WORKING_DIRECTORY": "decoy", "INCLUDE_DATE_STAMP": "true", "ARTIFACT_NAME_PREFIX": "env-prefix",
 							"REPOSITORY_NAME": "env-repo", "PRODUCT_FLAVOR": "envFlavor", "ARTIFACT_NAME": "env-override", "ENABLE_SIGNING": "false",
 							"GRADLE_TASKS_OVERRIDE": "envTask", "BUILD_TYPES": "release", "INCLUDE_AAB": "false", "BUILD_MODULE": "envModule",
-							"SKIP_TESTS": "false", "ENABLE_BUILD_SBOM": "false", "CYCLONEDX_GRADLE_VERSION": "2.9.9", "CI_TEMP_DIR": fsys.Path("decoy-scratch"),
+							"SKIP_TESTS": "true", "ENABLE_BUILD_SBOM": "false", "CYCLONEDX_GRADLE_VERSION": "2.9.9", "CI_TEMP_DIR": fsys.Path("decoy-scratch"),
 						} {
 							t.Setenv(key, value)
 						}
 
 						args = append(args, "--working-dir", "selected/.", "--temp-dir", fsys.Path("scratch"), "--enable-signing", "--build-sbom", "--sbom-tool-version", "3.2.1",
-							"--include-date-stamp=false", "--repository-name", "mobile", "--prefix", "agency", "--flavor", "demoFree", "--build-module", "widget", "--skip-tests")
+							"--include-date-stamp=false", "--repository-name", "mobile", "--prefix", "agency", "--flavor", "demoFree", "--build-module", "widget", "--skip-tests=false")
 						if source == "file" {
 							args = append(args, "--name-override", "", "--tasks-override", "", "--build-types", "debug,release", "--include-aab")
 						} else {
 							args = append(args, "--name-override", "cli-release", "--tasks-override", " assembleChosen\t:widget:bundleChosen ", "--build-types", "ignored-invalid", "--include-aab=false")
-							wantArgs = []string{"assembleChosen", ":widget:bundleChosen", "-x", "test"}
+							wantArgs = []string{"assembleChosen", ":widget:bundleChosen"}
 						}
 
 						fsys.WriteFile("keystore.base64", []byte(os.Getenv("ANDROID_KEYSTORE_BASE64")))

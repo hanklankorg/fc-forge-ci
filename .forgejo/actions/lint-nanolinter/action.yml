@@ -52,4 +52,10 @@ runs:
           arguments+=(--offline)
         fi
         # Read repository files consistently, including Unicode ignore files.
-        LANG=C.UTF-8 LC_ALL=C.UTF-8 nanolinter verify "${arguments[@]}"
+        # The action's own immutable engine owns policy. A consumer PATH or
+        # FORGE_CI_BIN replacement cannot select a more permissive engine.
+        # shellcheck source=.engine/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../../.engine/bin/lib-forge-ci.sh"
+        if [ -z "${FORGE_CI_BIN:-}" ]; then fetch_forge_ci; fi
+        SIGNER_STRICT=1 verify_forge_ci
+        LANG=C.UTF-8 LC_ALL=C.UTF-8 run_forge_ci policy nanolinter -- nanolinter verify "${arguments[@]}" --report sarif --out -

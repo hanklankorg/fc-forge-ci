@@ -3,6 +3,8 @@
 For workflow design rules, see [Workflow Design Policy](workflow-design-policy.md).
 For the authoritative workflow inventory and direct-call contracts, see
 [Components Reference](components.md).
+For administrator-owned check enforcement and the consumer trust boundary, see
+[Administrator check enforcement](admin-policy.md).
 
 ## Pull Request Workflow Architecture
 

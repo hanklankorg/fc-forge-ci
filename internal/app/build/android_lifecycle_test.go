@@ -222,7 +222,7 @@ func TestAndroidReleaseBuild_SignedCallPrefixesAndCleanup(t *testing.T) {
 			decoy := ownedTree(t, fsys.Path("decoy"))
 			fallbackBefore := ownedTree(t, fsys.Path("fallback"))
 			in := appbuild.AndroidReleaseBuildInput{
-				Dir: "project/.", EnableBuildSBOM: true, SkipTests: true,
+				Dir: "project/.", EnableBuildSBOM: true, SkipTests: false,
 				RepoName: "mobile", GradleTasksOverride: " assembleChosen\t:widget:bundleChosen ", BuildTypes: "ignored-invalid",
 				EnableSigning: true, KeystoreBase64: base64.StdEncoding.EncodeToString([]byte("owned-keystore\x00\xff\n")),
 				KeystorePassword: " store-password \r\n", KeyAlias: " alias-canary ", KeyPassword: "\tkey-password\n",
@@ -306,7 +306,7 @@ func TestAndroidReleaseBuild_SignedCallPrefixesAndCleanup(t *testing.T) {
 						fsys.WriteFile(report, []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[{"type":"library","name":"owned-fixture","version":"1.0"}]}`))
 					}
 				} else {
-					require.Equal(t, []string{"assembleChosen", ":widget:bundleChosen", "-x", "test"}, call.Args)
+					require.Equal(t, []string{"assembleChosen", ":widget:bundleChosen"}, call.Args)
 				}
 
 				events = append(events, step)
@@ -714,6 +714,11 @@ func TestAndroidReleaseBuild_OptionalControls(t *testing.T) {
 			}}
 			sink, summary := fakeoutputsink.New(t), &recordingSummarySink{}
 			err := appbuild.AndroidReleaseBuild(t.Context(), sink, summary, ops, output.Annotator{}, io.Discard, io.Discard, in)
+			if name == "skip_tests" {
+				require.ErrorIs(t, err, errs.ErrUsage)
+				require.Empty(t, ops.calls)
+				return
+			}
 			require.NoError(t, err)
 			require.Len(t, ops.calls, 1)
 			require.Equal(t, "unknown", sink.Single("version"))

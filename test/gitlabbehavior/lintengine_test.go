@@ -24,14 +24,22 @@ func TestLintComponentsFetchTheEngineTheSameVerifiedWay(t *testing.T) {
 	for _, name := range []string{"nanolinter", "megalinter"} {
 		body := string(reporoot.ReadFile(t, "templates/"+name+".yml"))
 
-		start := strings.Index(body, "        (\n          set -euo pipefail\n          expected='$[[ component.sha ]]'")
-		end := strings.Index(body[max(start, 0):], "\n        )\n")
+		start := strings.Index(body, "expected='$[[ component.sha ]]'")
+		const verified = "SIGNER_STRICT=1 verify_forge_ci"
+		end := strings.Index(body[max(start, 0):], verified)
 
 		if start < 0 || end < 0 {
 			t.Fatalf("templates/%s.yml: engine fetch block not found", name)
 		}
 
-		blocks[name] = body[start : start+end]
+		var lines []string
+		for _, line := range strings.Split(body[start:start+end+len(verified)], "\n") {
+			lines = append(lines, strings.TrimSpace(line))
+		}
+		blocks[name] = strings.Join(lines, "\n")
+		if name == "nanolinter" && start+end > strings.Index(body, "run_forge_ci policy nanolinter") {
+			t.Fatal("lint ran before mandatory verified policy bootstrap")
+		}
 	}
 
 	if blocks["nanolinter"] != blocks["megalinter"] {

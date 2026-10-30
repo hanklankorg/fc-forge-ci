@@ -202,7 +202,7 @@ func TestMavenReleaseBuild_LocalPreflightPreservesNativeOrder(t *testing.T) {
 			fsys.WriteFile("cwd/target/prior.jar", []byte("preserve native artifact"))
 			before := ownedTree(t, fsys.Root)
 			in := appbuild.MavenReleaseBuildInput{
-				Dir: "../metadata/.", SkipTests: true,
+				Dir: "../metadata/.", SkipTests: false,
 				BuildType:   "app",
 				CLIOpts:     []string{"--batch-mode", "-f", "native-selected.xml", "-Drevision=4.5.6-SNAPSHOT", "-Pnative-profile"},
 				JavaVersion: "25",
@@ -284,7 +284,7 @@ func TestMavenReleaseBuild_LocalPreflightPreservesNativeOrder(t *testing.T) {
 
 			wantRuns := [][]string{
 				{"--batch-mode", "-f", "native-selected.xml", "-Drevision=4.5.6-SNAPSHOT", "-Pnative-profile", "install", "-DskipTests"},
-				{"--batch-mode", "-f", "native-selected.xml", "-Drevision=4.5.6-SNAPSHOT", "-Pnative-profile", "clean", "package", "-DskipTests"},
+				{"--batch-mode", "-f", "native-selected.xml", "-Drevision=4.5.6-SNAPSHOT", "-Pnative-profile", "clean", "package"},
 			}
 			if !slices.Equal(events, wantEvents) || !slices.Equal(evals, tc.evals) || !reflect.DeepEqual(runs, wantRuns) {
 				t.Errorf("events=%v evals=%v runs=%v", events, evals, runs)

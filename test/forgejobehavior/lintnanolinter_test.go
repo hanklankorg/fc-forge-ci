@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
 )
 
 // fakeNanolinter records its argv, one argument per line, and exits with
@@ -19,13 +21,18 @@ import (
 const fakeNanolinter = `#!/usr/bin/env bash
 test "${LANG:-}" = C.UTF-8 && test "${LC_ALL:-}" = C.UTF-8 || exit 97
 printf '%s\n' "$@" >"${FAKE_NANOLINTER_LOG:?}"
+results='[]'
+if [ "${FAKE_NANOLINTER_STATUS:-0}" = 1 ]; then
+  results='[{"ruleId":"format","properties":{"source":"curated","check_id":"format","class":"formatter","status":"fail"}}]'
+fi
+printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"nanolinter"}},"results":%s}]}\n' "$results"
 exit "${FAKE_NANOLINTER_STATUS:-0}"
 `
 
 // The lint step runs the job's own nanolinter with the mandated floor, the
 // caller's exclusions and the offline switch, and its status is nanolinter's.
 // It installs nothing: without nanolinter on PATH it stops, and says what the
-// job is missing. It never reaches the layer's binary.
+// job is missing. The real engine applies the immutable policy after execution.
 func TestLintNanolinter(t *testing.T) {
 	t.Parallel()
 	action := loadAction(t, "lint-nanolinter")
@@ -46,10 +53,16 @@ func TestLintNanolinter(t *testing.T) {
 
 		box := newSandbox(t, "lint-nanolinter")
 		box.write("tools/nanolinter", fakeNanolinter, 0o700)
+		box.write(".engine/bin/lib-forge-ci.sh", string(reporoot.ReadFile(t, ".engine/bin/lib-forge-ci.sh")), 0o600)
+		for _, arch := range []string{"amd64", "arm64"} {
+			file := ".engine/bin/forge-ci-linux-" + arch + ".sha256"
+			box.write(file, string(reporoot.ReadFile(t, file)), 0o600)
+		}
 		log := filepath.Join(box.root, "nanolinter-argv")
 
 		got := box.run(script, append([]string{
 			"PATH=" + filepath.Join(box.root, "tools") + ":" + os.Getenv("PATH"), "FAKE_NANOLINTER_LOG=" + log,
+			"FORGE_CI_BIN=" + forgeCIEngine(t),
 		}, env...)...)
 		if box.argv() != nil {
 			t.Fatalf("the lint step ran the layer's binary: %q", box.argv())
@@ -75,17 +88,17 @@ func TestLintNanolinter(t *testing.T) {
 		{
 			"the default floor",
 			[]string{"LINT_REQUIRED_LINTS=secrets,sast", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false"},
-			[]string{"verify", "--require", "secrets,sast"},
+			[]string{"verify", "--require", "secrets,sast", "--report", "sarif", "--out", "-"},
 		},
 		{
 			"exclusions and offline",
 			[]string{"LINT_REQUIRED_LINTS=secrets", "LINT_DISABLE_CHECKS=osv,trivy-fs", "LINT_OFFLINE=true"},
-			[]string{"verify", "--require", "secrets", "--disable-check", "osv,trivy-fs", "--offline"},
+			[]string{"verify", "--require", "secrets", "--disable-check", "osv,trivy-fs", "--offline", "--report", "sarif", "--out", "-"},
 		},
 		{
 			"no floor",
 			[]string{"LINT_REQUIRED_LINTS=", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false"},
-			[]string{"verify"},
+			[]string{"verify", "--report", "sarif", "--out", "-"},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -98,11 +111,11 @@ func TestLintNanolinter(t *testing.T) {
 		})
 	}
 
-	t.Run("a blocking finding fails the step with nanolinter's status", func(t *testing.T) {
+	t.Run("a blocking finding fails the policy gate", func(t *testing.T) {
 		t.Parallel()
 
-		got, argv := run(t, "LINT_REQUIRED_LINTS=secrets,sast", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false", "FAKE_NANOLINTER_STATUS=3")
-		if got.status != 3 || argv == nil {
+		got, argv := run(t, "LINT_REQUIRED_LINTS=secrets,sast", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false", "FAKE_NANOLINTER_STATUS=1")
+		if got.status != 1 || argv == nil || !strings.Contains(got.stdout, "result=findings") {
 			t.Fatalf("status %d argv %q", got.status, argv)
 		}
 	})

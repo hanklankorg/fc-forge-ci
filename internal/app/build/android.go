@@ -150,14 +150,7 @@ func AndroidGradleBuild(ctx context.Context, ops GradleOps, out, stderr io.Write
 		return fmt.Errorf("gradle tasks are required: pass --tasks <list> or set $GRADLE_TASKS: %w", errs.ErrUsage)
 	}
 
-	_, _ = fmt.Fprintf(out, "Running Gradle tasks: %s\n", in.Tasks)
-
-	args := strings.Fields(in.Tasks)
-	if in.SkipTests {
-		args = append(args, "-x", "test")
-	}
-
-	return ops.RunInherit(ctx, out, stderr, args...)
+	return GradleApplication(ctx, ops, out, stderr, GradleApplicationInput{Tasks: in.Tasks, SkipTests: in.SkipTests})
 }
 
 // AndroidListArtifactsInput drives AndroidListArtifacts.

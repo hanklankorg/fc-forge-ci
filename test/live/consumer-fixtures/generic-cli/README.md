@@ -185,19 +185,19 @@ The standalone signer comes from `containers/signer/Containerfile`; its build
 and runtime verifier require `ssh-keygen` and reject compiler toolchains. Keep
 the signer context confined by its maintained Containerfile ignore policy.
 
-* Reuse the reviewed job archive only if it supplies Bash, Git, jq, `just`,
+- Reuse the reviewed job archive only if it supplies Bash, Git, jq, `just`,
   the selected toolchain and **all** tools needed by the source's `just verify`.
   The request checks run in this image, not in the build image.
-* Go requires Go **1.27.3**, including for the public codefloe module dependency.
+- Go requires Go **1.27.3**, including for the public codefloe module dependency.
   Builder needs this compiler and the source dependency closure/access.
-* Nano requires Rust **1.99.1**, native GNU amd64 Rust target, linker/C toolchain,
+- Nano requires Rust **1.99.1**, native GNU amd64 Rust target, linker/C toolchain,
   pkg-config/gettext development libraries and locked Cargo dependencies.
   The Cargo prepare-version job also uses the build image.
-* Existing reviewed signer archive is reusable if it satisfies the SDK's
+- Existing reviewed signer archive is reusable if it satisfies the SDK's
   standalone Cosign/SSH/GPG signer checks. The current consumer trial requests
   distro-signing credentials even for this file-only release; retain its normal
   ephemeral credential provisioning. Do not put source or compilers in the signer.
-* Archive paths are operator inputs. The existing SDK uploads them and supplies
+- Archive paths are operator inputs. The existing SDK uploads them and supplies
   digest-pinned image references to the policy. No new images are built here.
 
 The full Nanolinter outcome is informational under this acceptance policy;

@@ -41,6 +41,7 @@ func TestEveryCommandGroupHasALiveDisposition(t *testing.T) {
 		"lint":      {gap: "DEFERRED: the Git adapter reaches runcontext; no lint CLI conformance invocation, and native linter parity is not established"},
 		"plan":      {gap: "DEFERRED: pipeline planning reaches provider-backed domain types; no plan CLI conformance invocation"},
 		"platform":  {scenario: "TestCheckout_ProducesAWorkingTreeAtTheRequestedRef"},
+		"policy":    {gap: "MISSING: compiled enforcing/mixed/report-only engines have real CLI integration coverage; provider-native policy command parity is pending and indirect workflow calls are not credited as a CLI conformance scenario"},
 		"publish":   {gap: "OUTSIDE SCANNER: forgepackages_test.go drives in-runner shell probes, not CLI/CLIIn; do not credit shell text or infer coverage of other publish verbs"},
 		"release":   {scenario: "TestRelease_PublishReconcile_RefusesPublishedChanges"},
 		"report":    {gap: "MISSING: report/status imports provider, but adapter capability checks and helper labels are not a report CLI scenario"},
