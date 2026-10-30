@@ -27,8 +27,9 @@ Filter: `^TestForgejoLayer_ConsumerDevelopment$` in
 suite driver supplies the contract and session; no controller-side Java,
 Maven, application container run or separate API script is needed. The container
 runner must permit the existing Buildah setup helper and apt package installation.
-The readiness job uses that same helper to provision Podman and jq in its isolated
-job storage, rather than assuming they are in the runner's default image.
+The readiness job uses that same helper to provision Podman, jq and nftables in
+its isolated job storage, rather than assuming they are in the runner's default
+image. Netavark needs `nft` for the loopback port mapping.
 Podman must trust and anonymously pull the public lab
 registry; configure that in the runner fixture rather than bypassing TLS.
 

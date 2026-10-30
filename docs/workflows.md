@@ -336,6 +336,12 @@ the complete platform set, then scans according to `enable-scan` and
 SBOM generation. Signing is `NONE`; explicit OCI signing or `enable-slsa: true`
 requests are rejected. Snapshots never update stable aliases or enter promotion.
 
+When the shared artifacts file configures signed stable containers, an
+artifact-only development caller must explicitly set `publish-containers: false`.
+To publish snapshot images instead, select a separate unsigned snapshot
+configuration with signing `NONE` and no explicit SLSA request. The stable
+signing policy is not silently disabled for snapshots.
+
 The GitHub root orchestrator calls `snapshot-images.yml` after artifact builds,
 passing their frozen SHA and `use-build-artifacts: true` to reuse the exact
 same-run uploads without rebuilding. Its public additions are:

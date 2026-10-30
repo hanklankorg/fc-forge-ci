@@ -99,6 +99,25 @@ func TestUnsupportedSnapshotRequestsFailBeforeBuild(t *testing.T) {
 	}
 }
 
+func TestArtifactOnlySnapshotOptOutDoesNotWeakenStableSigningPolicy(t *testing.T) {
+	in := input(t, "sign:\n  method: sigstore\ncontainers:\n  - name: app\n")
+	git := &git{head: in.SourceSHA}
+	_, err := appsnapshot.Plan(t.Context(), git, in)
+	require.ErrorContains(t, err, "signing must be NONE")
+
+	in.Publish = false
+	p, err := appsnapshot.Plan(t.Context(), git, in)
+	require.NoError(t, err)
+	require.False(t, p.Enabled)
+	require.Empty(t, p.Builds)
+	require.Empty(t, p.Images)
+
+	// Opting out of images must not rewrite the shared stable configuration.
+	in.Publish = true
+	_, err = appsnapshot.Plan(t.Context(), git, in)
+	require.ErrorContains(t, err, "signing must be NONE")
+}
+
 func TestNativeBuildAndArtifactInputsRefuseBeforeTools(t *testing.T) {
 	in := input(t, "artifacts:\n  - name: server\n    project-type: go\ncontainers:\n  - name: app\n    from: [server]\n")
 	p, err := appsnapshot.Plan(t.Context(), &git{head: in.SourceSHA}, in)
