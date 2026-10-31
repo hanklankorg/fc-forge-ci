@@ -131,7 +131,9 @@ jobs:
         # same `build npm run` runs identically on GitLab. The per-step
         # variations (SBOM tool version, skip-tests) are configuration here. Only
         # platform-transport steps (checkout, upload) wrap it.
-        working-directory: ${{ inputs['working-directory'] }}
+        # It runs from the workspace root: the binary resolves
+        # WORKING_DIRECTORY itself, as on Forgejo and GitLab. A step-level
+        # working-directory as well would apply the directory twice.
         env:
           WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
           SKIP_TESTS: ${{ inputs['skip-tests'] }}

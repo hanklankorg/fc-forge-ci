@@ -117,7 +117,9 @@ jobs:
         # same `build cargo run` runs identically on GitLab. cargo-cyclonedx is
         # baked into the runtime image. Only platform-transport steps (checkout,
         # cache, upload) wrap it.
-        working-directory: ${{ inputs['working-directory'] }}
+        # It runs from the workspace root: the binary resolves
+        # WORKING_DIRECTORY itself, as on Forgejo and GitLab. A step-level
+        # working-directory as well would apply the directory twice.
         env:
           WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
           ARTIFACT_NAME: ${{ inputs['artifact-name'] }}

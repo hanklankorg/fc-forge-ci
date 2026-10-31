@@ -146,6 +146,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- GitHub `build-npm` and `build-cargo` run the build from the workspace root.
+  They also ran it inside `working-directory` and passed the same directory to
+  the binary, so a project below the repository root (a monorepo package) was
+  looked for at `<dir>/<dir>` and failed.
 - Bootstrap source installs build a detached Git checkout instead of resolving
   a commit through a cached moving Go module tag. Host jobs bind the binary to
   their bootstrap checkout, support full SHA-1/SHA-256 IDs and relative install
