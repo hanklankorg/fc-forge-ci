@@ -9,6 +9,11 @@
 # This is expected behavior and there's no configuration to preserve them.
 # See: https://github.com/google/yamlfmt/issues/184
 
+# Go text/template inputs; the harness validates the rendered workflows.
+exclude:
+  - internal/livetest/testdata/maven-service-development.yml
+  - internal/livetest/testdata/npm-application-development.yml
+
 formatter:
   type: basic
   # Retain blank lines within YAML content

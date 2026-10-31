@@ -70,8 +70,10 @@ OSV, Trivy filesystem, Go vulnerability and Rust audit findings use
 Unclassified security or external findings conservatively require both policies
 to allow continuation. Disabling lint therefore cannot waive an independently
 enforced vulnerability gate. Nanolinter configuration/runtime failures and a
-failed invocation without classified findings remain blocking. The optional
-SARIF destination contains security results for existing provider upload steps;
+failed invocation without classified findings remain blocking.
+Structured operational-failure categories and the supported older report's
+`tool failed` diagnostics remain blocking even if Nanolinter itself exits `1`.
+The optional SARIF destination contains security results for existing provider upload steps;
 its previous regular-file report is retired before execution, so a failed run
 cannot upload that stale report as current evidence.
 

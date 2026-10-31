@@ -122,7 +122,6 @@ spec:
           git_options=(-c core.hooksPath=/dev/null -c credential.helper=)
           if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
             git_options+=(-c "http.sslCAInfo=${CI_SERVER_TLS_CA_FILE}")
-            export CURL_CA_BUNDLE="${CI_SERVER_TLS_CA_FILE}"
           fi
           object_format=sha1
           if [ "${#expected}" -eq 64 ]; then object_format=sha256; fi
@@ -134,7 +133,11 @@ spec:
           test "$(git -C "${helpers}" rev-parse HEAD)" = "${expected}"
           # shellcheck source=.engine/bin/lib-forge-ci.sh
           source "${helpers}/.engine/bin/lib-forge-ci.sh"
-          fetch_forge_ci
+          if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+            CURL_CA_BUNDLE="${CI_SERVER_TLS_CA_FILE}" fetch_forge_ci
+          else
+            fetch_forge_ci
+          fi
           SIGNER_STRICT=1 verify_forge_ci
           run_forge_ci security report to-gitlab-sast --input "$SARIF_FILE" --output "$GL_SAST_FILE"
         )

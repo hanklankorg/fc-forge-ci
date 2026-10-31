@@ -108,6 +108,9 @@ func TestCompiledAdminPolicyCannotBeOverriddenByConsumers(t *testing.T) {
 				}
 			}
 			assertions := filepath.Join(dir, "tests.sh")
+			runtimeLint := filepath.Join(dir, "runtime-lint.sh")
+			write(runtimeLint, "#!/bin/sh\nprintf '%s\\n' '{\"version\":\"2.1.0\",\"runs\":[{\"tool\":{\"driver\":{\"name\":\"nanolinter\"}},\"results\":[{\"ruleId\":\"sast\",\"properties\":{\"source\":\"curated\",\"check_id\":\"sast\",\"class\":\"security\",\"status\":\"fail\",\"details\":\"tool failed (exit 2)\",\"exit_code\":2}}]}]}'\nexit 1\n", 0o700)
+			run(false, "policy", "nanolinter", "--", "/bin/sh", runtimeLint)
 			write(assertions, "#!/bin/sh\nprintf '%s\\n' 'Tests run: 4, Failures: 1, Errors: 0, Skipped: 0'\nexit 1\n", 0o700)
 			run(!variant.tests, "policy", "tests", "--protocol", "maven", "--", "/bin/sh", assertions)
 			write(assertions, "#!/bin/sh\nprintf '%s\\n' 'Tests run: 4, Failures: 0, Errors: 1, Skipped: 0'\nexit 1\n", 0o700)

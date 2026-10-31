@@ -55,6 +55,20 @@ func TestNanolinterRefusesMissingAndMalformedReports(t *testing.T) {
 	}
 }
 
+func TestNanolinterOperationalFailureCannotBecomeFindings(t *testing.T) {
+	for _, properties := range []string{
+		`"details":"tool failed (exit 2)","exit_code":2`,
+		`"failure_reason_category":"network"`,
+		`"failure_reason_category":"internal_failure"`,
+		`"failure_reason_category":"tool_missing"`,
+	} {
+		body := `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"nanolinter"}},"results":[{"ruleId":"sast","properties":{"source":"curated","check_id":"sast","class":"security","status":"fail",` + properties + `}}]}]}`
+		if _, err := ParseNanolinter([]byte(body)); !errors.Is(err, errs.ErrDependencyUnavailable) {
+			t.Fatalf("operational failure was eligible for a policy waiver: %s: %v", properties, err)
+		}
+	}
+}
+
 func TestTestArgumentOptOutSpellingsAreRefused(t *testing.T) {
 	for _, args := range [][]string{{"-DskipTests"}, {"-Dmaven.test.skip=true"}, {"--define", "maven.test.failure.ignore=true"}, {"--define=skipTests=true"}, {"-D", "skipTests=true"}} {
 		if err := MavenTestArguments(args); !errors.Is(err, errs.ErrUsage) {

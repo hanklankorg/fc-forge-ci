@@ -93,6 +93,22 @@ exit 3
 	}
 }
 
+func TestNanolinterBootstrapCAStaysInvocationScoped(t *testing.T) {
+	dir := t.TempDir()
+	ca := filepath.Join(dir, "lab-ca.pem")
+	if err := os.WriteFile(ca, []byte("inert local transport CA fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const scanner = "#!/bin/sh\n[ \"${CURL_CA_BUNDLE:-}\" = public-ca-canary ] || exit 97\nprintf 'public CA retained\\n'\n"
+	if err := os.WriteFile(filepath.Join(dir, "nanolinter"), []byte(scanner), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body, err := runNanolinterScript(t, dir, dir, "CI_SERVER_TLS_CA_FILE="+ca, "CURL_CA_BUNDLE=public-ca-canary")
+	if err != nil || !strings.Contains(body, "public CA retained") {
+		t.Fatalf("lab CA escaped bootstrap into a public scanner: %v\n%s", err, body)
+	}
+}
+
 func runNanolinterScript(t *testing.T, dir, workspace string, env ...string) (string, error) {
 	t.Helper()
 	// This suite checks checkout and environment transport. Policy semantics
@@ -109,7 +125,7 @@ func runNanolinterScript(t *testing.T, dir, workspace string, env ...string) (st
 	if err := os.MkdirAll(filepath.Join(engine, ".engine", "bin"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	const resolver = "fetch_forge_ci() { :; }\nverify_forge_ci() { test \"${SIGNER_STRICT:-}\" = 1; }\nrun_forge_ci() { forge-ci \"$@\"; }\n"
+	const resolver = "fetch_forge_ci() { if [ -n \"${CI_SERVER_TLS_CA_FILE:-}\" ]; then test \"${CURL_CA_BUNDLE:-}\" = \"${CI_SERVER_TLS_CA_FILE}\"; fi; }\nverify_forge_ci() { test \"${SIGNER_STRICT:-}\" = 1; }\nrun_forge_ci() { forge-ci \"$@\"; }\n"
 	if err := os.WriteFile(filepath.Join(engine, ".engine", "bin", "lib-forge-ci.sh"), []byte(resolver), 0o600); err != nil {
 		t.Fatal(err)
 	}

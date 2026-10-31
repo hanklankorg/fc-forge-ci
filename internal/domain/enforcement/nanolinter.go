@@ -6,6 +6,7 @@ package enforcement
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
@@ -42,10 +43,12 @@ func ParseNanolinter(body []byte) (NanolinterReport, error) {
 		var result struct {
 			Level      string `json:"level"`
 			Properties struct {
-				Source  string `json:"source"`
-				CheckID string `json:"check_id"`
-				Class   string `json:"class"`
-				Status  string `json:"status"`
+				Source          string `json:"source"`
+				CheckID         string `json:"check_id"`
+				Class           string `json:"class"`
+				Status          string `json:"status"`
+				FailureCategory string `json:"failure_reason_category"`
+				Details         string `json:"details"`
 			} `json:"properties"`
 			Suppressions []struct {
 				Status string `json:"status"`
@@ -53,6 +56,21 @@ func ParseNanolinter(body []byte) (NanolinterReport, error) {
 		}
 		if err := json.Unmarshal(raw, &result); err != nil || (result.Properties.Source != "curated" && result.Properties.Source != "external") || (result.Properties.Source == "curated" && result.Properties.CheckID == "") {
 			return NanolinterReport{}, fmt.Errorf("invalid Nanolinter finding: %w", errs.ErrMalformedInput)
+		}
+		if result.Properties.Status == "fail" {
+			switch result.Properties.FailureCategory {
+			case "", "format_findings", "policy_failure", "security_findings", "code_findings":
+			default:
+				return NanolinterReport{}, fmt.Errorf("Nanolinter check %s could not complete (%s): %w", result.Properties.CheckID, result.Properties.FailureCategory, errs.ErrDependencyUnavailable)
+			}
+			// Older supported Nanolinter reports do not carry the structured
+			// category and may return 1 for a scanner's operational failure.
+			details := strings.ToLower(strings.TrimSpace(result.Properties.Details))
+			for _, prefix := range []string{"tool failed", "tool not found", "tool missing", "runtime missing", "internal failure"} {
+				if strings.HasPrefix(details, prefix) {
+					return NanolinterReport{}, fmt.Errorf("Nanolinter check %s could not complete: %w", result.Properties.CheckID, errs.ErrDependencyUnavailable)
+				}
+			}
 		}
 		if result.Properties.Class == "security" || result.Properties.Source != "curated" {
 			securityResults = append(securityResults, raw)
