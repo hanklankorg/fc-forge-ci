@@ -139,6 +139,50 @@ func TestGitHubConsumerPreservesTrackedIgnoredSource(t *testing.T) {
 	}
 }
 
+// A file the trial makes replaces the fixture's at that path in the pushed
+// commit, and the source checkout is left alone.
+func TestGitHubConsumerCommitsTrialFiles(t *testing.T) {
+	t.Parallel()
+	trial := &GitHubTrial{tb: t}
+	root := t.TempDir()
+	trial.git(root, "init", "--quiet", "--initial-branch=main", ".")
+
+	for name, body := range map[string]string{
+		".forge-ci/allowed_signers":                  "fixture\n",
+		"test/live/github/workflows/pullrequest.yml": fixturePullRequest,
+	} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	trial.git(root, "add", "--all")
+	trial.commit(root, consumerBaseMessage, "")
+
+	signers := trial.WithFile(".forge-ci/allowed_signers", "bot@example.com ssh-ed25519 AAAA\n")
+	if trial.files != nil {
+		t.Fatal("WithFile changed the trial it was called on")
+	}
+
+	dir, _ := signers.WithFile("extra/notes.txt", "made by the trial\n").stageConsumer(root, "test/live/github", trialEngine, nil)
+	if got := trial.git(dir, "show", "HEAD:.forge-ci/allowed_signers"); got != "bot@example.com ssh-ed25519 AAAA\n" {
+		t.Fatalf("allowed_signers = %q", got)
+	}
+
+	if got := trial.git(dir, "show", "HEAD:extra/notes.txt"); got != "made by the trial\n" {
+		t.Fatalf("notes = %q", got)
+	}
+
+	if got := trial.git(root, "show", "HEAD:.forge-ci/allowed_signers"); got != "fixture\n" {
+		t.Fatalf("source changed: %q", got)
+	}
+}
+
 // The release-request tag is pushed only once GitHub lists every workflow just
 // pushed as active: an event before that starts no run.
 func TestGitHubListsAllRequiresEveryPushedWorkflowActive(t *testing.T) {

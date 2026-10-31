@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -59,6 +60,9 @@ type GitHubTrial struct {
 	// history makes PushConsumer push the consumer's own history under the
 	// rendered commit: WithHistory.
 	history bool
+	// files are trial-made files PushConsumer commits beside the rendered
+	// workflows, by repository path: WithFile.
+	files map[string]string
 }
 
 // OpenGitHubTrial loads Forge Lab's hosted context and authorizes exactly the
@@ -191,6 +195,22 @@ func (trial *GitHubTrial) WithHistory() *GitHubTrial {
 	return &shown
 }
 
+// WithFile makes PushConsumer commit content at path in the consumer, in
+// place of any file the fixture has there: material the trial itself makes,
+// such as the allowed-signers line of a key it generated.
+func (trial *GitHubTrial) WithFile(path, content string) *GitHubTrial {
+	shown := *trial
+	shown.files = maps.Clone(trial.files)
+
+	if shown.files == nil {
+		shown.files = map[string]string{}
+	}
+
+	shown.files[path] = content
+
+	return &shown
+}
+
 // NewDemoRepository creates the public repository <prefix>demo-<name> for a demo and
 // registers nothing to delete it. The client refuses a name that exists, so an
 // earlier demo is never adopted or replaced; Forge Lab's session cleanup
@@ -317,6 +337,12 @@ func (trial *GitHubTrial) stageConsumer(root, fixtures string, engine GitHubEngi
 	for _, input := range sortedKeys(overrides) {
 		if !applied[input] {
 			trial.tb.Fatalf("livetest: no fixture passes %s", input)
+		}
+	}
+
+	for _, path := range sortedKeys(trial.files) {
+		if err = staged.stageFile(trial.tb.Context(), "100644", path, trial.files[path]); err != nil {
+			trial.tb.Fatalf("livetest: %v", err)
 		}
 	}
 	message := consumerBaseMessage
