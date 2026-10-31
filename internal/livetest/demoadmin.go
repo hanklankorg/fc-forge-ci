@@ -99,6 +99,13 @@ func GroupDemos(repositories []DemoRepository) []DemoSet {
 // AcceptDemoTarget reads the demo account's contract and accepts its endpoint
 // for one lab forge, as Accept does for a scenario.
 func AcceptDemoTarget(forge provider.ForgeAPI, now time.Time) (Target, error) {
+	scope, err := liveProviderScope()
+	if err != nil {
+		return Target{}, err
+	}
+	if scope != "" && scope != forge {
+		return Target{}, fmt.Errorf("%s excludes %s: %w", liveProviderEnv, forge, errs.ErrValidation)
+	}
 	lab, err := labContractFor(demoAccount)
 	if err != nil {
 		return Target{}, err

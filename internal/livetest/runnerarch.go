@@ -39,9 +39,16 @@ func LabRunnerArch() (string, error) {
 // builds for one runner architecture and never emulates another. A lab with no
 // runner runs nothing there, so the host's own architecture is as good as any.
 func labRunnerArch(lab *labcontract.Contract) (string, error) {
+	scope, err := liveProviderScope()
+	if err != nil {
+		return "", err
+	}
 	arch := ""
 
 	for _, forge := range liveForges {
+		if scope != "" && scope != forge {
+			continue
+		}
 		endpoint, err := lab.Endpoint(labcontract.Kind(forge))
 		if errors.Is(err, labcontract.ErrNoEndpoint) {
 			continue

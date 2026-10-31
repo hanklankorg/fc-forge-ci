@@ -22,7 +22,10 @@ workflows should continue to use `TestForgejoLayer_ConsumerTrial` and its
 The Forgejo overlay requires `FORGE_CI_LIVE_CONSUMER_PUBLIC_TOOLS=true`.
 Its default shell fixture retains the complete unfiltered `mise install`,
 the two original distro images/Just selections, and `just test-setup; just test`.
-Ubuntu prerequisites include npm separately from Node.js. Before the original
+Ubuntu prerequisites include npm separately from Node.js. Both distros supply
+`file`, which REUSE needs for its default encoding-detection backend. Generated
+PR workflows carry their own SPDX metadata so the fixture does not introduce a
+licensing finding into the consumer's checks. Before the original
 checks, the fixture prepends the selected Just and all original configured tool
 bin directories, joining Mise's newline-delimited output with colons. This keeps
 both Just and Bats physical executables usable when tests change HOME or cwd;
@@ -34,6 +37,15 @@ overriding. The engine action, digest, and contract runner are trial-owned.
 Private tools require origin-scoped authentication; this public-only installer
 must not be used to quietly proceed without it. Forge job credentials remain
 available to repository operations but are removed from tool child processes.
+
+The typed override also supports original Node and Ruby site checks: keep the
+source project's complete tool installation and supply its actual check/build
+commands. Nuxt/Vitest uses `CI=true npm run test` to avoid watch mode, followed by
+the original production build. A Jekyll/Lighthouse job needs browser libraries
+and an explicitly selected browser executable. With Puppeteer 25, obtain that
+path with `await puppeteer.executablePath()`; printing the unresolved Promise is
+not a browser path. Keep link/accessibility assertions intact. These receipts
+cover the checks actually executed, not registry publication or Pages deployment.
 
 The GitHub baseline requires the existing hosted SDK context and admitted
 `FORGE_CI_LIVE_GITHUB_ORG_ID`, plus:

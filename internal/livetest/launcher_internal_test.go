@@ -23,7 +23,7 @@ import (
 // Exercise the actual launcher with inert build/preflight collaborators and
 // the signal fixture in this test executable. No provider or container is used.
 func TestLiveLauncherWaitsForCleanupAndReleasesLock(t *testing.T) {
-	for _, mode := range []string{"launcher signal", "process-group signal", "just recipe signal", "just release recipe signal"} {
+	for _, mode := range []string{"launcher signal", "process-group signal", "just recipe signal", "just release recipe signal", "provider-scoped signal"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
 			script, packageDir := newLauncherFixture(t, root)
@@ -37,6 +37,9 @@ func TestLiveLauncherWaitsForCleanupAndReleasesLock(t *testing.T) {
 				"XDG_STATE_HOME=" + filepath.Join(root, "state"), "TMPDIR=" + root,
 				"FORGE_CI_LIVE_SIGNAL_FIXTURE=" + root, "FORGE_CI_LIVE_FIXTURE_BINARY=" + os.Args[0], "FORGE_CI_LIVE_PACKAGE_DIR=" + packageDir,
 				"FORGE_CI_LIVE_CLEANUP_HANDSHAKE=1"}
+			if mode == "provider-scoped signal" {
+				command.Env = append(command.Env, liveProviderEnv+"=forgejo")
+			}
 			command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 			var output evidence.Diagnostic
@@ -60,6 +63,10 @@ func TestLiveLauncherWaitsForCleanupAndReleasesLock(t *testing.T) {
 			waitFixtureFile(t, ctx, root, "ready", done)
 			lock := filepath.Join(root, "state/forge-ci/live.lock")
 			requireLiveLock(t, ctx, lock, true)
+			providerLock := filepath.Join(root, "state/forge-ci/live-forgejo.lock")
+			if mode == "provider-scoped signal" {
+				requireLiveLock(t, ctx, providerLock, true)
+			}
 
 			if mode == "process-group signal" {
 				if err := syscall.Kill(-command.Process.Pid, syscall.SIGTERM); err != nil {
@@ -71,6 +78,9 @@ func TestLiveLauncherWaitsForCleanupAndReleasesLock(t *testing.T) {
 
 			waitFixtureFile(t, ctx, root, "cleaning", done)
 			requireLiveLock(t, ctx, lock, true)
+			if mode == "provider-scoped signal" {
+				requireLiveLock(t, ctx, providerLock, true)
+			}
 
 			if err := os.WriteFile(filepath.Join(root, "finish-cleanup"), nil, 0o600); err != nil {
 				t.Fatal(err)
@@ -92,6 +102,9 @@ func TestLiveLauncherWaitsForCleanupAndReleasesLock(t *testing.T) {
 			}
 
 			requireLiveLock(t, ctx, lock, false)
+			if mode == "provider-scoped signal" {
+				requireLiveLock(t, ctx, providerLock, false)
+			}
 		})
 	}
 }
@@ -171,7 +184,11 @@ set -eu
 mode=$1
 shift
 case "$mode" in
-  run) printf 'inert preflight\n' ;;
+  run)
+    if [[ "${2:-}" = classify-run ]]; then
+      if [[ "$3" = 130 ]]; then printf '130 interrupted\n'; else printf '%s failed\n' "$3"; fi
+    else printf 'inert preflight\n'; fi
+    ;;
   list) printf '%s\n' "$FORGE_CI_LIVE_PACKAGE_DIR" ;;
   build|test)
     while [[ "$1" != -o ]]; do shift; done

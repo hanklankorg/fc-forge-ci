@@ -163,6 +163,15 @@ func (t Target) String() string { return string(t.Forge) + "@" + t.Host + "/" + 
 func Selected(tb TB, forge provider.ForgeAPI) bool {
 	tb.Helper()
 
+	scope, err := liveProviderScope()
+	if err != nil {
+		tb.Fatalf("livetest: %v", err)
+		return false
+	}
+	if scope != "" && scope != forge {
+		return false
+	}
+
 	lab, err := currentLabContract()
 	if err != nil {
 		tb.Fatalf("livetest: live-target contract: %v", err)

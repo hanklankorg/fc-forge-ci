@@ -31,6 +31,12 @@ focused)
 *) usage ;;
 esac
 export FORGE_CI_LIVE_PROFILE="$profile"
+provider_scope=${FORGE_CI_LIVE_PROVIDER:-all}
+case "$provider_scope" in
+all | gitlab | forgejo) ;;
+*) printf 'live: FORGE_CI_LIVE_PROVIDER must be all, gitlab or forgejo\n' >&2; exit 2 ;;
+esac
+export FORGE_CI_LIVE_PROVIDER="$provider_scope"
 
 # Preflight first, before anything is built: it locates the contract for this
 # suite's lab account (LAB_TARGETS_FILE overrides the default path) and
@@ -50,19 +56,27 @@ done
 	exit 2
 }
 
-# One run per lab account at a time: scenarios delete and recreate fixed
-# fci-<scenario> repositories, so two concurrent runs would clobber each other.
-# The lock lives at a fixed state path, not under FORGE_CI_LIVE_EVIDENCE_ROOT, so
-# moving the log cannot split it. It covers runs sharing this $HOME only; a
-# run from a container with its own HOME does not see it. The shell holds
-# fd 9 until it exits; the lock releases with it.
+# All-provider/older launchers own live.lock exclusively. A provider-scoped run
+# takes it shared plus its provider lock exclusively: independent providers may
+# overlap, while fixed same-provider repositories and mixed old/new runs cannot.
+# Locks stay at fixed state paths and are never unlinked. The shell alone holds
+# them through test cleanup; changing the evidence directory cannot split them.
 lock_dir=${XDG_STATE_HOME:-$HOME/.local/state}/forge-ci
 install -d -m 0700 -- "$lock_dir"
 exec 9>"$lock_dir/live.lock"
-flock -n 9 || {
+lock_mode=-x
+[[ "$provider_scope" == all ]] || lock_mode=-s
+flock "$lock_mode" -n 9 || {
 	printf 'live: another live run holds %s; wait for it to finish\n' "$lock_dir/live.lock" >&2
 	exit 2
 }
+if [[ "$provider_scope" != all ]]; then
+	exec 7>"$lock_dir/live-$provider_scope.lock"
+	flock -n 7 || {
+		printf 'live: another %s live run holds %s; wait for it to finish\n' "$provider_scope" "$lock_dir/live-$provider_scope.lock" >&2
+		exit 2
+	}
+fi
 
 # Redacts credentials by shape, because the log is written before any
 # scenario runs and cannot know the values: forge token prefixes, credential
@@ -121,8 +135,8 @@ trap 'rm -rf -- "$state"' EXIT
 	# can terminate a test before its cancellation-aware cleanup runs.
 	install -d -m 0700 -- "$state/tests"
 	"$go_bin" test -c -tags=live -buildvcs=false -o "$state/tests/" ./internal/livetest/... 9>&-
-)
-packages=$(cd -- "$repo_root" && "$go_bin" list -tags=live -f '{{if or .TestGoFiles .XTestGoFiles}}{{.Dir}}{{end}}' ./internal/livetest/...)
+) 7>&- 9>&-
+packages=$(cd -- "$repo_root" && "$go_bin" list -tags=live -f '{{if or .TestGoFiles .XTestGoFiles}}{{.Dir}}{{end}}' ./internal/livetest/... 7>&- 9>&-)
 
 export FORGE_CI_LIVE_BIN="$state/forge-ci-host"
 export FORGE_CI_LIVE_RUNNER_BIN="$state/forge-ci-runner"
@@ -136,6 +150,7 @@ export FORGE_CI_LIVE_LAYER_BIN="$state/forge-ci-layer"
 	printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 	printf 'source_commit=%s\n' "$(git -C "$repo_root" rev-parse --verify HEAD 2>/dev/null || printf 'unavailable')"
 	printf 'profile=%s\n' "$profile"
+	printf 'provider=%s\n' "$provider_scope"
 	printf 'scenario=%q\n' "$scenario"
 	# What a consumer recipe was given, so the run can be repeated from its
 	# log. A setting names a variable or a secret and never carries a secret.
@@ -151,8 +166,9 @@ filter=()
 [[ -z "$scenario" ]] || filter=(-test.run "$scenario")
 
 # Keep the logger alive during cancellation so cleanup failures reach the
-# durable evidence. Neither it nor test children inherit the account lock.
+# durable evidence. Neither it nor test children inherit either live lock.
 exec 8> >(
+	exec 7>&-
 	exec 9>&-
 	trap '' INT TERM
 	sanitize_live_log | tee -a "$log"
@@ -172,7 +188,7 @@ wait_for_child() {
 	done
 }
 
-# Packages remain serial under the existing account lock. Preserve each test
+# Packages remain serial within the selected scope. Preserve each test
 # package's working directory and the longest consumer-trial timeout.
 set +e
 status=0
@@ -181,7 +197,7 @@ while IFS= read -r package; do
 	[[ "$interrupted" -eq 0 ]] || break
 	(
 		cd -- "$package" || exit
-		exec "$state/tests/${package##*/}.test" -test.paniconexit0 -test.count=1 -test.timeout=90m -test.v "${filter[@]}" 9>&- 8>&-
+		exec "$state/tests/${package##*/}.test" -test.paniconexit0 -test.count=1 -test.timeout=90m -test.v "${filter[@]}" 7>&- 9>&- 8>&-
 	) >&8 2>&1 &
 	suite_pid=$!
 	wait_for_child "$suite_pid"
@@ -197,41 +213,11 @@ if [[ "$logger_status" -ne 0 && "$status" -eq 0 ]]; then status=$logger_status; 
 if [[ "$interrupted" -ne 0 ]]; then status=130; fi
 set -e
 
-# passed_a_scenario reports whether a test that runs no subtests of its own
-# passed. Go passes a test whose subtests all skipped, and a focused run skips
-# what its environment lacks, so a clean exit alone does not say anything ran.
-passed_a_scenario() {
-	local -A result=()
-	local line name other leaf
-	while IFS= read -r line; do
-		[[ "$line" =~ ^[[:space:]]*---\ (PASS|FAIL|SKIP):\ ([^[:space:]]+) ]] || continue
-		result[${BASH_REMATCH[2]}]=${BASH_REMATCH[1]}
-	done <"$1"
-	for name in "${!result[@]}"; do
-		[[ "${result[$name]}" == PASS ]] || continue
-		leaf=1
-		for other in "${!result[@]}"; do
-			if [[ "$other" == "$name"/* ]]; then
-				leaf=0
-				break
-			fi
-		done
-		((leaf == 0)) || return 0
-	done
-	return 1
-}
-
-# One verdict for the run: each test package above ends with a PASS or FAIL of
-# its own, and a package holding none of the selected scenarios prints PASS.
-case "$status" in
-0) verdict=passed ;;
-130) verdict=interrupted ;;
-*) verdict=failed ;;
-esac
-if [[ "$status" -eq 0 ]] && ! passed_a_scenario "$log"; then
-	verdict='skipped: no scenario ran; the log says why'
-	status=1
-fi
+# Result interpretation belongs to the Go test harness, including all-skipped
+# trees and log-read failures; shell retains build/process supervision only.
+classification=$(cd -- "$repo_root" && "$go_bin" run ./internal/livetest/preflight classify-run "$status" "$log" 7>&- 9>&-) || classification='1 failed'
+read -r status verdict <<<"$classification"
+if [[ "$interrupted" -ne 0 ]]; then status=130; verdict=interrupted; fi
 printf 'Live result: %s\n' "$verdict"
 printf 'Live log: %s (retained for 30 days)\n' "$log"
 exit "$status"

@@ -36,6 +36,10 @@ type LivePreflightSummary struct {
 // provider. It runs before anything is built so a missing or stale contract is
 // reported in seconds, with where the suite looked for it.
 func CheckLiveInputs(now time.Time) (LivePreflightSummary, error) {
+	scope, err := liveProviderScope()
+	if err != nil {
+		return LivePreflightSummary{}, err
+	}
 	if dir := os.Getenv("FORGE_CI_LIVE_SIGNING_KEY_DIR"); dir != "" {
 		if err := CheckReusedSigningInputs(dir); err != nil {
 			return LivePreflightSummary{}, err
@@ -50,6 +54,9 @@ func CheckLiveInputs(now time.Time) (LivePreflightSummary, error) {
 	selected := 0
 
 	for _, forge := range liveForges {
+		if scope != "" && scope != forge {
+			continue
+		}
 		accepted, err := checkLiveForge(lab, forge, now)
 		if err != nil {
 			return LivePreflightSummary{}, err
@@ -76,10 +83,14 @@ func CheckLiveInputs(now time.Time) (LivePreflightSummary, error) {
 		return LivePreflightSummary{}, err
 	}
 
+	name := string(scope)
+	if name == "" {
+		name = "all"
+	}
 	return LivePreflightSummary{
 		Selected:    selected,
 		Generation:  lab.Generation.ID,
-		Explanation: labcontract.Explain(lab, now),
+		Explanation: "execution_provider=" + name + "\n" + labcontract.Explain(lab, now),
 	}, nil
 }
 

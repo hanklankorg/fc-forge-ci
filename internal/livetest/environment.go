@@ -68,6 +68,15 @@ const (
 func Requires(tb TB, forge provider.ForgeAPI, needs ...Need) bool {
 	tb.Helper()
 
+	scope, err := liveProviderScope()
+	if err != nil {
+		tb.Fatalf("livetest: %v", err)
+		return false
+	}
+	if scope != "" && scope != forge {
+		return false
+	}
+
 	contract, err := currentLabContract()
 	if err != nil {
 		tb.Fatalf("livetest: live-target contract: %v", err)

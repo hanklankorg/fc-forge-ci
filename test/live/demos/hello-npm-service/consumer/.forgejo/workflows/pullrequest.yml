@@ -70,9 +70,9 @@ jobs:
       - name: Checkout repository
         uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/checkout-consumer@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
 
-      # The tests gate here: the release build runs them too, but only warns
-      # when they fail. No package and no Build SBOM: nothing is published
-      # from here.
+      # Tests gate this consumer PR. The release build also executes them,
+      # with findings handled by the administrator-owned engine policy.
+      # No package or Build SBOM is published from this pull request.
       - name: Build and test
         run: |
           set -euo pipefail

@@ -12,12 +12,35 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/diggsweden/forge-ci/internal/livetest"
 )
 
 func main() {
+	if len(os.Args) == 4 && os.Args[1] == "classify-run" {
+		status, err := strconv.Atoi(os.Args[2])
+		if err != nil || status < 0 || status > 255 {
+			usage()
+		}
+		var log *os.File
+		if status == 0 {
+			log, err = os.Open(os.Args[3]) //nolint:gosec // Explicit operator-owned retained log.
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "live result: %v\n", err)
+				os.Exit(2)
+			}
+			defer func() { _ = log.Close() }()
+		}
+		result, err := livetest.ClassifyLiveRun(log, status)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "live result: %v\n", err)
+			os.Exit(2)
+		}
+		fmt.Printf("%d %s\n", result.ExitCode, result.Verdict)
+		return
+	}
 	// `preflight runner-arch` prints only the architecture the lab's runners
 	// execute, which the run script builds the runner binaries for.
 	// `preflight consumer-trial-layer` prints only the URL a Forgejo consumer
@@ -66,6 +89,7 @@ func main() {
 }
 
 func usage() {
+	fmt.Fprintln(os.Stderr, "       preflight classify-run <exit-code> <retained-log>")
 	fmt.Fprintln(os.Stderr, "usage: preflight [signing-inputs | runner-arch | consumer-trial-layer] (signing-inputs checks only FORGE_CI_LIVE_SIGNING_KEY_DIR; other modes read the forgeci lab contract)")
 	os.Exit(2)
 }
