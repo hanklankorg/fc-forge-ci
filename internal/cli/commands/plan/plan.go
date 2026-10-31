@@ -93,6 +93,7 @@ Composition does not execute a release or establish signing/publication readines
 			&cli.BoolFlag{Name: "release-sign-artifacts", Value: true, Sources: cli.EnvVars("RELEASE_SIGN_ARTIFACTS"), Usage: "sign release artifacts with the release GPG key"},
 			&cli.StringFlag{Name: "changelog-creator", Sources: cli.EnvVars("CHANGELOG_CREATOR"), Usage: "tool that generates the changelog (git-cliff, …)"},
 			&cli.BoolFlag{Name: "changelog-skip-version-bump", Sources: cli.EnvVars("CHANGELOG_SKIP_VERSION_BUMP"), Usage: "skip the version-bump commit (caller already committed)"},
+			&cli.StringFlag{Name: "release-platforms", Sources: cli.EnvVars("RELEASE_PLATFORMS"), Usage: "comma-separated subset of each container's platforms this run builds; empty plans every declared platform"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error {
@@ -110,6 +111,7 @@ Composition does not execute a release or establish signing/publication readines
 					ReleaseSignArtifacts:            cmd.Bool("release-sign-artifacts"),
 					ChangelogCreator:                cmd.String("changelog-creator"),
 					ChangelogSkipVersionBump:        cmd.Bool("changelog-skip-version-bump"),
+					ReleasePlatforms:                cmd.String("release-platforms"),
 				})
 
 				return err

@@ -2475,6 +2475,7 @@ Composition does not execute a release or establish signing/publication readines
 | `--release-sign-artifacts` | sign release artifacts with the release GPG key | bool | `true` | `$RELEASE_SIGN_ARTIFACTS` |
 | `--changelog-creator` | tool that generates the changelog (git-cliff, …) | string | `""` | `$CHANGELOG_CREATOR` |
 | `--changelog-skip-version-bump` | skip the version-bump commit (caller already committed) | bool | `false` | `$CHANGELOG_SKIP_VERSION_BUMP` |
+| `--release-platforms` | comma-separated subset of each container's platforms this run builds; empty plans every declared platform | string | `""` | `$RELEASE_PLATFORMS` |
 
 ### `forge-ci plan snapshot-release`
 

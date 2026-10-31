@@ -430,6 +430,9 @@ jobs:
           REPOSITORY_VISIBILITY: ${{ toJSON(github.event.repository.private) == 'true' && 'private' || (toJSON(github.event.repository.private) == 'false' && 'public' || 'unknown') }}
           CHANGELOG_CREATOR: ${{ inputs['changelog-creator'] }}
           CHANGELOG_SKIP_VERSION_BUMP: ${{ inputs['changelog.skipversionbump'] }}
+          # The platforms publish-container builds, so the publish stage
+          # expects only their per-architecture artifacts.
+          RELEASE_PLATFORMS: ${{ vars.RELEASE_PLATFORMS }}
 
           # The DERIVED release tag, so stable/draft classification keys off
           # vX.Y.Z, not the release-request/ prefix. TAG_NAME, not

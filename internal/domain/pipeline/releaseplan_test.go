@@ -129,6 +129,64 @@ func TestNewReleasePlan_ComputesExplicitContainerTransfers(t *testing.T) {
 	}
 }
 
+// A run narrowed by RELEASE_PLATFORMS builds only the selected platforms, so
+// the publish stage must not wait for another platform's artifacts: a GitHub
+// amd64-only release of a container declaring arm64 failed at publish when the
+// plan still required the arm64 analyzed SBOM.
+func TestNewReleasePlan_ReleasePlatformsNarrowContainerTransfers(t *testing.T) {
+	t.Parallel()
+
+	newPlan := func(selection string) (pipeline.ReleasePlan, error) {
+		cfg := &config.Config{
+			Sign:      config.SignConfig{Method: domainrelease.SignMethodSigstore, Transparency: domainrelease.TransparencyPublic},
+			Artifacts: []config.Artifact{{Name: "go-service", ProjectType: projecttype.Go, Go: &config.GoConfig{BuildMode: config.GoBuildModeContainerFirst}}},
+			Containers: []config.Container{{
+				Name:                        "api",
+				From:                        []string{"go-service"},
+				Platforms:                   "linux/amd64,linux/arm64",
+				EnableAnalyzedContainerSBOM: true,
+				Extract:                     &config.ContainerExtract{Binary: &config.ContainerExtractBinary{Target: "export"}},
+			}},
+		}
+		if err := config.Derive(cfg); err != nil {
+			t.Fatal(err)
+		}
+
+		return pipeline.NewReleasePlan(pipeline.ReleasePlanInput{
+			ConfigPlan:           pipeline.NewConfigPlan(cfg),
+			RefName:              "v1.2.3",
+			ReleaseSBOMs:         "analyzed-container",
+			ReleaseSignArtifacts: true,
+			ReleasePlatforms:     selection,
+		})
+	}
+
+	plan, err := newPlan("linux/amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !hasTransferTemplate(plan.ArtifactTransfers.Items, "analyzed_container_sbom", "analyzed-container-sbom-{run_id}-api-amd64") ||
+		!hasTransfer(plan.ArtifactTransfers.Items, "extracted_binaries", "api-binaries-amd64") {
+		t.Errorf("selected platform transfers missing: %+v", plan.ArtifactTransfers.Items)
+	}
+
+	if hasTransferTemplate(plan.ArtifactTransfers.Items, "analyzed_container_sbom", "analyzed-container-sbom-{run_id}-api-arm64") ||
+		hasTransfer(plan.ArtifactTransfers.Items, "extracted_binaries", "api-binaries-arm64") {
+		t.Errorf("unselected platform still expected: %+v", plan.ArtifactTransfers.Items)
+	}
+
+	if got := plan.Stages.Publish.Targets.Containers.Items[0].Platforms; got != "linux/amd64" {
+		t.Errorf("publish container platforms = %q, want linux/amd64", got)
+	}
+
+	for _, refused := range []string{"linux/s390x", "linux/amd64,linux/amd64", " linux/amd64"} {
+		if _, err := newPlan(refused); !errors.Is(err, errs.ErrUsage) {
+			t.Errorf("selection %q: err = %v, want usage refusal", refused, err)
+		}
+	}
+}
+
 func TestNewReleasePlan_RecordsSBOMConflict(t *testing.T) {
 	t.Parallel()
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/domain/config"
+	domaincontainer "github.com/diggsweden/forge-ci/internal/domain/container"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 	"github.com/diggsweden/forge-ci/internal/listval"
@@ -38,6 +39,9 @@ type ReleasePlanInput struct {
 	ReleaseSignArtifacts            bool
 	ChangelogCreator                string
 	ChangelogSkipVersionBump        bool
+	// ReleasePlatforms is RELEASE_PLATFORMS, the subset of each container's
+	// declared platforms this run builds. Empty plans every declared platform.
+	ReleasePlatforms string
 }
 
 // ReleasePlan is the top-level typed contract for production release setup.
@@ -249,6 +253,15 @@ func NewReleasePlan(in ReleasePlanInput) (ReleasePlan, error) {
 	if err := ValidateConfigPlan(in.ConfigPlan); err != nil {
 		return ReleasePlan{}, err
 	}
+
+	// The images plan builds only the selected platforms, so the publish stage
+	// must expect exactly those platforms' per-architecture artifacts.
+	narrowed, err := selectReleasePlatforms(in.ConfigPlan, in.ReleasePlatforms)
+	if err != nil {
+		return ReleasePlan{}, err
+	}
+
+	in.ConfigPlan = narrowed
 
 	if err := domainrelease.ValidateTransparencyConsent(in.RepositoryVisibility, in.ConfigPlan.Sign.Transparency, in.ConfigPlan.Sign.TransparencyExplicit, in.ReleaseSignArtifacts); err != nil {
 		return ReleasePlan{}, err
@@ -478,6 +491,35 @@ func policyIncludesSBOMLayer(value string, layer config.SBOMLayer) bool {
 
 func artifactIncludesSBOMLayer(artifact PlannedArtifact, layer config.SBOMLayer) bool {
 	return slices.Contains(artifact.EffectiveSBOMs, layer)
+}
+
+// selectReleasePlatforms narrows every container to the platforms a run selects,
+// with the same rules as the release images plan. A container that declares no
+// platforms keeps its default.
+func selectReleasePlatforms(plan ConfigPlan, selection string) (ConfigPlan, error) {
+	if selection == "" {
+		return plan, nil
+	}
+
+	containers := slices.Clone(plan.Containers.All)
+
+	for i := range containers {
+		declared := splitPlatforms(containers[i].Platforms)
+		if len(declared) == 0 {
+			continue
+		}
+
+		platforms, err := domaincontainer.SelectPlatforms(declared, selection)
+		if err != nil {
+			return ConfigPlan{}, fmt.Errorf("container %q: %w", containers[i].Name, err)
+		}
+
+		containers[i].Platforms = strings.Join(platforms, ",")
+	}
+
+	plan.Containers.All = containers
+
+	return plan, nil
 }
 
 // Deduplicate suffixes within one container's expansion, never whole transfer

@@ -38,6 +38,7 @@ type ReleaseInput struct {
 	ReleaseSignArtifacts            bool
 	ChangelogCreator                string
 	ChangelogSkipVersionBump        bool
+	ReleasePlatforms                string
 }
 
 // Release composes the typed release plan outputs consumed by release workflows.
@@ -65,6 +66,7 @@ func Release(ctx context.Context, sink ci.OutputSink, summary ci.SummarySink, in
 		ReleaseSignArtifacts:            in.ReleaseSignArtifacts,
 		ChangelogCreator:                in.ChangelogCreator,
 		ChangelogSkipVersionBump:        in.ChangelogSkipVersionBump,
+		ReleasePlatforms:                in.ReleasePlatforms,
 	})
 	if err != nil {
 		return nil, err
