@@ -59,26 +59,50 @@ func readExternalRegistry(path, user string) (ExternalRegistry, error) {
 		return ExternalRegistry{}, fmt.Errorf("%s must name the registry user: %w", externalRegistryUserEnv, errs.ErrUsage)
 	}
 
+	token, err := readTokenFile(path)
+	if err != nil {
+		return ExternalRegistry{}, err
+	}
+
+	return ExternalRegistry{User: strings.TrimSpace(user), Token: token}, nil
+}
+
+// readTokenFile reads one token from the caller's own file: a regular file
+// readable by its owner only, holding one token on one line.
+func readTokenFile(path string) (string, error) {
 	info, err := os.Lstat(path) //nolint:gosec // G703: the caller's own token file, named by the caller.
 	if err != nil {
-		return ExternalRegistry{}, fmt.Errorf("read the token file: %w", err)
+		return "", fmt.Errorf("read the token file: %w", err)
 	}
 
 	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
-		return ExternalRegistry{}, fmt.Errorf("%s must be a regular file readable by its owner only (0600), not %s: %w", path, info.Mode(), errs.ErrUsage)
+		return "", fmt.Errorf("%s must be a regular file readable by its owner only (0600), not %s: %w", path, info.Mode(), errs.ErrUsage)
 	}
 
 	raw, err := os.ReadFile(path) //nolint:gosec // the caller's own token file, checked above.
 	if err != nil {
-		return ExternalRegistry{}, fmt.Errorf("read the token file: %w", err)
+		return "", fmt.Errorf("read the token file: %w", err)
 	}
 
 	token := strings.TrimSpace(string(raw))
 	if token == "" || strings.ContainsAny(token, " \t\r\n") {
-		return ExternalRegistry{}, fmt.Errorf("%s must hold one token on one line: %w", path, errs.ErrUsage)
+		return "", fmt.Errorf("%s must hold one token on one line: %w", path, errs.ErrUsage)
 	}
 
-	return ExternalRegistry{User: strings.TrimSpace(user), Token: token}, nil
+	return token, nil
+}
+
+// ReadSecretFile returns the token a secret-file setting names, or fails the
+// test without echoing it.
+func ReadSecretFile(tb TB, name, path string) string {
+	tb.Helper()
+
+	token, err := readTokenFile(path)
+	if err != nil {
+		tb.Fatalf("livetest: secret %s: %v", name, err)
+	}
+
+	return token
 }
 
 // VerifyExternalImage verifies image, a tagged reference on the external

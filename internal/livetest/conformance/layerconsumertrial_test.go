@@ -219,6 +219,14 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 		plan.Secrets[secret] = target.Token
 	}
 
+	for _, secret := range slices.Sorted(maps.Keys(settings.FileSecrets)) {
+		if _, set := plan.Secrets[secret]; set {
+			t.Fatalf("secret %s is set by the trial itself, from the consumer's own workflow; leave it out", secret)
+		}
+
+		plan.Secrets[secret] = livetest.ReadSecretFile(t, secret, settings.FileSecrets[secret])
+	}
+
 	if release {
 		livetest.AddDeployKey(t, target, repo, "livetest release bot", keys.sshPublic)
 	}

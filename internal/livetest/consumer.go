@@ -116,6 +116,10 @@ type TrialSettings struct {
 	Variables map[string]string
 	// TokenSecrets are repository secrets that receive the lab account's token.
 	TokenSecrets []string
+	// FileSecrets are repository secrets read from the caller's own token
+	// files, by secret name: a credential for a service outside the lab, such
+	// as a read-only GitHub token for mise.
+	FileSecrets map[string]string
 	// Images are images on an external registry a release trial verifies
 	// against the trial's key: a repository, whose v<version> tag is meant, or
 	// a tagged reference, such as a flavour's v<version>-go.
@@ -141,6 +145,7 @@ const (
 	settingVersion     = "version"
 	settingNextVersion = "next-version"
 	settingToken       = "token"
+	settingSecretFile  = "secret-file"
 	settingImage       = "image"
 	settingInterrupt   = "interrupt-after"
 
@@ -153,12 +158,13 @@ const (
 // version, next-version, token, image and interrupt-after; any other key is the name of a repository
 // variable, in capitals as Forgejo stores it.
 //
-// No word carries a secret. The one secret a caller can ask for is the lab
-// account's token, by naming the repository secret that receives it. An
-// external registry's token comes from a file instead (see
-// ExternalRegistryCredential).
+// No word carries a secret. A caller can ask for the lab account's token, by
+// naming the repository secret that receives it, and for a token from one of
+// its own files, by secret-file=<SECRET_NAME>:<absolute path> (owner-only file,
+// one token on one line). An external registry's token comes from a file
+// too (see ExternalRegistryCredential).
 func ParseTrialSettings(event string, words []string) (TrialSettings, error) {
-	settings := TrialSettings{Event: event, Variables: map[string]string{}}
+	settings := TrialSettings{Event: event, Variables: map[string]string{}, FileSecrets: map[string]string{}}
 
 	switch event {
 	case TrialPullRequest:
@@ -172,6 +178,7 @@ func ParseTrialSettings(event string, words []string) (TrialSettings, error) {
 	for _, word := range words {
 		if key, value, _ := strings.Cut(word, "="); value == "" || !settings.set(key, value) {
 			return TrialSettings{}, fmt.Errorf("setting %q is none of %s=<file>.yml, %s=<X.Y.Z> (release only), %s=<X.Y.Z> (second release), %s=<SECRET_NAME>, "+
+				settingSecretFile+"=<SECRET_NAME>:<absolute file>, "+
 				"%s=<registry>/<repository>[:<tag>] (release only), %s=<job name> (release only) or <VARIABLE_NAME>=<value>, "+
 				"each name once, where a value starting with @ is %s or %s: %w",
 				word, settingWorkflow, settingVersion, settingNextVersion, settingToken, settingImage, settingInterrupt, trialLayerCommit, trialRequestCommit, errs.ErrValidation)
@@ -213,7 +220,20 @@ func (settings *TrialSettings) set(key, value string) bool {
 
 		return trialWorkflow.MatchString(value)
 	case settingToken:
-		return appendOnce(&settings.TokenSecrets, value) && trialName.MatchString(value)
+		_, fromFile := settings.FileSecrets[value]
+
+		return !fromFile && appendOnce(&settings.TokenSecrets, value) && trialName.MatchString(value)
+	case settingSecretFile:
+		name, path, _ := strings.Cut(value, ":")
+		_, seen := settings.FileSecrets[name]
+
+		if seen || slices.Contains(settings.TokenSecrets, name) || !trialName.MatchString(name) || !filepath.IsAbs(path) {
+			return false
+		}
+
+		settings.FileSecrets[name] = path
+
+		return true
 	case settingVersion, settingNextVersion, settingImage, settingInterrupt:
 		return settings.Event == TrialRelease && settings.setReleaseOnly(key, value)
 	}

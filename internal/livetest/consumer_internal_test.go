@@ -74,7 +74,7 @@ func TestParseTrialSettings_ReadsTheCallersWords(t *testing.T) {
 	settings, err = ParseTrialSettings(TrialRelease, []string{
 		"workflow=ship.yaml", "version=1.20.3", "token=PACKAGES_TOKEN", "token=PAGES_TOKEN",
 		"CI_JOB_IMAGE=forge.example/forgeci/job@sha256:1", "NOTE=two words", "APPROVED=@layer-commit", "CANDIDATE=@request-commit",
-		"interrupt-after=Build go flavor image",
+		"interrupt-after=Build go flavor image", "secret-file=DEPENDENCY_GITHUB_TOKEN:/home/lab/github.pat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +87,8 @@ func TestParseTrialSettings_ReadsTheCallersWords(t *testing.T) {
 		},
 	}
 	if settings.Workflow != want.Workflow || settings.Version != want.Version || !slices.Equal(settings.TokenSecrets, want.TokenSecrets) ||
-		!maps.Equal(settings.Variables, want.Variables) || settings.InterruptAfter != "Build go flavor image" {
+		!maps.Equal(settings.Variables, want.Variables) || settings.InterruptAfter != "Build go flavor image" ||
+		!maps.Equal(settings.FileSecrets, map[string]string{"DEPENDENCY_GITHUB_TOKEN": "/home/lab/github.pat"}) {
 		t.Errorf("settings = %+v, want %+v", settings, want)
 	}
 
@@ -138,6 +139,12 @@ func TestParseTrialSettings_RefusesWhatItCannotMean(t *testing.T) {
 		"token named twice":                {event: TrialRelease, words: []string{"token=A", "token=A"}},
 		"lowercase token":                  {event: TrialRelease, words: []string{"token=packages"}},
 		"token with a value":               {event: TrialRelease, words: []string{"token=A=secret"}},
+		"secret file twice":                {event: TrialRelease, words: []string{"secret-file=A:/a", "secret-file=A:/b"}},
+		"secret file and token":            {event: TrialRelease, words: []string{"token=A", "secret-file=A:/a"}},
+		"token and secret file":            {event: TrialRelease, words: []string{"secret-file=A:/a", "token=A"}},
+		"relative secret file":             {event: TrialRelease, words: []string{"secret-file=A:a.pat"}},
+		"secret file without a path":       {event: TrialRelease, words: []string{"secret-file=A"}},
+		"lowercase secret file":            {event: TrialRelease, words: []string{"secret-file=a:/a"}},
 		"variable twice":                   {event: TrialRelease, words: []string{"A=1", "A=2"}},
 		"unknown reference":                {event: TrialRelease, words: []string{"A=@layer"}},
 		"value of two lines":               {event: TrialRelease, words: []string{"A=one\ntwo"}},
