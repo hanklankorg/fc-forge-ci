@@ -153,7 +153,7 @@ const npmApplicationBuildSteps = `      - name: Build original npm application
           RELEASE_SHA: ${{ needs.prepare.outputs.release-sha }}
         run: |
           set -euo pipefail
-          mkdir -p retained-package
+          mkdir -p retained-package dist
           cp -- ./*.tgz retained-package/
           node --input-type=module -e 'import fs from "node:fs"; const p=JSON.parse(fs.readFileSync("package.json")); fs.writeFileSync("retained-package/package-metadata.json", JSON.stringify({name:p.name,version:p.version}));'
           (cd retained-package && sha256sum ./*.tgz > SHA256SUMS)
