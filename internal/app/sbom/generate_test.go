@@ -326,6 +326,44 @@ func TestGenerate_GradleArtifactLayer_FiltersClassifierJars(t *testing.T) {
 	}
 }
 
+// A release job downloads the Gradle build's upload under release-artifacts/,
+// keeping its build/libs path; the workspace itself has no build/libs.
+func TestGenerate_GradleArtifactLayer_ScansTheDownloadedReleaseArtifacts(t *testing.T) {
+	fsys := testfs.NewReal(t)
+	fsys.WriteFile(filepath.Join("release-artifacts", "build", "libs", "demo-1.2.3.jar"), []byte("jar"))
+	fsys.WriteFile(filepath.Join("release-artifacts", "build", "libs", "demo-1.2.3-javadoc.jar"), []byte("javadoc"))
+	fsys.Chdir()
+
+	syft := &fakeSyft{}
+	if err := appsbom.Generate(context.Background(), syft, nil, &fakeGit{}, nil, io.Discard, io.Discard, appsbom.GenerateInput{
+		ProjectType: "gradle",
+		Name:        "demo",
+		Version:     "1.2.3",
+		Layers:      "analyzed-artifact",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(syft.calls) != 1 || syft.calls[0].target != filepath.Join("release-artifacts", "build", "libs", "demo-1.2.3.jar") {
+		t.Fatalf("syft calls = %+v", syft.calls)
+	}
+}
+
+func TestGenerate_GradleArtifactLayer_RefusesWhenNoJarIsAnywhere(t *testing.T) {
+	fsys := testfs.NewReal(t)
+	fsys.Chdir()
+
+	err := appsbom.Generate(context.Background(), &fakeSyft{}, nil, &fakeGit{}, nil, io.Discard, io.Discard, appsbom.GenerateInput{
+		ProjectType: "gradle",
+		Name:        "demo",
+		Version:     "1.2.3",
+		Layers:      "analyzed-artifact",
+	})
+	if !errors.Is(err, errs.ErrMissingInput) {
+		t.Fatalf("Generate = %v, want a missing-input refusal", err)
+	}
+}
+
 func TestGenerate_PythonArtifactLayer_TrimsWheelAndSdistNames(t *testing.T) {
 	fsys := testfs.NewReal(t)
 	fsys.WriteFile(filepath.Join("dist", "demo-1.2.3-py3-none-any.whl"), []byte("wheel"))

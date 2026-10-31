@@ -67,10 +67,11 @@ func findNPMTarballs(ws workspace) ([]string, error) {
 	return nil, nil
 }
 
+// findGradleJARs searches ./release-artifacts (where a release job downloads
+// the build's upload) before ./build/libs (a direct local run).
 func findGradleJARs(ws workspace, name string) ([]string, error) {
 	prefix := name + "-"
-
-	return walkMatching(ws, "build/libs", func(n string) bool {
+	jarFilter := func(n string) bool {
 		if !strings.HasSuffix(n, ".jar") {
 			return false
 		}
@@ -80,7 +81,20 @@ func findGradleJARs(ws workspace, name string) ([]string, error) {
 		}
 
 		return strings.HasPrefix(n, prefix)
-	})
+	}
+
+	for _, root := range []string{domainrelease.DefaultReleaseArtifactsDir, "build/libs"} {
+		hits, err := walkMatching(ws, root, jarFilter)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(hits) > 0 {
+			return hits, nil
+		}
+	}
+
+	return nil, nil
 }
 
 func findGoExecutables(ws workspace, name string) ([]string, error) {

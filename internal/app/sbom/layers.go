@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"path/filepath"
 	"strings"
 
@@ -394,23 +393,14 @@ func generateArtifactLayer(
 			layerType: "analyzed-tararchive", ext: "tgz", missingWarn: "No NPM tarball found",
 		})
 	case projecttype.Gradle:
-		if _, err := deps.ws.stat("build/libs"); err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				_, _ = fmt.Fprintln(deps.w, "   ⚠️  No build/libs/ directory found")
-				_, _ = fmt.Fprintln(deps.w)
-
-				return fmt.Errorf("no Gradle artifacts found in build/libs: %w", errs.ErrMissingInput)
-			}
-
-			return fmt.Errorf("stat build/libs: %w", err)
-		}
-
 		artifacts, err := findGradleJARs(deps.ws, subj.name)
 		if err != nil {
 			return err
 		}
 
-		return scanArtifacts(ctx, deps, artifacts, subj, jarScan)
+		return scanArtifacts(ctx, deps, artifacts, subj, artifactScan{
+			layerType: jarScan.layerType, ext: jarScan.ext, missingWarn: "No Gradle JAR found in release-artifacts/ or build/libs/",
+		})
 	case projecttype.Go:
 		artifacts, err := findGoExecutables(deps.ws, subj.name)
 		if err != nil {
