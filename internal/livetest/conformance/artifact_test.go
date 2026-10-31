@@ -57,6 +57,7 @@ func artifactUploadFlags(t *testing.T) []string {
 // that exits 0 having uploaded nothing leaves a pipeline believing its reports
 // were published, and the next job looking for them is where anyone finds out.
 func TestArtifact_WithoutAStore_RefusesAndNamesTheGap(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, forge := range forgesLacking(t, claimsRunArtifacts, "run artifacts") {
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
@@ -108,6 +109,7 @@ func TestArtifact_WithoutAStore_RefusesAndNamesTheGap(t *testing.T) {
 // perfectly well concludes the feature is missing and works around a problem
 // that does not exist.
 func TestArtifact_WithAStore_FailsOnTheRuntimeNotTheCapability(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, forge := range forgesClaiming(t, claimsRunArtifacts, "run artifacts") {
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
@@ -146,6 +148,7 @@ func TestArtifact_WithAStore_FailsOnTheRuntimeNotTheCapability(t *testing.T) {
 // but a different one, and pinning it here would make this scenario fail for a
 // reason unrelated to whether the store works.
 func TestInRunner_ArtifactRoundTripsThroughTheStore(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const tag = "v0.0.5-artifact"
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, claimsRunArtifacts, "run artifacts"), livetest.NeedsInRunner) {
@@ -219,6 +222,7 @@ jobs:
 // PAR-ART-4: the runner transports a binary payload to a distinct job, whose
 // clean workspace cannot satisfy the assertion using the producer's files.
 func TestInRunner_GitLabNativeArtifactsReachTheNextJob(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	if !livetest.Selected(t, provider.ForgeGitLab) {
 		livetest.NotCoveredf(t, "the contract selects no GitLab endpoint for native job artifacts")
 	}
@@ -238,6 +242,7 @@ func TestInRunner_GitLabNativeArtifactsReachTheNextJob(t *testing.T) {
 // Exercise the actual build-to-sign digest verifier after native job transport.
 // Bundle mutation here tests byte integrity, not signature verification.
 func TestInRunner_GitLabReleaseHandoffRejectsTamperedBytes(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	if !livetest.Requires(t, provider.ForgeGitLab, livetest.NeedsInRunner) {
 		livetest.NotCoveredf(t, "release handoff rejection requires a GitLab runner")
 	}

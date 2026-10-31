@@ -51,6 +51,7 @@ const (
 // consumer asked, offers at least one Cosign bundle and each verifies against
 // the trial's public key. Job names and asset counts are the consumer's.
 func TestForgejoLayer_ConsumerTrial(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	root := os.Getenv(consumerCheckoutEnv)
 	if root == "" {
 		t.Skip("no consumer checkout is named; run `just test-live-forgejo-consumer <checkout> <pull-request|release>`")

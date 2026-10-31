@@ -48,7 +48,7 @@ func gradleAndroidRunCmd(ops appbuild.AndroidGradleOps) *cli.Command {
    including on failure; cleanup errors are returned. Replaced properties are
    preserved. Emits artifact names + version for downstream upload/publish jobs.
 
-   Both ./gradlew invocations and metadata use --working-dir. Inherited JDK/SDK
+   Test, packaging and optional SBOM invocations and metadata use --working-dir. Inherited JDK/SDK
    runtime settings remain available; this command is not a build sandbox.
 
 EXAMPLE:

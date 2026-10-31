@@ -20,6 +20,7 @@ import (
 // The publisher alone populates cache slots; a content change invalidates one
 // slot before the warm repeat.
 func TestForgejoLayer_ResolvedImagePlan(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	jobImage := os.Getenv("FORGE_CI_LIVE_IMAGE_PLAN_JOB_IMAGE")
 	if jobImage == "" {
 		t.Skip("set FORGE_CI_LIVE_IMAGE_PLAN_JOB_IMAGE to the lab kaniko job image for this focused scenario")

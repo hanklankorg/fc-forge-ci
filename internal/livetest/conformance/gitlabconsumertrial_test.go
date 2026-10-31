@@ -30,6 +30,7 @@ import (
 // that same canary to the protected signer environment then permits the actual
 // checks, on the same MR commit. No signing credential is used by this trial.
 func TestGitLabLayer_ConsumerTrial(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	root := os.Getenv(consumerCheckoutEnv)
 	if root == "" {
 		t.Skip("use just test-live-gitlab-consumer <checkout> <prepared-job-image.tar>")

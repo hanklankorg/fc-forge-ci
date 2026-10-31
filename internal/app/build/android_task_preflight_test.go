@@ -44,8 +44,11 @@ func TestAndroidReleaseBuild_SelectedTaskPreflight(t *testing.T) {
 		{"selected_derived_module", "", "widget\x00", true, true, nil},
 		{"colon_override_words", " \t:widget:assembleRelease\nwidget:bundleRelease\r\n", "widget", true, false, []string{":widget:assembleRelease", "widget:bundleRelease"}},
 		{"blank_override_derives", " \t\n", "widget", true, false, []string{"widget:test", "assembleRelease", "widget:bundleRelease"}},
-		{"override_ignores_unused_fields", ":widget:assembleRelease", "widget\x00", true, false, []string{":widget:assembleRelease"}},
+		{"override_ignores_unused_fields", ":widget:assembleRelease", "widget\x00", true, true, nil},
+		{"override_ignores_unused_build_types", ":widget:assembleRelease", "widget", true, false, []string{":widget:assembleRelease"}},
 		{"unit_tests_use_module_without_bundle", "", "widget\x00", false, true, nil},
+		{"override_module_control", ":widget:assembleRelease", "wid\x1bget", true, true, nil},
+		{"override_module_newline", ":widget:assembleRelease", "wid\nget", true, true, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fsys := testfs.NewReal(t)
@@ -68,11 +71,9 @@ func TestAndroidReleaseBuild_SelectedTaskPreflight(t *testing.T) {
 				SecretsPropertiesBase64: base64.StdEncoding.EncodeToString([]byte("token=owned-properties\n")),
 				TempDir:                 fsys.Path("signing"), SBOMToolVersion: "2.3.4",
 			}
-			if tc.name == "override_ignores_unused_fields" {
-				// Only the build-type selection is genuinely unused once an
-				// override supplies the tasks. The flavor and the prefix still
-				// compose the artifact names this build publishes, so they are
-				// checked like any other value that reaches an output sink.
+			if tc.name == "override_ignores_unused_fields" || tc.name == "override_ignores_unused_build_types" {
+				// Artifact overrides leave build-type selection unused, but the
+				// module still selects mandatory tests and must be validated.
 				in.BuildTypes = "unused-types\x00"
 			}
 
@@ -113,7 +114,12 @@ func TestAndroidReleaseBuild_SelectedTaskPreflight(t *testing.T) {
 					}
 				}
 
-				if len(ops.calls) == 2 {
+				switch len(ops.calls) {
+				case 1:
+					require.Equal(t, []string{"widget:test"}, call.Args)
+				case 2:
+					require.Equal(t, append(append([]string{}, tc.wantArgs...), "-x", "widget:test"), call.Args)
+				case 3:
 					require.Len(t, call.Args, 3)
 					require.Equal(t, []string{"--init-script", call.Args[1], "cyclonedxBom"}, call.Args)
 					require.Equal(t, fsys.Path("os-temp"), filepath.Dir(call.Args[1]))
@@ -126,7 +132,13 @@ func TestAndroidReleaseBuild_SelectedTaskPreflight(t *testing.T) {
 			err := appbuild.AndroidReleaseBuild(t.Context(), sink, sink, ops, output.NewAnnotator(&annotations, output.FormatGitHub), &stdout, &stderr, in)
 			if tc.refuse {
 				assert.True(t, errors.Is(err, errs.ErrUsage) || errors.Is(err, errs.ErrValidation), "expected task preflight classification, got %v", err)
-				assert.Contains(t, fmt.Sprint(err), "tasks")
+				if strings.ContainsAny(tc.module, "\x00\x1b\n") {
+					assert.Contains(t, fmt.Sprint(err), "build-module")
+					assert.NotContains(t, fmt.Sprint(err), tc.module, "module controls must be escaped in diagnostics")
+				} else {
+					assert.Contains(t, fmt.Sprint(err), "tasks")
+					assert.NotContains(t, fmt.Sprint(err), "widget")
+				}
 				assert.Empty(t, ops.calls, "preflight must not call Gradle")
 				assert.Empty(t, events, "preflight must not call output or summary sinks")
 				assert.Empty(t, sink.Keys())
@@ -135,11 +147,9 @@ func TestAndroidReleaseBuild_SelectedTaskPreflight(t *testing.T) {
 				assert.Equal(t, before, ownedTree(t, fsys.Root), "preflight must preserve paths, bytes and modes")
 				assert.NotContains(t, fmt.Sprint(err), "assembleRelease")
 				assert.NotContains(t, fmt.Sprint(err), "blocked")
-				assert.NotContains(t, fmt.Sprint(err), "widget")
 			} else {
 				require.NoError(t, err)
-				require.Len(t, ops.calls, 2)
-				require.Equal(t, tc.wantArgs, ops.calls[0].Args)
+				require.Len(t, ops.calls, 3)
 				require.Equal(t, []string{"debug-name", "release-name", "aab-name", "sbom-name", "version", "version-code", "summary"}, events)
 				require.Equal(t, "release-bundle-release", sink.Single("release-name"))
 				require.Contains(t, sink.summary, fsys.Path("project/build/reports/bom.json"))

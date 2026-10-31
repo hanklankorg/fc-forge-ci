@@ -26,13 +26,15 @@ release preparer bumps manifests only in the scratch repository. Existing SDK co
 ownership checks apply. Existing `logJobs` retains bounded redacted traces for
 successful and failed jobs before scratch cleanup.
 
-The separate development case keeps the original Containerfile snapshot **first**. Known upstream Forgejo
-issue #12191 can block it. Do not change to artifact-first to conceal that
-failure. The later package check is not evidence that an image service started;
-this case currently makes no service-readiness claim.
+The separate development case keeps the original Containerfile snapshot **first**.
+Earlier attempts encountered Forgejo issue #12191. The shared snapshot workflow
+now carries a no-op producer for empty matrices; this actual-source development
+case still needs native acceptance against that fix. Do not change to
+artifact-first to conceal a remaining failure. The later package check is not
+evidence that an image service started; this case makes no service-readiness claim.
 
-To select that development case explicitly (currently blocked by the upstream
-image-first issue; it is not part of stable files acceptance):
+To select that development case explicitly (it is not part of stable files
+acceptance):
 
 ```sh
 export LIVEFILTER='^TestForgejoLayer_NPMApplicationDevelopment$'
@@ -138,3 +140,17 @@ is wired to Forgejo only. GitLab and GitHub actual-source acceptance remain
 unimplemented/unrun; GitHub personal-versus-organization acknowledgement stays
 operator policy. No live SDK acceptance, registry package publication or service
 container execution has been performed during fixture preparation.
+
+### Public native acceptance — 2026-10-30
+
+Forgejo run **313** passed the original-source stable case at `v2.1.1`, using
+the dotted immutable npm tag policy. The `installed-oracle` and `publish-package`
+jobs both succeeded after signed-file publication. The controller independently
+verified seven release files and three Cosign bundles with the trial key.
+The staged consumer was `9727f0133deb17c72c2d6675baac7dbd9ea4ef05`, the served
+engine layer `9a76a8fe7fb61f67a3383230ccbc001bd678ab4b`, and the engine binary
+SHA-256 `78e432387815db26d4417c68d38a5a0f7f2391783bb003a3263e01b38688a742`.
+Full redacted job logs were retained before scratch cleanup. Application source,
+package scope and packed resources were not repaired or renamed by this trial.
+This closes the named public Forgejo stable case; it is not GitLab/GitHub or
+independent development/container-readiness acceptance.

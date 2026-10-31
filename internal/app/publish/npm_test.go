@@ -157,6 +157,17 @@ func TestNPMValidateTarball_LibraryEntrypoint(t *testing.T) {
 	}{
 		{"exports", `{"exports":"./src/index.js"}`, true},
 		{"main", `{"main":"src/index.js"}`, true},
+		{"null exports main", `{"exports":null,"main":"src/index.js"}`, true},
+		{"malformed metadata", `{"main":`, false},
+		{"exports overrides main", `{"main":"src/index.js","exports":{".":"./missing.js"}}`, false},
+		{"exports wrong type", `{"main":"src/index.js","exports":42}`, false},
+		{"exports array", `{"main":"src/index.js","exports":["./src/index.js"]}`, false},
+		{"exports needs dot slash", `{"exports":"src/index.js"}`, false},
+		{"exports dot segment", `{"exports":"./src/./index.js"}`, false},
+		{"exports empty segment", `{"exports":"./src//index.js"}`, false},
+		{"exports escaped", `{"exports":"./src/%69ndex.js"}`, false},
+		{"exports query", `{"exports":"./src/index.js?query"}`, false},
+		{"exports control", `{"exports":"./src/index.js\u0001"}`, false},
 		{"missing", `{"exports":"./src/missing.js"}`, false},
 		{"parent", `{"main":"../outside.js"}`, false},
 		{"absolute", `{"main":"/outside.js"}`, false},
@@ -166,9 +177,11 @@ func TestNPMValidateTarball_LibraryEntrypoint(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			fsys := testfs.NewReal(t)
 			fsys.WriteFile("src/index.js", []byte("existing source"))
+			fsys.WriteFile("package.json", []byte("existing metadata"))
 			makeNPMTarball(t, fsys.Root, "library.tgz", map[string]string{
 				"package.json": tc.metadata, "src/index.js": "export const value = 42;",
 			})
+			archiveBefore := fsys.ReadFile("library.tgz")
 			err := apppublish.NPMValidateTarball(t.Context(), io.Discard, io.Discard, output.Annotator{}, apppublish.NPMValidateTarballInput{Dir: fsys.Root})
 			if tc.valid {
 				if err != nil || string(fsys.ReadFile("src/index.js")) != "export const value = 42;" {
@@ -182,10 +195,34 @@ func TestNPMValidateTarball_LibraryEntrypoint(t *testing.T) {
 			if string(fsys.ReadFile("src/index.js")) != "existing source" {
 				t.Fatal("rejected entrypoint changed the destination")
 			}
-			if _, err := os.Stat(filepath.Join(fsys.Root, "library.tgz")); err != nil {
-				t.Fatal("rejected input removed the original archive")
+			if string(fsys.ReadFile("package.json")) != "existing metadata" || !bytes.Equal(archiveBefore, fsys.ReadFile("library.tgz")) {
+				t.Fatal("rejected input changed metadata or original archive")
 			}
 		})
+	}
+}
+
+func TestNPMValidateTarball_RejectsURLNormalizedFilenameWithoutInstalling(t *testing.T) {
+	fsys := testfs.NewReal(t)
+	fsys.WriteFile("src/index.js", []byte("caller source"))
+	fsys.WriteFile("package.json", []byte("caller metadata"))
+	makeNPMTarball(t, fsys.Root, "library.tgz", map[string]string{
+		"package.json": `{"exports":"./src/index.js "}`,
+		// This is the archive's only entrypoint. Node would trim its space and
+		// resolve another filename; neither this file nor metadata may install.
+		"src/index.js ": "export const value = 42;",
+	})
+	before := fsys.ReadFile("library.tgz")
+	err := apppublish.NPMValidateTarball(t.Context(), io.Discard, io.Discard, output.Annotator{}, apppublish.NPMValidateTarballInput{Dir: fsys.Root})
+	if !errors.Is(err, errs.ErrValidation) {
+		t.Fatalf("URL-normalized export was accepted: %v", err)
+	}
+	if string(fsys.ReadFile("src/index.js")) != "caller source" || string(fsys.ReadFile("package.json")) != "caller metadata" || !bytes.Equal(before, fsys.ReadFile("library.tgz")) {
+		t.Fatal("rejected archive changed caller files or archive bytes")
+	}
+	entries, err := os.ReadDir(filepath.Join(fsys.Root, "src"))
+	if err != nil || len(entries) != 1 || entries[0].Name() != "index.js" {
+		t.Fatalf("rejected entrypoint was installed: %v, %v", entries, err)
 	}
 }
 

@@ -71,8 +71,7 @@ func TestAndroidReleaseBuild_RunsSequenceAndEmitsNames(t *testing.T) {
 				t.Errorf("outputs =\n%v\nwant\n%v", got, wantOutputs)
 			}
 
-			// One gradle invocation carrying every task.
-			assertGradleCalls(t, ops.calls, tc.wantTasks)
+			assertGradleCalls(t, ops.calls, []string{"app:test"}, append(tc.wantTasks, "-x", "app:test"))
 		})
 	}
 }
@@ -148,7 +147,7 @@ func TestAndroidLibraryBuildUsesAARContract(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertGradleCalls(t, ops.calls, []string{"lib:test", "lib:assembleDemoRelease"})
+	assertGradleCalls(t, ops.calls, []string{"lib:test"}, []string{"lib:test", "lib:assembleDemoRelease", "-x", "lib:test"})
 
 	want := map[string]string{"aar-name": "library", "sbom-name": "library-sbom", "version": "1.0.0"}
 	if got := sink.AllScalar(); !maps.Equal(got, want) {
@@ -162,4 +161,16 @@ func TestAndroidLibraryBuildUsesAARContract(t *testing.T) {
 	if !errors.Is(err, errs.ErrInvalidConfig) || len(refused.calls) != 0 {
 		t.Fatalf("library accepted application signing: %v, %v", err, refused.calls)
 	}
+}
+
+func TestAndroidArtifactTaskOverrideStillInvokesModuleTests(t *testing.T) {
+	ops := &recordingGradle{}
+	err := appbuild.AndroidReleaseBuild(t.Context(), fakeoutputsink.New(t), &recordingSummarySink{}, ops, output.Annotator{}, io.Discard, io.Discard, appbuild.AndroidReleaseBuildInput{
+		Dir: newGradleDir(t), RepoName: "app", BuildModule: "client", BuildTypes: "release",
+		GradleTasksOverride: "assembleRelease app:bundleRelease",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertGradleCalls(t, ops.calls, []string{"client:test"}, []string{"assembleRelease", "app:bundleRelease", "-x", "client:test"})
 }

@@ -58,6 +58,7 @@ const packageTokenSecret = "RC_PACKAGE_TOKEN"
 // PAR-PKG-1: an npm package published through the product appears in the
 // forge's own package registry.
 func TestInRunner_ForgePackages_NPMPublishReachesTheRegistry(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const (
 		tag  = "v0.0.8-pkgnpm"
 		base = "fci-parpkg"
@@ -365,6 +366,7 @@ node() {
 // provisioning, not a registry under test. Every registry this asserts against
 // is the lab's own.
 func TestInRunner_ForgePackages_MavenDeployReachesTheRegistry(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const (
 		tag        = "v0.0.9-pkgmvn"
 		groupID    = "com.example.livetest"

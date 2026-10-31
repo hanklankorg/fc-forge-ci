@@ -24,6 +24,7 @@ import (
 // This is a bootstrap-only working-tree snapshot, not EnsureEngine or a release
 // trial: no signing authority, release assets, runtime images or production pushes.
 func TestGitHubBootstrap_SourceAndStableSelection(t *testing.T) {
+	RegisterLiveScenario(t)
 	if os.Getenv(GitHubContextEnv) == "" {
 		t.Skip("run inside the documented Forge Lab github run session")
 	}

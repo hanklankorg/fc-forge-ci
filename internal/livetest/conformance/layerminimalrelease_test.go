@@ -106,6 +106,7 @@ func releaseAssets() []string {
 // archive holds the binary; no job log holds a key or a passphrase; and the
 // owner's packages are as they were.
 func TestForgejoLayer_MinimalBinaryRelease(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, visibility := range livetest.ConsumerVisibilities(t) {
 		t.Run(visibility.Name, func(t *testing.T) {
 			format := pairedObjectFormat(visibility)

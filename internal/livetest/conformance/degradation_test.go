@@ -41,6 +41,7 @@ import (
 // step summary or an artifact instead — and crucially *no failed API call*. A
 // forge that 404s here would be the bug: it would mean the CLI tried anyway.
 func TestDegradation_SARIFUpload_NoticesAndSucceeds(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, forge := range forgesLacking(t, func(c provider.Capabilities) bool { return c.SARIFUpload }, "SARIF upload") {
 		t.Run(string(forge), func(t *testing.T) {
 			target := livetest.Accept(t, forge)
@@ -93,6 +94,7 @@ func TestDegradation_SARIFUpload_NoticesAndSucceeds(t *testing.T) {
 // missing --started-on satisfies "non-zero, and the message names the reason"
 // while proving nothing about capabilities.
 func TestProvenance_GeneratesEquivalentlyOnEveryForge(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	var (
 		mu       sync.Mutex
 		subjects = map[provider.ForgeAPI]string{}

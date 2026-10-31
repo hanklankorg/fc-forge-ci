@@ -105,6 +105,27 @@ type AndroidBuildTypeSet struct {
 	Release bool
 }
 
+func androidBuildModule(module string) (string, error) {
+	module = strings.TrimSpace(module)
+	if module == "" {
+		module = "app"
+	}
+	if strings.ContainsFunc(module, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+		return "", fmt.Errorf("build-module %q must be a single Gradle module name: %w", module, errs.ErrValidation)
+	}
+	return module, nil
+}
+
+// AndroidUnitTestTask names the module aggregate independently of artifact-task
+// overrides, without inventing variant or connected-device test tasks.
+func AndroidUnitTestTask(module string) (string, error) {
+	module, err := androidBuildModule(module)
+	if err != nil {
+		return "", err
+	}
+	return module + ":test", nil
+}
+
 // ResolveAndroidBuildTasks computes artifact tasks and an optional module unit-
 // test aggregate. AGP may disable release unit-test variants, so do not invent
 // variant task names. The test aggregate does not select connected-device tests.
@@ -113,13 +134,9 @@ func ResolveAndroidBuildTasks(in ResolveAndroidBuildTasksInput) (string, error) 
 	// is refused. The task list is a space-separated string that is later split
 	// into Gradle arguments, so an untrimmed "  " produced the task
 	// "  :bundleRelease", and "app extra" would have become two tasks.
-	module := strings.TrimSpace(in.BuildModule)
-	if module == "" {
-		module = "app"
-	}
-
-	if strings.ContainsFunc(module, unicode.IsSpace) {
-		return "", fmt.Errorf("build-module %q must be a single Gradle module name: %w", module, errs.ErrValidation)
+	module, err := androidBuildModule(in.BuildModule)
+	if err != nil {
+		return "", err
 	}
 
 	flavorCap := capitalizeFirst(in.Flavor)

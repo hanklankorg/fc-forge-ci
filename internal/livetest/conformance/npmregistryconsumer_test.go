@@ -21,6 +21,7 @@ import (
 // Consume the previously published hello-npm-package fixture without its source,
 // retained archive, publisher credentials or the product's npm implementation.
 func TestForgejoNPMLibrary_RegistryConsumer(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	name := os.Getenv("FORGE_CI_LIVE_NPM_CONSUMER_NAME")
 	version := os.Getenv("FORGE_CI_LIVE_NPM_CONSUMER_VERSION")
 	if name == "" && version == "" {

@@ -31,6 +31,7 @@ const gitlabCandidatePauseVariable = "FIXTURE_PAUSE_AFTER_CANDIDATE"
 // Unlike the small promotion primitive below, this interrupts a real consumer
 // after its build pushed an image, then retries the canceled child pipeline.
 func TestGitLabRelease_ConsumerInterruptedRecovery(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	root := os.Getenv(consumerCheckoutEnv)
 	if root == "" {
 		livetest.NotCoveredf(t, "consumer recovery requires a reviewed image-producing consumer with the candidate pause checkpoint")
@@ -226,6 +227,7 @@ func recoverGitLabConsumerAfterCandidate(t *testing.T, ctx context.Context, clie
 // then retry the same CLI promotion in a clean job. This isolates recovery from
 // toolchain/signing acceptance, which the signed consumer scenarios exercise.
 func TestGitLabRelease_PromotionRetryAfterRegistryWrite(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	if !livetest.Requires(t, provider.ForgeGitLab, livetest.NeedsInRunner) {
 		livetest.NotCoveredf(t, "promotion recovery requires a GitLab runner")
 	}

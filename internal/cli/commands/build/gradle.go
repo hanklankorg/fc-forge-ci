@@ -32,19 +32,19 @@ func gradleRunCmd() *cli.Command {
 		Name:  subCmdRun,
 		Usage: "run the full Gradle release build (gradlew chmod, metadata, tasks, SBOM, summary)",
 		Description: `Runs the whole Gradle build sequence in one step: make ./gradlew
-   executable, resolve metadata, run the gradle tasks (-x test unless
-   --skip-tests), generate the Build SBOM with the pinned cyclonedx-gradle-plugin
-   (unless --no-build-sbom), and write the summaries.
+   executable, resolve metadata, invoke mandatory test tasks under administrator
+   policy, then run the requested packaging tasks without repeating those tests.
+   Generate the Build SBOM with the pinned cyclonedx-gradle-plugin when enabled
+   and write the summaries. Consumer --skip-tests=true is refused.
 
-   ./gradlew executes in the current directory, not --working-dir: run this from
-   the project root, or cd in first (the forge job does, then wraps it with
-   checkout + artifact upload). --working-dir only locates gradle.properties for
-   metadata.
+   Test, packaging and SBOM invocations execute in --working-dir, which also
+   selects gradle.properties. A successful invocation can include Gradle cached,
+   up-to-date or NO-SOURCE outcomes; the summary reports test tasks invoked.
 
 EXAMPLE:
    cd app && forge-ci build gradle run --tasks assemble --sbom-tool-version 3.2.1`,
 		Flags: append(dependencyFlags(), []cli.Flag{
-			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Sources: cli.EnvVars("WORKING_DIRECTORY"), Usage: "directory of gradle.properties to read for metadata; ./gradlew itself runs in the current directory (cd in first)"},
+			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Sources: cli.EnvVars("WORKING_DIRECTORY"), Usage: "project directory for metadata, mandatory tests, packaging and SBOM"},
 			&cli.StringFlag{Name: flagTasks, Required: true, Sources: cli.EnvVars("GRADLE_TASKS"), Usage: usageGradleTasks},
 			&cli.BoolFlag{Name: flagSkipTests, Sources: cli.EnvVars("SKIP_TESTS"), Usage: usageSkipTestTask},
 			&cli.BoolFlag{Name: flagBuildSBOM, Value: true, Sources: cli.EnvVars("ENABLE_BUILD_SBOM"), Usage: "generate the cyclonedx-gradle-plugin Build SBOM (default true)"},

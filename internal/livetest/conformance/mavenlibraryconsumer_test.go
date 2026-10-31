@@ -26,6 +26,7 @@ import (
 // authority and lifecycle, with a private-index CI adapter for an unmodified
 // real library checkout. It intentionally judges only the signed file release.
 func TestForgejoMavenLibraryConsumer_Stable(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	root := os.Getenv(consumerCheckoutEnv)
 	if root == "" {
 		t.Skip("FORGE_CI_LIVE_CONSUMER is not set")

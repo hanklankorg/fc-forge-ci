@@ -140,11 +140,13 @@ type AndroidGradleBuildInput struct {
 	// Tasks is the space-separated gradle task list (typically resolved by
 	// build.ResolveAndroidBuildTasks).
 	Tasks string
-	// SkipTests adds `-x test` to the gradle invocation.
+	// TestTask is the engine-selected module test aggregate.
+	TestTask string
+	// SkipTests is a refused legacy consumer opt-out.
 	SkipTests bool
 }
 
-// AndroidGradleBuild runs `./gradlew <tasks> [-x test]`. Mirrors.
+// AndroidGradleBuild runs mandatory tests before the requested artifact tasks.
 func AndroidGradleBuild(ctx context.Context, ops GradleOps, out, stderr io.Writer, in AndroidGradleBuildInput) error {
 	if strings.TrimSpace(in.Tasks) == "" {
 		return fmt.Errorf("gradle tasks are required: pass --tasks <list> or set $GRADLE_TASKS: %w", errs.ErrUsage)

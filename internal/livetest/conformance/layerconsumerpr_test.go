@@ -70,6 +70,7 @@ func TestBanner(t *testing.T) {
 // account. A pull request is unreviewed code, so "it published nothing" is
 // the half of this scenario that matters most.
 func TestForgejoLayer_ConsumerPullRequest(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, visibility := range livetest.ConsumerVisibilities(t) {
 		t.Run(visibility.Name, func(t *testing.T) {
 			format := pairedObjectFormat(visibility)

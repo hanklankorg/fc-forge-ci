@@ -30,10 +30,12 @@ func androidDevelopmentAcceptance() developmentAcceptance {
 }
 
 func TestForgejoLayer_AndroidDevelopment(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	runForgejoConsumerDevelopment(t, androidDevelopmentAcceptance())
 }
 
 func TestGitLabLayer_AndroidDevelopment(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	root := os.Getenv(consumerCheckoutEnv)
 	if root == "" {
 		t.Skip("set FORGE_CI_LIVE_CONSUMER and FORGE_CI_LIVE_CONSUMER_IMAGE_ARCHIVE for the Android development fixture")

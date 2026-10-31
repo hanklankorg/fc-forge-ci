@@ -123,7 +123,9 @@ func TestAndroidReleaseBuild_PropertiesLifetime(t *testing.T) {
 		Dir: dir, RepoName: "mobile", BuildTypes: "release", SecretsPropertiesBase64: "cA==",
 	})
 	require.NoError(t, err)
-	require.Len(t, ops.calls, 1)
+	require.Len(t, ops.calls, 2)
+	require.Equal(t, []string{"app:test"}, ops.calls[0].Args)
+	require.Equal(t, []string{"app:test", "assembleRelease", "-x", "app:test"}, ops.calls[1].Args)
 	require.NoFileExists(t, path)
 }
 
@@ -191,8 +193,8 @@ func (s *androidLifecycleSink) Append(ctx context.Context, body string) error {
 }
 
 func TestAndroidReleaseBuild_SignedCallPrefixesAndCleanup(t *testing.T) {
-	wantEvents := []string{"debug-name", "release-name", "aab-name", "sbom-name", "version", "version-code", "build", "sbom", "summary"}
-	for _, fail := range append([]string{"", "v3", "sbom_missing", "missing_metadata", "sbom_and_summary", "cancel_build", "cancel_sbom"}, wantEvents...) {
+	wantEvents := []string{"debug-name", "release-name", "aab-name", "sbom-name", "version", "version-code", "tests", "build", "sbom", "summary"}
+	for _, fail := range append([]string{"", "v3", "sbom_missing", "missing_metadata", "sbom_and_summary", "cancel_tests", "cancel_build", "cancel_sbom"}, wantEvents...) {
 		t.Run("fail_"+fail, func(t *testing.T) {
 			testenv.New(t)
 			fsys := testfs.NewReal(t)
@@ -292,7 +294,13 @@ func TestAndroidReleaseBuild_SignedCallPrefixesAndCleanup(t *testing.T) {
 				require.Equal(t, parentEnv, os.Environ())
 
 				step := "build"
-				if len(events) == 7 {
+				switch len(events) {
+				case 6:
+					step = "tests"
+					require.Equal(t, []string{"app:test"}, call.Args)
+				case 7:
+					require.Equal(t, []string{"assembleChosen", ":widget:bundleChosen", "-x", "app:test"}, call.Args)
+				case 8:
 					step = "sbom"
 
 					require.Len(t, call.Args, 3)
@@ -305,8 +313,8 @@ func TestAndroidReleaseBuild_SignedCallPrefixesAndCleanup(t *testing.T) {
 					if fail != "sbom_missing" {
 						fsys.WriteFile(report, []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[{"type":"library","name":"owned-fixture","version":"1.0"}]}`))
 					}
-				} else {
-					require.Equal(t, []string{"assembleChosen", ":widget:bundleChosen"}, call.Args)
+				default:
+					t.Fatalf("unexpected Gradle invocation after events %v: %v", events, call.Args)
 				}
 
 				events = append(events, step)
@@ -335,8 +343,8 @@ func TestAndroidReleaseBuild_SignedCallPrefixesAndCleanup(t *testing.T) {
 			switch fail {
 			case "", "v3", "sbom_missing", "missing_metadata":
 				require.NoError(t, err)
-				require.Contains(t, stdout.String(), "build stdout\nsbom stdout\n")
-				require.Contains(t, stderr.String(), "build stderr\nsbom stderr\n")
+				require.Contains(t, stdout.String(), "tests stdout\nbuild stdout\nsbom stdout\n")
+				require.Contains(t, stderr.String(), "tests stderr\nbuild stderr\nsbom stderr\n")
 			default:
 				stage := strings.TrimPrefix(fail, "cancel_")
 				if fail == "sbom_and_summary" {
@@ -360,7 +368,7 @@ func TestAndroidReleaseBuild_SignedCallPrefixesAndCleanup(t *testing.T) {
 					require.ErrorContains(t, err, "compose artifact names: set "+stage+":")
 				case "version", "version-code":
 					require.ErrorContains(t, err, "resolve version:")
-				case "build":
+				case "tests", "build":
 					require.ErrorContains(t, err, "gradle build:")
 				case "sbom":
 					require.ErrorContains(t, err, "gradle-android Build SBOM generation failed:")
@@ -406,7 +414,7 @@ func TestAndroidReleaseBuild_SignedCallPrefixesAndCleanup(t *testing.T) {
 			wantCalls := 0
 
 			for _, event := range wantPrefix {
-				if event == "build" || event == "sbom" {
+				if event == "tests" || event == "build" || event == "sbom" {
 					wantCalls++
 				}
 			}
@@ -693,7 +701,11 @@ func TestAndroidReleaseBuild_OptionalControls(t *testing.T) {
 			ops := &androidGradleRecorder{run: func(call androidGradleCall) error {
 				require.Equal(t, fsys.Path("project"), call.Dir)
 				require.Same(t, t.Context(), call.Context)
-				require.Equal(t, wantArgs, call.Args)
+				if len(call.Args) == 1 {
+					require.Equal(t, []string{wantArgs[0]}, call.Args)
+				} else {
+					require.Equal(t, append(append([]string{}, wantArgs...), "-x", wantArgs[0]), call.Args)
+				}
 
 				if in.EnableSigning {
 					require.Len(t, call.Env, 4)
@@ -720,7 +732,9 @@ func TestAndroidReleaseBuild_OptionalControls(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Len(t, ops.calls, 1)
+			require.Len(t, ops.calls, 2)
+			require.Equal(t, []string{wantArgs[0]}, ops.calls[0].Args)
+			require.Equal(t, append(append([]string{}, wantArgs...), "-x", wantArgs[0]), ops.calls[1].Args)
 			require.Equal(t, "unknown", sink.Single("version"))
 			require.Equal(t, "unknown", sink.Single("version-code"))
 			require.Equal(t, "### Build SBOM\n- \u2298 Generation disabled; release continues without a build SBOM\n", summary.buf.String())
@@ -768,6 +782,13 @@ func TestAndroidReleaseBuild_CleanupErrorsPreservePrimaryAndCallerFiles(t *testi
 
 				ops := &androidGradleRecorder{run: func(call androidGradleCall) error {
 					keyPath = strings.TrimPrefix(call.Env[0], "ANDROID_KEYSTORE_PATH=")
+					require.Equal(t, in.Dir, call.Dir)
+					if len(call.Args) == 1 {
+						require.Equal(t, []string{"app:test"}, call.Args)
+						require.Equal(t, "p", string(fsys.ReadFile("project/secrets.properties")))
+						return nil
+					}
+					require.Equal(t, []string{"app:test", "assembleRelease", "-x", "app:test"}, call.Args)
 
 					switch name {
 					case "properties_replaced":
@@ -793,7 +814,7 @@ func TestAndroidReleaseBuild_CleanupErrorsPreservePrimaryAndCallerFiles(t *testi
 					require.ErrorIs(t, err, cause)
 				}
 
-				require.Len(t, ops.calls, 1)
+				require.Len(t, ops.calls, 2)
 
 				if name == "properties_replaced" {
 					require.ErrorIs(t, err, errs.ErrValidation)

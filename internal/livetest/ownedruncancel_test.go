@@ -18,6 +18,7 @@ import (
 )
 
 func TestForgejoCancelExactAcknowledgedRun(t *testing.T) {
+	RegisterLiveScenario(t)
 	input := os.Getenv("FORGE_CI_LIVE_CANCEL_EXACT_ACK")
 	if input == "" {
 		t.Skip("exact owned cancellation acknowledgement required")

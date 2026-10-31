@@ -38,6 +38,7 @@ import (
 )
 
 func TestSign_BaseImages_AreAcceptedByTheBaseImageVerifier(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const (
 		flavor   = "livetest"
 		workflow = "build-base-images.yml"

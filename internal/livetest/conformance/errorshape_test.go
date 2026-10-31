@@ -36,6 +36,7 @@ import (
 const refusedToken = "gpl-0000000000000000000000000000000000000000000000000000000000000bad"
 
 func TestErrors_SameFailureClass_ExitsTheSameOnEveryForge(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	// Each case is a failure every forge can produce, driven through the same
 	// verb, so a difference in outcome is a difference in the adapter rather
 	// than in what was asked of it.

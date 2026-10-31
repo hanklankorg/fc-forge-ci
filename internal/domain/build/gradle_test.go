@@ -74,7 +74,7 @@ func TestRenderGradleSummary_OmitsVersionWhenEmpty(t *testing.T) {
 		"## Gradle Build Summary 🔨",
 		"- **Java:** 25",
 		"- **Tasks:** build",
-		"- **Tests:** ✓ Executed",
+		"- **Tests:** ✓ Test tasks invoked",
 		"*Build completed at 2026-05-10 12:00:00 UTC*",
 	} {
 		if !strings.Contains(got, want) {

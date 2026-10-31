@@ -26,6 +26,7 @@ import (
 // The actual wallet-r2ps workspace: three runtime images and four binaries
 // extracted from the scanned layouts, published unsigned without registry tags.
 func TestGitLabLayer_RustDevelopment(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	root := os.Getenv(consumerCheckoutEnv)
 	if root == "" {
 		t.Skip("set FORGE_CI_LIVE_CONSUMER to the clean wallet-r2ps development fixture and FORGE_CI_LIVE_CONSUMER_IMAGE_ARCHIVE to RustBuild")
@@ -47,6 +48,7 @@ func TestGitLabLayer_RustDevelopment(t *testing.T) {
 }
 
 func TestForgejoLayer_RustDevelopment(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	root := os.Getenv(consumerCheckoutEnv)
 	if root == "" {
 		t.Skip("set FORGE_CI_LIVE_CONSUMER to the clean wallet-r2ps development fixture and CI_RUST_BUILD_IMAGE to RustBuild")

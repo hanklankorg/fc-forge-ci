@@ -19,6 +19,7 @@ import (
 )
 
 func TestForgejoSnapshotPublicOutputDiagnostic(t *testing.T) {
+	RegisterLiveScenario(t)
 	for _, mode := range []string{"artifact-first", "container-first"} {
 		t.Run(mode, func(t *testing.T) { runForgejoSnapshotOutputDiagnostic(t, mode == "artifact-first") })
 	}

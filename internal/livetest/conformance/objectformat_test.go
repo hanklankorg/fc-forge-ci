@@ -16,6 +16,7 @@ import (
 // A small repository/checkout contract, independent of any consumer release
 // build: the server and client must retain the selected Git hash algorithm.
 func TestRepository_ObjectFormatRoundTrip(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, forge := range forgesClaiming(t, alwaysValidatesTokens, "repository metadata") {
 		t.Run(string(forge), func(t *testing.T) {
 			target := livetest.Accept(t, forge)

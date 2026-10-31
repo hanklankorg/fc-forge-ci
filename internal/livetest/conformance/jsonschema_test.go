@@ -33,6 +33,7 @@ import (
 )
 
 func TestJSON_DoctorReport_HasTheSameShapeOnEveryForge(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	var (
 		mu       sync.Mutex
 		shapes   = map[provider.ForgeAPI][]string{}

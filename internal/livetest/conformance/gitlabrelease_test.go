@@ -29,6 +29,7 @@ import (
 )
 
 func TestGitLabRelease_MinimalSignedArtifacts(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, visibility := range livetest.ConsumerVisibilities(t) {
 		t.Run(visibility.Name, func(t *testing.T) {
 			runGitLabRelease(t, "", visibility.Private)
@@ -37,6 +38,7 @@ func TestGitLabRelease_MinimalSignedArtifacts(t *testing.T) {
 }
 
 func TestGitLabRelease_ConsumerTrial(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	root := os.Getenv(consumerCheckoutEnv)
 	if root == "" {
 		livetest.NotCoveredf(t, "use the GitLab consumer-release recipe with a clean reviewed checkout")
@@ -52,6 +54,7 @@ func TestGitLabRelease_ConsumerTrial(t *testing.T) {
 // Exercise first-push protection without publishing tool images or running a
 // release. GitLab can initialize its default rule after the Git push returns.
 func TestGitLabRelease_ConsumerBranchProtection(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	root := os.Getenv(consumerCheckoutEnv)
 	if root == "" {
 		livetest.NotCoveredf(t, "consumer branch protection requires a clean reviewed checkout")
@@ -65,6 +68,7 @@ func TestGitLabRelease_ConsumerBranchProtection(t *testing.T) {
 }
 
 func TestGitLabRelease_MinimalBranchProtection(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, visibility := range livetest.ConsumerVisibilities(t) {
 		t.Run(visibility.Name, func(t *testing.T) {
 			runGitLabBranchProtection(t, "", visibility.Private)
@@ -129,6 +133,7 @@ func runGitLabBranchProtection(t *testing.T, root string, private bool) {
 // Check a caller-prepared builder in the actual runner before paying for the
 // consumer build matrix. Requires the same guarded full-release profile.
 func TestGitLabRelease_BuildImageCapability(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	archive := os.Getenv("FORGE_CI_LIVE_BUILD_IMAGE_ARCHIVE")
 	if archive == "" || !livetest.Requires(t, provider.ForgeGitLab, livetest.NeedsInRunner) {
 		livetest.NotCoveredf(t, "builder probe requires a reviewed build image archive and GitLab runner")

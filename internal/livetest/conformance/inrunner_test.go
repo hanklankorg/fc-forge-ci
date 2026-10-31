@@ -34,6 +34,7 @@ import (
 )
 
 func TestInRunner_DetectsItsOwnRuntime(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "an artifact store"), livetest.NeedsInRunner) {
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
@@ -109,6 +110,7 @@ jobs:
 // without a credential, and nothing about it is lab-specific — the same shape
 // works on k3s and against a real forge.
 func TestInRunner_ProductDetectsItsRunner(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const tag = "v0.0.1-inrunner"
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "releases"), livetest.NeedsInRunner) {
@@ -188,6 +190,7 @@ jobs:
 // non-GitHub forge renders its own way and prescribing the positive form would
 // pin the wrong thing.
 func TestInRunner_NoGitHubAnnotationsOnOtherForges(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const tag = "v0.0.2-annotations"
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "releases"), livetest.NeedsInRunner) {
@@ -224,6 +227,7 @@ func TestInRunner_NoGitHubAnnotationsOnOtherForges(t *testing.T) {
 // table from its flags alone, so the probe cannot pass on an empty document. The
 // assertion is on that content, not on byte count, for the same reason.
 func TestInRunner_StepSummaryReachesAReader(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const tag = "v0.0.3-summary"
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "releases"), livetest.NeedsInRunner) {
@@ -291,6 +295,7 @@ func summaryProbe(target livetest.Target, assetURL string) string {
 // forge call, no network — so a failure is about the sink and nothing else. The
 // version is distinctive so a match cannot come from anything already in the file.
 func TestInRunner_StepOutputsReachTheRunnersOutputFile(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const tag = "v0.0.6-outputs"
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "releases"), livetest.NeedsInRunner) {

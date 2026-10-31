@@ -26,10 +26,12 @@ import (
 // scratch projects have different histories, so checking out the engine instead
 // of the consumer cannot satisfy the commit assertion.
 func TestGitLabCheck_ChecksOutTheConsumerPipelineCommit(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	runGitLabCheck(t, false)
 }
 
 func TestGitLabCheck_ChecksOutPrivateConsumerWithJobToken(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	runGitLabCheck(t, true)
 }
 

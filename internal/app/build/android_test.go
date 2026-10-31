@@ -11,7 +11,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -228,7 +227,7 @@ func TestAndroidGradleBuild_RefusesConsumerTestOptOut(t *testing.T) {
 	}
 }
 
-func TestAndroidGradleBuild_WithoutSkipTestsRunsTasksDirectly(t *testing.T) {
+func TestAndroidGradleBuild_RunsTestsBeforePackaging(t *testing.T) {
 	ops := &fakeGradle{}
 	if err := appbuild.AndroidGradleBuild(context.Background(), ops, io.Discard, io.Discard, appbuild.AndroidGradleBuildInput{
 		Tasks: "assembleDebug",
@@ -236,9 +235,7 @@ func TestAndroidGradleBuild_WithoutSkipTestsRunsTasksDirectly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !slices.Equal(ops.args, []string{"assembleDebug"}) {
-		t.Errorf("args = %v, want %v", ops.args, []string{"assembleDebug"})
-	}
+	assertGradleCalls(t, ops.calls, []string{"test"}, []string{"assembleDebug", "-x", "test"})
 }
 
 func TestAndroidGradleBuild_RequiresTasks(t *testing.T) {

@@ -28,6 +28,7 @@ import (
 // Read an operator-selected existing private GHCR image; only the local lab
 // repository is created. No image/package or hosted GitHub repository is changed.
 func TestInRunner_PrivateGHCRJobImage(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	image := os.Getenv("FORGE_CI_LIVE_PRIVATE_JOB_IMAGE")
 	if image == "" {
 		t.Skip("set FORGE_CI_LIVE_PRIVATE_JOB_IMAGE to an approved private GHCR digest reference")

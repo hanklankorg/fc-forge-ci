@@ -1053,21 +1053,28 @@ multi-tenant secret reuse, etc.), see [docs/threat-model.md](threat-model.md).
 
 ### Hard gates, no silent failures
 
-Every "definition of deployable" check now fails the pipeline on
-violation. Each has a visible, explicit opt-out so the decision to
-release without the check is auditable.
+Checks distinguish execution, findings and enforcement. The default
+administrator policy blocks recognized lint, vulnerability and application-test
+findings. An administrator-built report-only distribution still runs checks and
+reports their findings; it does not waive operational failures, missing tools,
+invalid reports, credentials, signatures or source/digest identity errors.
+See [Administrator check enforcement](admin-policy.md) for immutable policy
+ownership and migration from legacy consumer opt-outs.
 
-| Gate | Default | Opt-out |
+| Gate | Default | Policy / supported adjustment |
 |---|---|---|
 | **Build SBOM** generation (cyclonedx) | Required by each artifact's default `sboms: all` | Exclude `build` in that artifact's `sboms`, or pass `enable-build-sbom: false` to a directly called builder |
-| **Container vulnerability scan** (trivy, CRITICAL+HIGH with a fixed package, and unfixed CRITICAL) | Required | approve an unfixed finding in `.trivyignore.yaml` with a reason and expiry, `scan-severity: CRITICAL` to relax the threshold, or `enable-scan: false` to skip entirely |
+| **Container vulnerability scan** (trivy, CRITICAL+HIGH with a fixed package, and unfixed CRITICAL) | Required for exported/published OCI layouts | Reviewed `.trivyignore.yaml` exceptions with reason and expiry and `scan-severity` select findings; administrator policy controls blocking. Consumer `enable-scan: false` cannot skip execution. |
+| **Application tests** in Go, Maven, npm, Cargo and Gradle/Android build gates | Required invocation (npm only when a test script exists) | Legacy `skip-tests: true` is refused. Administrator report-only policy permits only recognized test findings; setup, compilation and packaging errors stay blocking. Inspect native reports for actual test execution. |
 | **Artifact-presence verification** in publish-container | Required | Drop the `from:` entry in artifacts.yml so the verify step is skipped |
 | **JVM reproducibility settings** (Maven `outputTimestamp`, Gradle archive task settings, checked statically) | Required | Drop the artifact from the matrix; there is no per-artifact opt-out for the settings check |
 | **Cargo lockfile + toolchain pin** | Required | None. `Cargo.lock` and either `rust-toolchain.toml` or `rust-toolchain` are mandatory for every Cargo artifact |
 
-A passing pipeline implies the checks selected by the committed artifact and
-release policies completed; none silently degrades after selection. Adopters
-who need a non-default policy set it explicitly.
+A passing pipeline must be read alongside its selected checks, native execution
+reports and administrator-policy decisions. A report-only pass can retain real
+findings; a Gradle cache or `NO-SOURCE` outcome is not physical test execution.
+Adopters who need non-default enforcement use a reviewed administrator-built
+distribution and matching protected workflow/binary/image pins.
 
 ## Reproducible Builds
 

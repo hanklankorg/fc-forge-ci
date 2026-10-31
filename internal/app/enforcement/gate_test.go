@@ -84,7 +84,8 @@ func TestOnlyFreshRecognizedTestFailuresMayContinue(t *testing.T) {
 		err        error
 		continued  bool
 	}{
-		{"assertions", "Tests run: 4, Failures: 1, Errors: 0, Skipped: 0", testExitError(1), true},
+		{"assertions", "Tests run: 4, Failures: 1, Errors: 0, Skipped: 0\n[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.5.4:test on project app: There are test failures.", testExitError(1), true},
+		{"mixed reactor failure", "Tests run: 4, Failures: 1, Errors: 0, Skipped: 0\n[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.5.4:test on project app: There are test failures.\n[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.14.0:compile on project other: Compilation failure", testExitError(1), false},
 		{"missing socket", "Tests run: 4, Failures: 0, Errors: 1, Skipped: 0", testExitError(1), false},
 		{"no report", "", testExitError(1), false},
 		{"tool missing", "Tests run: 4, Failures: 1, Errors: 0, Skipped: 0", errs.ErrDependencyUnavailable, false},
@@ -117,5 +118,38 @@ func TestTestOptOutCannotBecomeReportOnly(t *testing.T) {
 
 	if err := RequireTests(false); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestReportOnlyGradleRequiresAssertionOnlyTerminal(t *testing.T) {
+	const summary = "> Task :app:testDebugUnitTest FAILED\n4 tests completed, 2 failed\n"
+	const assertion = "Execution failed for task ':app:testDebugUnitTest'.\n> There were failing tests. See the report at: file:///fixture/report.html"
+	for _, tc := range []struct {
+		name, terminal string
+		continued      bool
+	}{
+		{"assertions", assertion, true},
+		{"daemon", "Gradle build daemon disappeared unexpectedly (it may have been killed or may have crashed)", false},
+		{"runtime", "Execution failed for task ':app:testDebugUnitTest'.\n> Process 'Gradle Test Executor 1' finished with non-zero exit value 1", false},
+		{"unknown", "Execution failed for task ':app:testDebugUnitTest'.\n> Could not write test results", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			body := summary + "FAILURE: Build failed with an exception.\n\n* What went wrong:\n" + tc.terminal + "\n\n* Try:\n> Run with --stacktrace\n\nBUILD FAILED in 2s\n"
+			continued, err := testRun(t.Context(), enforcement.Policy{}, &out, io.Discard, enforcement.Gradle, func(stdout, _ io.Writer) error {
+				_, _ = io.WriteString(stdout, body)
+				return testExitError(1)
+			})
+			if continued != tc.continued || (err == nil) != tc.continued {
+				t.Fatalf("continued=%t err=%v; want continued=%t", continued, err, tc.continued)
+			}
+			if tc.continued {
+				if !strings.Contains(out.String(), "result=findings count=2 enforcement=false") {
+					t.Fatalf("assertion findings lost: %s", &out)
+				}
+			} else if !errors.Is(err, testExitError(1)) || strings.Contains(out.String(), "Admin policy sha256:") {
+				t.Fatalf("runtime failure was waived or lost: %v\n%s", err, &out)
+			}
+		})
 	}
 }

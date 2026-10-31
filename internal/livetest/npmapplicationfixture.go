@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/domain/container"
+	domainpublish "github.com/diggsweden/forge-ci/internal/domain/publish"
 )
 
 // NPMApplicationFixtureConfig is trusted CI policy, never application source.
@@ -62,6 +63,9 @@ func npmApplicationFixture(ctx context.Context, source Consumer, c NPMApplicatio
 	if c.Library {
 		if development || (model.Main == "" && (len(model.Exports) == 0 || string(model.Exports) == "null")) {
 			return source, fmt.Errorf("library fixture requires a stable package with a main or exports entry")
+		}
+		if _, err := domainpublish.NPMPackedEntrypoint([]byte(body)); err != nil {
+			return source, fmt.Errorf("library fixture packed metadata: %w", err)
 		}
 	} else if len(model.Bin) == 0 || string(model.Bin) == "null" {
 		return source, fmt.Errorf("require npm application metadata with a bin")

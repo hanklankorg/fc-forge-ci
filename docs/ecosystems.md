@@ -5,6 +5,14 @@ support in per-ecosystem capability matrices. The linked workflows define
 their direct-call contracts; [Artifacts Reference](artifacts-reference.md)
 defines the orchestrator configuration.
 
+Build gates use [administrator-owned check enforcement](admin-policy.md).
+Legacy `skip-tests: true` inputs (including `SKIP_TESTS=true`) are refused.
+Exported/published OCI layouts are vulnerability-scanned regardless of consumer
+`enable-scan: false`. An administrator-built report-only engine still runs checks
+and reports recognized findings; operational failures, credentials, signatures
+and source/digest identity errors remain blocking. A successful report-only job
+is not a findings-free result.
+
 ## How forge-ci classifies ecosystems
 
 ### Maven HTTPS trust in job images
@@ -174,7 +182,7 @@ opt-in.
 | Build (standalone deliverable) | ✅ (artifact-first) | `build-cargo.yml` (`cargo build --release --target …`) | Cross-compiles per `platforms` GOOS/GOARCH list. Each value maps to a Rust target triple. Output lands in `dist/<goos>-<goarch>/<binary>-<goos>-<goarch>`, matching Go's shape. |
 | Build (container-first) | n/a | n/a | Compile happens inside Containerfile |
 | Lint | external | caller's `test.yml` | Workspace-specific clippy, rustfmt, cargo-audit, or cargo-deny checks belong in the consumer repo |
-| Test | external + opt-in `cargo test` (artifact-first) | caller's `test.yml` + `build-cargo.yml` (`cargo test --locked --all-targets`) | Release-build invocation is opt-out via `skip-tests`. Workspace features / testcontainers are still caller-owned. |
+| Test | release-build gate + external PR gate (artifact-first) | caller's `test.yml` + `build-cargo.yml` (`cargo test --locked --all-targets`) | Release-build tests run under administrator enforcement; `skip-tests: true` is refused. Workspace features / Testcontainers are still caller-owned. |
 | SBOM: build layer (artifact-first) | ✅ | inline `cargo cyclonedx` in `build-cargo.yml` | Same generator as `sbom-cargo.yml`; emitted as a per-artifact upload alongside the binaries. |
 | SBOM: build layer (container-first) | ✅ | `sbom-cargo.yml` | Lockfile-derived (reads `Cargo.lock`); runs in publish stage as a sibling of the container build. |
 | SBOM: analyzed-artifact | ✅ (artifact-first) / conditional (container-first) | syft scan of binaries | Artifact-first: scans `dist/<goos>-<goarch>/...`. Container-first: scans extracted binaries when the container declares `extract.binary`. |
@@ -207,7 +215,7 @@ opt-in.
 - **Native build deps** inside the Containerfile builder stage (`apt-get install`).
 
 **Both modes:**
-- **Workspace tests** in a caller-owned workflow. `cargo test --workspace` can't be expressed per-artifact, and forge-ci does not invoke project tests automatically (artifact-first's opt-out test invocation is a release-build sanity gate, not a substitute for a PR test workflow).
+- **Workspace tests** in a caller-owned workflow. Keep the project's workspace/feature matrix in its PR workflow; the artifact-first builder's required `cargo test --locked --all-targets` invocation is a release-build sanity gate, not a substitute for that matrix. Container-first test commands remain owned by the Containerfile.
 - **Native lint deps** in the caller's Rust test/lint job: clippy compiles, so the same packages must be available there.
 - **`Cargo.lock` checked in**: required for reproducible SBOM and release.
 - **`rust-toolchain.toml` or `rust-toolchain` checked in**: required by release prerequisite validation.
@@ -245,7 +253,7 @@ honoured, differs from 3.8 and earlier.
 |---|---|---|---|
 | Build (standalone deliverable) | ✅ | `build-maven.yml` | Applications run `mvn clean package`; libraries run clean/compile, an explicit test phase, then package. Produces `.jar` (and optionally `-sources.jar`, `-javadoc.jar` for libraries) under `target/`. |
 | Lint | external | caller's `test.yml` | Checkstyle, SpotBugs, PMD belong in the consumer repo's PR workflow. |
-| Test | release build + external PR gate | `build-maven.yml` + caller's `test.yml` | Library builds explicitly run `mvn test`; application `mvn package` runs the normal test lifecycle. Both skip tests only when `skip-tests` is enabled. |
+| Test | release build + external PR gate | `build-maven.yml` + caller's `test.yml` | Library builds explicitly run `mvn test`; application `mvn package` runs the normal test lifecycle. Recognized assertion failures follow administrator enforcement; `skip-tests: true` is refused. |
 | SBOM: build layer | ✅ | `build-maven.yml` via cyclonedx-maven-plugin | A separate `makeAggregateBom` invocation follows the selected build lifecycle. See [Build tools](sbom.md#per-language-build-tools). |
 | SBOM: analyzed-artifact | ✅ | syft scan of the produced `.jar` | Detects bundled dependencies (fat jars) the build-layer SBOM may miss. |
 | SBOM: analyzed-container | ✅ | `publish-container.yml` (syft) | Standard for containers wrapping Maven artifacts. |
@@ -268,7 +276,7 @@ honoured, differs from 3.8 and earlier.
 - **`<project.build.outputTimestamp>`** in `pom.xml`'s `<properties>`: required by `forge-ci validate jvm-reproducibility`; missing settings fail the release prerequisite check.
 - **GPG key material** committed neither to repo nor exported: set as repo/org secret per the workflow's declared inputs (`RELEASE_GPG_PRIVATE_KEY` etc.).
 - **For multi-module**: register only the parent POM as an artifact (Maven inheritance handles children) or register children individually if each ships a separately-released variant.
-- **Tests in a caller-owned PR workflow**: the release build runs Maven unit tests unless `skip-tests` is enabled. It does not replace a PR gate, and does not independently invoke `mvn verify` or integration tests.
+- **Tests in a caller-owned PR workflow**: the release build invokes Maven unit tests under administrator enforcement. It does not replace a PR gate, and does not independently invoke `mvn verify` or integration tests. Test setup errors remain blocking even in a report-only distribution.
 
 #### See also
 
@@ -294,7 +302,7 @@ honoured, differs from 3.8 and earlier.
 |---|---|---|---|
 | Build (standalone deliverable) | ✅ | `build-npm.yml` (`npm ci`, application build, SBOM, `npm pack`) | Produces a tarball under `<name>-<version>.tgz`; uploaded as the build artifact. Library shape (no build script) and app shape (with build script writing `dist/`) are both supported. |
 | Lint | external | caller's `test.yml` | ESLint / Prettier belong in the consumer repo. |
-| Test | blocking release check + external PR gate | `build-npm.yml` + caller's test job | The release build runs a configured `npm test` unless `skip-tests` is enabled. Failure stops before build, SBOM and packaging. An absent script is explicitly reported as skipped, never executed. |
+| Test | release-build gate + external PR gate | `build-npm.yml` + caller's test job | The release build runs a configured `npm test` under administrator enforcement. Only recognized assertion failures can continue under a report-only policy; unknown failures remain blocking. An absent script is explicitly reported as skipped, never executed. |
 | SBOM: build layer | ✅ | `@cyclonedx/cyclonedx-npm` via `npx` | Runs after the application build and before pack. See [Build tools](sbom.md#per-language-build-tools). |
 | SBOM: analyzed-artifact | ✅ | syft scan of the packed `.tgz` | Reports dependencies detectable in the shipped tarball. |
 | SBOM: analyzed-container | ✅ | `publish-container.yml` (syft) | Standard for containers wrapping NPM artifacts. |
@@ -325,7 +333,7 @@ honoured, differs from 3.8 and earlier.
 - **Prebuilt publication**: the publisher disables npm lifecycle scripts with `--ignore-scripts`.
   Run package preparation during the build, before publication credentials are available.
 - **Early checks**: configuration validation rejects a missing or invalid npm tag before building. Direct callers can run `forge-ci publish npm validate-tag --npm-tag 'release-{version}'` without a package, token, or network. The deploy command also checks the packed identity and existing registry tag before its publishing request. Packed `publishConfig` must not override the selected tag or registry.
-- **Tests in a caller-owned PR workflow**: keep a real test job beside the lint gate. The release build also runs configured tests unless `skip-tests` is enabled, and test failures block packaging. A package without a test script is supported, but its summary records tests as skipped.
+- **Tests in a caller-owned PR workflow**: keep a real test job beside the lint gate. The release build also runs configured tests; default administrator enforcement blocks recognized test failures before packaging. A report-only distribution still runs and reports those tests. Unsupported failure output remains blocking. A package without a test script is supported, but its summary records tests as skipped.
 
 #### See also
 
@@ -348,9 +356,9 @@ honoured, differs from 3.8 and earlier.
 
 | Concern | Status | Workflow / Mechanism | Notes |
 |---|---|---|---|
-| Build (standalone deliverable) | ✅ | `build-gradle-app.yml` (wrapper, default `assemble`) | `config.gradle-tasks` selects tasks. The workflow uploads JARs from root/subproject `build/libs/`; WAR/distZip outputs need a caller-owned upload path. |
+| Build (standalone deliverable) | ✅ | `build-gradle-app.yml` (wrapper, default `test assemble`) | `config.gradle-tasks` selects tasks. The workflow uploads JARs from root/subproject `build/libs/`; WAR/distZip outputs need a caller-owned upload path. |
 | Lint | external | caller's `test.yml` | detekt / ktlint / checkstyle belong in the consumer repo. |
-| Test | task-dependent release check + external PR gate | selected Gradle tasks + caller's `test.yml` | The default `assemble` task does not run tests. Select `build` or explicit test tasks for release-build checks. |
+| Test | mandatory release-build invocation + external PR gate | separate Gradle test invocation before selected packaging tasks + caller's `test.yml` | Packaging task overrides do not remove the test invocation. Inspect Gradle outcomes: cached, up-to-date and `NO-SOURCE` tasks do not prove physical test execution. |
 | SBOM: build layer | ✅ | cyclonedx-gradle-plugin via init script | A separate SBOM invocation follows the selected tasks. See [Build tools](sbom.md#per-language-build-tools). |
 | SBOM: analyzed-artifact | ✅ | syft scan of produced jars | |
 | SBOM: analyzed-container | ✅ | `publish-container.yml` (syft) | |
@@ -368,7 +376,7 @@ honoured, differs from 3.8 and earlier.
 - **Gradle wrapper (`gradlew`)** committed: pinned to a specific Gradle version.
 - **`gradle-tasks` in `artifacts.yml`**: explicitly name build tasks (e.g. `build`, `assemble`, `distZip`). Package publication is a separate exported-artifact phase; do not select a remote `publish` task as a build task.
 - **Reproducibility settings on archive tasks**: see `validate jvm-reproducibility` for the exact form.
-- **Tests in a caller-owned PR workflow**: the release workflow defaults to `assemble`. Select `config.gradle-tasks: build` or explicit test tasks if release-build tests are also required.
+- **Tests in a caller-owned PR workflow**: retain the project's full PR test matrix. The release build invokes tests separately before packaging (default `assemble`), under administrator enforcement; packaging task overrides cannot remove that invocation. Check native task outcomes and test reports for actual execution and counts.
 
 #### See also
 
@@ -394,7 +402,7 @@ honoured, differs from 3.8 and earlier.
 | Build (standalone deliverable) | ✅ | `build-gradle-android.yml` (`gradle assemble`) | Produces release APK (signed if `enable-signing: true`) and AAB (if `include-aab: true`, default). |
 | Library build/publication | ✅ | `build-type: library`, native `maven-publish` export | Produces a release AAR; stable and snapshot publication to Central or forge packages uses exported files. See [Android libraries](gradle-publishing.md#android-libraries). |
 | Lint | external | caller's `test.yml` | Android Lint + detekt belong in the consumer repo. |
-| Test | external | caller's `test.yml` | Unit tests run via `gradle test`; instrumented tests need emulator (out-of-scope). |
+| Test | mandatory module-bound unit-test invocation + external PR gate | release builder's module test aggregate + caller's `test.yml` | The module-bound aggregate remains selected even with packaging task overrides. Cache/`NO-SOURCE` outcomes are not physical execution evidence. Instrumented tests require a separate emulator fixture. |
 | SBOM: build layer | ✅ | cyclonedx-gradle-plugin | Uses the Gradle init-script generator; see [Build tools](sbom.md#per-language-build-tools). |
 | SBOM: analyzed-artifact | ❌ | `sbom assemble` rejects `gradle-android` | APK/AAB Syft scanning is not implemented; set `sboms: build` or `build,analyzed-container`. |
 | Build reproducibility | ✅ | same archive settings as Gradle JVM | |
@@ -531,7 +539,7 @@ for every other ecosystem, the pattern is fixed by the deliverable shape.
 | Binary extraction (CI artifact) | n/a (binaries already are the artifact) | ✅ `containers[].extract.binary` re-extracts the compiled binary as a separate CI artifact alongside the image |
 | Multi-binary per container | n/a (one artifact = one binary) | ✅ `extract.binary.names: [a, b]` |
 | Reproducibility | ✅ `-trimpath` + `SOURCE_DATE_EPOCH`-derived ldflags (`-X main.date={{.CommitDate}}`); Go module/build cache | Container image timestamps are pinned by Buildah; binary flags and timestamps are Containerfile-owned |
-| Skip-tests opt-in | ✅ `config.skip-tests: true` | n/a (tests run during Containerfile build if the Containerfile invokes them) |
+| Test selection | Release-build test invocation required; legacy `config.skip-tests: true` refused | Containerfile owns its test commands; engine policy does not prove the Containerfile runs tests |
 | Version-bump (go.mod doesn't store version) | partial, no version-bump-go workflow, uses tag-only | partial, same |
 | Release prerequisite checks | ✅ `validate-release-prerequisites.yml` | ✅ same |
 | Publish: standalone release binaries | ✅ via `release-create-github` (named binaries attached to GitHub Release) | n/a |

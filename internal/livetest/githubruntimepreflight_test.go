@@ -16,6 +16,7 @@ import (
 // Inspect only the exact retained engine's runtime coordinates. This grants no
 // deletion authority and does not create packages or modify repository grants.
 func TestGitHubEngineRuntimePackagePreflight(t *testing.T) {
+	RegisterLiveScenario(t)
 	if os.Getenv(GitHubContextEnv) == "" {
 		t.Skip("admitted hosted SDK context required")
 	}

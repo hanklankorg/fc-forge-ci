@@ -24,6 +24,7 @@ import (
 // Private and job tokens publish to distinct fresh projects, so a package
 // uploaded by the first case cannot satisfy the second case's read-back.
 func TestGitLabBootstrap_PublishesAndDownloadsTheRecordedBinary(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	if !livetest.Selected(t, provider.ForgeGitLab) {
 		livetest.NotCoveredf(t, "the contract selects no GitLab endpoint for binary bootstrap")
 	}

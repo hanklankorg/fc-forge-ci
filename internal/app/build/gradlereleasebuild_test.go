@@ -20,8 +20,8 @@ import (
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
 
-// recordingGradle records every gradle invocation (fakeGradle keeps only the
-// last), so the orchestrator's call sequence can be asserted.
+// recordingGradle records every gradle invocation so the orchestrator's call
+// sequence can be asserted.
 type recordingGradle struct{ calls [][]string }
 
 func (g *recordingGradle) RunInherit(_ context.Context, _, _ io.Writer, args ...string) error {
@@ -87,12 +87,9 @@ func TestGradleReleaseBuild_RunsTasksAndMakesWrapperExecutable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// One invocation carrying both tasks as separate argv entries -- the
-	// task string is split here rather than re-split by a shell. The
-	// previous assertion joined every call into one string and searched it,
-	// which could not tell one invocation from several, nor argv entries
-	// from a single space-joined one.
-	assertGradleCalls(t, ops.calls, []string{"assemble", "check"})
+	// Mandatory tests run first without packaging options. Requested tasks
+	// remain separate argv entries and exclude only the already-run tests.
+	assertGradleCalls(t, ops.calls, []string{"test"}, []string{"assemble", "check", "-x", "test"})
 
 	// The version read from gradle.properties is stated before the first task.
 	if want := "Gradle release build: version=1.0.0 tasks=assemble check\n"; !strings.HasPrefix(out.String(), want) {

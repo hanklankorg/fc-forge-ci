@@ -22,6 +22,7 @@ import (
 // Exercise the default dry run and the destructive pass on owned scratch
 // releases, reading the served bytes independently after each pass.
 func TestRelease_AssetRetentionPreservesEvidence(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, forge := range forgesClaiming(t, claimsReleaseAssets, "release assets") {
 		t.Run(string(forge), func(t *testing.T) {
 			target := livetest.Accept(t, forge)

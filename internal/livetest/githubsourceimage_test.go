@@ -31,6 +31,7 @@ import (
 // retained engine, then exercise the existing consumer harness before deleting
 // this case's exact package. The prepared engine itself is never rebuilt here.
 func TestGitHubSourceImageConsumerPullRequest(t *testing.T) {
+	RegisterLiveScenario(t)
 	phase, phaseErr := sourceImagePhase(os.Getenv("FORGE_CI_LIVE_IMAGE_PHASE"), os.Getenv("FORGE_CI_LIVE_IMAGE_RETENTION_ACK"))
 	if phaseErr != nil {
 		t.Fatal(phaseErr)

@@ -18,6 +18,7 @@ import (
 // The original consumer workflow with a scratch PR caller and strict Surefire
 // evidence. This baseline is separate from the current-engine checkout proof.
 func TestGitHubConsumerPRUnitBaseline(t *testing.T) {
+	RegisterLiveScenario(t)
 	root := os.Getenv("FORGE_CI_LIVE_CONSUMER")
 	if root == "" || os.Getenv(GitHubContextEnv) == "" {
 		t.Skip("explicit checkout and hosted SDK session required")

@@ -40,7 +40,7 @@ on:
       gradle-tasks:
         description: "Gradle tasks to run"
         required: false
-        default: "assemble"
+        default: "test assemble"
         type: string
       skip-tests:
         description: "Legacy input; true is refused. Admin policy controls findings, and tests still run."

@@ -166,7 +166,8 @@ Cargo is dual-mode (same as Go). Where the Build SBOM is emitted depends on `con
 Workspace-level `cargo test` lives in a caller-owned workflow either way, since
 workspace features can't be expressed per-artifact; forge-ci's artifact-first
 build runs `cargo test --locked --all-targets` as a release-build sanity gate
-(opt-out via `skip-tests`), not as a substitute for the caller's PR tests.
+(under administrator-owned test enforcement; `skip-tests: true` is refused),
+not as a substitute for the caller's PR tests.
 
 ### Cargo SBOM scope
 
@@ -219,7 +220,12 @@ direct callers can omit the input (defaults to true) or pass
 
 Container SBOM scanning (`analyzed-container` layer) is **derived** from source-artifact `sboms`. `publish-container.yml` runs syft on the pushed image if and only if any of the container's source artifacts (`from: [a, b, …]`) has `analyzed-container` in its effective sboms. With the default `sboms: all` on a buildable artifact, that's always true.
 
-To skip the container scan: set the source artifact's `sboms` to exclude `analyzed-container` (e.g. `sboms: build,analyzed-artifact`).
+To omit the analyzed-container **SBOM**, set the source artifact's `sboms` to
+exclude `analyzed-container` (e.g. `sboms: build,analyzed-artifact`). This does
+not omit the Trivy vulnerability scan required for exported/published OCI
+layouts. Consumer `enable-scan: false` cannot disable that scan; an
+[administrator-built report-only policy](admin-policy.md) still runs it and
+reports findings, while operational and identity errors remain blocking.
 
 Strict config parsing rejects `containers[].enable-sbom: bool`; use artifact `sboms` instead.
 

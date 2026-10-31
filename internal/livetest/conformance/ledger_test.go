@@ -37,6 +37,7 @@ import (
 )
 
 func TestLedger_RecordVerifyPromote_PreservesTheDigest(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, forge := range forgesClaiming(t, alwaysValidatesTokens, "an OCI registry") {
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
@@ -197,6 +198,7 @@ func recordVerifyPromote(
 // until the GitLab adapter implemented DeleteTag, cleanup was Forgejo-only and
 // this was a documented gap rather than a test.
 func TestLedger_Cleanup_RemovesTheCandidateAndKeepsTheRelease(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const (
 		releaseTag   = "v0.0.1"
 		candidateTag = "staging-" + releaseTag

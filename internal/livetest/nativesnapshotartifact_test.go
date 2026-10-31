@@ -25,6 +25,7 @@ import (
 // recovery case accepts only externally acknowledged exact names/creation IDs;
 // the existing SDK still enforces its compiled namespace and provider guards.
 func TestSnapshotNativeExactCleanup(t *testing.T) {
+	RegisterLiveScenario(t)
 	input := os.Getenv("FORGE_CI_LIVE_SNAPSHOT_CLEANUP_ACK")
 	if input == "" {
 		t.Skip("explicit exact-resource cleanup acknowledgement required")
@@ -80,6 +81,7 @@ func TestSnapshotNativeExactCleanup(t *testing.T) {
 const snapshotNativeToolsImage = "ghcr.io/diggsweden/forge-ci-runtime-go-1.27@sha256:450b351477a8cf8ea9f5a58d704d24a046162dc696f452bfc6190de25e80b05e"
 
 func TestGitLabSnapshotBuilderCapability(t *testing.T) {
+	RegisterLiveScenario(t)
 	target := Accept(t, provider.ForgeGitLab)
 	label := PrivilegedRunnerLabel(t, target)
 
@@ -130,6 +132,7 @@ func TestGitLabSnapshotBuilderCapability(t *testing.T) {
 }
 
 func TestForgejoSnapshotArtifactFirst(t *testing.T) {
+	RegisterLiveScenario(t)
 	if !Requires(t, provider.ForgeForgejo, NeedsInRunner) {
 		NotCoveredf(t, "native Forgejo runner unavailable")
 	}
@@ -383,6 +386,7 @@ func nativeSnapshotPublishEngine(t *testing.T, target Target, repo string) {
 }
 
 func TestGitLabSnapshotArtifactFirst(t *testing.T) {
+	RegisterLiveScenario(t)
 	if !Requires(t, provider.ForgeGitLab, NeedsInRunner) {
 		NotCoveredf(t, "native GitLab runner unavailable")
 	}

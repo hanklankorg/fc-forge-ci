@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"slices"
@@ -20,6 +21,7 @@ import (
 
 type fakeGradle struct {
 	args   []string
+	calls  [][]string
 	dir    string
 	runErr error
 
@@ -34,6 +36,7 @@ func (f *fakeGradle) RunInherit(ctx context.Context, _, _ io.Writer, args ...str
 
 func (f *fakeGradle) RunInDirInherit(_ context.Context, dir string, _, _ io.Writer, args ...string) error {
 	f.args = args
+	f.calls = append(f.calls, append([]string{}, args...))
 
 	f.dir = dir
 	if f.captureInitScript != nil {
@@ -220,9 +223,26 @@ func TestGradleApplication_RunsTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []string{"assemble", "check"}
+	want := []string{"assemble", "check", "-x", "test"}
 	if !slices.Equal(ops.args, want) {
 		t.Errorf("args = %v, want %v", ops.args, want)
+	}
+	if len(ops.calls) != 2 || !slices.Equal(ops.calls[0], []string{"test"}) {
+		t.Fatalf("mandatory tests did not precede packaging: %v", ops.calls)
+	}
+}
+
+func TestGradleApplicationPackagingOptionsCannotSuppressTests(t *testing.T) {
+	ops := &fakeGradle{}
+	if err := appbuild.GradleApplication(t.Context(), ops, io.Discard, io.Discard, appbuild.GradleApplicationInput{Tasks: "assemble --dry-run"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(ops.calls) != 2 || !slices.Equal(ops.calls[0], []string{"test"}) {
+		t.Fatalf("packaging options reached the mandatory test invocation: %v", ops.calls)
+	}
+	failed := &fakeGradle{runErr: errors.New("test process failed")}
+	if err := appbuild.GradleApplication(t.Context(), failed, io.Discard, io.Discard, appbuild.GradleApplicationInput{Tasks: "assemble"}); err == nil || len(failed.calls) != 1 {
+		t.Fatalf("packaging ran after failed mandatory tests: %v, %v", failed.calls, err)
 	}
 }
 
@@ -238,6 +258,76 @@ func TestGradleApplication_RefusesConsumerTestOptOut(t *testing.T) {
 	if len(ops.args) != 0 {
 		t.Fatalf("ran gradle before refusal: %v", ops.args)
 	}
+}
+
+func TestGradleApplicationSharesBuildConfiguration(t *testing.T) {
+	for _, property := range []string{"-Pfixture=ci", "--project-prop fixture=ci", "-P fixture=ci", "-Dfixture=ci", "--system-prop=fixture=ci"} {
+		t.Run(property, func(t *testing.T) {
+			calls := 0
+			ops := runFn(func(_ context.Context, _, _ io.Writer, args ...string) error {
+				calls++
+				// Model a project that cannot configure either phase without its property.
+				for _, token := range strings.Fields(property) {
+					if !slices.Contains(args, token) {
+						return fmt.Errorf("project configuration is missing %q", token)
+					}
+				}
+				if !slices.Contains(args, "--offline") || !slices.Contains(args, "plain") {
+					return errors.New("global build configuration was lost")
+				}
+				return nil
+			})
+			err := appbuild.GradleApplication(t.Context(), ops, io.Discard, io.Discard, appbuild.GradleApplicationInput{
+				Tasks: property + " --offline --console plain assemble",
+			})
+			if err != nil || calls != 2 {
+				t.Fatalf("configuration-required phases: calls=%d err=%v", calls, err)
+			}
+		})
+	}
+}
+
+func TestGradleApplicationRefusesAmbiguousConfigurationBeforeExecution(t *testing.T) {
+	for _, tasks := range []string{"assemble --unknown", "test --tests only.OneTest", "assemble --project-prop", "--offline", "assemble --no-daemon=true"} {
+		t.Run(tasks, func(t *testing.T) {
+			ops := &fakeGradle{}
+			err := appbuild.GradleApplication(t.Context(), ops, io.Discard, io.Discard, appbuild.GradleApplicationInput{Tasks: tasks})
+			if !errors.Is(err, errs.ErrUsage) || len(ops.calls) != 0 {
+				t.Fatalf("expected pre-effect usage refusal: calls=%v err=%v", ops.calls, err)
+			}
+		})
+	}
+}
+
+func TestGradleApplication_InvokesRequiredAndExplicitUnitTestsBeforePackaging(t *testing.T) {
+	ops := &fakeGradle{}
+	err := appbuild.GradleApplication(t.Context(), ops, io.Discard, io.Discard, appbuild.GradleApplicationInput{
+		TestTask: "client:test",
+		Tasks:    "assemble client:test :widget:testDemoUnitTest :widget:testDemoUnitTest --dry-run",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertGradleCalls(t, ops.calls,
+		[]string{"client:test", ":widget:testDemoUnitTest"},
+		[]string{"assemble", "client:test", ":widget:testDemoUnitTest", ":widget:testDemoUnitTest", "--dry-run", "-x", "client:test", "-x", ":widget:testDemoUnitTest"},
+	)
+}
+
+func TestGradleApplication_PackagingFailureRemainsBlocking(t *testing.T) {
+	cause := errors.New("owned packaging failure")
+	var calls [][]string
+	err := appbuild.GradleApplication(t.Context(), runFn(func(_ context.Context, _, _ io.Writer, args ...string) error {
+		calls = append(calls, slices.Clone(args))
+		if len(calls) == 1 {
+			return nil
+		}
+		return cause
+	}), io.Discard, io.Discard, appbuild.GradleApplicationInput{Tasks: "test assemble"})
+	if !errors.Is(err, cause) {
+		t.Fatalf("packaging failure was lost: %v", err)
+	}
+	assertGradleCalls(t, calls, []string{"test"}, []string{"test", "assemble", "-x", "test"})
 }
 
 func TestGradleApplication_RejectsEmptyTasks(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 )
 
 func TestForgejoSnapshotFinalizeAcknowledged(t *testing.T) {
+	RegisterLiveScenario(t)
  var ack struct { Repos []string; Package string; Versions []string }
  if os.Getenv("FORGE_CI_LIVE_SNAPSHOT_FINALIZE_ACK")=="" { t.Skip("exact terminal-run cleanup acknowledgement required") }
  if err:=json.Unmarshal([]byte(os.Getenv("FORGE_CI_LIVE_SNAPSHOT_FINALIZE_ACK")),&ack);err!=nil {t.Fatal(err)}

@@ -14,6 +14,7 @@ import (
 )
 
 func TestForgejoNpmExactCaseCleanup(t *testing.T) {
+	RegisterLiveScenario(t)
 	input := os.Getenv("FORGE_CI_LIVE_NPM_CLEANUP_ACK")
 	if input == "" {
 		t.Skip("explicit exact case package acknowledgement required")

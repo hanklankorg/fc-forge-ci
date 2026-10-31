@@ -396,7 +396,7 @@ exposes for each `--platform` build.
 #### `config.build-tags`, `config.ldflags`, `config.skip-tests`
 
 - **Applies to:** Go `artifact-first`
-- **Description:** Optional build tags, additional ldflags, and release-build test suppression. `govulncheck` remains caller-owned in PR/test workflows.
+- **Description:** Optional build tags and additional ldflags. `config.skip-tests` is a legacy compatibility field: `true` is refused, not a way to suppress release-build tests. Administrator-owned policy controls whether recognized test findings block; tests still run. `govulncheck` remains caller-owned in PR/test workflows. See [Administrator check enforcement](admin-policy.md).
 
 ### Configuration Fields (Cargo)
 
@@ -461,7 +461,7 @@ way Go containers do.
 #### `config.skip-tests`
 
 - **Applies to:** Cargo `artifact-first`
-- **Description:** Skip `cargo test --locked --all-targets` during the release build. PR/test workflows remain the canonical home for test execution.
+- **Description:** Legacy compatibility field; `true` is refused. The release build invokes `cargo test --locked --all-targets` under administrator-owned application-test enforcement. Keep caller-owned PR/test workflows for the project's full test matrix.
 
 ### Configuration Fields (Gradle)
 
@@ -469,10 +469,10 @@ way Go containers do.
 
 - **Type:** `string`
 - **Applies to:** `gradle` (JVM)
-- **Description:** Gradle tasks to execute.
+- **Description:** Gradle packaging tasks to execute after the mandatory test invocation. Task overrides do not remove that invocation; consumer task exclusions are refused. Gradle may report cached, up-to-date or `NO-SOURCE` test tasks, so invocation alone does not prove physical test execution.
 - **Default:** `assemble`
 - **Example (JVM):** `gradle-tasks: build test`
-- **Android:** `gradle-android` config rejects this key. The orchestrator derives tasks from `product-flavor`, `build-types` and `include-aab`; configure those instead. Direct callers of `build-gradle-android.yml` can use its `gradle-tasks` workflow input.
+- **Android:** `gradle-android` config rejects this key. The orchestrator derives packaging tasks from `product-flavor`, `build-types` and `include-aab`; configure those instead. Direct callers of `build-gradle-android.yml` can use its `gradle-tasks` workflow input. The selected module's test aggregate remains mandatory before packaging even with overrides; native task outcomes determine whether physical tests ran.
 
 #### `config.gradle-version-file`
 
@@ -812,12 +812,12 @@ Containers reference artifacts via the `from:` field and are built after all art
 
 #### Unsupported container `enable-sbom`
 
-The `enable-sbom: bool` field on the container block is unsupported and strict parsing rejects it. Container scanning is derived from each source artifact's `sboms` field. The container is scanned if any source artifact has `analyzed-container` in its effective sboms, the default for buildable types. To skip the scan, exclude `analyzed-container` from the source artifact's `sboms` (e.g. `sboms: build,analyzed-artifact`).
+The `enable-sbom: bool` field on the container block is unsupported and strict parsing rejects it. Container **SBOM generation** is derived from each source artifact's `sboms` field. The analyzed-container SBOM is generated if any source artifact has `analyzed-container` in its effective sboms, the default for buildable types. Exclude that layer to omit this SBOM, not the mandatory Trivy vulnerability scan of an exported/published OCI layout.
 
 #### `enable-scan`
 
 - **Type:** `boolean`
-- **Description:** Run Trivy vulnerability scan AND gate the publish on its findings. When `true` (default), a finding at `scan-severity` or above with a fixed package fails the publish, and so does an unfixed CRITICAL unless `.trivyignore.yaml` approves it; other unfixed findings are only listed. The SARIF and GitLab reports are still produced, so the rejection is visible in Code Scanning. Set to `false` to skip both the scan and the gate.
+- **Description:** Legacy scan input; exported/published OCI layouts are scanned even when this is `false`. Under the default enforcing administrator policy, a finding at `scan-severity` or above with a fixed package fails the publish, and so does an unfixed CRITICAL unless `.trivyignore.yaml` approves it; other unfixed findings are only listed. An administrator-built report-only distribution still runs the scanner and reports findings. Scanner/operational errors remain blocking. See [Administrator check enforcement](admin-policy.md).
 - **Default:** `true`
 - **Requires:** `CODE_SCANNING_TOKEN` org secret for results to appear in Code Scanning
 - **Example:** `enable-scan: true`
@@ -825,7 +825,7 @@ The `enable-sbom: bool` field on the container block is unsupported and strict p
 #### `scan-severity`
 
 - **Type:** `string` (comma-separated trivy severities)
-- **Description:** Trivy `--severity` filter and gate threshold for `enable-scan`. A finding at this severity or above fails the publish when a fixed package exists; see `enable-scan` for unfixed findings. Narrow the filter to relax the gate (e.g. `CRITICAL` only). To skip the gate entirely use `enable-scan: false` rather than emptying this field.
+- **Description:** Trivy `--severity` filter and findings threshold. Under an enforcing administrator policy, a finding at this severity or above fails the publish when a fixed package exists; see `enable-scan` for unfixed findings. Narrowing the filter changes the threshold (e.g. `CRITICAL` only); `enable-scan: false` does not disable scan execution or administrator enforcement.
 - **Default:** `"CRITICAL,HIGH"`
 - **Example:** `scan-severity: "CRITICAL"`
 

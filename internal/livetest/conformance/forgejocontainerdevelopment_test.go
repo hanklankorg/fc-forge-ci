@@ -22,6 +22,7 @@ import (
 
 // A native Cargo development push publishes an unsigned image, not a release.
 func TestForgejoLayer_ContainerDevelopment(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	root := os.Getenv(consumerCheckoutEnv)
 	if root == "" {
 		t.Skip("name a clean Cargo container-first development consumer with FORGE_CI_LIVE_CONSUMER")

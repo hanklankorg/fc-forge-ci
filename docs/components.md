@@ -241,7 +241,7 @@ uses: diggsweden/forge-ci/.github/workflows/build-gradle-app.yml@v0.90.0
 with:
   working-directory: "."       # Path to build.gradle
   gradle-tasks: "build"        # Gradle tasks to run
-  skip-tests: false            # Skip `test` task
+  skip-tests: false            # Legacy input; true is refused
   artifact-name: ""            # Custom artifact name (optional)
 ```
 
@@ -276,7 +276,7 @@ Direct-call input defaults are maintained here rather than in each example:
 | `enable-signing` | No | `false` | Enable Android signing |
 | `working-directory` | No | `"."` | Project directory |
 | `branch` | No | `""` | Empty selects the triggering ref |
-| `skip-tests` | No | `false` | Skip tests during the build |
+| `skip-tests` | No | `false` | Legacy compatibility input; `true` is refused. Tests run under administrator-owned enforcement; inspect native reports for actual execution. |
 | `enable-build-sbom` | No | `true` | Run Build SBOM generation |
 | `runtime-image` | No | Matching Android runtime image | Toolchain image override |
 
@@ -286,7 +286,7 @@ APK outputs are found under `app/build/outputs/apk/**/debug/*.apk` and
 The [Android example](../examples/android-app/) shows flavor configuration,
 keystore wiring and an internal-track snapshot workflow.
 
-**Task derivation.** By default the workflow derives gradle tasks from `product-flavor` + `build-types` + `include-aab`, for example `product-flavor: demo`, `build-types: release`, `include-aab: true` → `assembleDemoRelease app:bundleDemoRelease`. No surrounding `build` task is run by default; only the targeted variants/bundles. Set `gradle-tasks` to override the derived list verbatim. This is useful when you need custom task names or to add lint/test alongside.
+**Task derivation.** By default the workflow derives packaging tasks from `product-flavor` + `build-types` + `include-aab`, for example `product-flavor: demo`, `build-types: release`, `include-aab: true` → `assembleDemoRelease app:bundleDemoRelease`. Before packaging, the builder invokes the selected module's test aggregate under administrator enforcement. No surrounding `build` task is required. Set `gradle-tasks` to override packaging tasks; the module-bound test aggregate is preserved even with overrides. Inspect Gradle task outcomes and reports: cached, up-to-date and `NO-SOURCE` outcomes do not establish physical test execution.
 
 **Artifact naming.** Two modes:
 

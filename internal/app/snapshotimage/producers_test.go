@@ -211,7 +211,7 @@ func TestFrozenBuildOptionsAndCredentialIsolation(t *testing.T) {
 			require.Equal(t, "project", filepath.Base(request.Dir))
 			joined := strings.Join(request.Env, "\n")
 			require.NotContains(t, joined, "secret")
-			require.NotContains(t, joined, "999")
+			require.NotContains(t, request.Env, "SOURCE_DATE_EPOCH=999")
 			require.Contains(t, joined, "SOURCE_DATE_EPOCH=1")
 			require.Contains(t, joined, "FORGE_CI_COMMIT="+p.SourceSHA)
 			switch kind {

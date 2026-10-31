@@ -888,11 +888,15 @@ runners where an installation names them, as other image-building jobs do.
 - **publish** runs once per container. It installs the layer's pinned Trivy,
   then `assemble --from-layouts --scan-output-template` verifies every staged
   architecture against its record and its revision label, scans each, and
-  refuses publication on a fixable CRITICAL or HIGH finding or an unfixed
-  CRITICAL that the release commit's `.trivyignore.yaml` does not
-  approve. Only then does it upload
+  under the default administrator policy refuses publication on a fixable
+  CRITICAL or HIGH finding or an unfixed CRITICAL that the release commit's
+  `.trivyignore.yaml` does not approve. Only after the gate permits continuation
+  does it upload
   the index under `staging-<final tag>` and record it with `ledger add`.
-  `enable-scan: false` skips the scan.
+  Consumer `enable-scan: false` cannot skip scanning an exported/published OCI
+  layout. An administrator-built report-only distribution still scans and
+  reports findings; scanner/operational, credential, signature and source/digest
+  identity errors stay blocking. See [Administrator check enforcement](admin-policy.md).
 - **collect** merges the ledgers into one artifact, `release-images`: a
   `release-images.json` and the Trivy results. Unpack it into the `dist/` the
   consumer hands to `sign-and-publish-release.yml`, which signs the images,
@@ -990,8 +994,10 @@ includes these files, the exact index snapshot and original scan reports.
 Publish every referenced platform inventory with the index BOM. Consumers do
 not need a second registry pull, scan, architecture-record projection or SBOM
 composition loop. Runtime/doctor evidence remains a separate consumer gate.
-An explicit scan opt-out retains the existing signer-generated SBOM behavior;
-base images retain the single-platform signing contract described above.
+Consumer scan opt-outs do not suppress the required vulnerability scan of
+exported/published layouts. Report-only administrator enforcement does not
+change the SBOM evidence contract; base images retain the single-platform
+signing contract described above.
 
 A resolved base may supply a stable content `revision` and `cache-tag-prefix`,
 with matching per-build `revision`, `cache-tag` and `required-labels`. Each native

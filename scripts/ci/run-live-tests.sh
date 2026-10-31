@@ -195,6 +195,7 @@ status=0
 while IFS= read -r package; do
 	[[ -n "$package" ]] || continue
 	[[ "$interrupted" -eq 0 ]] || break
+	printf 'FORGE_CI_LIVE_PACKAGE_BEGIN %s\n' "$package" >&8
 	(
 		cd -- "$package" || exit
 		exec "$state/tests/${package##*/}.test" -test.paniconexit0 -test.count=1 -test.timeout=90m -test.v "${filter[@]}" 7>&- 9>&- 8>&-
@@ -203,6 +204,7 @@ while IFS= read -r package; do
 	wait_for_child "$suite_pid"
 	code=$?
 	suite_pid=
+	printf 'FORGE_CI_LIVE_PACKAGE_END %s\n' "$package" >&8
 	if [[ "$code" -ne 0 ]]; then status=$code; fi
 	if [[ "$code" -eq 130 ]]; then interrupted=1; fi
 done <<<"$packages"

@@ -92,7 +92,7 @@ func RenderGradleSummary(in GradleSummaryInput, now time.Time) string {
 	if in.SkipTests {
 		_, _ = fmt.Fprintf(&builder, "- **Tests:** ⊘ Skipped\n")
 	} else {
-		_, _ = fmt.Fprintf(&builder, "- **Tests:** ✓ Executed\n")
+		_, _ = fmt.Fprintf(&builder, "- **Tests:** ✓ Test tasks invoked\n")
 	}
 
 	if in.Version != "" {

@@ -17,6 +17,7 @@ import (
 // its job emits the ready marker. The expected evidence is interruption plus
 // normal cleanup, never a passing test produced by waiting out the sleep.
 func TestGitLabWorkflow_InterruptedJob(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	if os.Getenv("FORGE_CI_LIVE_INTERRUPT_PROBE") != "gitlab-workflow" {
 		livetest.NotCoveredf(t, "active-job interruption requires FORGE_CI_LIVE_INTERRUPT_PROBE=gitlab-workflow and an observed launcher signal")
 	}

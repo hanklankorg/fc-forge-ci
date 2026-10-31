@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
@@ -81,13 +82,19 @@ func TestCurrentPolicyCannotBeReplacedByConsumerState(t *testing.T) {
 }
 
 func TestNativeTestFailureClassification(t *testing.T) {
+	const mavenFailure = "\n[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.5.4:test (default-test) on project app: There are test failures."
+	const gradleFailure = "\nFAILURE: Build failed with an exception.\n\n* What went wrong:\nExecution failed for task ':test'.\n> There were failing tests. See the report at: file:///fixture/build/reports/tests/test/index.html\n\n* Try:\n> Run with --scan to get full insights.\n\nBUILD FAILED in 2s\n"
 	for _, test := range []struct {
 		name     string
 		protocol TestProtocol
 		body     string
 		count    int
 	}{
-		{"maven assertion", Maven, "Tests run: 4, Failures: 2, Errors: 0, Skipped: 0", 2},
+		{"maven assertion", Maven, "Tests run: 4, Failures: 2, Errors: 0, Skipped: 0" + mavenFailure, 2},
+		{"maven incomplete summary", Maven, "Tests run: 4, Failures: 2, Errors: 0, Skipped: 0", 0},
+		{"maven mixed reactor compiler failure", Maven, "Tests run: 4, Failures: 2, Errors: 0, Skipped: 0" + mavenFailure + "\n[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.14.0:compile on project other: Compilation failure", 0},
+		{"maven mixed reactor plugin failure", Maven, "Tests run: 4, Failures: 2, Errors: 0, Skipped: 0" + mavenFailure + "\n[ERROR] Failed to execute goal org.example:plugin:1:run on project other: network unavailable", 0},
+		{"maven failed module then successful module", Maven, "Tests run: 4, Failures: 2, Errors: 0, Skipped: 0\nTests run: 3, Failures: 0, Errors: 0, Skipped: 0" + mavenFailure, 2},
 		{"maven missing Docker", Maven, "Tests run: 84, Failures: 0, Errors: 7, Skipped: 0", 0},
 		{"maven mixed failure and setup error", Maven, "Tests run: 4, Failures: 2, Errors: 1, Skipped: 0", 0},
 		{"maven reactor setup error followed by assertions", Maven, "Tests run: 4, Failures: 0, Errors: 1, Skipped: 0\nTests run: 4, Failures: 1, Errors: 0, Skipped: 0", 0},
@@ -98,7 +105,15 @@ func TestNativeTestFailureClassification(t *testing.T) {
 		{"node startup", Node, "Cannot find module 'test.js'", 0},
 		{"cargo assertions", Cargo, "test result: FAILED. 1 passed; 2 failed;", 2},
 		{"cargo compile", Cargo, "test result: FAILED. 1 passed; 2 failed;\nerror: could not compile app", 0},
-		{"gradle assertions", Gradle, "> Task :test FAILED\n4 tests completed, 2 failed\n", 2},
+		{"gradle assertions", Gradle, "> Task :test FAILED\n4 tests completed, 2 failed\n" + gradleFailure, 2},
+		{"gradle Android assertions", Gradle, strings.ReplaceAll("> Task :test FAILED\n4 tests completed, 2 failed\n"+gradleFailure, ":test", ":app:testDemoUnitTest"), 2},
+		{"gradle no terminal", Gradle, "> Task :test FAILED\n4 tests completed, 2 failed\n", 0},
+		{"gradle truncated terminal", Gradle, "> Task :test FAILED\n4 tests completed, 2 failed\n* What went wrong:\nExecution failed for task ':test'.\n> There were failing tests.\n", 0},
+		{"gradle daemon after assertions", Gradle, "> Task :test FAILED\n4 tests completed, 2 failed\nFAILURE: Build failed with an exception.\n* What went wrong:\nGradle build daemon disappeared unexpectedly (it may have been killed or may have crashed)\n* Try:\n> Run with --stacktrace\n", 0},
+		{"gradle daemon after assertion terminal", Gradle, "> Task :test FAILED\n4 tests completed, 2 failed\n" + gradleFailure + "The message received from the daemon indicates that the daemon has disappeared.\n", 0},
+		{"gradle runtime cause", Gradle, "> Task :test FAILED\n4 tests completed, 2 failed\n" + strings.ReplaceAll(gradleFailure, "> There were failing tests. See the report at: file:///fixture/build/reports/tests/test/index.html", "> Process 'Gradle Test Executor 1' finished with non-zero exit value 1"), 0},
+		{"gradle mixed terminal causes", Gradle, "> Task :test FAILED\n4 tests completed, 2 failed\n" + gradleFailure + "\n* What went wrong:\nCould not connect to the build daemon.\n* Try:\n> Retry\n", 0},
+		{"gradle terminal task mismatch", Gradle, "> Task :test FAILED\n4 tests completed, 2 failed\n" + strings.ReplaceAll(gradleFailure, ":test", ":other:test"), 0},
 		{"gradle mixed compile", Gradle, "> Task :test FAILED\n4 tests completed, 2 failed\n> Task :compileKotlin FAILED\n", 0},
 		{"go assertions", GoJSON, "{\"Action\":\"fail\",\"Package\":\"app\",\"Test\":\"TestValue\"}\n{\"Action\":\"fail\",\"Package\":\"app\"}", 1},
 		{"go TestMain error", GoJSON, `{"Action":"fail","Package":"app"}`, 0},

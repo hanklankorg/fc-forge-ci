@@ -333,8 +333,11 @@ Architecture staging tags may append `-amd64` or `-arm64` to that final image ta
 
 Native `linux/amd64` and `linux/arm64` builds stage OCI layouts without registry
 publication credentials. Publication waits for **all** planned builds, verifies
-the complete platform set, then scans according to `enable-scan` and
-`scan-severity`. `enable-analyzed-container-sbom` independently selects image
+the complete platform set, then scans the exported OCI layouts using
+`scan-severity`. Consumer `enable-scan: false` cannot skip this scan;
+administrator policy controls whether recognized findings block, while
+operational and identity errors remain blocking.
+`enable-analyzed-container-sbom` independently selects image
 SBOM generation. Signing is `NONE`; explicit OCI signing or `enable-slsa: true`
 requests are rejected. Snapshots never update stable aliases or enter promotion.
 

@@ -73,7 +73,12 @@ func TestAndroidReleaseBuild_SBOMTempPreflight(t *testing.T) {
 				keyPath := strings.TrimPrefix(call.Env[0], "ANDROID_KEYSTORE_PATH=")
 				require.Equal(t, in.TempDir, filepath.Dir(filepath.Dir(keyPath)))
 
-				if len(ops.calls) == 2 {
+				switch len(ops.calls) {
+				case 1:
+					require.Equal(t, []string{"app:test"}, call.Args)
+				case 2:
+					require.Equal(t, []string{"app:test", "assembleRelease", "-x", "app:test"}, call.Args)
+				case 3:
 					require.Equal(t, []string{"--init-script", call.Args[1], "cyclonedxBom"}, call.Args)
 					require.Equal(t, tempDir, filepath.Dir(call.Args[1]))
 					fsys.WriteFile("project/build/reports/bom.json", []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1}`))
@@ -97,9 +102,9 @@ func TestAndroidReleaseBuild_SBOMTempPreflight(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 
-				wantCalls := 1
+				wantCalls := 2
 				if in.EnableBuildSBOM {
-					wantCalls = 2
+					wantCalls = 3
 				}
 
 				require.Len(t, ops.calls, wantCalls)
@@ -151,6 +156,11 @@ func TestAndroidReleaseBuild_SBOMCleanupErrors(t *testing.T) {
 				require.Equal(t, in.TempDir, filepath.Dir(filepath.Dir(keyPath)))
 
 				if len(ops.calls) == 1 {
+					require.Equal(t, []string{"app:test"}, call.Args)
+					return nil
+				}
+				if len(ops.calls) == 2 {
+					require.Equal(t, []string{"app:test", "assembleRelease", "-x", "app:test"}, call.Args)
 					return nil
 				}
 
@@ -180,7 +190,7 @@ func TestAndroidReleaseBuild_SBOMCleanupErrors(t *testing.T) {
 				require.ErrorIs(t, err, cause)
 			}
 
-			require.Len(t, ops.calls, 2)
+			require.Len(t, ops.calls, 3)
 			require.Contains(t, summary.buf.String(), "Generation failed")
 
 			residue, readErr := os.ReadFile(initPath)
@@ -240,8 +250,9 @@ func TestAndroidReleaseBuild_IntegratedArtifactNames(t *testing.T) {
 					BuildTypes: "release", IncludeAAB: true, BuildModule: "application",
 				})
 				require.NoError(t, err)
-				require.Len(t, ops.calls, 1)
-				require.Equal(t, []string{"application:test", "assembleDemoFreeRelease", "application:bundleDemoFreeRelease"}, ops.calls[0].Args)
+				require.Len(t, ops.calls, 2)
+				require.Equal(t, []string{"application:test"}, ops.calls[0].Args)
+				require.Equal(t, []string{"application:test", "assembleDemoFreeRelease", "application:bundleDemoFreeRelease", "-x", "application:test"}, ops.calls[1].Args)
 				require.Equal(t, testCase.want, sink.AllScalar())
 			})
 		})

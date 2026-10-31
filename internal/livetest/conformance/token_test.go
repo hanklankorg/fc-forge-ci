@@ -36,6 +36,7 @@ func alwaysValidatesTokens(provider.Capabilities) bool { return true }
 // PAR-TOK-1: the run's own credential validates against the repository it owns.
 // The control: if this fails, nothing else in the tier means anything.
 func TestToken_RunCredential_Validates(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, forge := range forgesClaiming(t, alwaysValidatesTokens, "token validation") {
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
@@ -70,6 +71,7 @@ func TestToken_RunCredential_Validates(t *testing.T) {
 // distinction only exists against a real server: an httptest fake answers
 // whatever the fake's author expected.
 func TestToken_RejectedCredential_IsPermissionDeniedNotUnavailable(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, forge := range forgesClaiming(t, alwaysValidatesTokens, "token validation") {
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
@@ -121,6 +123,7 @@ func TestToken_RejectedCredential_IsPermissionDeniedNotUnavailable(t *testing.T)
 // survives the whole way out to a process exit and a message. They are separate
 // because a correct sentinel that the CLI swallows is still a broken product.
 func TestToken_RejectedCredential_FailsTheCommandWithAReason(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, forge := range forgesClaiming(t, alwaysValidatesTokens, "token validation") {
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
@@ -167,6 +170,7 @@ func TestToken_RejectedCredential_FailsTheCommandWithAReason(t *testing.T) {
 // suite is demonstrably able to create and delete that repository is
 // contradicting itself.
 func TestToken_BotPermissions_ReflectRealAccess(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, forge := range forgesClaiming(t, alwaysValidatesTokens, "token validation") {
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()

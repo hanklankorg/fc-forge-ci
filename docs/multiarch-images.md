@@ -221,7 +221,7 @@ The provider-free suite exercises the actual application and workflow shell:
 | Colliding paths, symlink aliases, auth/metadata/layout overwrite | Refuse before scanners or registry writes. |
 | Different inventory paths with the same public download filename | Refuse before scanners or registry writes; platform inventory filenames must be distinct. |
 | Scanned release ledger has no index-BOM checksum | Refuse to record the release image. |
-| Explicit release scan opt-out | Preserve the existing signer-generated SBOM contract. |
+| Legacy consumer `enable-scan: false` | Exported/published layouts still require vulnerability scanning; administrator report-only enforcement retains findings and does not remove SBOM requirements. |
 | Base image | Retain all inventories and the existing first-platform premade signing contract. |
 
 Existing index-SBOM and signer tests cover missing/duplicate platforms, wrong

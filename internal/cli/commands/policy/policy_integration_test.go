@@ -111,10 +111,14 @@ func TestCompiledAdminPolicyCannotBeOverriddenByConsumers(t *testing.T) {
 			runtimeLint := filepath.Join(dir, "runtime-lint.sh")
 			write(runtimeLint, "#!/bin/sh\nprintf '%s\\n' '{\"version\":\"2.1.0\",\"runs\":[{\"tool\":{\"driver\":{\"name\":\"nanolinter\"}},\"results\":[{\"ruleId\":\"sast\",\"properties\":{\"source\":\"curated\",\"check_id\":\"sast\",\"class\":\"security\",\"status\":\"fail\",\"details\":\"tool failed (exit 2)\",\"exit_code\":2}}]}]}'\nexit 1\n", 0o700)
 			run(false, "policy", "nanolinter", "--", "/bin/sh", runtimeLint)
-			write(assertions, "#!/bin/sh\nprintf '%s\\n' 'Tests run: 4, Failures: 1, Errors: 0, Skipped: 0'\nexit 1\n", 0o700)
+			write(assertions, "#!/bin/sh\nprintf '%s\\n' 'Tests run: 4, Failures: 1, Errors: 0, Skipped: 0' '[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.5.4:test on project app: There are test failures.'\nexit 1\n", 0o700)
 			run(!variant.tests, "policy", "tests", "--protocol", "maven", "--", "/bin/sh", assertions)
 			write(assertions, "#!/bin/sh\nprintf '%s\\n' 'Tests run: 4, Failures: 0, Errors: 1, Skipped: 0'\nexit 1\n", 0o700)
 			run(false, "policy", "tests", "--protocol", "maven", "--", "/bin/sh", assertions)
+			write(assertions, "#!/bin/sh\nprintf '%s\\n' '> Task :test FAILED' '4 tests completed, 2 failed' 'FAILURE: Build failed with an exception.' '* What went wrong:' \"Execution failed for task ':test'.\" '> There were failing tests. See the report at: file:///fixture/report.html' '* Try:' '> Run with --stacktrace' 'BUILD FAILED in 2s'\nexit 1\n", 0o700)
+			run(!variant.tests, "policy", "tests", "--protocol", "gradle", "--", "/bin/sh", assertions)
+			write(assertions, "#!/bin/sh\nprintf '%s\\n' '> Task :test FAILED' '4 tests completed, 2 failed' 'FAILURE: Build failed with an exception.' '* What went wrong:' 'Gradle build daemon disappeared unexpectedly (it may have been killed or may have crashed)' '* Try:' '> Run with --stacktrace'\nexit 1\n", 0o700)
+			run(false, "policy", "tests", "--protocol", "gradle", "--", "/bin/sh", assertions)
 			// Exercise the engine-owned Go test path, not just the generic
 			// workflow wrapper. The non-enforcing engine must actually run it.
 			goResult := run(!variant.tests, "build", "go", "run", "--working-dir", consumer, "--build-sbom=false", "--platforms", "linux/amd64", "--version", "1.2.3")

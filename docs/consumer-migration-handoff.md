@@ -182,7 +182,7 @@ into each consumer as workarounds.
 
 | Issue | Implemented change | Source area / retained check |
 | --- | --- | --- |
-| FC-01 | Failing configured npm tests stop build/SBOM/pack; absent tests are explicitly skipped | `internal/app/build/npmreleasebuild*` |
+| FC-01 | Default administrator enforcement blocks failing configured npm tests before build/SBOM/pack; report-only policy still runs/reports recognized findings; absent scripts are explicitly skipped | `internal/app/build/npmreleasebuild*` |
 | FC-02 | Remove only inherited competing `SOURCE_DATE_EPOCH` when supplying Buildah's pinned timestamp | `internal/adapters/buildah/`; argv and native reproducibility checks |
 | FC-03 | Snapshot SBOM resolver supplies the required `--value` flag | Snapshot publisher workflow; actual step through the real CLI |
 | FC-04 | Forward the selected engine binary revision to the package publisher | Stable publisher workflow; workflow-boundary regression |

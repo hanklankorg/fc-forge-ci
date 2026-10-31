@@ -119,7 +119,11 @@ func TestProjectDirectoryBoundary_GradleAndAndroid(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if len(ops.calls) != 2 || !slices.Equal(ops.calls[0].Args, []string{"assembleWidget", "bundleWidget"}) || !strings.Contains(ops.initBody, "2.1.0") {
+		testTask := "test"
+		if android {
+			testTask = "app:test"
+		}
+		if len(ops.calls) != 3 || !slices.Equal(ops.calls[0].Args, []string{testTask}) || !slices.Equal(ops.calls[1].Args, []string{"assembleWidget", "bundleWidget", "-x", testTask}) || !strings.Contains(ops.initBody, "2.1.0") {
 			t.Fatalf("calls=%v init=%s", ops.calls, ops.initBody)
 		}
 
@@ -133,7 +137,10 @@ func TestProjectDirectoryBoundary_GradleAndAndroid(t *testing.T) {
 			t.Fatalf("project identity: dir=%s summary=%s output=%s stderr=%s", dir, &summary.buf, &out, &stderr)
 		}
 
-		if _, err := os.Stat(ops.calls[1].Args[1]); !errors.Is(err, os.ErrNotExist) {
+		if !slices.Equal(ops.calls[2].Args, []string{"--init-script", ops.calls[2].Args[1], "cyclonedxBom"}) {
+			t.Fatalf("unexpected SBOM invocation: %v", ops.calls[2].Args)
+		}
+		if _, err := os.Stat(ops.calls[2].Args[1]); !errors.Is(err, os.ErrNotExist) {
 			t.Fatal("SBOM init script survived")
 		}
 	}

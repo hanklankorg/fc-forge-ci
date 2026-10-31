@@ -22,6 +22,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/output"
+	domainpublish "github.com/diggsweden/forge-ci/internal/domain/publish"
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
 )
 
@@ -346,36 +347,14 @@ func NPMValidateTarball(_ context.Context, out, stderr io.Writer, annot output.A
 // CLI packages retain the historical dist/cli.js requirement. Libraries may
 // instead declare a literal exports or main path; inspecting it executes no code.
 func npmTarballEntrypoint(root *os.Root) (string, error) {
-	const cliDefault = "dist/cli.js"
 	body, err := root.ReadFile("package.json")
 	if os.IsNotExist(err) {
-		return cliDefault, nil
+		return domainpublish.NPMPackedEntrypoint(nil)
 	}
 	if err != nil {
 		return "", fmt.Errorf("read packed package metadata: %w", err)
 	}
-	var meta struct {
-		Bin, Exports json.RawMessage
-		Main         string
-	}
-	if err := json.Unmarshal(body, &meta); err != nil {
-		return "", fmt.Errorf("parse packed package metadata: %w", errs.ErrValidation)
-	}
-	if len(meta.Bin) != 0 && string(meta.Bin) != "null" {
-		return cliDefault, nil
-	}
-	var entrypoint string
-	_ = json.Unmarshal(meta.Exports, &entrypoint)
-	if entrypoint == "" {
-		entrypoint = meta.Main
-	}
-	if entrypoint == "" {
-		return cliDefault, nil
-	}
-	if !pathsafe.Relative(entrypoint) || filepath.Clean(entrypoint) == "." || strings.ContainsRune(entrypoint, 0) {
-		return "", fmt.Errorf("packed package entrypoint must be a relative file: %w", errs.ErrValidation)
-	}
-	return entrypoint, nil
+	return domainpublish.NPMPackedEntrypoint(body)
 }
 
 func npmPackageName(dir string) (string, error) {

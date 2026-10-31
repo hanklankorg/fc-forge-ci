@@ -22,6 +22,7 @@ import (
 
 // Independent of the PR/release trial: only a native development push is judged.
 func TestForgejoLayer_ConsumerDevelopment(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	if os.Getenv("FORGE_CI_LIVE_MAVEN_APPLICATION_IMAGE") != "" {
 		runForgejoMavenServiceDevelopment(t)
 		return

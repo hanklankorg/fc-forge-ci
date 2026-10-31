@@ -42,6 +42,7 @@ import (
 const afterTagFile = "after-tag.txt"
 
 func TestCheckout_ProducesAWorkingTreeAtTheRequestedRef(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, forge := range forgesClaiming(t, alwaysValidatesTokens, "repository metadata") {
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()

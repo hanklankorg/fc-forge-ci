@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
@@ -70,13 +71,15 @@ type GradleApplicationInput struct {
 	// $GRADLE_TASKS verbatim. Whitespace-separated tokens become separate argv
 	// entries — no shell re-splitting.
 	Tasks string
-	// SkipTests appends `-x test` to the gradle invocation.
+	// TestTask is engine-selected; Android binds its module aggregate here.
+	// Empty selects Gradle's standard test task selector.
+	TestTask string
+	// SkipTests is a refused legacy consumer opt-out.
 	SkipTests bool
 }
 
-// GradleApplication runs `./gradlew <tasks>` in the current working
-// directory, appending `-x test` when SkipTests is true. At least one
-// task is required; an empty tasks string fails with ErrUsage.
+// GradleApplication runs engine-owned test tasks before requested packaging.
+// Packaging arguments cannot suppress the separate test invocation.
 func GradleApplication(ctx context.Context, ops GradleOps, out, stderr io.Writer, in GradleApplicationInput) error {
 	if err := appenforcement.RequireTests(in.SkipTests); err != nil {
 		return err
@@ -88,29 +91,82 @@ func GradleApplication(ctx context.Context, ops GradleOps, out, stderr io.Writer
 	if err := enforcement.GradleTestArguments(tasks); err != nil {
 		return err
 	}
+	configuration, requestedTasks, err := gradleInvocationArguments(tasks)
+	if err != nil {
+		return err
+	}
 
 	_, _ = fmt.Fprintf(out, "Running Gradle tasks: %s\n", strings.Join(tasks, " "))
 
-	args := tasks
-
-	// Adapter already labels its error with the binary + first task;
-	// wrapping with the full task list here would double-prefix.
-	continued, err := appenforcement.TestRun(ctx, out, stderr, enforcement.Gradle, func(stdout, stderr io.Writer) error {
-		return ops.RunInherit(ctx, stdout, stderr, args...)
-	})
-	if err != nil || !continued {
-		return err
+	testTask := in.TestTask
+	if testTask == "" {
+		testTask = "test"
 	}
-	// The first invocation ran the tests and reported their failures. Finish
-	// packaging without repeating those tests; this build invocation is not waived.
-	packageArgs := append(append([]string{}, args...), "-x", "test")
-	for _, task := range tasks {
+	testTasks := []string{testTask}
+	for _, task := range requestedTasks {
 		name := task[strings.LastIndex(task, ":")+1:]
-		if strings.HasPrefix(name, "test") && strings.HasSuffix(name, "UnitTest") {
-			packageArgs = append(packageArgs, "-x", task)
+		if name == "test" || (strings.HasPrefix(name, "test") && strings.HasSuffix(name, "UnitTest")) {
+			if !slices.Contains(testTasks, task) {
+				testTasks = append(testTasks, task)
+			}
 		}
 	}
+	testArgs := append(configuration, testTasks...)
+	_, err = appenforcement.TestRun(ctx, out, stderr, enforcement.Gradle, func(stdout, stderr io.Writer) error {
+		return ops.RunInherit(ctx, stdout, stderr, testArgs...)
+	})
+	if err != nil {
+		return err
+	}
+	// Tests already ran. Packaging errors are never waived by test policy.
+	packageArgs := append([]string{}, tasks...)
+	for _, task := range testTasks {
+		packageArgs = append(packageArgs, "-x", task)
+	}
 	return ops.RunInherit(ctx, out, stderr, packageArgs...)
+}
+
+// Share supported global configuration across both invocations. Task-specific
+// and unknown options are rejected rather than silently testing another build.
+// Dry-run remains packaging-only and cannot suppress mandatory tests.
+func gradleInvocationArguments(args []string) (configuration, tasks []string, err error) {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if !strings.HasPrefix(arg, "-") {
+			tasks = append(tasks, arg)
+			continue
+		}
+		name, _, attached := strings.Cut(arg, "=")
+		switch {
+		case arg == "--dry-run" || arg == "-m":
+			continue
+		case (strings.HasPrefix(arg, "-P") || strings.HasPrefix(arg, "-D")) && len(arg) > 2:
+			configuration = append(configuration, arg)
+			continue
+		}
+		switch name {
+		case "-P", "-D", "--project-prop", "--system-prop", "-p", "--project-dir", "-c", "--settings-file", "-b", "--build-file", "-I", "--init-script", "-g", "--gradle-user-home", "--include-build", "--console", "--warning-mode", "--max-workers", "--priority", "--configuration-cache-problems":
+			configuration = append(configuration, arg)
+			if !attached {
+				if index+1 == len(args) || strings.HasPrefix(args[index+1], "-") {
+					return nil, nil, fmt.Errorf("Gradle option %q requires a value: %w", arg, errs.ErrUsage)
+				}
+				index++
+				configuration = append(configuration, args[index])
+			}
+		case "--daemon", "--no-daemon", "--offline", "--parallel", "--no-parallel", "--configure-on-demand", "--no-configure-on-demand", "--configuration-cache", "--no-configuration-cache", "--build-cache", "--no-build-cache", "--refresh-dependencies", "--rerun-tasks", "--continue", "--stacktrace", "-s", "--full-stacktrace", "-S", "--info", "-i", "--debug", "-d", "--warn", "-w", "--quiet", "-q":
+			if attached {
+				return nil, nil, fmt.Errorf("Gradle flag %q does not take a value: %w", arg, errs.ErrUsage)
+			}
+			configuration = append(configuration, arg)
+		default:
+			return nil, nil, fmt.Errorf("unsupported Gradle option %q at the mandatory test gate: %w", arg, errs.ErrUsage)
+		}
+	}
+	if len(tasks) == 0 {
+		return nil, nil, fmt.Errorf("at least one Gradle task is required: %w", errs.ErrUsage)
+	}
+	return configuration, tasks, nil
 }
 
 // GradleSBOM applies the cyclonedx-gradle-plugin via a throwaway init

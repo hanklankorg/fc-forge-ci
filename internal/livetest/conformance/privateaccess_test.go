@@ -17,6 +17,7 @@ import (
 // Prove the private branch API used by runtime promotion accepts the actual
 // runner-issued token, not just the controller's more capable lab credential.
 func TestInRunner_PrivateSourceBranchAcceptsJobToken(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, forge := range livetest.ForgesMeeting(t, []provider.ForgeAPI{provider.ForgeForgejo}, livetest.NeedsInRunner) {
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()

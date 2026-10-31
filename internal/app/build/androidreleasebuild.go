@@ -146,7 +146,7 @@ func AndroidReleaseBuild(ctx context.Context, sink ci.OutputSink, summarySink ci
 		defer func() { err = errors.Join(err, cleanup()) }()
 	}
 
-	if err = AndroidGradleBuild(ctx, bound, out, stderr, AndroidGradleBuildInput{Tasks: pre.tasks, SkipTests: in.SkipTests}); err != nil {
+	if err = AndroidGradleBuild(ctx, bound, out, stderr, AndroidGradleBuildInput{Tasks: pre.tasks, TestTask: pre.testTask, SkipTests: in.SkipTests}); err != nil {
 		return fmt.Errorf("gradle build: %w", err)
 	}
 
@@ -167,7 +167,7 @@ func publishAndroidVersion(ctx context.Context, sink ci.OutputSink, annot output
 // before it opens the project, publishes an output or stages a secret.
 type androidReleasePreflight struct {
 	keystore, properties []byte
-	tasks                string
+	tasks, testTask      string
 }
 
 func preflightAndroidRelease(in AndroidReleaseBuildInput) (androidReleasePreflight, error) {
@@ -199,6 +199,10 @@ func preflightAndroidRelease(in AndroidReleaseBuildInput) (androidReleasePreflig
 	}
 
 	pre.tasks, err = androidReleaseTasks(in)
+	if err != nil {
+		return pre, err
+	}
+	pre.testTask, err = build.AndroidUnitTestTask(in.BuildModule)
 	if err != nil {
 		return pre, err
 	}

@@ -25,6 +25,7 @@ import (
 // The consumer's root config admits development pushes and includes the rendered
 // gate. Unlike ConsumerTrial this never selects the MR config or opens an MR.
 func TestGitLabLayer_ConsumerDevelopment(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	root := os.Getenv(consumerCheckoutEnv)
 	if root == "" {
 		t.Skip("name a clean development consumer with FORGE_CI_LIVE_CONSUMER and its FORGE_CI_LIVE_CONSUMER_IMAGE_ARCHIVE")

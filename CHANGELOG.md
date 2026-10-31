@@ -193,6 +193,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING:** Shared build gates refuse legacy `skip-tests: true` and
+  `SKIP_TESTS=true`; exported/published OCI layouts are vulnerability-scanned
+  even with consumer `enable-scan: false`. Keep scanner prerequisites available.
+  Migrate finding exceptions to a reviewed administrator-built engine policy
+  and matching protected workflow, binary and image pins. The embedded
+  `enforce-lint`, `enforce-vulnerabilities` and `enforce-application-tests`
+  settings default to `true`. Report-only distributions still execute checks
+  and retain findings; operational, compilation/packaging, credential, signature
+  and source/digest identity errors remain blocking. SwiftLint's legacy
+  `--fail-on-warning` flag is compatibility-only, not enforcement authority.
+  Gradle invokes tests separately before packaging, preserving Android's
+  module-bound test aggregate even with task overrides; cache and `NO-SOURCE`
+  outcomes do not prove physical test execution. See `docs/admin-policy.md`.
 - Temporarily pause Self Release's strict integration and companion black-box
   jobs while Nanolinter publication is pending. Branch resolution, engine
   checksum verification and runtime-image availability remain required. Set

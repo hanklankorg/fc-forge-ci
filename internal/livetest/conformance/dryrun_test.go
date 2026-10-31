@@ -43,6 +43,7 @@ const (
 )
 
 func TestDryRun_DestructiveLedgerVerbs_MutateNothing(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	// Each verb needs a registry state in which it would really act; a verb with
 	// nothing to do proves nothing about dry-run.
 	cases := []struct {

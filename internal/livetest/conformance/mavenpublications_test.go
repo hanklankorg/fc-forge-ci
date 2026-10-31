@@ -23,6 +23,7 @@ import (
 // JAR and an AAR-shaped archive exercise both publication layouts; real Gradle
 // producer behavior belongs to the companion toolchain tests.
 func TestInRunner_ExportedMavenPublications(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "a Maven registry"), livetest.NeedsInRunner, livetest.NeedsPackages) {
 		for _, mode := range []string{"release", "snapshot"} {
 			t.Run(string(forge)+"/"+mode, func(t *testing.T) {

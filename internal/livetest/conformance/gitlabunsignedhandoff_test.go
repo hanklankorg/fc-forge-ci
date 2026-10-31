@@ -19,6 +19,7 @@ import (
 // The consumer writes inert provenance after declaring its release files, before
 // the normal build handoff validates dist. Reject before any signer can use it.
 func TestGitLabRelease_RejectsPreseededProvenance(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	root := os.Getenv(consumerCheckoutEnv)
 	if root == "" {
 		livetest.NotCoveredf(t, "requires a reviewed consumer that preseeds dist/slsa-provenance.intoto.json after release files declare")

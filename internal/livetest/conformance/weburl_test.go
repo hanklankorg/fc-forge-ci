@@ -30,6 +30,7 @@ import (
 )
 
 func TestWebURLs_ResolveOnEveryForge(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const tag = "v0.0.1"
 
 	for _, forge := range forgesClaiming(t, claimsReleaseAssets, "releases") {

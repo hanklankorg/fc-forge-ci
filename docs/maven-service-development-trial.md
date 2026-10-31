@@ -93,6 +93,11 @@ trial. Preserve the source Containerfile and report the exact failing job.
 
 ## Native acceptance checkpoint — 2026-10-30
 
+This retained receipt predates administrator-owned mandatory scan enforcement.
+It records the named controller's bounded acceptance, not a current-candidate
+pass of the changed test/scan contracts; revalidate those contracts with the
+current enforcing distribution.
+
 Public Forgejo run **309** passed against admitted wallet-attestation-issuer
 source `8ab871fdc5581234f48a6c376bc74c4313d11495`, with selected development source
 `4230fad5e56c27f50baba1317a4db75f5525a541`. The published image was read back and

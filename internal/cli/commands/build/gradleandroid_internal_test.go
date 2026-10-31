@@ -54,9 +54,11 @@ printf '%s\n' "$*" >> invocations
 
 	body, err := os.ReadFile(fsys.Path("invocations"))
 	require.NoError(t, err)
-	require.Contains(t, string(body), "lib:assembleRelease")
-	require.Contains(t, string(body), "cyclonedx")
-	require.Len(t, strings.Split(strings.TrimSpace(string(body)), "\n"), 2)
+	invocations := strings.Split(strings.TrimSpace(string(body)), "\n")
+	require.Len(t, invocations, 3)
+	require.Equal(t, "lib:test", invocations[0])
+	require.Equal(t, "lib:test lib:assembleRelease -x lib:test", invocations[1])
+	require.Contains(t, invocations[2], "cyclonedxBom")
 }
 
 func (g *androidCommandGradle) RunInDirEnvInherit(ctx context.Context, dir string, env []string, stdout, stderr io.Writer, args ...string) error {
@@ -67,9 +69,11 @@ func (g *androidCommandGradle) RunInDirEnvInherit(ctx context.Context, dir strin
 
 func TestGradleAndroidRun_BindsSigningEnvironmentAndBlobSources(t *testing.T) {
 	for _, source := range []string{"env", "dated_env", "file", "stdin"} {
-		for _, fail := range []string{"", "build", "sbom"} {
+		for _, fail := range []string{"", "tests", "packaging", "sbom", "tests_cleanup", "packaging_cleanup"} {
 			t.Run(source+"/fail_"+fail, func(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
+					failurePhase := strings.TrimSuffix(fail, "_cleanup")
+					cleanupFailure := strings.HasSuffix(fail, "_cleanup")
 					time.Sleep(time.Until(time.Unix(1700000000, 0)))
 
 					outputs := ghaenv.Setup(t)
@@ -114,7 +118,7 @@ func TestGradleAndroidRun_BindsSigningEnvironmentAndBlobSources(t *testing.T) {
 					t.Setenv("SECRETS_PROPERTIES_BASE64", properties)
 
 					args := []string{"run"}
-					wantArgs := []string{"widget:test", "assembleDemoFreeDebug", "assembleDemoFreeRelease", "widget:bundleDemoFreeRelease"}
+					wantArgs := []string{"widget:test", "assembleDemoFreeDebug", "assembleDemoFreeRelease", "widget:bundleDemoFreeRelease", "-x", "widget:test"}
 
 					if source == "file" || source == "stdin" {
 						for key, value := range map[string]string{
@@ -132,7 +136,7 @@ func TestGradleAndroidRun_BindsSigningEnvironmentAndBlobSources(t *testing.T) {
 							args = append(args, "--name-override", "", "--tasks-override", "", "--build-types", "debug,release", "--include-aab")
 						} else {
 							args = append(args, "--name-override", "cli-release", "--tasks-override", " assembleChosen\t:widget:bundleChosen ", "--build-types", "ignored-invalid", "--include-aab=false")
-							wantArgs = []string{"assembleChosen", ":widget:bundleChosen"}
+							wantArgs = []string{"assembleChosen", ":widget:bundleChosen", "-x", "widget:test"}
 						}
 
 						fsys.WriteFile("keystore.base64", []byte(os.Getenv("ANDROID_KEYSTORE_BASE64")))
@@ -183,6 +187,7 @@ func TestGradleAndroidRun_BindsSigningEnvironmentAndBlobSources(t *testing.T) {
 					ctx, cancel := context.WithCancel(t.Context())
 					defer cancel()
 
+					testCause := errors.New("owned CLI test failure")
 					buildCause, sbomCause := errors.New("owned CLI build failure"), errors.New("owned CLI SBOM failure")
 
 					var (
@@ -221,11 +226,15 @@ func TestGradleAndroidRun_BindsSigningEnvironmentAndBlobSources(t *testing.T) {
 
 						require.Equal(t, before, os.Environ())
 
-						step := "build"
+						step := "tests"
 
-						if len(events) == 0 {
+						switch len(events) {
+						case 0:
+							require.Equal(t, []string{"widget:test"}, args)
+						case 1:
+							step = "packaging"
 							require.Equal(t, wantArgs, args)
-						} else {
+						case 2:
 							step = "sbom"
 
 							require.Len(t, args, 3)
@@ -237,6 +246,8 @@ func TestGradleAndroidRun_BindsSigningEnvironmentAndBlobSources(t *testing.T) {
 							require.Contains(t, string(body), "org.cyclonedx:cyclonedx-gradle-plugin:3.2.1")
 							require.Contains(t, string(body), "apply<CyclonedxPlugin>()")
 							fsys.WriteFile("selected/build/reports/cyclonedx/bom.json", []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1}`))
+						default:
+							t.Fatalf("unexpected Gradle invocation: %v", args)
 						}
 
 						events = append(events, step)
@@ -245,8 +256,15 @@ func TestGradleAndroidRun_BindsSigningEnvironmentAndBlobSources(t *testing.T) {
 						_, err = io.WriteString(stderr, step+" owned stderr\n")
 						require.NoError(t, err)
 
-						if fail == step {
-							if step == "build" {
+						if failurePhase == step {
+							if cleanupFailure {
+								require.NoError(t, os.Remove(fsys.Path("selected/secrets.properties")))
+								fsys.WriteFile("selected/secrets.properties", []byte("caller replacement\n"))
+							}
+							if step == "tests" {
+								return testCause
+							}
+							if step == "packaging" {
 								return buildCause
 							}
 
@@ -257,20 +275,35 @@ func TestGradleAndroidRun_BindsSigningEnvironmentAndBlobSources(t *testing.T) {
 					}}
 					err := gradleAndroidRunCmd(ops).Run(ctx, args)
 					wantSummary := "### Build SBOM\n- \u2713 CycloneDX: `" + fsys.Path("selected/build/reports/cyclonedx/bom.json") + "`\n"
-					wantEvents := []string{"build", "sbom"}
+					wantEvents := []string{"tests", "packaging", "sbom"}
 
-					switch fail {
+					cleanupMessage := ""
+					if cleanupFailure {
+						cleanupMessage = "\nclean injected secrets.properties: secrets.properties identity changed; preserving replacement: validation failed"
+						require.ErrorIs(t, err, errs.ErrValidation)
+					}
+
+					switch failurePhase {
 					case "":
 						require.NoError(t, err)
-					case "build":
-						require.ErrorIs(t, err, buildCause)
+					case "tests":
+						require.ErrorIs(t, err, testCause)
+						require.NotErrorIs(t, err, buildCause)
 						require.NotErrorIs(t, err, sbomCause)
-						require.Equal(t, "gradle build: owned CLI build failure", err.Error())
+						require.Equal(t, "gradle build: owned CLI test failure"+cleanupMessage, err.Error())
 
-						wantEvents, wantSummary = []string{"build"}, ""
+						wantEvents, wantSummary = []string{"tests"}, ""
+					case "packaging":
+						require.ErrorIs(t, err, buildCause)
+						require.NotErrorIs(t, err, testCause)
+						require.NotErrorIs(t, err, sbomCause)
+						require.Equal(t, "gradle build: owned CLI build failure"+cleanupMessage, err.Error())
+
+						wantEvents, wantSummary = []string{"tests", "packaging"}, ""
 					case "sbom":
 						require.ErrorIs(t, err, sbomCause)
 						require.NotErrorIs(t, err, buildCause)
+						require.NotErrorIs(t, err, testCause)
 						require.Equal(t, "gradle-android Build SBOM generation failed: owned CLI SBOM failure", err.Error())
 
 						wantSummary = "### Build SBOM\n- \u26a0\ufe0f Generation failed; release blocked until the Build SBOM succeeds or is explicitly disabled\n"
@@ -303,7 +336,12 @@ func TestGradleAndroidRun_BindsSigningEnvironmentAndBlobSources(t *testing.T) {
 
 					require.Equal(t, before, os.Environ())
 					require.NoDirExists(t, filepath.Dir(keyPath))
-					require.NoFileExists(t, fsys.Path("selected/secrets.properties"))
+
+					if cleanupFailure {
+						require.Equal(t, "caller replacement\n", string(fsys.ReadFile("selected/secrets.properties")))
+					} else {
+						require.NoFileExists(t, fsys.Path("selected/secrets.properties"))
+					}
 
 					if initPath != "" {
 						require.NoFileExists(t, initPath)
@@ -392,7 +430,7 @@ func TestGradleAndroidRun_DisabledOptionsSources(t *testing.T) {
 			}
 
 			args := []string{"run", "--enable-signing=false", "--build-sbom=false", "--skip-tests=false", "--include-aab=false", "--include-date-stamp=false", "--build-types", "release", "--name-override", "unsigned"}
-			wantArgs := []string{"app:test", "assembleRelease"}
+			wantArgs := []string{"app:test", "assembleRelease", "-x", "app:test"}
 
 			if source != "flags" {
 				for key, value := range map[string]string{
@@ -404,7 +442,7 @@ func TestGradleAndroidRun_DisabledOptionsSources(t *testing.T) {
 				args = []string{"run"}
 
 				if source == "env_debug" {
-					wantArgs = []string{"app:test", "assembleDebug"}
+					wantArgs = []string{"app:test", "assembleDebug", "-x", "app:test"}
 				} else {
 					t.Setenv("BUILD_TYPES", "release")
 				}
@@ -419,10 +457,12 @@ func TestGradleAndroidRun_DisabledOptionsSources(t *testing.T) {
 			t.Cleanup(func() { os.Stderr = oldStderr; require.NoError(t, log.Close()) })
 
 			before := os.Environ()
-			ops := &androidCommandGradle{run: func(_ context.Context, dir string, env []string, stdout, stderr io.Writer, args []string) error {
+			var invocations [][]string
+			ops := &androidCommandGradle{run: func(callCtx context.Context, dir string, env []string, stdout, stderr io.Writer, args []string) error {
+				require.Equal(t, t.Context().Done(), callCtx.Done())
 				require.Equal(t, fsys.Root, dir)
 				require.Empty(t, env)
-				require.Equal(t, wantArgs, args)
+				invocations = append(invocations, append([]string{}, args...))
 				require.Same(t, log, stdout)
 				require.Same(t, log, stderr)
 				require.NoFileExists(t, fsys.Path("secrets.properties"))
@@ -430,7 +470,8 @@ func TestGradleAndroidRun_DisabledOptionsSources(t *testing.T) {
 				return nil
 			}}
 			require.NoError(t, gradleAndroidRunCmd(ops).Run(t.Context(), args))
-			require.Equal(t, 1, ops.calls)
+			require.Equal(t, 2, ops.calls)
+			require.Equal(t, [][]string{{"app:test"}, wantArgs}, invocations)
 
 			outputBody, err := os.ReadFile(outputs.OutputPath)
 			require.NoError(t, err)
@@ -458,7 +499,7 @@ func TestGradleAndroidRun_HelpExplainsDirectoryAndSecretLifetime(t *testing.T) {
 	cmd.Writer = &help
 	require.NoError(t, cmd.Run(t.Context(), []string{"run", "--help"}))
 
-	for _, text := range []string{"Both ./gradlew invocations and metadata use --working-dir", "create-only", "cleaned after build and SBOM", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD", "whitespace-only aliases", "not a build sandbox"} {
+	for _, text := range []string{"Test, packaging and optional SBOM invocations and metadata use --working-dir", "create-only", "cleaned after build and SBOM", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD", "whitespace-only aliases", "not a build sandbox"} {
 		require.Contains(t, help.String(), text)
 	}
 

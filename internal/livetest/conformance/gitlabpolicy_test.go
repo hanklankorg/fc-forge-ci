@@ -24,6 +24,7 @@ import (
 // GitLab configuration/variable/artifact proof with an inert canary, not a
 // cryptographic signing test or a claim about privileged runner containment.
 func TestGitLabPolicy_ConsumerCannotReplaceTheSigningPipeline(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	if !livetest.Requires(t, provider.ForgeGitLab, livetest.NeedsInRunner) {
 		livetest.NotCoveredf(t, "external release policy requires a GitLab runner")
 	}
@@ -157,6 +158,7 @@ func gitlabPolicyCommit(t *testing.T, ctx context.Context, client *gitlabapi.Cli
 // Registry authorization is separate from the REST fine-grained permissions.
 // Even an Owner-triggered build must not mutate the publication project.
 func TestGitLabPolicy_JobTokenCannotWriteThePublicationRegistry(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	if !livetest.Requires(t, provider.ForgeGitLab, livetest.NeedsInRunner) {
 		livetest.NotCoveredf(t, "registry publication policy requires a GitLab runner")
 	}

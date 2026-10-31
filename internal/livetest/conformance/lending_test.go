@@ -13,6 +13,7 @@ import (
 )
 
 func TestRunnerLending_LocalLifecycle(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	target := livetest.Accept(t, provider.ForgeForgejo)
 	for _, scenario := range []string{"job", "idle", "cancel"} {
 		t.Run(scenario, func(t *testing.T) { livetest.CheckLocalLending(t, target, scenario) })

@@ -84,8 +84,11 @@ checksum-verified by `internal/app/toolchain/changelogrenderer.go`.
 
 ## 4. Gate build failures and verify what was packed
 
-- Configured npm test failures must stop before build, SBOM and pack. An absent
-  test script is a supported explicit skip, not a successful test execution.
+- Under default administrator enforcement, configured npm test failures stop
+  before build, SBOM and pack. A reviewed administrator-built report-only policy
+  may continue only for recognized assertion findings, which remain reported;
+  operational/unknown failures still block. An absent test script is a supported
+  explicit skip, not a successful test execution.
 - Count executed, ignored and no-source tests separately. Running the same suite
   in two lifecycle phases does not create additional unique tests.
 - Test a clean install or deployment from the **packed artifact**, outside the

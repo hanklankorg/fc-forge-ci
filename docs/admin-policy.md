@@ -97,6 +97,19 @@ Testcontainers socket remains an error. Compilation and packaging invocations
 are never waived. Where packaging needs a follow-up after failed tests, that
 follow-up does not repeat the already reported tests.
 
+Gradle invokes tests separately before packaging; Android retains its selected
+module's test aggregate even when packaging tasks are overridden. A successful
+invocation can report cached, up-to-date or `NO-SOURCE` tasks. Inspect native task
+outcomes and test reports for physical execution and counts rather than treating
+an invocation or summary checkmark as that evidence.
+
+Supported Gradle project/system properties and global build options are passed
+to both test and packaging invocations. Unknown or task-specific options (such
+as `--tests`) are refused before execution rather than silently testing a
+different configuration. `--dry-run`/`-m` applies only to packaging. Report-only
+Gradle failures require matching assertion-only terminal task diagnostics and a
+completed build-failure footer; daemon loss and unknown terminal causes block.
+
 Custom trusted callers can use the same gate, including an iOS simulator job:
 
 ```bash
@@ -113,6 +126,7 @@ guessing that an unknown tool error is an assertion failure. An archive-only
 Xcode build does not itself claim simulator-test coverage. Select the protocol
 and command literally in the trusted caller, not from consumer-produced data.
 
-Existing test summaries say whether tests executed or were absent/skipped; read
-the policy decision and original findings alongside that execution status. A
-successful non-enforcing job is not evidence of a findings-free application.
+Read the policy decision and original findings alongside native execution
+reports, including absent/skipped and cached/no-source outcomes. An invocation
+or summary checkmark alone does not prove physical test execution. A successful
+non-enforcing job is not evidence of a findings-free application.

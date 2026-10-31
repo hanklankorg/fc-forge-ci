@@ -6,15 +6,18 @@ package ci
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/diggsweden/forge-ci/internal/domain/container"
+	"github.com/diggsweden/forge-ci/internal/livetest"
 	"github.com/diggsweden/forge-ci/internal/retry"
 	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
 	"github.com/diggsweden/forge-ci/internal/testutil/testenv"
@@ -46,6 +49,9 @@ env)
   ;;
 run)
   if [[ "${3:-}" == classify-run ]]; then
+    if [[ -n "${FAKE_REAL_CLASSIFIER:-}" ]]; then
+      exec "$FAKE_REAL_CLASSIFIER" -test.run '^TestLiveClassifierProcessFixture$' -- "$4" "$5"
+    fi
     case "$4" in
       0) printf '%s\n' "${FAKE_LIVE_CLASSIFICATION:-0 passed}" ;;
       130) printf '130 interrupted\n' ;;
@@ -73,9 +79,11 @@ test)
   fi
   [[ "$2" == -c ]] || exit 99
   while [[ "$1" != -o ]]; do shift; done
-  output="${2%/}/${FAKE_GO_PACKAGE##*/}.test"
-  printf '%s\n' "$FAKE_GO_SUITE" >"$output"
-  chmod 700 "$output"
+  while IFS= read -r package; do
+    output="${2%/}/${package##*/}.test"
+    printf '%s\n' "$FAKE_GO_SUITE" >"$output"
+    chmod 700 "$output"
+  done <<<"$FAKE_GO_PACKAGE"
   ;;
 list)
   printf '%s\n' "$FAKE_GO_PACKAGE"
@@ -96,7 +104,11 @@ if [[ -n "${FAKE_LIVE_READY:-}" ]]; then
   : >"$FAKE_LIVE_READY"
   while [[ ! -e "$FAKE_LIVE_RELEASE" ]]; do sleep 0.05; done
 fi
-printf '%s\n' "${FAKE_GO_TEST_OUTPUT:-}"
+if [[ "$PWD" == "${FAKE_GO_SECOND_PACKAGE:-}" ]]; then
+  printf '%s\n' "${FAKE_GO_SECOND_OUTPUT:-}"
+else
+  printf '%s\n' "${FAKE_GO_TEST_OUTPUT:-}"
+fi
 exit "${FAKE_GO_TEST_STATUS:-0}"
 `
 
@@ -476,6 +488,78 @@ func TestRunLiveTests_ReportsARunInWhichNothingRanAsSkipped(t *testing.T) {
 
 	if !strings.Contains(stdout, "Live result: skipped: no scenario ran; the log says why\n") {
 		t.Fatalf("stdout lacks the skipped verdict:\n%s", stdout)
+	}
+}
+
+// Use the real Go classifier behind the launcher's inert preflight collaborator.
+// Only the test data below contains scenario markers; this fixture is not a live
+// scenario and must never register itself.
+func TestLiveClassifierProcessFixture(t *testing.T) {
+	if os.Getenv("FAKE_REAL_CLASSIFIER") == "" {
+		return
+	}
+	status, err := strconv.Atoi(os.Args[len(os.Args)-2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, err := os.Open(os.Args[len(os.Args)-1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := livetest.ClassifyLiveRun(log, status)
+	_ = log.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Printf("%d %s\n", result.ExitCode, result.Verdict)
+	os.Exit(0)
+}
+
+func TestRunLiveTests_RealClassifierRequiresRegisteredScenario(t *testing.T) {
+	for _, tc := range []struct {
+		name, output string
+		want         int
+	}{
+		{"offline pass and live skip", "=== RUN   TestTrial\nFORGE_CI_LIVE_SCENARIO TestTrial\n=== RUN   TestOffline\n--- PASS: TestOffline (0s)\n--- SKIP: TestTrial (0s)", 1},
+		{"offline pass and skipped children", "=== RUN   TestTrial\nFORGE_CI_LIVE_SCENARIO TestTrial\n=== RUN   TestOffline\n=== RUN   TestTrial/child\n--- PASS: TestOffline (0s)\n--- SKIP: TestTrial/child (0s)\n--- PASS: TestTrial (0s)", 1},
+		{"offline only", "=== RUN   TestOffline\n--- PASS: TestOffline (0s)", 1},
+		{"real leaf", "=== RUN   TestTrial\nFORGE_CI_LIVE_SCENARIO TestTrial\n=== RUN   TestTrial/child\n--- PASS: TestTrial/child (0s)\n--- PASS: TestTrial (0s)", 0},
+		{"literal slash", "=== RUN   TestTrial\nFORGE_CI_LIVE_SCENARIO TestTrial\n=== RUN   TestTrial/sha1/application\n--- PASS: TestTrial/sha1/application (0s)\n--- PASS: TestTrial (0s)", 0},
+		{"quoted result and skipped root", "=== RUN   TestTrial\nFORGE_CI_LIVE_SCENARIO TestTrial\n    trial_test.go:10: captured output:\n        --- PASS: TestTrial/reported-child (0s)\n--- SKIP: TestTrial (0s)", 1},
+		{"missing RUN", "FORGE_CI_LIVE_SCENARIO TestTrial\n--- PASS: TestTrial (0s)", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			run := newLiveRun(t, "FAKE_REAL_CLASSIFIER="+os.Args[0], "FAKE_GO_TEST_OUTPUT="+tc.output)
+			stdout, stderr, status := run.exec(t, "focused", "TestTrial|TestOffline")
+			if status != tc.want {
+				t.Fatalf("status=%d, want=%d\n%s\n%s", status, tc.want, stdout, stderr)
+			}
+			_, log := run.logFile(t)
+			begin := strings.Index(log, "FORGE_CI_LIVE_PACKAGE_BEGIN ")
+			body := strings.Index(log, tc.output)
+			end := strings.Index(log, "FORGE_CI_LIVE_PACKAGE_END ")
+			if begin < 0 || body <= begin || end <= body {
+				t.Fatalf("suite output is not bounded by package records:\n%s", log)
+			}
+		})
+	}
+}
+
+func TestRunLiveTests_RealClassifierSeparatesPackages(t *testing.T) {
+	first, second := t.TempDir(), t.TempDir()
+	run := newLiveRun(t, "FAKE_REAL_CLASSIFIER="+os.Args[0], "FAKE_GO_PACKAGE="+first+"\n"+second,
+		"FAKE_GO_TEST_OUTPUT==== RUN   TestTrial\nFORGE_CI_LIVE_SCENARIO TestTrial\n--- SKIP: TestTrial (0s)",
+		"FAKE_GO_SECOND_PACKAGE="+second, "FAKE_GO_SECOND_OUTPUT==== RUN   TestTrial\n--- PASS: TestTrial (0s)")
+	stdout, stderr, status := run.exec(t, "focused", "TestTrial")
+	if status != 1 || !strings.Contains(stdout, "Live result: skipped:") {
+		t.Fatalf("another package's offline pass qualified a skipped live scenario: status=%d\n%s\n%s", status, stdout, stderr)
+	}
+	_, log := run.logFile(t)
+	for _, pkg := range []string{first, second} {
+		if !strings.Contains(log, "FORGE_CI_LIVE_PACKAGE_BEGIN "+pkg+"\n") ||
+			!strings.Contains(log, "FORGE_CI_LIVE_PACKAGE_END "+pkg+"\n") {
+			t.Fatalf("missing boundaries for %s:\n%s", pkg, log)
+		}
 	}
 }
 

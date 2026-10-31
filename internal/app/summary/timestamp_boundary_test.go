@@ -44,7 +44,7 @@ func TestTimestampedSummaries_RenderUTCAndExplicitInputs(t *testing.T) {
 			render: func(ctx context.Context, sink *fakeSummarySink) error {
 				return appsummary.GradleBuild(ctx, sink, appsummary.GradleBuildInput{JavaVersion: "21", GradleTasks: "build", SkipTests: false, Now: now})
 			},
-			want: []string{"- **Tests:** ✓ Executed", "*Build completed at 2026-05-09 22:30:00 UTC*"},
+			want: []string{"- **Tests:** ✓ Test tasks invoked", "*Build completed at 2026-05-09 22:30:00 UTC*"},
 		},
 		"npm skips tests": {
 			render: func(ctx context.Context, sink *fakeSummarySink) error {

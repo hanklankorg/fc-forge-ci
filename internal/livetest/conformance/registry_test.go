@@ -21,6 +21,7 @@ import (
 )
 
 func TestRegistry_SyntheticArtifacts_RoundTripByDigest(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, forge := range forgesClaiming(t, alwaysValidatesTokens, "an OCI registry") {
 		t.Run(string(forge), func(t *testing.T) {
 			t.Parallel()
@@ -93,6 +94,7 @@ func TestRegistry_SyntheticArtifacts_RoundTripByDigest(t *testing.T) {
 // unauthenticated request. Against an anonymously-readable registry every
 // authenticated check below would pass while proving nothing at all.
 func TestInRunner_ForgeInjectedRegistryCredentialAuthenticates(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const tag = "v0.0.7-regauth"
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, alwaysValidatesTokens, "an OCI registry"), livetest.NeedsInRunner) {

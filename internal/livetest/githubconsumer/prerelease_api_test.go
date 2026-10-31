@@ -28,6 +28,7 @@ import (
 // No runner, runtime image, engine push or product checkout is needed: exercise
 // the policy and immutable publication boundary with tiny disposable assets.
 func TestGitHubRelease_PrereleaseAPI(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	path := os.Getenv(livetest.GitHubContextEnv)
 	if path == "" {
 		t.Skip("run inside Forge Lab github run --fixtures none")
@@ -43,7 +44,7 @@ func TestGitHubRelease_PrereleaseAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client, err := githubclient.New(t.Context(), document, id)
+	client, err := githubclient.New(livetest.Context(t), document, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +59,7 @@ func TestGitHubRelease_PrereleaseAPI(t *testing.T) {
 		}
 
 		t.Run(visibility, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
+			ctx, cancel := context.WithTimeout(livetest.Context(t), 3*time.Minute)
 			defer cancel()
 
 			name := document.Prefix + "prerelease-api-" + visibility + "-" + document.Session[:8]

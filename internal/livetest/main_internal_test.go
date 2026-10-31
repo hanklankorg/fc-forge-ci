@@ -9,18 +9,13 @@ import (
 	"testing"
 )
 
-// TestMain gives the package one well-formed runner digest, whatever the
-// process exports. Rendering a probe reads FORGE_CI_LIVE_RUNNER_SHA256 and panics
-// without one, so these offline tests used to pass only on a host that
-// happened to export it, and then rendered with that host's value. Tests about
-// the digest itself set their own value. The live tier is another package and
-// keeps the digest its launcher exports.
+// TestMain supplies an offline rendering default without replacing the actual
+// runner digest exported by a live launcher. Digest-specific tests set their own.
 func TestMain(m *testing.M) {
-	_ = os.Setenv(runnerBinarySHA256Env, strings.Repeat("0", 64))
-
-	if os.Getenv("FORGE_CI_LIVE_SIGNAL_FIXTURE") != "" {
-		os.Exit(RunSuite(m.Run))
+	if os.Getenv(runnerBinarySHA256Env) == "" {
+		_ = os.Setenv(runnerBinarySHA256Env, strings.Repeat("0", 64))
 	}
 
-	os.Exit(m.Run())
+	// Live entrypoints and offline signal fixtures share the normal lifecycle.
+	os.Exit(RunSuite(m.Run))
 }

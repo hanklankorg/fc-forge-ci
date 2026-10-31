@@ -16,6 +16,7 @@ import (
 )
 
 func TestForgejoLayer_NPMApplicationDevelopment(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	root := os.Getenv(consumerCheckoutEnv)
 	if root == "" || os.Getenv("FORGE_CI_LIVE_NPM_APPLICATION_IMAGE") == "" {
 		t.Skip("name npm application source, pinned image and installed-package oracle")

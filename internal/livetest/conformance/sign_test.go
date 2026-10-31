@@ -36,6 +36,7 @@ import (
 )
 
 func TestSign_LedgerImages_ProducesAVerifiableSignature(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const (
 		releaseTag   = "v0.0.1"
 		candidateTag = "staging-" + releaseTag

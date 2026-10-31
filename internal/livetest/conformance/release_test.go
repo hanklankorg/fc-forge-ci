@@ -77,6 +77,7 @@ func claimsReleaseAssets(c provider.Capabilities) bool { return c.ReleaseAssets 
 // name, the body, the asset names, and the SHA-256 of the bytes each forge
 // serves back. A forge that reports an asset it corrupted fails here.
 func TestRelease_CreateWithAssets_IsEquivalentAcrossForges(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const (
 		tag  = "v0.0.1-rc-live"
 		body = "livetest PAR-REL-1\n\nbody text with a second line.\n"
@@ -234,6 +235,7 @@ func writeNotes(t *testing.T, body string) string {
 // spec; this attaches one to a release that already exists, which is the path a
 // pipeline takes when it builds artifacts after cutting the release.
 func TestRelease_UploadAssetToExistingRelease_ServesTheSameBytes(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const tag = "v0.0.2-rc-live"
 
 	for _, forge := range forgesClaiming(t, claimsReleaseAssets, "release assets") {
@@ -317,6 +319,7 @@ func TestRelease_UploadAssetToExistingRelease_ServesTheSameBytes(t *testing.T) {
 // updates in place and never deletes the release object. Adding a second knob
 // for the same choice would have been the wrong fix.
 func TestRelease_ReReleasingATag_ReplacesRatherThanAccumulates(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const (
 		tag         = "v0.0.3-rc-live"
 		firstBody   = "first body\n"
@@ -474,6 +477,7 @@ func assertAssetsArrivedIntact(
 // PAR-REL-4: the public CLI preserves completed versions regardless of strategy.
 // A changed desired asset set must be refused, leaving the original files intact.
 func TestRelease_PublishReconcile_RefusesPublishedChanges(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const tag = "v0.0.4"
 
 	for _, forge := range forgesClaiming(t, alwaysValidatesTokens, "releases") {
@@ -573,6 +577,7 @@ func writeScenarioFiles(t *testing.T, files map[string]string) string {
 }
 
 func TestRelease_Policy_IsWhatTheForgeRecords(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const tag = "v0.0.6-rc.1"
 
 	for _, forge := range forgesClaiming(t, alwaysValidatesTokens, "releases") {
@@ -686,6 +691,7 @@ func TestRelease_Policy_IsWhatTheForgeRecords(t *testing.T) {
 // re-encodes it, and random bytes make the digest sensitive to every byte.
 // Deterministic seed, so a failure is reproducible.
 func TestRelease_LargeAsset_ArrivesIntact(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const (
 		tag  = "v0.0.5"
 		name = "large-asset.bin"

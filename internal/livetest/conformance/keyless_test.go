@@ -37,6 +37,7 @@ import (
 func claimsMintsOIDCToken(c provider.Capabilities) bool { return c.MintsOIDCToken }
 
 func TestInRunner_KeylessSigningAgainstTheLabCA(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const tag = "v0.0.10-keyless"
 
 	for _, forge := range livetest.ForgesMeeting(t, forgesClaiming(t, claimsMintsOIDCToken, "keyless signing against an own CA"), livetest.NeedsInRunner, livetest.NeedsFulcio) {

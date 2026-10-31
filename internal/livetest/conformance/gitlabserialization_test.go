@@ -24,6 +24,7 @@ import (
 // Only the child include is substituted; rules, resource group, mirror strategy,
 // variable forwarding and interruption policy come from the actual component.
 func TestGitLabRelease_ResourceGroupSpansTheChild(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	if !livetest.Requires(t, provider.ForgeGitLab, livetest.NeedsInRunner) {
 		livetest.NotCoveredf(t, "release serialization requires a GitLab runner")
 	}

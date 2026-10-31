@@ -35,6 +35,7 @@ var otherReleaseSecret = regexp.MustCompile(`-[[:space:]]+(RELEASE_SSH_SIGNING_K
 // no later step left a trace in it, no secret value or credential is in it,
 // and the repository and the owner's packages are exactly as they were.
 func TestForgejoLayer_PrepareReleaseStopsOnAMissingSecret(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, visibility := range livetest.ConsumerVisibilities(t) {
 		t.Run(visibility.Name, func(t *testing.T) { runLayerMissingSecret(t, visibility.Private) })
 	}

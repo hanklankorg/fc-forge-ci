@@ -48,6 +48,7 @@ const (
 // engine's keyless identity, or, when the fixture's release workflow pins a
 // `cosign-public-key-sha256`, against a Cosign key pair made for the trial.
 func TestGitHubLayer_ConsumerTrial(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	root := os.Getenv(checkoutEnv)
 	if root == "" {
 		t.Skip("no consumer checkout is named; run `just test-live-github-consumer <org-id> <checkout> <pull-request|dev-release|release>`")
@@ -87,7 +88,7 @@ func TestGitHubLayer_ConsumerTrial(t *testing.T) {
 		t.Fatal("FORGE_CI_LIVE_ENGINE_CHECKOUT must be an absolute committed engine checkout")
 	}
 
-	controllerCommit, err := exec.CommandContext(t.Context(), "git", "-C", reporoot.Path(t), "rev-parse", "HEAD").Output()
+	controllerCommit, err := exec.CommandContext(livetest.Context(t), "git", "-C", reporoot.Path(t), "rev-parse", "HEAD").Output()
 	if err != nil {
 		t.Fatalf("read hosted controller revision: %v", err)
 	}

@@ -26,6 +26,7 @@ import (
 // Restore only an externally acknowledged deleted fixture, never an unknown
 // package found by name. Retention is explicit and lasts until batch cleanup.
 func TestGitHubSourceImageRestoreForBatch(t *testing.T) {
+	RegisterLiveScenario(t)
 	if os.Getenv(GitHubContextEnv) == "" {
 		t.Skip("admitted hosted context required")
 	}

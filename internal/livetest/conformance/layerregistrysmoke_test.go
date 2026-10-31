@@ -65,6 +65,7 @@ All notable changes to this acceptance fixture will be documented in this file.
 // skips. The fixture's first job is the layer's setup-buildah alone, so that
 // a failed build can say the runner refused it.
 func TestForgejoLayer_RegistrySignerSmoke(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	for _, visibility := range livetest.ConsumerVisibilities(t) {
 		t.Run(visibility.Name, func(t *testing.T) { runLayerRegistrySignerSmoke(t, visibility.Private) })
 	}

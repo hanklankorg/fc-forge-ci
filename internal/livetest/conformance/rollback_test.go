@@ -39,6 +39,7 @@ func deletesTags(c provider.Capabilities) bool { return c.ContainerTagDeletion }
 // is written, the registry cannot say who wrote it. Here the release tag does
 // not exist before the promotion, so undoing means removing it.
 func TestRollback_FromJournal_RemovesAReleaseTagThePromotionCreated(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const (
 		releaseTag   = "v0.0.1"
 		candidateTag = "staging-" + releaseTag
@@ -96,6 +97,7 @@ func TestRollback_FromJournal_RemovesAReleaseTagThePromotionCreated(t *testing.T
 // back. Deleting instead of restoring is a plausible implementation and is
 // indistinguishable from correct until a registry is asked.
 func TestRollback_FromJournal_RestoresAMovingTagToItsPreviousImage(t *testing.T) {
+	livetest.RegisterLiveScenario(t)
 	const (
 		releaseTag   = "v0.0.1"
 		candidateTag = "staging-" + releaseTag

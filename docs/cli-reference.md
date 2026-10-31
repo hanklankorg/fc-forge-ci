@@ -261,14 +261,14 @@ run the full Gradle release build (gradlew chmod, metadata, tasks, SBOM, summary
 
 ```
 Runs the whole Gradle build sequence in one step: make ./gradlew
-   executable, resolve metadata, run the gradle tasks (-x test unless
-   --skip-tests), generate the Build SBOM with the pinned cyclonedx-gradle-plugin
-   (unless --no-build-sbom), and write the summaries.
+   executable, resolve metadata, invoke mandatory test tasks under administrator
+   policy, then run the requested packaging tasks without repeating those tests.
+   Generate the Build SBOM with the pinned cyclonedx-gradle-plugin when enabled
+   and write the summaries. Consumer --skip-tests=true is refused.
 
-   ./gradlew executes in the current directory, not --working-dir: run this from
-   the project root, or cd in first (the forge job does, then wraps it with
-   checkout + artifact upload). --working-dir only locates gradle.properties for
-   metadata.
+   Test, packaging and SBOM invocations execute in --working-dir, which also
+   selects gradle.properties. A successful invocation can include Gradle cached,
+   up-to-date or NO-SOURCE outcomes; the summary reports test tasks invoked.
 
 EXAMPLE:
    cd app && forge-ci build gradle run --tasks assemble --sbom-tool-version 3.2.1
@@ -280,7 +280,7 @@ EXAMPLE:
 | `--private-dependencies` | explicitly allow dependency resolution to use the read-only dependency credential | bool | `false` | `$PRIVATE_DEPENDENCIES` |
 | `--dependency-token-file` | read-only package token file; defaults to $DEPENDENCY_TOKEN | string | `""` | n/a |
 | `--dependency-username` | username for the project's dependency repository settings | string | `""` | `$DEPENDENCY_USERNAME` |
-| `--working-dir` | directory of gradle.properties to read for metadata; ./gradlew itself runs in the current directory (cd in first) | string | `"."` | `$WORKING_DIRECTORY` |
+| `--working-dir` | project directory for metadata, mandatory tests, packaging and SBOM | string | `"."` | `$WORKING_DIRECTORY` |
 | `--tasks` | whitespace-separated gradle tasks to run (required) | string | `""` | `$GRADLE_TASKS` |
 | `--skip-tests` | legacy opt-out; true is refused: admin policy controls enforcement, tests still run | bool | `false` | `$SKIP_TESTS` |
 | `--build-sbom` | generate the cyclonedx-gradle-plugin Build SBOM (default true) | bool | `true` | `$ENABLE_BUILD_SBOM` |
@@ -322,7 +322,7 @@ Runs the whole Android build sequence in one step: compose artifact names,
    including on failure; cleanup errors are returned. Replaced properties are
    preserved. Emits artifact names + version for downstream upload/publish jobs.
 
-   Both ./gradlew invocations and metadata use --working-dir. Inherited JDK/SDK
+   Test, packaging and optional SBOM invocations and metadata use --working-dir. Inherited JDK/SDK
    runtime settings remain available; this command is not a build sandbox.
 
 EXAMPLE:
@@ -2365,14 +2365,14 @@ run `swiftlint lint` with optional --config and write the step-summary block
 
 ```
 EXAMPLE:
-   forge-ci lint swift swiftlint --config .swiftlint.yml --fail-on-warning
+   forge-ci lint swift swiftlint --config .swiftlint.yml
 ```
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
 | `--working-dir` | directory the linter is rooted at | string | `"."` | `$WORKING_DIRECTORY` |
 | `--config` | path to a .swiftlint.yml config file (passed via --config) | string | `""` | `$SWIFTLINT_CONFIG_PATH` |
-| `--fail-on-warning` | warnings cause a non-zero exit | bool | `false` | `$FAIL_ON_WARNING` |
+| `--fail-on-warning` | legacy compatibility input; administrator lint policy determines findings enforcement | bool | `false` | `$FAIL_ON_WARNING` |
 
 ## `forge-ci plan`
 

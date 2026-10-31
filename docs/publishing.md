@@ -11,6 +11,21 @@ commands.
 > assets and runtime images before adoption. For unreleased changes, follow
 > [Branch Testing](runtime-images.md#branch-testing).
 
+## Check enforcement before publication
+
+The [administrator's immutable engine policy](admin-policy.md) controls whether
+recognized lint, vulnerability and application-test findings block progression.
+All three settings default to enforcing. Legacy `skip-tests: true` (including
+`SKIP_TESTS=true`) is refused, and exported/published OCI layouts are scanned
+even when a consumer sets `enable-scan: false`. SBOM selection is separate from
+this vulnerability scan.
+
+To report recognized findings without blocking, use a reviewed administrator-built
+report-only distribution with matching protected workflow, binary and image
+pins. Checks still run and findings remain visible. Tool startup, invalid reports,
+compilation, packaging, credentials, signatures and source/digest identity
+failures remain blocking; a report-only publication is not a scan-clean receipt.
+
 ## Release-file manifests
 
 The build producer supplies `dist/release-files.json` before handing its
@@ -146,6 +161,18 @@ producers provide the classified manifest directly instead of using discovery.
 Publishing requires an explicit version-specific `config.npm-tag`, normally
 `release-{version}`. There is no movable default channel. See the
 [npm publication policy](ecosystems.md#npm-artifact-first).
+
+`forge-ci publish npm validate-tarball` reads packed metadata without executing
+package code. CLI packages declaring `bin` retain the historical `dist/cli.js`
+requirement. Libraries may declare a literal `exports` string naming an
+unescaped canonical `./` file target, or a relative `main` path to a regular
+file when `exports` is absent/null. Exports targets cannot contain backslashes,
+percent-encoded paths, query/fragment syntax, empty/dot/parent segments or
+`node_modules` segments. Conditional/subpath objects, arrays, other non-string
+exports values, bare targets and noncanonical paths are refused rather than
+guessed or replaced by `main`. The selected entry must exist as a regular file;
+this bounded validation does not prove every export works. Keep a fresh
+installed-package oracle for actual package behavior.
 
 ```bash
 # Configure npm to use GitHub Packages
