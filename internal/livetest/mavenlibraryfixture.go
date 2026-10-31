@@ -45,6 +45,10 @@ func NewMavenApplicationConsumerFixture(tb TB, source Consumer, recipe, image st
 		if strings.HasSuffix(file, "/release.yml") {
 			text = regexp.MustCompile(`(?m)^(      image: |      version-bump-image: ).*$`).ReplaceAllString(text, "${1}"+image)
 			text = strings.ReplaceAll(text, "ARTIFACT_NAME: hello-maven", "ARTIFACT_NAME: "+artifact)
+			// An application may own build.finalName (for example an unversioned
+			// Spring Boot JAR). Keep its POM intact and require one built JAR,
+			// rather than guessing its filename or choosing an ambiguous output.
+			text = strings.Replace(text, `          cp -- "target/${ARTIFACT_NAME}-${RELEASE_TAG#v}.jar" dist/`, mavenApplicationJarHandoff, 1)
 		}
 		if err := source.stageFile(ctx, "100644", file, text); err != nil {
 			tb.Fatalf("Maven app overlay: %v", err)
@@ -60,6 +64,14 @@ func NewMavenApplicationConsumerFixture(tb TB, source Consumer, recipe, image st
 	source.Commit = commit
 	return source
 }
+
+const mavenApplicationJarHandoff = `          shopt -s nullglob
+          jars=(target/*.jar)
+          if [ "${#jars[@]}" -ne 1 ]; then
+            echo "Maven application fixture requires exactly one target JAR; found ${#jars[@]}" >&2
+            exit 1
+          fi
+          cp -- "${jars[0]}" "dist/${ARTIFACT_NAME}-${RELEASE_TAG#v}.jar"`
 
 func (config MavenLibraryFixtureConfig) validate() error {
 	if !filepath.IsAbs(config.RecipeDirectory) {
