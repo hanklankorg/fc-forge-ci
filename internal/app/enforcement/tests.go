@@ -45,7 +45,7 @@ func testRun(ctx context.Context, policy enforcement.Policy, out, stderr io.Writ
 	}
 
 	if err == nil {
-		return false, findingsFor(out, policy, enforcement.ApplicationTests, 0)
+		return false, FindingsFor(out, policy, enforcement.ApplicationTests, 0)
 	}
 
 	var exit interface{ ExitCode() int }
@@ -63,7 +63,7 @@ func testRun(ctx context.Context, policy enforcement.Policy, out, stderr io.Writ
 		return false, err
 	}
 
-	if reportErr := findingsFor(out, policy, enforcement.ApplicationTests, count); reportErr != nil {
+	if reportErr := FindingsFor(out, policy, enforcement.ApplicationTests, count); reportErr != nil {
 		return false, errors.Join(err, reportErr)
 	}
 

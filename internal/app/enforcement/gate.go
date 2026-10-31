@@ -24,7 +24,9 @@ func Findings(out io.Writer, check enforcement.Check, count int) error {
 	return report(out, decision)
 }
 
-func findingsFor(out io.Writer, policy enforcement.Policy, check enforcement.Check, count int) error {
+// FindingsFor is Findings with an explicit policy value; production callers
+// pass enforcement.Current(), tests pass a fixed policy.
+func FindingsFor(out io.Writer, policy enforcement.Policy, check enforcement.Check, count int) error {
 	decision, err := policy.Decide(check, count)
 	if err != nil {
 		return err

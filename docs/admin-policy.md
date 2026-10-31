@@ -1,14 +1,15 @@
 # Administrator check enforcement
 
 Forge CI separates **running a check**, **reporting its findings**, and
-**blocking progression**. The administrator's engine distribution owns three
+**blocking progression**. The administrator's engine distribution owns four
 settings, all enabled by default:
 
 ```json
 {
   "enforce-lint": true,
   "enforce-vulnerabilities": true,
-  "enforce-application-tests": true
+  "enforce-application-tests": true,
+  "enforce-reproducible-builds": true
 }
 ```
 
@@ -85,6 +86,19 @@ plan covers every dependency, or that an arbitrary editable workflow executed
 the approved gates. Provider protection and source review remain the authority
 for those contracts. Unintegrated custom lint engines keep their own blocking
 behavior; these settings are not a generic `continue-on-error` switch.
+
+## Reproducible builds
+
+`enforce-reproducible-builds` is strict reproducible builds. With the default
+`true`, `validate jvm-reproducibility` (part of `validate prerequisites`) stops
+the release when a planned Maven artifact's `pom.xml` lacks a non-empty
+`<project.build.outputTimestamp>`, or a Gradle/Android build script lacks
+`preserveFileTimestamps = false` and `reproducibleFileOrder = true`. With
+`false`, the same check still runs, prints each missing setting with its fix
+and the `reproducible-builds` policy decision, and annotates a warning instead
+of an error. An unreadable or malformed `pom.xml`, a missing Gradle build
+script and an unsafe working directory remain blocking. Cargo's `Cargo.lock`
+and toolchain-pin requirements are not part of this setting.
 
 ## Application tests
 

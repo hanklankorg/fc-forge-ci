@@ -11,7 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
 	"github.com/diggsweden/forge-ci/internal/clicolor"
+	"github.com/diggsweden/forge-ci/internal/domain/enforcement"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/output"
 	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
@@ -34,12 +36,12 @@ type JVMReproducibilityInput struct {
 // is judged by its text alone. Byte-identical output is shown only by
 // rebuilding, which belongs to the black-box reproducibility tier.
 //
-// A missing setting is a hard error. The error message includes
-// the exact snippet to paste into pom.xml / build.gradle so the fix is
-// one copy-paste away. Adopters who can't (or won't) fix the upstream
-// build script can drop the JVM artifact from `release-orchestrator`'s
-// matrix; there is no per-artifact opt-out for the reproducibility
-// invariant itself.
+// A missing setting is a reproducible-builds finding. The administrator's
+// enforce-reproducible-builds policy (strict by default) decides whether
+// findings block; either way the report includes the exact snippet to paste
+// into pom.xml / build.gradle. An unreadable or malformed build file, or a
+// missing Gradle build script, is never a finding and always blocks. There
+// is no consumer or per-artifact opt-out.
 //
 // Heuristic detection:
 //
@@ -59,7 +61,26 @@ type JVMReproducibilityInput struct {
 //     approach matches every form we've seen in the wild (with or
 //     without "= ", inside an AbstractArchiveTask block or applied
 //     directly).
-func JVMReproducibility(_ context.Context, out io.Writer, annot output.Annotator, in JVMReproducibilityInput) error {
+func JVMReproducibility(ctx context.Context, out io.Writer, annot output.Annotator, in JVMReproducibilityInput) error {
+	policy, err := enforcement.Current()
+	if err != nil {
+		return err
+	}
+
+	return jvmReproducibility(ctx, out, annot, in, policy)
+}
+
+// reproducibility is one build file's result: configured, a missing setting
+// (a policy finding) or a file that could not be judged (always blocking).
+type reproducibility int
+
+const (
+	reproducibleConfigured reproducibility = iota
+	reproducibleMissing
+	reproducibleBroken
+)
+
+func jvmReproducibility(_ context.Context, out io.Writer, annot output.Annotator, in JVMReproducibilityInput, policy enforcement.Policy) error {
 	plan, err := parseConfigPlan(in.ConfigPlanJSON)
 	if err != nil {
 		return err
@@ -84,21 +105,46 @@ func JVMReproducibility(_ context.Context, out io.Writer, annot output.Annotator
 		return err
 	}
 
-	ok := true
+	strict := policy.EnforceReproducibleBuilds
+	results := make([]reproducibility, 0, len(mavenDirs)+len(gradleDirs))
 
 	for _, dir := range mavenDirs {
-		ok = checkMavenReproducibility(dir, out, annot) && ok
+		results = append(results, checkMavenReproducibility(dir, out, annot, strict))
 	}
 
 	for _, dir := range gradleDirs {
-		ok = checkGradleReproducibility(dir, out, annot) && ok
+		results = append(results, checkGradleReproducibility(dir, out, annot, strict))
 	}
 
-	if !ok {
-		return fmt.Errorf("jvm reproducibility settings missing: %w", errs.ErrValidation)
+	missing := 0
+
+	for _, result := range results {
+		switch result {
+		case reproducibleBroken:
+			return fmt.Errorf("jvm build files could not be checked for reproducibility: %w", errs.ErrValidation)
+		case reproducibleMissing:
+			missing++
+		case reproducibleConfigured:
+		}
+	}
+
+	if err := appenforcement.FindingsFor(out, policy, enforcement.ReproducibleBuilds, missing); err != nil {
+		return fmt.Errorf("jvm reproducibility settings missing: %w", err)
 	}
 
 	return nil
+}
+
+// reproducibilityFinding annotates a missing setting at the severity the
+// policy gives it: an error when it blocks, a warning when it is reported only.
+func reproducibilityFinding(annot output.Annotator, strict bool, format string, args ...any) {
+	if strict {
+		annot.Errorf(format, args...)
+
+		return
+	}
+
+	annot.Warningf(format+" (reported; enforce-reproducible-builds=false)", args...)
 }
 
 // parseConfigPlan unwraps the static config-plan JSON; same shape and
@@ -176,47 +222,46 @@ func mavenOutputTimestamp(pom mavenPOM) (string, bool) {
 	return "", false
 }
 
-// checkMavenReproducibility returns true when the Maven artifact at dir
-// satisfies the explicit-settings policy. False = a policy violation
-// that JVMReproducibility surfaces as ErrValidation.
-func checkMavenReproducibility(dir string, out io.Writer, annot output.Annotator) bool {
+// checkMavenReproducibility reports whether the Maven artifact at dir declares
+// the explicit reproducible-build setting.
+func checkMavenReproducibility(dir string, out io.Writer, annot output.Annotator, strict bool) reproducibility {
 	pomPath := filepath.Join(dir, "pom.xml")
 
 	body, err := readWorkspaceFile(pomPath)
 	if err != nil {
 		annot.Errorf("pom.xml unreadable in %s: %v", displayDir(dir), err)
 
-		return false
+		return reproducibleBroken
 	}
 
 	var pom mavenPOM
 	if err := xml.Unmarshal(body, &pom); err != nil { //nolint:musttag // the inner anonymous struct uses `xml:",any"` to capture every <properties> child element; explicit per-element tags wouldn't help since the element name we want (`project.build.outputTimestamp`) contains dots and isn't a valid struct-tag identifier.
 		annot.Errorf("pom.xml in %s is malformed: %v", displayDir(dir), err)
 
-		return false
+		return reproducibleBroken
 	}
 
 	value, present := mavenOutputTimestamp(pom)
 
 	switch {
 	case !present:
-		failMavenMissing(dir, "<project.build.outputTimestamp> property is not set", out, annot)
+		failMavenMissing(dir, "<project.build.outputTimestamp> property is not set", out, annot, strict)
 
-		return false
+		return reproducibleMissing
 	case value == "":
-		failMavenMissing(dir, "<project.build.outputTimestamp> is set but empty", out, annot)
+		failMavenMissing(dir, "<project.build.outputTimestamp> is set but empty", out, annot, strict)
 
-		return false
+		return reproducibleMissing
 	default:
 		annot.Noticef("Maven reproducibility configured in %s (outputTimestamp=%s); declaration only, rebuild not checked", displayDir(dir), value)
 		_, _ = fmt.Fprintf(out, "%s %s: project.build.outputTimestamp=%s\n", clicolor.Check(out), displayDir(dir), value)
 
-		return true
+		return reproducibleConfigured
 	}
 }
 
-func failMavenMissing(dir, reason string, out io.Writer, annot output.Annotator) {
-	annot.Errorf("%s in %s — explicit-settings policy failed; effective build behavior was not evaluated", reason, displayDir(dir))
+func failMavenMissing(dir, reason string, out io.Writer, annot output.Annotator, strict bool) {
+	reproducibilityFinding(annot, strict, "%s in %s — explicit-settings policy failed; effective build behavior was not evaluated", reason, displayDir(dir))
 
 	_, _ = fmt.Fprintf(out, "%s %s: %s\n", clicolor.Cross(out), displayDir(dir), reason)
 	_, _ = fmt.Fprintf(out, "  Fix: add to pom.xml <properties>:\n")
@@ -235,10 +280,9 @@ var gradleBuildScripts = []string{
 	"build.gradle",
 }
 
-// checkGradleReproducibility returns true when the Gradle artifact at
-// dir satisfies the explicit-settings policy. False = a policy violation
-// that JVMReproducibility surfaces as ErrValidation.
-func checkGradleReproducibility(dir string, out io.Writer, annot output.Annotator) bool {
+// checkGradleReproducibility reports whether the Gradle artifact at dir
+// declares the explicit reproducible-archive settings.
+func checkGradleReproducibility(dir string, out io.Writer, annot output.Annotator, strict bool) reproducibility {
 	var (
 		body []byte
 		path string
@@ -259,7 +303,7 @@ func checkGradleReproducibility(dir string, out io.Writer, annot output.Annotato
 	if path == "" {
 		annot.Errorf("no build.gradle{,.kts} found in %s", displayDir(dir))
 
-		return false
+		return reproducibleBroken
 	}
 
 	preserve := gradleHasReproducibilitySetting(body, "preserveFileTimestamps", "false")
@@ -270,19 +314,19 @@ func checkGradleReproducibility(dir string, out io.Writer, annot output.Annotato
 		annot.Noticef("Gradle reproducibility configured in %s; recognized text only, rebuild not checked", displayDir(dir))
 		_, _ = fmt.Fprintf(out, "%s %s: preserveFileTimestamps=false + reproducibleFileOrder=true\n", clicolor.Check(out), displayDir(dir))
 
-		return true
+		return reproducibleConfigured
 	case !preserve && !order:
-		failGradleMissing(dir, "neither preserveFileTimestamps=false nor reproducibleFileOrder=true found", out, annot)
+		failGradleMissing(dir, "neither preserveFileTimestamps=false nor reproducibleFileOrder=true found", out, annot, strict)
 
-		return false
+		return reproducibleMissing
 	case !preserve:
-		failGradleMissing(dir, "preserveFileTimestamps=false not found", out, annot)
+		failGradleMissing(dir, "preserveFileTimestamps=false not found", out, annot, strict)
 
-		return false
+		return reproducibleMissing
 	default:
-		failGradleMissing(dir, "reproducibleFileOrder=true not found", out, annot)
+		failGradleMissing(dir, "reproducibleFileOrder=true not found", out, annot, strict)
 
-		return false
+		return reproducibleMissing
 	}
 }
 
@@ -355,8 +399,8 @@ func isIdentChar(b byte) bool {
 		b == '_'
 }
 
-func failGradleMissing(dir, reason string, out io.Writer, annot output.Annotator) {
-	annot.Errorf("Gradle reproducibility not configured in %s — explicit-settings policy failed; effective build behavior was not evaluated (%s)", displayDir(dir), reason)
+func failGradleMissing(dir, reason string, out io.Writer, annot output.Annotator, strict bool) {
+	reproducibilityFinding(annot, strict, "Gradle reproducibility not configured in %s — explicit-settings policy failed; effective build behavior was not evaluated (%s)", displayDir(dir), reason)
 
 	_, _ = fmt.Fprintf(out, "%s %s: %s\n", clicolor.Cross(out), displayDir(dir), reason)
 	_, _ = fmt.Fprintf(out, "  Fix: add to build.gradle{,.kts}:\n")

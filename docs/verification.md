@@ -1067,7 +1067,7 @@ ownership and migration from legacy consumer opt-outs.
 | **Container vulnerability scan** (trivy, CRITICAL+HIGH with a fixed package, and unfixed CRITICAL) | Required for exported/published OCI layouts | Reviewed `.trivyignore.yaml` exceptions with reason and expiry and `scan-severity` select findings; administrator policy controls blocking. Consumer `enable-scan: false` cannot skip execution. |
 | **Application tests** in Go, Maven, npm, Cargo and Gradle/Android build gates | Required invocation (npm only when a test script exists) | Legacy `skip-tests: true` is refused. Administrator report-only policy permits only recognized test findings; setup, compilation and packaging errors stay blocking. Inspect native reports for actual test execution. |
 | **Artifact-presence verification** in publish-container | Required | Drop the `from:` entry in artifacts.yml so the verify step is skipped |
-| **JVM reproducibility settings** (Maven `outputTimestamp`, Gradle archive task settings, checked statically) | Required | Drop the artifact from the matrix; there is no per-artifact opt-out for the settings check |
+| **JVM reproducibility settings** (Maven `outputTimestamp`, Gradle archive task settings, checked statically) | Required (strict by default) | Administrator `enforce-reproducible-builds: false` reports missing settings without blocking; there is no consumer or per-artifact opt-out |
 | **Cargo lockfile + toolchain pin** | Required | None. `Cargo.lock` and either `rust-toolchain.toml` or `rust-toolchain` are mandatory for every Cargo artifact |
 
 A passing pipeline must be read alongside its selected checks, native execution
@@ -1202,8 +1202,8 @@ are distinct. A future authorized release is needed to validate this hosted fix.
 | Go (container-first) | image-embedded binary | Caller-selected `go build` flags inside the Containerfile | Caller-owned; forge-ci timestamps the image, not the compile sandbox |
 | Cargo (artifact-first) | release binary | `cargo build --release --locked --target <triple>` + pinned toolchain/lockfile | Build command and prerequisite checks are wired; build-script and generated-content determinism remain caller-owned |
 | Cargo (container-first) | image-embedded binary | Caller-selected Cargo flags, toolchain and lockfile inside the Containerfile | `validate cargo` checks the committed lockfile/toolchain pin; it does not establish binary reproducibility |
-| Maven | main jar, sources jar | `<project.build.outputTimestamp>` in `pom.xml` | Caller-owned; its presence is required by `validate jvm-reproducibility` (release fails if missing) |
-| Gradle (JVM + Android) | jar, war, distZip, distTar, APK | `preserveFileTimestamps = false` + `reproducibleFileOrder = true` on `AbstractArchiveTask` | Caller-owned; its text is required by `validate jvm-reproducibility` (release fails if missing) |
+| Maven | main jar, sources jar | `<project.build.outputTimestamp>` in `pom.xml` | Caller-owned; checked by `validate jvm-reproducibility` (release fails if missing under the default strict admin policy) |
+| Gradle (JVM + Android) | jar, war, distZip, distTar, APK | `preserveFileTimestamps = false` + `reproducibleFileOrder = true` on `AbstractArchiveTask` | Caller-owned; its text is checked by `validate jvm-reproducibility` (release fails if missing under the default strict admin policy) |
 | NPM | `.tgz` | npm ≥ 10 (fixed in npm/cli#3536) | Runtime image pins node 24 LTS (npm 10+) |
 | Container image (both flows) | OCI image-config + layer blobs | `SOURCE_DATE_EPOCH` env on the build step (buildah `--timestamp`) | Yes, automatic (computed once in `prep` from `git log -1 --format=%ct HEAD`) |
 
@@ -1243,9 +1243,9 @@ For each artifact it:
 - Reads `pom.xml` (Maven) or `build.gradle{,.kts}` (Gradle) under the artifact's `working-directory`.
 - For Maven: real XML parse looking for `<project.build.outputTimestamp>` under `<properties>`.
 - For Gradle: line-by-line substring check for `preserveFileTimestamps = false` AND `reproducibleFileOrder = true`. Tolerates Kotlin and Groovy DSL forms, with or without whitespace around `=`.
-- Emits a GitHub Actions `::error::` annotation when the setting is missing, and prints an actionable fix snippet: the exact `<project.build.outputTimestamp>` or `tasks.withType(AbstractArchiveTask)` block to paste. It then exits non-zero, so the release stops at `validate prerequisites`.
+- Emits a GitHub Actions `::error::` annotation when the setting is missing, and prints an actionable fix snippet: the exact `<project.build.outputTimestamp>` or `tasks.withType(AbstractArchiveTask)` block to paste. It then prints the `reproducible-builds` admin-policy decision. Under the default strict policy it exits non-zero, so the release stops at `validate prerequisites`; with `enforce-reproducible-builds: false` the missing settings are annotated as warnings and the release continues. Unreadable or malformed build files always stop it.
 
-The check is a hard gate on the settings, and a static one: it reads the
+Under the default policy the check is a hard gate on the settings, and always a static one: it reads the
 committed build files and never runs Maven or Gradle. A release cannot reach
 publish with the settings missing, but a pass is not proof that the archive is
 byte-identical. The Gradle check reads line text and skips `//` line comments,

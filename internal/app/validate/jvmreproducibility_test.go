@@ -12,14 +12,16 @@ import (
 
 	appvalidate "github.com/diggsweden/forge-ci/internal/app/validate"
 	"github.com/diggsweden/forge-ci/internal/domain/config"
+	domainenforcement "github.com/diggsweden/forge-ci/internal/domain/enforcement"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/output"
 	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
 	"github.com/diggsweden/forge-ci/internal/testutil/testfs"
 )
 
-// helper to run the validator with no-op annot routing. Returns
-// stdout, stderr, and the validator's error.
+// helper to run the validator with no-op annot routing under the strict
+// default admin policy, so these tests hold in any administrator distribution.
+// Returns stdout, stderr, and the validator's error.
 func runJVMRepro(t *testing.T, plan string) (string, string, error) {
 	t.Helper()
 
@@ -28,9 +30,9 @@ func runJVMRepro(t *testing.T, plan string) (string, string, error) {
 		errBuf bytes.Buffer
 	)
 
-	err := appvalidate.JVMReproducibility(context.Background(), &outBuf, output.NewAnnotator(&errBuf, output.FormatGitHub), appvalidate.JVMReproducibilityInput{
+	err := appvalidate.JVMReproducibilityWithPolicy(context.Background(), &outBuf, output.NewAnnotator(&errBuf, output.FormatGitHub), appvalidate.JVMReproducibilityInput{
 		ConfigPlanJSON: plan,
-	})
+	}, domainenforcement.Policy{EnforceReproducibleBuilds: true})
 
 	return outBuf.String(), errBuf.String(), err
 }

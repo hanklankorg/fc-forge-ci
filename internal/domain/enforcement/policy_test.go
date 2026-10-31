@@ -14,9 +14,9 @@ import (
 )
 
 func TestPolicySettingsAreIndependent(t *testing.T) {
-	for bits := range 8 {
-		policy := Policy{bits&1 != 0, bits&2 != 0, bits&4 != 0}
-		for index, check := range []Check{Lint, Vulnerabilities, ApplicationTests} {
+	for bits := range 16 {
+		policy := Policy{bits&1 != 0, bits&2 != 0, bits&4 != 0, bits&8 != 0}
+		for index, check := range []Check{Lint, Vulnerabilities, ApplicationTests, ReproducibleBuilds} {
 			decision, err := policy.Decide(check, 2)
 			if err != nil || decision.Findings != 2 || decision.Enforced != (bits&(1<<index) != 0) {
 				t.Fatalf("settings=%d check=%s: %+v %v", bits, check, decision, err)
@@ -36,7 +36,7 @@ func TestPolicySettingsAreIndependent(t *testing.T) {
 func TestPolicyDecodeRefusesAmbiguity(t *testing.T) {
 	for _, body := range []string{
 		`null`, `[]`, `{"enforce-lint":null}`, `{"enforce-lint":"false"}`,
-		`{"enforce-lint":0}`, `{"enforce-lint":true,"enforce-lint":false}`,
+		`{"enforce-lint":0}`, `{"enforce-reproducible-builds":"no"}`, `{"enforce-lint":true,"enforce-lint":false}`,
 		`{"enforce_lint":false}`, `{} {}`, `{"enforce-lint":false`,
 	} {
 		if _, err := decode([]byte(body)); !errors.Is(err, errs.ErrInvalidConfig) {
@@ -45,7 +45,7 @@ func TestPolicyDecodeRefusesAmbiguity(t *testing.T) {
 	}
 
 	policy, err := decode([]byte(`{"enforce-lint":false}`))
-	if err != nil || policy.EnforceLint || !policy.EnforceVulnerabilities || !policy.EnforceApplicationTests {
+	if err != nil || policy.EnforceLint || !policy.EnforceVulnerabilities || !policy.EnforceApplicationTests || !policy.EnforceReproducibleBuilds {
 		t.Fatalf("safe omitted defaults: %+v %v", policy, err)
 	}
 }

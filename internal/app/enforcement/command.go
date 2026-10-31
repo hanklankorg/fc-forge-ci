@@ -75,7 +75,7 @@ func nanolinter(ctx context.Context, policy enforcement.Policy, runner LintRunne
 		return fmt.Errorf("nanolinter failed without classified findings: %w", errs.ErrValidation)
 	}
 
-	return errors.Join(findingsFor(out, policy, enforcement.Lint, report.LintFindings), findingsFor(out, policy, enforcement.Vulnerabilities, report.VulnerabilityFindings))
+	return errors.Join(FindingsFor(out, policy, enforcement.Lint, report.LintFindings), FindingsFor(out, policy, enforcement.Vulnerabilities, report.VulnerabilityFindings))
 }
 
 func retireSARIF(path string) error {

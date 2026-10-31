@@ -29,6 +29,10 @@ const (
 	Lint             Check = "lint"
 	Vulnerabilities  Check = "vulnerabilities"
 	ApplicationTests Check = "application-tests"
+	// ReproducibleBuilds covers missing declared reproducible-build settings
+	// (for example Maven's project.build.outputTimestamp). It never covers
+	// unreadable or malformed build files.
+	ReproducibleBuilds Check = "reproducible-builds"
 )
 
 // Policy is returned by value. Changing a copy cannot change the engine policy.
@@ -36,6 +40,9 @@ type Policy struct {
 	EnforceLint             bool `json:"enforce-lint"`
 	EnforceVulnerabilities  bool `json:"enforce-vulnerabilities"`
 	EnforceApplicationTests bool `json:"enforce-application-tests"`
+	// EnforceReproducibleBuilds is strict reproducible builds: missing
+	// reproducible-build settings block the release.
+	EnforceReproducibleBuilds bool `json:"enforce-reproducible-builds"`
 }
 
 // Current reads only bytes embedded when the administrator built this engine.
@@ -57,6 +64,8 @@ func (policy Policy) Enforces(check Check) (bool, error) {
 		return policy.EnforceVulnerabilities, nil
 	case ApplicationTests:
 		return policy.EnforceApplicationTests, nil
+	case ReproducibleBuilds:
+		return policy.EnforceReproducibleBuilds, nil
 	default:
 		return false, fmt.Errorf("unknown policy check %q: %w", check, errs.ErrUsage)
 	}
@@ -118,7 +127,7 @@ func decode(body []byte) (Policy, error) {
 		return Policy{}, fmt.Errorf("trailing admin policy data: %w", errs.ErrInvalidConfig)
 	}
 	// Omitted settings retain the documented enforcing defaults.
-	policy := Policy{true, true, true}
+	policy := Policy{EnforceLint: true, EnforceVulnerabilities: true, EnforceApplicationTests: true, EnforceReproducibleBuilds: true}
 	if value, set := values["enforce-lint"]; set {
 		policy.EnforceLint = value
 	}
@@ -129,6 +138,10 @@ func decode(body []byte) (Policy, error) {
 
 	if value, set := values["enforce-application-tests"]; set {
 		policy.EnforceApplicationTests = value
+	}
+
+	if value, set := values["enforce-reproducible-builds"]; set {
+		policy.EnforceReproducibleBuilds = value
 	}
 
 	return policy, nil
@@ -150,7 +163,7 @@ func readSetting(decoder *json.Decoder, values map[string]bool) error {
 	}
 
 	switch name {
-	case "enforce-lint", "enforce-vulnerabilities", "enforce-application-tests":
+	case "enforce-lint", "enforce-vulnerabilities", "enforce-application-tests", "enforce-reproducible-builds":
 	default:
 		return fmt.Errorf("unknown admin policy key %q: %w", name, errs.ErrInvalidConfig)
 	}

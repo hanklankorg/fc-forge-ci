@@ -46,7 +46,7 @@ func TestCompiledAdminPolicyCannotBeOverriddenByConsumers(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write(filepath.Join(consumer, "policy.json"), `{"enforce-lint":false,"enforce-vulnerabilities":false,"enforce-application-tests":false}`, 0o600)
+	write(filepath.Join(consumer, "policy.json"), `{"enforce-lint":false,"enforce-vulnerabilities":false,"enforce-application-tests":false,"enforce-reproducible-builds":false}`, 0o600)
 	write(filepath.Join(consumer, "go.mod"), "module example.invalid/admin-policy-fixture\n\ngo 1.27.3\n", 0o600)
 	write(filepath.Join(consumer, "main.go"), "package main\nfunc main() {}\n", 0o600)
 	write(filepath.Join(consumer, "failure_test.go"), "package main\nimport \"testing\"\nfunc TestAssertion(t *testing.T) { t.Error(\"real native assertion failure\") }\n", 0o600)
@@ -55,15 +55,15 @@ func TestCompiledAdminPolicyCannotBeOverriddenByConsumers(t *testing.T) {
 	t.Setenv("ENFORCE_VULNERABILITIES", "false")
 	t.Setenv("ENFORCE_APPLICATION_TESTS", "false")
 	for _, variant := range []struct {
-		name                         string
-		lint, vulnerabilities, tests bool
+		name                                string
+		lint, vulnerabilities, tests, repro bool
 	}{
-		{"enforcing", true, true, true}, {"mixed", false, true, false}, {"report-only", false, false, false},
+		{"enforcing", true, true, true, true}, {"mixed", false, true, false, true}, {"report-only", false, false, false, false},
 	} {
 		t.Run(variant.name, func(t *testing.T) {
 			dir := t.TempDir()
 			policyFile := filepath.Join(dir, "admin-policy.json")
-			policy, _ := json.Marshal(map[string]bool{"enforce-lint": variant.lint, "enforce-vulnerabilities": variant.vulnerabilities, "enforce-application-tests": variant.tests})
+			policy, _ := json.Marshal(map[string]bool{"enforce-lint": variant.lint, "enforce-vulnerabilities": variant.vulnerabilities, "enforce-application-tests": variant.tests, "enforce-reproducible-builds": variant.repro})
 			write(policyFile, string(policy), 0o600)
 			overlay, _ := json.Marshal(map[string]any{"Replace": map[string]string{filepath.Join(root, "internal/domain/enforcement/policy.json"): policyFile}})
 			overlayFile := filepath.Join(dir, "overlay.json")
@@ -89,7 +89,7 @@ func TestCompiledAdminPolicyCannotBeOverriddenByConsumers(t *testing.T) {
 				Settings map[string]bool `json:"settings"`
 				SHA256   string          `json:"sha256"`
 			}
-			if err := json.Unmarshal([]byte(shown), &actual); err != nil || len(actual.SHA256) != 64 || actual.Settings["enforce-lint"] != variant.lint || actual.Settings["enforce-vulnerabilities"] != variant.vulnerabilities || actual.Settings["enforce-application-tests"] != variant.tests {
+			if err := json.Unmarshal([]byte(shown), &actual); err != nil || len(actual.SHA256) != 64 || actual.Settings["enforce-lint"] != variant.lint || actual.Settings["enforce-vulnerabilities"] != variant.vulnerabilities || actual.Settings["enforce-application-tests"] != variant.tests || actual.Settings["enforce-reproducible-builds"] != variant.repro {
 				t.Fatalf("consumer replaced compiled policy: %s %v", shown, err)
 			}
 			for _, check := range []struct {
@@ -107,6 +107,38 @@ func TestCompiledAdminPolicyCannotBeOverriddenByConsumers(t *testing.T) {
 					run(false, "policy", "nanolinter", "--", "/bin/sh", script, strconv.Itoa(status))
 				}
 			}
+			// A POM without reproducible-build settings is a finding the policy
+			// decides; a malformed POM is never waived.
+			mavenProject := filepath.Join(dir, "maven")
+			if err := os.MkdirAll(filepath.Join(mavenProject, ".forge-ci"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			write(filepath.Join(mavenProject, ".forge-ci", "artifacts.yml"), "artifacts:\n  - name: app\n    project-type: maven\n    working-directory: .\n", 0o600)
+			write(filepath.Join(mavenProject, "pom.xml"), "<project><modelVersion>4.0.0</modelVersion><groupId>g</groupId><artifactId>app</artifactId><version>1</version></project>\n", 0o600)
+			parse := exec.CommandContext(t.Context(), binary, "--json", "config", "parse-artifacts", "--file", ".forge-ci/artifacts.yml")
+			parse.Dir = mavenProject
+			parsed, err := parse.Output()
+			var planned struct {
+				Plan string `json:"config-plan-json"`
+			}
+			if err != nil || json.Unmarshal(parsed, &planned) != nil || planned.Plan == "" {
+				t.Fatalf("parse artifacts: %v\n%s", err, parsed)
+			}
+			validateRepro := func(wantSuccess bool) string {
+				t.Helper()
+				command := exec.CommandContext(t.Context(), binary, "validate", "jvm-reproducibility", "--config-plan-json", planned.Plan)
+				command.Dir = mavenProject
+				body, err := command.CombinedOutput()
+				if (err == nil) != wantSuccess {
+					t.Fatalf("jvm-reproducibility: err=%v\n%s", err, body)
+				}
+				return string(body)
+			}
+			if body := validateRepro(!variant.repro); !strings.Contains(body, "reproducible-builds result=findings count=1") {
+				t.Fatalf("reproducibility finding hidden:\n%s", body)
+			}
+			write(filepath.Join(mavenProject, "pom.xml"), "<project><properties>", 0o600)
+			validateRepro(false)
 			assertions := filepath.Join(dir, "tests.sh")
 			runtimeLint := filepath.Join(dir, "runtime-lint.sh")
 			write(runtimeLint, "#!/bin/sh\nprintf '%s\\n' '{\"version\":\"2.1.0\",\"runs\":[{\"tool\":{\"driver\":{\"name\":\"nanolinter\"}},\"results\":[{\"ruleId\":\"sast\",\"properties\":{\"source\":\"curated\",\"check_id\":\"sast\",\"class\":\"security\",\"status\":\"fail\",\"details\":\"tool failed (exit 2)\",\"exit_code\":2}}]}]}'\nexit 1\n", 0o700)

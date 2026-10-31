@@ -259,7 +259,7 @@ honoured, differs from 3.8 and earlier.
 | SBOM: analyzed-container | ✅ | `publish-container.yml` (syft) | Standard for containers wrapping Maven artifacts. |
 | Container build (wrapping the jar) | ✅ | `publish-container.yml` (artifact-first → container) | The build artifact is downloaded into the build context; the Containerfile `COPY`s it in. |
 | Multi-arch container (same jar) | ✅ | split-runner matrix | The JAR is platform-agnostic; the runtime base image is what differs per arch. |
-| Build reproducibility | prerequisite check | `validate jvm-reproducibility` checks `<project.build.outputTimestamp>` in pom.xml | Missing settings fail validation; the property is required. |
+| Build reproducibility | prerequisite check | `validate jvm-reproducibility` checks `<project.build.outputTimestamp>` in pom.xml | Missing settings are `reproducible-builds` findings: they fail validation under the default strict admin policy and are reported without blocking when the administrator sets `enforce-reproducible-builds: false`. |
 | Multi-module Maven (parent + children) | ✅ | one Maven artifact entry pointing at parent POM | Inheritance handles children; `mvn package` at the parent builds everything. |
 | Library artifact (sources + javadoc) | ✅ | `build-type: library` selects the library lifecycle/profile | The project POM/profile must attach the sources and Javadoc JARs; forge-ci does not inject plugin goals. Maven Central validation checks that both exist. |
 | Application artifact (executable jar) | ✅ | `build-type: application` (default) | The main jar only. |
@@ -273,7 +273,7 @@ honoured, differs from 3.8 and earlier.
 
 - **`pom.xml`** with declared `<groupId>`/`<artifactId>`/`<version>` and (for Maven Central) `<licenses>`, `<scm>`, `<developers>` per Maven Central requirements.
 - **Library attachments in the project POM/profile**: configure pinned source and Javadoc plugins when those artifacts are required. `build-type: library` selects the lifecycle/profile but does not synthesize attachments.
-- **`<project.build.outputTimestamp>`** in `pom.xml`'s `<properties>`: required by `forge-ci validate jvm-reproducibility`; missing settings fail the release prerequisite check.
+- **`<project.build.outputTimestamp>`** in `pom.xml`'s `<properties>`: checked by `forge-ci validate jvm-reproducibility`; under the default strict admin policy a missing setting fails the release prerequisite check (see [admin policy](admin-policy.md#reproducible-builds)).
 - **GPG key material** committed neither to repo nor exported: set as repo/org secret per the workflow's declared inputs (`RELEASE_GPG_PRIVATE_KEY` etc.).
 - **For multi-module**: register only the parent POM as an artifact (Maven inheritance handles children) or register children individually if each ships a separately-released variant.
 - **Tests in a caller-owned PR workflow**: the release build invokes Maven unit tests under administrator enforcement. It does not replace a PR gate, and does not independently invoke `mvn verify` or integration tests. Test setup errors remain blocking even in a report-only distribution.
@@ -364,7 +364,7 @@ honoured, differs from 3.8 and earlier.
 | SBOM: analyzed-container | ✅ | `publish-container.yml` (syft) | |
 | Container build (wrapping the jar) | ✅ | `publish-container.yml` | |
 | Multi-arch container | ✅ | split-runner matrix | The JAR is platform-agnostic. |
-| Build reproducibility | prerequisite check | `validate jvm-reproducibility` checks `preserveFileTimestamps = false` AND `reproducibleFileOrder = true` on `AbstractArchiveTask` | Missing either setting fails validation; supports both Kotlin and Groovy DSL forms. |
+| Build reproducibility | prerequisite check | `validate jvm-reproducibility` checks `preserveFileTimestamps = false` AND `reproducibleFileOrder = true` on `AbstractArchiveTask` | Missing either setting is a `reproducible-builds` finding (blocking under the default strict admin policy); supports both Kotlin and Groovy DSL forms. |
 | Gradle wrapper required | ✅ | `gradlew` checked in | Pinned-version wrapper guarantees the same Gradle across CI and developer machines. |
 | Version-bump (build.gradle / gradle.properties) | ✅ | `forge-ci version bump --project-type gradle --version 1.2.3` | Updates `version =` in build.gradle{,.kts} or `version=` in gradle.properties. |
 | Release prerequisite checks | ✅ | `validate-release-prerequisites.yml` | Confirms JDK toolchain pin + wrapper presence. |
