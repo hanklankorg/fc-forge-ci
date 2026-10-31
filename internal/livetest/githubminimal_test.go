@@ -155,6 +155,13 @@ func minimalEngineSource(t *testing.T, trial *GitHubTrial, root, destination str
 	for _, name := range minimalPreparationWorkflows {
 		minimalCopy(t, filepath.Join(root, ".github/workflows", name), filepath.Join(destination, ".github/workflows", name))
 	}
+	embedded, err := minimalEmbeddedAssets(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, relative := range embedded {
+		minimalCopy(t, filepath.Join(root, relative), filepath.Join(destination, relative))
+	}
 }
 
 func minimalCopy(t *testing.T, source, destination string) {
