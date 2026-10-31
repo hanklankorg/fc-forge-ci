@@ -41,7 +41,7 @@ func TestRuntimePublicationNamespaceCoherence(t *testing.T) {
 			}
 		}
 	}
-	require.Equal(t, 8, count, "build, readback, SBOM, attestation, scan, metadata, merge and retention")
+	require.Equal(t, 7, count, "build-and-scan, readback, SBOM, attestation, metadata, merge and retention")
 	require.Contains(t, text, "org.opencontainers.image.source=https://github.com/${{ github.repository }}")
 	require.Contains(t, text, "BUILD_CACHE_REPO: ghcr.io/${{ github.repository }}-buildcache")
 	require.NotContains(t, text, "ghcr.io/${{ github.repository_owner }}/")

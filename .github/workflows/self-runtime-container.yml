@@ -309,7 +309,7 @@ jobs:
           egress-policy: audit
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - name: Install syft and cosign
+      - name: Install syft, cosign and trivy
         # Scan and attest the per-arch SBOM with the runtime image's own pins.
         run: |
           set -euo pipefail
@@ -317,6 +317,8 @@ jobs:
           install_syft
           source scripts/bootstrap/install-cosign.sh
           install_cosign
+          source scripts/bootstrap/install-trivy.sh
+          install_trivy
       - name: Download CLI dist
         # JS action (bootstrap): this download OBTAINS the engine binary —
         # cli-dist is the CLI built this run — so no engine exists yet to run
@@ -465,22 +467,21 @@ jobs:
             --type cyclonedx \
             --predicate "$pred" \
             "$IMAGE_REF"
-      - name: Scan image for vulnerabilities (trivy)
-        # Runtime images are the most-pulled artefact in this repo —
-        # every consumer that sets `runtime-image:` pulls one of
-        # these. Weekly schedule + SARIF upload gives ongoing CVE
-        # visibility against the security tab. exit-code=0 keeps
-        # this advisory; promote to a non-zero gate once the noise
-        # floor is understood.
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      # The engine scanned the exact local layout before the first push.
+      # Preserve those reports even when the admin enforcement gate refused it.
+      - name: Save runtime scan reports
+        if: ${{ always() && hashFiles('trivy-results.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          image-ref: ${{ vars.FORGE_CI_IMAGE_NAMESPACE || format('ghcr.io/{0}', github.repository_owner) }}/${{ matrix.runtime.name }}@${{ steps.build.outputs.digest }}
-          format: sarif
-          output: trivy-results.sarif
-          vuln-type: os,library
-          severity: HIGH,CRITICAL
-          exit-code: '0'
+          name: runtime-scan-${{ matrix.runtime.target }}-${{ matrix.platform.suffix }}
+          path: |
+            trivy-results.json
+            trivy-results.sarif
+            gl-container-scanning-report.json
+          if-no-files-found: ignore
+          retention-days: 5
       - name: Upload trivy SARIF to Code Scanning
+        if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
         # forge-ci's own upload-sarif (no JS codeql-action): it stamps the
         # category into each SARIF run's automationDetails.id — the field Code
         # Scanning keys analyses on — so the per-(target, arch) legs stay
