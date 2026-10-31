@@ -30,4 +30,9 @@ jobs:
       artifacts-config: .forge-ci/artifacts.yml
       changelog-creator: git-cliff
       release-publisher: github-cli
+      # SSH Git signing needs the bot's identity: an SSH key carries none.
+      # bot-email is the signing principal, and must match the line for the
+      # public half of RELEASE_SSH_SIGNING_KEY in .forge-ci/allowed_signers.
+      bot-name: Example Release Bot
+      bot-email: release@example.com
       release.attachartifacts: release-artifacts/*/my-cli-*
