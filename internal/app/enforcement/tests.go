@@ -49,17 +49,29 @@ func testRun(ctx context.Context, policy enforcement.Policy, out, stderr io.Writ
 	}
 
 	var exit interface{ ExitCode() int }
-	if !errors.As(err, &exit) || capture.overflow {
+	if !errors.As(err, &exit) {
+		notWaivable(out, policy, "the test command failed without a test exit status")
+
+		return false, err
+	}
+
+	if capture.overflow {
+		notWaivable(out, policy, "the test output exceeded the capture limit, so no summary could be trusted")
+
 		return false, err
 	}
 
 	knownFailure := exit.ExitCode() == 1 || (protocol == enforcement.Cargo && exit.ExitCode() == 101) || (protocol == enforcement.XCTest && exit.ExitCode() == 65)
 	if !knownFailure {
+		notWaivable(out, policy, fmt.Sprintf("exit status %d is not the test tool's assertion-failure status", exit.ExitCode()))
+
 		return false, err
 	}
 
 	count := enforcement.FailedTests(protocol, capture.body.String())
 	if count == 0 {
+		notWaivable(out, policy, "no complete assertion-failure summary: test errors, setup and compile failures are never waived")
+
 		return false, err
 	}
 
@@ -102,4 +114,17 @@ func (capture *testCapture) Write(body []byte) (int, error) {
 	_, _ = capture.body.Write(body)
 
 	return len(body), nil
+}
+
+// notWaivable says why report-only did not continue past a failed test run,
+// so a log never shows a blocked build under a non-enforcing policy without
+// the reason. It is best effort: the test error stays the result.
+func notWaivable(out io.Writer, policy enforcement.Policy, reason string) {
+	decision, err := policy.Decide(enforcement.ApplicationTests, 0)
+	if err != nil {
+		return
+	}
+
+	_, _ = fmt.Fprintf(out, "Admin policy sha256:%s: %s result=not-waivable enforcement=%t reason=%q\n",
+		decision.PolicySHA256, decision.Check, decision.Enforced, reason)
 }

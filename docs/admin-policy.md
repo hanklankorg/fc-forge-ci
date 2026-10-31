@@ -111,6 +111,18 @@ Testcontainers socket remains an error. Compilation and packaging invocations
 are never waived. Where packaging needs a follow-up after failed tests, that
 follow-up does not repeat the already reported tests.
 
+When a non-enforcing engine stops anyway, the log says why, beside the test
+tool's own error:
+
+```text
+Admin policy sha256:<digest>: application-tests result=not-waivable enforcement=false reason="no complete assertion-failure summary: test errors, setup and compile failures are never waived"
+```
+
+The other reasons name an exit status that is not the tool's assertion-failure
+status, output over the capture limit, or a command that failed without a test
+exit status. A build blocked under report-only with no such line did not reach
+the test gate.
+
 Gradle invokes tests separately before packaging; Android retains its selected
 module's test aggregate even when packaging tasks are overridden. A successful
 invocation can report cached, up-to-date or `NO-SOURCE` tasks. Inspect native task

@@ -107,6 +107,12 @@ func TestOnlyFreshRecognizedTestFailuresMayContinue(t *testing.T) {
 			if err != nil && !errors.Is(err, test.err) {
 				t.Fatalf("original error lost: %v", err)
 			}
+
+			// Report-only must say why it did not continue past a failed run.
+			explained := strings.Contains(out.String(), "application-tests result=not-waivable enforcement=false reason=")
+			if want := !test.continued; explained != want {
+				t.Fatalf("not-waivable line present=%t, want %t:\n%s", explained, want, out.String())
+			}
 		})
 	}
 }
@@ -147,7 +153,7 @@ func TestReportOnlyGradleRequiresAssertionOnlyTerminal(t *testing.T) {
 				if !strings.Contains(out.String(), "result=findings count=2 enforcement=false") {
 					t.Fatalf("assertion findings lost: %s", &out)
 				}
-			} else if !errors.Is(err, testExitError(1)) || strings.Contains(out.String(), "Admin policy sha256:") {
+			} else if !errors.Is(err, testExitError(1)) || strings.Contains(out.String(), "result=findings") || !strings.Contains(out.String(), "result=not-waivable") {
 				t.Fatalf("runtime failure was waived or lost: %v\n%s", err, &out)
 			}
 		})

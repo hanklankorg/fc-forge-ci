@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `project.build.outputTimestamp` or Gradle reproducible-archive settings are
   reported with their fix and policy decision without stopping the release.
   Unreadable or malformed build files still block. See `docs/admin-policy.md`.
+- A report-only engine that still stops a failed test run now says why: an
+  `application-tests result=not-waivable` decision line with the reason (test
+  errors are never waived, an unrecognised exit status, output over the capture
+  limit). See `docs/admin-policy.md`.
 - Signed numbered prereleases use the existing release pipeline with
   `release-policy: stable-prerelease`, including release evidence and retry
   behavior. Prereleases do not move stable image aliases or promotion stages;
