@@ -56,6 +56,28 @@ func TestMavenFixtureREUSE(t *testing.T) {
 	}
 }
 
+func TestConsumerPRWorkflowREUSE(t *testing.T) {
+	reuse, err := exec.LookPath("reuse")
+	if err != nil {
+		t.Skip("REUSE CLI is not installed")
+	}
+	workflow, err := consumerPRWorkflow(publicShellPRFixture("runner", "https://forge.invalid/engine@commit", "digest"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	license, err := os.ReadFile("../../LICENSES/CC0-1.0.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	stageTestWrite(t, root, "LICENSES/CC0-1.0.txt", string(license), 0600)
+	stageTestWrite(t, root, ".forgejo/workflows/pullrequest.yml", workflow, 0600)
+	output, err := exec.CommandContext(t.Context(), reuse, "--root", root, "lint").CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated PR workflow must not add a consumer license finding: %v\n%s", err, output)
+	}
+}
+
 func TestMavenRecipeProvenanceMatchesSourceAnnotation(t *testing.T) {
 	body, err := os.ReadFile("../../REUSE.toml")
 	if err != nil {

@@ -107,9 +107,9 @@ func publicShellPRFixture(runner, action, digest string) consumerPRFixture {
 		Prerequisites: `set -euo pipefail
 if command -v apt-get >/dev/null; then
   apt-get update
-  apt-get install -y git curl ca-certificates pipx fish jq gettext diffutils unzip xz-utils nodejs npm
+  apt-get install -y git curl ca-certificates pipx file fish jq gettext diffutils unzip xz-utils nodejs npm
 else
-  dnf install -y git curl ca-certificates just pipx fish gettext jq diffutils unzip xz nodejs
+  dnf install -y git curl ca-certificates just pipx file fish gettext jq diffutils unzip xz nodejs
 fi
 node --version`,
 		Checks: "set -euo pipefail\ntest \"$(uname -m)\" = x86_64\njust test-setup\njust test",
@@ -133,7 +133,10 @@ func consumerPRWorkflow(f consumerPRFixture) (string, error) {
 	indent := func(s string) string {
 		return "          " + strings.ReplaceAll(strings.TrimSuffix(s, "\n"), "\n", "\n          ")
 	}
-	return fmt.Sprintf(`name: Consumer PR unit checks
+	return fmt.Sprintf(`# SPDX-FileCopyrightText: The Forge CI Authors
+# SPDX-License-Identifier: CC0-1.0
+
+name: Consumer PR unit checks
 on:
   pull_request:
     branches: [main]
@@ -330,7 +333,8 @@ func TestConsumerPRFixtureVariation(t *testing.T) {
 		t.Fatal(err)
 	}
 	job := doc.Jobs["units"]
-	if job.Runner != f.Runner || strings.TrimSpace(job.Steps[len(job.Steps)-1].Run) != f.Checks || !strings.Contains(workflow, `just-version: "9.8.7"`) {
+	checks := strings.TrimSpace(job.Steps[len(job.Steps)-1].Run)
+	if job.Runner != f.Runner || !strings.HasSuffix(checks, "\n"+f.Checks) || !strings.Contains(checks, `export PATH="${just_paths}:${tool_paths}:${PATH}"`) || !strings.Contains(workflow, `just-version: "9.8.7"`) {
 		t.Fatal("fixture values or shell quoting changed")
 	}
 	f.PublicTools = false
