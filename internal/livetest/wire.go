@@ -92,6 +92,23 @@ func decode(ctx context.Context, target Target, method, endpoint string, body, i
 // there, which a caller may treat as an outcome rather than a failure.
 var errAbsent = errors.New("absent")
 
+// errServerSide marks a fetch the forge answered with a 5xx status: the
+// forge failed to serve, which says nothing about the resource, so a caller
+// that reads an artifact of a finished run may ask again.
+var errServerSide = errors.New("forge failed to serve")
+
+// fetchStatusError is the error for a GET the forge answered with code.
+func fetchStatusError(endpoint string, code int) error {
+	switch {
+	case code == http.StatusNotFound:
+		return fmt.Errorf("GET %s: HTTP %d: %w: %w", redact(endpoint), code, errAbsent, errs.ErrValidation)
+	case code >= http.StatusInternalServerError:
+		return fmt.Errorf("GET %s: HTTP %d: %w: %w", redact(endpoint), code, errServerSide, errs.ErrValidation)
+	default:
+		return fmt.Errorf("GET %s: HTTP %d: %w", redact(endpoint), code, errs.ErrValidation)
+	}
+}
+
 func fetch(ctx context.Context, target Target, endpoint string, limit int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -112,12 +129,8 @@ func fetch(ctx context.Context, target Target, endpoint string, limit int64) ([]
 
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("GET %s: HTTP %d: %w: %w", redact(endpoint), resp.StatusCode, errAbsent, errs.ErrValidation)
-	}
-
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: HTTP %d: %w", redact(endpoint), resp.StatusCode, errs.ErrValidation)
+		return nil, fetchStatusError(endpoint, resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))

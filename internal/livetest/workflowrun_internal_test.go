@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io/fs"
 	"maps"
+	"net/http"
 	"testing"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
@@ -173,6 +174,25 @@ func TestSelectRun_JudgesOnlyTheRunTheAwaitedEventStarted(t *testing.T) {
 
 		if len(passedOver) != wantPassed {
 			t.Errorf("%s: %d runs passed over, want %d", name, len(passedOver), wantPassed)
+		}
+	}
+}
+
+// A 5xx is the forge failing to serve, which jobLog asks again about; a 404
+// stays an absence and any other status stays final.
+func TestFetchStatusError_SeparatesServerFailureFromAbsenceAndRefusal(t *testing.T) {
+	cases := map[int]struct{ absent, server bool }{
+		http.StatusNotFound:            {absent: true},
+		http.StatusInternalServerError: {server: true},
+		http.StatusBadGateway:          {server: true},
+		http.StatusServiceUnavailable:  {server: true},
+		http.StatusForbidden:           {},
+		http.StatusUnauthorized:        {},
+	}
+	for code, want := range cases {
+		err := fetchStatusError("https://forge.example/api/v1/repos/o/r/actions/jobs/1/logs", code)
+		if errors.Is(err, errAbsent) != want.absent || errors.Is(err, errServerSide) != want.server || !errors.Is(err, errs.ErrValidation) {
+			t.Errorf("HTTP %d: %v; want absent=%t server=%t", code, err, want.absent, want.server)
 		}
 	}
 }

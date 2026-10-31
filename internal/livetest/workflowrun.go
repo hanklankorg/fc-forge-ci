@@ -20,6 +20,7 @@ import (
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
+	"github.com/diggsweden/forge-ci/internal/retry"
 )
 
 // A probe checks its own claim inside one job, so its conclusion is the whole
@@ -397,11 +398,32 @@ func jobLog(tb TB, target Target, repo string, job RunJob) (string, error) {
 	ctx, cancel := context.WithTimeout(Context(tb), timeoutWorkflowLog)
 	defer cancel()
 
-	log, err := fetch(ctx, target, actionsURL(target, repo, "/actions/jobs/"+strconv.FormatInt(job.ID, 10)+
-		"/logs?attempt="+strconv.FormatInt(job.Attempt, 10)), maxJobLog)
+	endpoint := actionsURL(target, repo, "/actions/jobs/"+strconv.FormatInt(job.ID, 10)+
+		"/logs?attempt="+strconv.FormatInt(job.Attempt, 10))
+
+	// A finished job's log does not change, so a 5xx is the forge failing to
+	// serve it, not an answer: Forgejo has answered 500 for the log of a job
+	// whose run succeeded. Ask again a few times; any other answer is final.
+	log, err := retry.Do(ctx, nil, jobLogAttempts, jobLogRetryDelay, func() ([]byte, error) {
+		body, fetchErr := fetch(ctx, target, endpoint, maxJobLog)
+		if fetchErr != nil && !errors.Is(fetchErr, errServerSide) {
+			return nil, retry.Permanent(fetchErr)
+		}
+
+		return body, fetchErr
+	}, retry.OnRetry(func(attempt, attempts int, wait time.Duration, err error) {
+		tb.Logf("livetest: the log of job %q was not served (attempt %d/%d), asking again in %s: %v", job.Name, attempt, attempts, wait, err)
+	}))
 
 	return string(log), err
 }
+
+// jobLogAttempts and jobLogRetryDelay bound how long a scenario waits for a
+// forge that fails to serve a finished job's log: about 30 seconds in all.
+const (
+	jobLogAttempts   = 4
+	jobLogRetryDelay = 5 * time.Second
+)
 
 // RunArtifacts lists what one run left in the artifact store. An entry the
 // forge lists without an id, a size or an expiry is a failure here, so a
