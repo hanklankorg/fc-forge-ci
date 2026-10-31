@@ -20,7 +20,7 @@ func TestMavenContainerTestsStayInTheKeyFreeBuildJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	image := "docker.io/library/docker@sha256:" + strings.Repeat("b", 64)
-	modified, err := mavenContainerTestWorkflow(string(body), image)
+	modified, err := mavenContainerTestWorkflow(string(body), image, "contract-privileged")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestMavenContainerTestsStayInTheKeyFreeBuildJob(t *testing.T) {
 	beforeJobs := before["jobs"].(map[string]any)
 	afterJobs := after["jobs"].(map[string]any)
 	build := afterJobs["build"].(map[string]any)
-	if build["runs-on"] != "${{ fromJSON(vars.CI_CONTAINER_RUNNER_LABEL) }}" {
+	if !reflect.DeepEqual(build["runs-on"], []any{"contract-privileged"}) {
 		t.Fatal("container tests did not select acknowledged capacity")
 	}
 	service := build["services"].(map[string]any)["docker"].(map[string]any)
@@ -51,9 +51,12 @@ func TestMavenContainerTestsStayInTheKeyFreeBuildJob(t *testing.T) {
 		t.Fatal("container-test infrastructure changed a signing, preparation or publication job")
 	}
 	for _, bad := range []string{"docker:latest", "docker@sha256:bad", "docker\ncommands@sha256:" + strings.Repeat("b", 64)} {
-		if _, err := mavenContainerTestWorkflow(string(body), bad); err == nil {
+		if _, err := mavenContainerTestWorkflow(string(body), bad, "contract-privileged"); err == nil {
 			t.Fatalf("accepted unpinned/injected engine %q", bad)
 		}
+	}
+	if _, err := mavenContainerTestWorkflow(string(body), image, ""); err == nil {
+		t.Fatal("accepted missing contract runner label")
 	}
 }
 
@@ -69,7 +72,7 @@ func TestMavenContainerTestOverlayPreservesOriginalSource(t *testing.T) {
 	}
 	recipe := filepath.Join(reporoot.Path(t), "test/live/demos/hello-maven/consumer")
 	fixture := NewMavenApplicationConsumerFixture(t, source, recipe, "registry.invalid/maven@sha256:"+strings.Repeat("a", 64))
-	fixture = WithMavenContainerTests(t, fixture, "docker.io/library/docker@sha256:"+strings.Repeat("b", 64))
+	fixture = WithMavenContainerTests(t, fixture, "docker.io/library/docker@sha256:"+strings.Repeat("b", 64), "contract-privileged")
 	for path, expected := range map[string]string{"pom.xml": pom, "src/main/java/Original.java": "source-owned\n"} {
 		got, err := git.run(t.Context(), fixture.stage, "show", fixture.Commit+":"+path)
 		if err != nil || got != strings.TrimSuffix(expected, "\n") {

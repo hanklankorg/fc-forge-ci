@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -14,7 +15,7 @@ import (
 // WithMavenContainerTests supplies a job-local test engine to the existing Maven
 // recipe. Only the build job is changed; no host socket, signing job, source
 // project file, or POM is rewritten. The controller admits privileged capacity.
-func WithMavenContainerTests(tb TB, source Consumer, image string) Consumer {
+func WithMavenContainerTests(tb TB, source Consumer, image, runnerLabel string) Consumer {
 	tb.Helper()
 	ctx, cancel := context.WithTimeout(Context(tb), timeoutLayerPush)
 	defer cancel()
@@ -23,7 +24,7 @@ func WithMavenContainerTests(tb TB, source Consumer, image string) Consumer {
 	if err != nil {
 		tb.Fatalf("Maven container-test workflow: %v", err)
 	}
-	workflow, err := mavenContainerTestWorkflow(body, image)
+	workflow, err := mavenContainerTestWorkflow(body, image, runnerLabel)
 	if err != nil {
 		tb.Fatalf("Maven container-test fixture: %v", err)
 	}
@@ -38,9 +39,12 @@ func WithMavenContainerTests(tb TB, source Consumer, image string) Consumer {
 	return source
 }
 
-func mavenContainerTestWorkflow(body, image string) (string, error) {
+func mavenContainerTestWorkflow(body, image, runnerLabel string) (string, error) {
 	if !regexp.MustCompile(`^[A-Za-z0-9./:_-]+@sha256:[0-9a-f]{64}$`).MatchString(image) {
 		return "", fmt.Errorf("test engine must be an operator-reviewed digest-pinned Docker service image")
+	}
+	if runnerLabel == "" || strings.ContainsAny(runnerLabel, "\r\n") {
+		return "", fmt.Errorf("test engine requires the acknowledged contract runner label")
 	}
 	var workflow map[string]any
 	if err := yaml.Unmarshal([]byte(body), &workflow); err != nil {
@@ -69,7 +73,7 @@ func mavenContainerTestWorkflow(body, image string) (string, error) {
 			return "", fmt.Errorf("Maven recipe already owns %s", name)
 		}
 	}
-	build["runs-on"] = "${{ fromJSON(vars.CI_CONTAINER_RUNNER_LABEL) }}"
+	build["runs-on"] = []string{runnerLabel}
 	build["services"] = map[string]any{"docker": map[string]any{
 		"image":   image,
 		"env":     map[string]string{"DOCKER_TLS_CERTDIR": ""},
