@@ -115,6 +115,7 @@ func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 	}, gitlabapi.WithContext(ctx)); writeErr != nil {
 		t.Fatal(writeErr)
 	}
+	livetest.RetainGitLabJobLogsAfter(t, target, repo, map[string]string{variable: canary})
 
 	// GitLab takes a pushed branch in after git has returned, and refuses a
 	// merge request opened before then: "source_branch does not exist".
@@ -183,7 +184,7 @@ func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 	}
 	// Success must retain the same bounded trace evidence before scratch
 	// cleanup; summaries alone lose Rust test counts and gate diagnostics.
-	passedTrace := gitlabTrialTrace(t, ctx, client, project, passed.ID, "check")
+	passedTrace := gitlabTrialTrace(t, ctx, client, project, passed.ID, "check", "Check: build and test", "Check: lint")
 	t.Log(strings.ReplaceAll(passedTrace, target.Token, "[REDACTED]"))
 
 	settings, _, err := client.Projects.GetProject(project, nil, gitlabapi.WithContext(ctx))
