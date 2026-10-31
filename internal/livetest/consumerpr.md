@@ -22,6 +22,11 @@ workflows should continue to use `TestForgejoLayer_ConsumerTrial` and its
 The Forgejo overlay requires `FORGE_CI_LIVE_CONSUMER_PUBLIC_TOOLS=true`.
 Its default shell fixture retains the complete unfiltered `mise install`,
 the two original distro images/Just selections, and `just test-setup; just test`.
+Ubuntu prerequisites include npm separately from Node.js. Before the original
+checks, the fixture prepends the selected Just and all original configured tool
+bin directories, joining Mise's newline-delimited output with colons. This keeps
+both Just and Bats physical executables usable when tests change HOME or cwd;
+an unconfigured Mise shim is not a substitute for the selected CI toolchain.
 `FORGE_CI_LIVE_CONSUMER_PR_FIXTURE` optionally supplies a single typed JSON object
 with `PublicTools`, `Distros` (one or two objects containing `Name`, `Image`,
 `JustVersion`), `Prerequisites`, and `Checks`. All fields are required when

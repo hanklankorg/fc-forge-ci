@@ -107,7 +107,7 @@ func publicShellPRFixture(runner, action, digest string) consumerPRFixture {
 		Prerequisites: `set -euo pipefail
 if command -v apt-get >/dev/null; then
   apt-get update
-  apt-get install -y git curl ca-certificates pipx fish jq gettext diffutils unzip xz-utils nodejs
+  apt-get install -y git curl ca-certificates pipx fish jq gettext diffutils unzip xz-utils nodejs npm
 else
   dnf install -y git curl ca-certificates just pipx fish gettext jq diffutils unzip xz nodejs
 fi
@@ -179,7 +179,15 @@ jobs:
           env -u FORGEJO_TOKEN -u MISE_FORGEJO_TOKEN -u GITHUB_TOKEN -u MISE_GITHUB_TOKEN mise bin-paths "aqua:casey/just@${JUST_VERSION}" >>"${FORGEJO_PATH:-${GITHUB_PATH:?}}"
       - name: Original Bats setup and tests
         shell: bash
+        env:
+          CONSUMER_PR_JUST_VERSION: ${{ matrix.just-version }}
         run: |
+          set -euo pipefail
+          # bin-paths is newline-delimited. Use physical binaries for both Just
+          # and Bats so child tests outside this checkout need no Mise config.
+          just_paths=$(env -u FORGEJO_TOKEN -u MISE_FORGEJO_TOKEN -u GITHUB_TOKEN -u MISE_GITHUB_TOKEN mise bin-paths "aqua:casey/just@${CONSUMER_PR_JUST_VERSION:?}" | paste -sd:)
+          tool_paths=$(env -u FORGEJO_TOKEN -u MISE_FORGEJO_TOKEN -u GITHUB_TOKEN -u MISE_GITHUB_TOKEN mise bin-paths | paste -sd:)
+          export PATH="${just_paths}:${tool_paths}:${PATH}"
 %s
 `, f.Runner, strings.TrimSuffix(matrix.String(), "\n"), indent(f.Prerequisites), f.Action, f.Digest, indent(f.Checks)), nil
 }
