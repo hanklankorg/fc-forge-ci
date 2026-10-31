@@ -22,8 +22,10 @@ verification are outside these exceptions.
 
 Administrators change `internal/domain/enforcement/policy.json` in their
 independently controlled Forge CI distribution, review the change, build the
-engine and its runtime/signer images, and update their protected pipeline pins
-and binary/image digests together. The file is embedded at build time. Omitted
+engine and its runtime images, and update their protected pipeline pins and
+binary/image digests together. A tools-only signer image need not be rebuilt
+when its tool contract is unchanged; the signing job must still fetch and verify
+the newly pinned engine. The file is embedded at build time. Omitted
 settings default to `true`; unknown keys, duplicate keys and non-boolean values
 are refused. A malformed embedded policy fails gates closed.
 

@@ -103,6 +103,12 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 		}
 		consumer = livetest.NewMavenApplicationConsumerFixture(t, consumer, recipe, image)
 	}
+	if image := os.Getenv("FORGE_CI_LIVE_MAVEN_TESTCONTAINERS_IMAGE"); image != "" {
+		if private || livetest.RunnerArch(t, target) != "amd64" || livetest.DemoName() != "" || livetest.PrivilegedRunnerLabel(t, target) == "" || os.Getenv("FORGE_CI_LIVE_MAVEN_APPLICATION_IMAGE") == "" {
+			t.Fatal("Maven Testcontainers acceptance requires a public disposable native amd64 Maven application fixture and acknowledged privileged runner capacity")
+		}
+		consumer = livetest.WithMavenContainerTests(t, consumer, image)
+	}
 
 	workflows := consumer.Workflows(t)
 	if _, found := workflows[settings.Workflow]; !found {

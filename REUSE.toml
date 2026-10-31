@@ -36,6 +36,7 @@ path = [
   "CHANGELOG.md",
   "docs/DEVELOPMENT.md",
   "docs/admin-policy.md",
+  "docs/maven-testcontainers-trial.md",
   "docs/artifacts-reference.md",
   "docs/components.md",
   "docs/ecosystems.md",
