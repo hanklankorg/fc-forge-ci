@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/diggsweden/forge-ci/internal/domain/container"
+	"github.com/diggsweden/forge-ci/internal/retry"
 	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
 	"github.com/diggsweden/forge-ci/internal/testutil/testenv"
 )
@@ -579,15 +580,11 @@ func TestRunLiveTests_ProviderLanesOverlapAndConflictingScopesRefuse(t *testing.
 			t.Errorf("held provider lane: %v\n%s\n%s", err, out.String(), errOut.String())
 		}
 	}()
-	for {
-		if _, err := os.Stat(ready); err == nil {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			t.Fatal("first provider lane did not reach its held scenario")
-		case <-time.After(10 * time.Millisecond):
-		}
+	if err := retry.Run(ctx, nil, 2000, 10*time.Millisecond, func() error {
+		_, err := os.Stat(ready)
+		return err
+	}, retry.WithBackoff(retry.Constant)); err != nil {
+		t.Fatalf("first provider lane did not reach its held scenario: %v", err)
 	}
 	for _, scope := range []string{"gitlab", "forgejo", "all"} {
 		second := newLiveRun(t, "FORGE_CI_LIVE_PROVIDER="+scope, "FAKE_GO_TEST_OUTPUT="+fakeSuiteOutput,

@@ -97,7 +97,7 @@ jobs:
 	run := livetest.WaitForConsumerRun(t, target, repo, workflowName+".yml", "push", "")
 	scenario := layerScenario{target: target, repo: repo}
 	jobs := scenario.requireStatus(t, run, jobSuccess)
-	if conclusion != jobSuccess || len(jobs) != 1 {
+	if conclusion != jobSuccess || len(jobs) != 1 || jobs[0].Status != jobSuccess || len(jobs[0].RunsOn) == 0 {
 		t.Fatalf("registry consumer did not execute its one successful job: %s, %d jobs", conclusion, len(jobs))
 	}
 	t.Logf("fresh anonymous registry consumer verified %s@%s in run %d", name, version, run.ID)
