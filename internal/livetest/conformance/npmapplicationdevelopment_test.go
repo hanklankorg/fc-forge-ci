@@ -80,7 +80,7 @@ func TestForgejoLayer_NPMApplicationDevelopment(t *testing.T) {
 	}
 	confirmed := false
 	for _, job := range jobs {
-		if strings.Contains(livetest.JobLog(t, target, repo, job), "NPM_APPLICATION_ORACLE_OK:"+head) {
+		if log, served := livetest.JobLogIfServed(t, target, repo, job); served && strings.Contains(log, "NPM_APPLICATION_ORACLE_OK:"+head) {
 			confirmed = true
 		}
 	}

@@ -72,7 +72,7 @@ func TestForgejoMavenLibraryConsumer_Development(t *testing.T) {
 	}
 	oracle := false
 	for _, job := range jobs {
-		if strings.Contains(livetest.JobLog(t, target, repo, job), "LIBRARY_REGISTRY_ORACLE_OK:"+head) {
+		if log, served := livetest.JobLogIfServed(t, target, repo, job); served && strings.Contains(log, "LIBRARY_REGISTRY_ORACLE_OK:"+head) {
 			oracle = true
 		}
 	}

@@ -365,6 +365,31 @@ func JobLog(tb TB, target Target, repo string, job RunJob) string {
 	return redactTargetSecrets(target, log)
 }
 
+// JobLogIfServed is JobLog for a scenario that searches every job of a run
+// for one line: it returns false, and logs why, when the forge still fails to
+// serve a job's log after jobLog's retries. Forgejo answers 500 for the job
+// that calls a reusable workflow, which runs nowhere and has no log. Any other
+// failure stays fatal. The search itself must still find its line, so a
+// skipped job can only make the scenario fail, never pass.
+func JobLogIfServed(tb TB, target Target, repo string, job RunJob) (string, bool) {
+	tb.Helper()
+
+	log, err := jobLog(tb, target, repo, job)
+	if errors.Is(err, errServerSide) {
+		tb.Logf("livetest: %s serves no log for job %q (a reusable-workflow caller has none): %v", target.Forge, job.Name, err)
+
+		return "", false
+	}
+
+	if err != nil {
+		tb.Fatalf("livetest: read the log of job %q: %v", job.Name, err)
+	}
+
+	assertNoTargetSecret(tb, target, "the log of job "+job.Name, log)
+
+	return redactTargetSecrets(target, log), true
+}
+
 // JobLogTail returns the end of one job's log with the target's credential
 // redacted, or "" when the forge serves none.
 //
