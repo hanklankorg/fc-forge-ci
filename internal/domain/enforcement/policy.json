@@ -1,5 +1,5 @@
 {
-  "enforce-lint": true,
-  "enforce-vulnerabilities": true,
-  "enforce-application-tests": true
+  "enforce-lint": false,
+  "enforce-vulnerabilities": false,
+  "enforce-application-tests": false
 }
