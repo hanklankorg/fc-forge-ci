@@ -2944,7 +2944,7 @@ validate a required version-specific npm tag before build or authentication; wit
 
 #### `forge-ci publish npm validate-tarball`
 
-extract the npm tarball produced by `npm pack`, verify dist/cli.js is present
+extract an npm tarball and verify its CLI or declared library entrypoint
 
 ```
 EXAMPLE:

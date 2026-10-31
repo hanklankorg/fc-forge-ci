@@ -311,22 +311,25 @@ func NPMValidateTarball(_ context.Context, out, stderr io.Writer, annot output.A
 
 	_, _ = fmt.Fprintln(out, "Extracted contents:")
 
-	listed := listFiles(out, filepath.Join(extracted, "dist"))
+	entrypoint, err := npmTarballEntrypoint(staging.Root())
+	if err != nil {
+		return err
+	}
+
+	listed := listFiles(out, filepath.Join(extracted, filepath.Dir(entrypoint)))
 	if !listed {
 		listFiles(out, filepath.Join(extracted, "build"))
 	}
 
-	cliJS := filepath.Join(extracted, "dist", "cli.js")
-
 	_, _ = fmt.Fprintln(out, "")
-	_, _ = fmt.Fprintln(out, "Verifying dist/cli.js exists:")
+	_, _ = fmt.Fprintf(out, "Verifying %s exists:\n", entrypoint)
 
-	if info, err := os.Lstat(cliJS); err == nil && info.Mode().IsRegular() {
-		_, _ = fmt.Fprintf(out, "%s dist/cli.js found\n", clicolor.Check(out))
+	if info, err := staging.Root().Lstat(entrypoint); err == nil && info.Mode().IsRegular() {
+		_, _ = fmt.Fprintf(out, "%s %s found\n", clicolor.Check(out), entrypoint)
 	} else {
-		_, _ = fmt.Fprintf(out, "%s dist/cli.js NOT found\n", clicolor.Cross(out))
+		_, _ = fmt.Fprintf(out, "%s %s NOT found\n", clicolor.Cross(out), entrypoint)
 
-		return fmt.Errorf("dist/cli.js not found in extracted tarball: %w", errs.ErrValidation)
+		return fmt.Errorf("%s not found in extracted tarball: %w", entrypoint, errs.ErrValidation)
 	}
 
 	if err := staging.InstallWithRelativeSymlinks(); err != nil {
@@ -338,6 +341,41 @@ func NPMValidateTarball(_ context.Context, out, stderr io.Writer, annot output.A
 	}
 
 	return nil
+}
+
+// CLI packages retain the historical dist/cli.js requirement. Libraries may
+// instead declare a literal exports or main path; inspecting it executes no code.
+func npmTarballEntrypoint(root *os.Root) (string, error) {
+	const cliDefault = "dist/cli.js"
+	body, err := root.ReadFile("package.json")
+	if os.IsNotExist(err) {
+		return cliDefault, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read packed package metadata: %w", err)
+	}
+	var meta struct {
+		Bin, Exports json.RawMessage
+		Main         string
+	}
+	if err := json.Unmarshal(body, &meta); err != nil {
+		return "", fmt.Errorf("parse packed package metadata: %w", errs.ErrValidation)
+	}
+	if len(meta.Bin) != 0 && string(meta.Bin) != "null" {
+		return cliDefault, nil
+	}
+	var entrypoint string
+	_ = json.Unmarshal(meta.Exports, &entrypoint)
+	if entrypoint == "" {
+		entrypoint = meta.Main
+	}
+	if entrypoint == "" {
+		return cliDefault, nil
+	}
+	if !pathsafe.Relative(entrypoint) || filepath.Clean(entrypoint) == "." || strings.ContainsRune(entrypoint, 0) {
+		return "", fmt.Errorf("packed package entrypoint must be a relative file: %w", errs.ErrValidation)
+	}
+	return entrypoint, nil
 }
 
 func npmPackageName(dir string) (string, error) {

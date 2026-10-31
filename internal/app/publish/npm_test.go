@@ -150,6 +150,45 @@ func TestNPMValidateTarball_FlagsCLIJSMissing(t *testing.T) {
 	}
 }
 
+func TestNPMValidateTarball_LibraryEntrypoint(t *testing.T) {
+	for _, tc := range []struct {
+		name, metadata string
+		valid          bool
+	}{
+		{"exports", `{"exports":"./src/index.js"}`, true},
+		{"main", `{"main":"src/index.js"}`, true},
+		{"missing", `{"exports":"./src/missing.js"}`, false},
+		{"parent", `{"main":"../outside.js"}`, false},
+		{"absolute", `{"main":"/outside.js"}`, false},
+		{"directory", `{"main":"."}`, false},
+		{"cli-default", `{"bin":{"cli":"dist/cli.js"},"main":"src/index.js"}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fsys := testfs.NewReal(t)
+			fsys.WriteFile("src/index.js", []byte("existing source"))
+			makeNPMTarball(t, fsys.Root, "library.tgz", map[string]string{
+				"package.json": tc.metadata, "src/index.js": "export const value = 42;",
+			})
+			err := apppublish.NPMValidateTarball(t.Context(), io.Discard, io.Discard, output.Annotator{}, apppublish.NPMValidateTarballInput{Dir: fsys.Root})
+			if tc.valid {
+				if err != nil || string(fsys.ReadFile("src/index.js")) != "export const value = 42;" {
+					t.Fatalf("library install failed: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, errs.ErrValidation) {
+				t.Fatalf("entrypoint was not refused: %v", err)
+			}
+			if string(fsys.ReadFile("src/index.js")) != "existing source" {
+				t.Fatal("rejected entrypoint changed the destination")
+			}
+			if _, err := os.Stat(filepath.Join(fsys.Root, "library.tgz")); err != nil {
+				t.Fatal("rejected input removed the original archive")
+			}
+		})
+	}
+}
+
 func TestNPMValidateTarball_NoTarballErrors(t *testing.T) {
 	fsys := testfs.NewReal(t)
 

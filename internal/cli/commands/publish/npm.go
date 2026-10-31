@@ -189,7 +189,7 @@ func npmValidateVersionCmd() *cli.Command {
 func npmValidateTarballCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "validate-tarball",
-		Usage: "extract the npm tarball produced by `npm pack`, verify dist/cli.js is present",
+		Usage: "extract an npm tarball and verify its CLI or declared library entrypoint",
 		Description: `EXAMPLE:
    # Run in the directory holding the packed tarball (takes no flags)
    forge-ci publish npm validate-tarball`,
