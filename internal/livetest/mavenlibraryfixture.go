@@ -65,13 +65,25 @@ func NewMavenApplicationConsumerFixture(tb TB, source Consumer, recipe, image st
 	return source
 }
 
+// The handoff skips the JARs the engine's release assembly never ships
+// (original-*, sources, Javadoc, tests). Several remaining JARs are accepted
+// only beside the versioned main JAR, as when an assembly writes an
+// unversioned executable JAR; all of them ship, as the engine would ship them.
 const mavenApplicationJarHandoff = `          shopt -s nullglob
-          jars=(target/*.jar)
-          if [ "${#jars[@]}" -ne 1 ]; then
-            echo "Maven application fixture requires exactly one target JAR; found ${#jars[@]}" >&2
+          jars=()
+          for jar in target/*.jar; do
+            case "${jar##*/}" in original-*|*-sources.jar|*-javadoc.jar|*-tests.jar) continue ;; esac
+            jars+=("$jar")
+          done
+          versioned="target/${ARTIFACT_NAME}-${RELEASE_TAG#v}.jar"
+          if [ "${#jars[@]}" -eq 1 ]; then
+            cp -- "${jars[0]}" "dist/${ARTIFACT_NAME}-${RELEASE_TAG#v}.jar"
+          elif [ "${#jars[@]}" -gt 1 ] && [ -f "$versioned" ]; then
+            cp -- "${jars[@]}" dist/
+          else
+            echo "Maven application fixture requires one target JAR, or several beside ${versioned}; found ${#jars[@]}" >&2
             exit 1
-          fi
-          cp -- "${jars[0]}" "dist/${ARTIFACT_NAME}-${RELEASE_TAG#v}.jar"`
+          fi`
 
 func (config MavenLibraryFixtureConfig) validate() error {
 	if !filepath.IsAbs(config.RecipeDirectory) {

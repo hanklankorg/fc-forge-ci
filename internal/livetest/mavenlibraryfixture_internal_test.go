@@ -70,7 +70,7 @@ func TestMavenApplicationFixturePreservesAdmittedSource(t *testing.T) {
 }
 
 func TestMavenApplicationJarHandoff(t *testing.T) {
-	for _, names := range [][]string{nil, {"custom-service.jar"}, {"service.jar", "other.jar"}} {
+	for _, names := range [][]string{nil, {"custom-service.jar"}, {"service.jar", "other.jar"}, {"custom-service.jar", "original-custom-service.jar", "custom-service-sources.jar"}, {"real-service-4.0.1.jar", "real-service.jar"}} {
 		t.Run(strings.Join(names, "+"), func(t *testing.T) {
 			root := t.TempDir()
 			for _, directory := range []string{"target", "dist"} {
@@ -86,7 +86,18 @@ func TestMavenApplicationJarHandoff(t *testing.T) {
 			command := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", "ARTIFACT_NAME=real-service; RELEASE_TAG=v4.0.1; "+mavenApplicationJarHandoff)
 			command.Dir = root
 			output, err := command.CombinedOutput()
-			if len(names) != 1 {
+			if len(names) == 2 && names[0] == "real-service-4.0.1.jar" {
+				if err != nil {
+					t.Fatalf("handoff refused an assembly beside the versioned JAR: %v: %s", err, output)
+				}
+				for _, name := range names {
+					if got, readErr := os.ReadFile(filepath.Join(root, "dist", name)); readErr != nil || string(got) != "original jar bytes" {
+						t.Fatalf("%s not shipped unchanged: %q, %v", name, got, readErr)
+					}
+				}
+				return
+			}
+			if len(names) != 1 && len(names) != 3 {
 				if err == nil {
 					t.Fatal("accepted missing or ambiguous application JAR")
 				}
