@@ -94,7 +94,7 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		consumer = livetest.NewNPMApplicationFixture(t, consumer, livetest.NPMApplicationFixtureConfig{RecipeDirectory: recipe, NodeImage: image, Oracle: os.Getenv("FORGE_CI_LIVE_NPM_APPLICATION_ORACLE")}, false)
+		consumer = livetest.NewNPMApplicationFixture(t, consumer, livetest.NPMApplicationFixtureConfig{RecipeDirectory: recipe, NodeImage: image, Oracle: os.Getenv("FORGE_CI_LIVE_NPM_APPLICATION_ORACLE"), Library: os.Getenv("FORGE_CI_LIVE_NPM_LIBRARY") == "true"}, false)
 	}
 	if image := os.Getenv("FORGE_CI_LIVE_MAVEN_APPLICATION_IMAGE"); image != "" {
 		recipe, err := filepath.Abs("../../../test/live/demos/hello-maven/consumer")

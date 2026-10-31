@@ -20,6 +20,8 @@ import (
 // Oracle runs in the pinned Node job against an installed retained tarball.
 type NPMApplicationFixtureConfig struct {
 	RecipeDirectory, NodeImage, Oracle, Branch string
+	// Library admits a public package's main/exports entry instead of a CLI bin.
+	Library bool
 }
 
 //go:embed testdata/npm-application-development.yml
@@ -47,12 +49,22 @@ func npmApplicationFixture(ctx context.Context, source Consumer, c NPMApplicatio
 	var model struct {
 		Name, Version string
 		Bin           json.RawMessage
+		Main          string
+		Exports       json.RawMessage
+		Private       bool
 	}
 	if err = json.Unmarshal([]byte(body), &model); err != nil {
 		return source, err
 	}
-	if !regexp.MustCompile(`^(@[a-z0-9._-]+/)?[a-z0-9][a-z0-9._-]*$`).MatchString(model.Name) || len(model.Bin) == 0 || string(model.Bin) == "null" {
-		return source, fmt.Errorf("require npm application metadata with a package name and bin")
+	if !regexp.MustCompile(`^(@[a-z0-9._-]+/)?[a-z0-9][a-z0-9._-]*$`).MatchString(model.Name) || model.Private {
+		return source, fmt.Errorf("require publishable npm metadata with a package name")
+	}
+	if c.Library {
+		if development || (model.Main == "" && (len(model.Exports) == 0 || string(model.Exports) == "null")) {
+			return source, fmt.Errorf("library fixture requires a stable package with a main or exports entry")
+		}
+	} else if len(model.Bin) == 0 || string(model.Bin) == "null" {
+		return source, fmt.Errorf("require npm application metadata with a bin")
 	}
 	if !filepath.IsAbs(c.Oracle) {
 		return source, fmt.Errorf("require absolute installed-package oracle script")

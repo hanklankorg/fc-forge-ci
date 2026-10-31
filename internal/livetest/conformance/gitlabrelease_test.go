@@ -999,7 +999,7 @@ const gitlabMinimalBuild = `GOBIN="${RC_WORK}/tools" GOTOOLCHAIN=local go instal
 export PATH="${RC_WORK}/tools:${PATH}"
 forge-ci build go run --working-dir . --main-package ./cmd/layer-release-canary \
   --binary-name layer-release-canary --artifact-name layer-release-canary \
-  --version "$RELEASE_VERSION" --commit "$RELEASE_SHA" --platforms linux/amd64 --build-sbom=true --skip-tests=true
+  --version "$RELEASE_VERSION" --commit "$RELEASE_SHA" --platforms linux/amd64 --build-sbom=true --skip-tests=false
 built=dist/linux-amd64/layer-release-canary-linux-amd64
 test "$("${built}")" = "layer-release-canary ${RELEASE_VERSION}"
 package="layer-release-canary_${RELEASE_VERSION}_linux_amd64"

@@ -4,6 +4,7 @@
 package livetest
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,10 +17,18 @@ import (
 )
 
 func TestNPMApplicationFixtureSourceBoundary(t *testing.T) {
-	for _, format := range []string{"sha1", "sha256"} {
-		t.Run(format, func(t *testing.T) {
+	for _, variant := range []string{
+		"sha1/application", "sha256/application",
+		"sha1/library", "sha256/library",
+		"sha1/private-library", "sha256/private-library",
+	} {
+		t.Run(variant, func(t *testing.T) {
+			format, kind, _ := strings.Cut(variant, "/")
 			root, git := stageTestRepo(t, format)
 			pkg := `{"name":"@example/application","version":"2.1.0","bin":{"app":"dist/cli.js"}}`
+			if kind != "application" {
+				pkg = `{"name":"@example/library","version":"2.1.0","exports":"./src/cli.js","private":` + fmt.Sprint(kind == "private-library") + `}`
+			}
 			stageTestWrite(t, root, "package.json", pkg, 0644)
 			stageTestWrite(t, root, "Containerfile", "FROM scratch\n", 0644)
 			stageTestWrite(t, root, "src/cli.js", "#!/usr/bin/env node\n", 0755)
@@ -34,8 +43,15 @@ func TestNPMApplicationFixtureSourceBoundary(t *testing.T) {
 				t.Fatal(err)
 			}
 			config := NPMApplicationFixtureConfig{RecipeDirectory: recipe, NodeImage: "docker.io/library/node:24.17.0-trixie@sha256:" + strings.Repeat("a", 64), Oracle: oracle, Branch: "development"}
+			config.Library = kind != "application"
 			for _, development := range []bool{false, true} {
 				fixture, err := npmApplicationFixture(t.Context(), source, config, development)
+				if kind == "private-library" || (config.Library && development) {
+					if err == nil {
+						t.Fatal("accepted private publication or unsupported library image-development mode")
+					}
+					continue
+				}
 				if err != nil {
 					t.Fatal(err)
 				}
