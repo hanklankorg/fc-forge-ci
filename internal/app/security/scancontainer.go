@@ -212,6 +212,7 @@ func ScanContainer(
 		annot.Errorf("%s", msg)
 		return fmt.Errorf("%s: %w", msg, err)
 	}
+
 	annot.Warningf("%s; reported under non-enforcing admin policy", msg)
 	return nil
 }

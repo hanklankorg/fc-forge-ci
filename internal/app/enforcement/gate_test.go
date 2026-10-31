@@ -25,13 +25,14 @@ type runner struct {
 func (r *runner) Run(_ context.Context, out, _ io.Writer, _ []string) (int, error) {
 	r.called = true
 	_, _ = io.WriteString(out, r.body)
+
 	return r.status, r.err
 }
 
-type testExit int
+type testExitError int
 
-func (code testExit) Error() string { return "native test result" }
-func (code testExit) ExitCode() int { return int(code) }
+func (code testExitError) Error() string { return "native test result" }
+func (code testExitError) ExitCode() int { return int(code) }
 
 type failedWriter struct{}
 
@@ -44,26 +45,34 @@ func TestLintRunsAndKeepsInfrastructureFailuresBlocking(t *testing.T) {
 			if status == 1 {
 				body = `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"nanolinter"}},"results":[{"ruleId":"format","properties":{"source":"curated","check_id":"format","class":"formatter","status":"fail"}}]}]}`
 			}
+
 			r := &runner{status: status, body: body}
+
 			var out bytes.Buffer
+
 			err := nanolinter(t.Context(), enforcement.Policy{EnforceLint: enforced}, r, &out, io.Discard, []string{"nanolinter", "verify"}, "")
 			if !r.called {
 				t.Fatal("check was skipped")
 			}
+
 			wantError := status != 0 && (status != 1 || enforced)
 			if (err != nil) != wantError {
 				t.Fatalf("enforced=%t status=%d: %v", enforced, status, err)
 			}
+
 			if status == 1 && !strings.Contains(out.String(), "result=findings") {
 				t.Fatalf("failure relabelled as pass: %s", &out)
 			}
 		}
 	}
+
 	if err := report(failedWriter{}, enforcement.Decision{Check: enforcement.Lint, Findings: 1}); !errors.Is(err, io.ErrClosedPipe) {
 		t.Fatalf("report failure suppressed: %v", err)
 	}
+
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
+
 	if err := nanolinter(ctx, enforcement.Policy{}, &runner{status: 1}, io.Discard, io.Discard, []string{"nanolinter"}, ""); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation suppressed: %v", err)
 	}
@@ -75,19 +84,25 @@ func TestOnlyFreshRecognizedTestFailuresMayContinue(t *testing.T) {
 		err        error
 		continued  bool
 	}{
-		{"assertions", "Tests run: 4, Failures: 1, Errors: 0, Skipped: 0", testExit(1), true},
-		{"missing socket", "Tests run: 4, Failures: 0, Errors: 1, Skipped: 0", testExit(1), false},
-		{"no report", "", testExit(1), false},
+		{"assertions", "Tests run: 4, Failures: 1, Errors: 0, Skipped: 0", testExitError(1), true},
+		{"missing socket", "Tests run: 4, Failures: 0, Errors: 1, Skipped: 0", testExitError(1), false},
+		{"no report", "", testExitError(1), false},
 		{"tool missing", "Tests run: 4, Failures: 1, Errors: 0, Skipped: 0", errs.ErrDependencyUnavailable, false},
 		{"cancelled", "Tests run: 4, Failures: 1, Errors: 0, Skipped: 0", context.Canceled, false},
-		{"signal", "Tests run: 4, Failures: 1, Errors: 0, Skipped: 0", testExit(137), false},
+		{"signal", "Tests run: 4, Failures: 1, Errors: 0, Skipped: 0", testExitError(137), false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var out bytes.Buffer
-			continued, err := testRun(t.Context(), enforcement.Policy{}, &out, io.Discard, enforcement.Maven, func(stdout, _ io.Writer) error { _, _ = io.WriteString(stdout, test.body); return test.err })
+
+			continued, err := testRun(t.Context(), enforcement.Policy{}, &out, io.Discard, enforcement.Maven, func(stdout, _ io.Writer) error {
+				_, _ = io.WriteString(stdout, test.body)
+
+				return test.err
+			})
 			if continued != test.continued || (err == nil) != test.continued {
 				t.Fatalf("continued=%t err=%v", continued, err)
 			}
+
 			if err != nil && !errors.Is(err, test.err) {
 				t.Fatalf("original error lost: %v", err)
 			}
@@ -99,6 +114,7 @@ func TestTestOptOutCannotBecomeReportOnly(t *testing.T) {
 	if err := RequireTests(true); !errors.Is(err, errs.ErrUsage) {
 		t.Fatalf("skip accepted: %v", err)
 	}
+
 	if err := RequireTests(false); err != nil {
 		t.Fatal(err)
 	}

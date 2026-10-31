@@ -22,9 +22,11 @@ func TestPolicySettingsAreIndependent(t *testing.T) {
 			}
 		}
 	}
+
 	if _, err := (Policy{}).Decide("typo", 1); !errors.Is(err, errs.ErrUsage) {
 		t.Fatalf("unknown check: %v", err)
 	}
+
 	if _, err := (Policy{}).Decide(Lint, -1); !errors.Is(err, errs.ErrUsage) {
 		t.Fatalf("negative count: %v", err)
 	}
@@ -40,6 +42,7 @@ func TestPolicyDecodeRefusesAmbiguity(t *testing.T) {
 			t.Errorf("accepted %s: %v", body, err)
 		}
 	}
+
 	policy, err := decode([]byte(`{"enforce-lint":false}`))
 	if err != nil || policy.EnforceLint || !policy.EnforceVulnerabilities || !policy.EnforceApplicationTests {
 		t.Fatalf("safe omitted defaults: %+v %v", policy, err)
@@ -51,20 +54,26 @@ func TestCurrentPolicyCannotBeReplacedByConsumerState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	digest := Digest()
 	root := t.TempDir()
 	t.Chdir(root)
+
 	for _, name := range []string{"ENFORCE_LINT", "ENFORCE_VULNERABILITIES", "ENFORCE_APPLICATION_TESTS", "FORGE_CI_ENFORCE_LINT", "FORGE_CI_POLICY"} {
 		t.Setenv(name, "false")
 	}
+
 	if err := os.WriteFile(filepath.Join(root, "policy.json"), []byte(`{"enforce-lint":false,"enforce-vulnerabilities":false,"enforce-application-tests":false}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+
 	after, err := Current()
 	if err != nil || after != before || Digest() != digest {
 		t.Fatalf("consumer state replaced policy: %+v %v", after, err)
 	}
+
 	after.EnforceLint = false
+
 	unchanged, _ := Current()
 	if unchanged != before {
 		t.Fatal("a returned policy value mutated the engine")

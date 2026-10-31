@@ -17,10 +17,12 @@ func TestNanolinterSeparatesDependencyFindingsFromLint(t *testing.T) {
 {"ruleId":"CVE-EXAMPLE","message":{"text":"dependency finding"},"properties":{"source":"curated","check_id":"osv","class":"security","status":"fail"}},
 {"ruleId":"sast","message":{"text":"source finding"},"properties":{"source":"curated","check_id":"sast","class":"security","status":"fail"}}
 ]}]}`)
+
 	report, err := ParseNanolinter(body)
 	if err != nil || report.LintFindings != 2 || report.VulnerabilityFindings != 1 {
 		t.Fatalf("report=%+v err=%v", report, err)
 	}
+
 	var security struct {
 		Runs []struct {
 			Results []struct {
@@ -31,9 +33,11 @@ func TestNanolinterSeparatesDependencyFindingsFromLint(t *testing.T) {
 	if err := json.Unmarshal(report.SecuritySARIF, &security); err != nil {
 		t.Fatal(err)
 	}
+
 	if len(security.Runs) != 1 || len(security.Runs[0].Results) != 2 || security.Runs[0].Results[0].RuleID != "CVE-EXAMPLE" {
 		t.Fatalf("security scope lost or included quality findings: %s", report.SecuritySARIF)
 	}
+
 	decision, err := (Policy{EnforceVulnerabilities: true}).Decide(Vulnerabilities, report.VulnerabilityFindings)
 	if err != nil || !decision.Enforced {
 		t.Fatal("disabling lint waived dependency findings")
@@ -75,9 +79,11 @@ func TestTestArgumentOptOutSpellingsAreRefused(t *testing.T) {
 			t.Errorf("accepted %v: %v", args, err)
 		}
 	}
+
 	if err := MavenTestArguments([]string{"--batch-mode", "-DskipTests=false", "-Drevision=1.2.3"}); err != nil {
 		t.Fatal(err)
 	}
+
 	for _, args := range [][]string{{"build", "-x", "test"}, {"build", "--exclude-task=test"}, {"build", "-xtest"}} {
 		if err := GradleTestArguments(args); !errors.Is(err, errs.ErrUsage) {
 			t.Errorf("accepted %v: %v", args, err)

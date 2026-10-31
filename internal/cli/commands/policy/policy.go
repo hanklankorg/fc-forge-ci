@@ -14,6 +14,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// New returns the immutable admin policy command group.
 func New() *cli.Command {
 	return &cli.Command{Name: "policy", Usage: "immutable administrator check policy", Commands: []*cli.Command{
 		{Name: "show", Usage: "print the admin settings and policy SHA-256 embedded in this engine", Action: func(_ context.Context, _ *cli.Command) error { return appenforcement.Show(os.Stdout) }},

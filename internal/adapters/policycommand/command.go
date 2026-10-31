@@ -14,17 +14,22 @@ import (
 	"github.com/diggsweden/forge-ci/internal/safeexec"
 )
 
+// Runner executes the check command selected by a trusted caller.
 type Runner struct{}
 
+// Run separates process exit statuses from classified start/wait errors.
 func (Runner) Run(ctx context.Context, out, stderr io.Writer, args []string) (int, error) {
 	command := safeexec.Command(ctx, args[0], args[1:]...)
 	command.Stdout, command.Stderr = out, stderr
+
 	err := command.Run()
 	if err == nil {
 		return 0, nil
 	}
+
 	if exit, ok := errors.AsType[*exec.ExitError](err); ok {
 		return exit.ExitCode(), nil
 	}
+
 	return 0, safeexec.WrapError(err, args[0], "lint")
 }

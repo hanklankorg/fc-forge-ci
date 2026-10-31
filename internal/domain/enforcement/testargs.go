@@ -17,6 +17,7 @@ func MavenTestArguments(args []string) error {
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
 		property := ""
+
 		switch {
 		case arg == "-D" || arg == "--define":
 			if index+1 < len(args) {
@@ -28,6 +29,7 @@ func MavenTestArguments(args []string) error {
 		case strings.HasPrefix(arg, "--define="):
 			property = strings.TrimPrefix(arg, "--define=")
 		}
+
 		name, value, _ := strings.Cut(property, "=")
 		switch name {
 		case "skipTests", "maven.test.skip", "maven.test.failure.ignore", "skipITs", "skipUTs":
@@ -36,6 +38,7 @@ func MavenTestArguments(args []string) error {
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -46,5 +49,6 @@ func GradleTestArguments(args []string) error {
 			return fmt.Errorf("consumer Gradle task exclusions cannot disable administrator-required tests: %w", errs.ErrUsage)
 		}
 	}
+
 	return nil
 }

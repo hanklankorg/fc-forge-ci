@@ -20,6 +20,7 @@ func Findings(out io.Writer, check enforcement.Check, count int) error {
 	if err != nil {
 		return err
 	}
+
 	return report(out, decision)
 }
 
@@ -28,6 +29,7 @@ func findingsFor(out io.Writer, policy enforcement.Policy, check enforcement.Che
 	if err != nil {
 		return err
 	}
+
 	return report(out, decision)
 }
 
@@ -36,11 +38,14 @@ func report(out io.Writer, decision enforcement.Decision) error {
 	if decision.Findings > 0 {
 		status = "findings"
 	}
+
 	if _, err := fmt.Fprintf(out, "Admin policy sha256:%s: %s result=%s count=%d enforcement=%t\n", decision.PolicySHA256, decision.Check, status, decision.Findings, decision.Enforced); err != nil {
 		return fmt.Errorf("report admin policy decision: %w", err)
 	}
+
 	if decision.Enforced && decision.Findings > 0 {
 		return fmt.Errorf("%s findings block progression: %w", decision.Check, errs.ErrValidation)
 	}
+
 	return nil
 }

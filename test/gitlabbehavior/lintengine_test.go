@@ -32,9 +32,9 @@ func TestLintComponentsFetchTheEngineTheSameVerifiedWay(t *testing.T) {
 			t.Fatalf("templates/%s.yml: engine fetch block not found", name)
 		}
 
-		var lines []string
-		for _, line := range strings.Split(body[start:start+end+len(verified)], "\n") {
-			lines = append(lines, strings.TrimSpace(line))
+		lines := strings.Split(body[start:start+end+len(verified)], "\n")
+		for index, line := range lines {
+			lines[index] = strings.TrimSpace(line)
 		}
 		blocks[name] = strings.Join(lines, "\n")
 		if name == "nanolinter" && start+end > strings.Index(body, "run_forge_ci policy nanolinter") {
