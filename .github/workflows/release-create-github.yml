@@ -334,6 +334,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: forge-ci artifact download --name release-assembly --dir .
+      - name: Validate unsigned release assembly
+        # No signing material in scope: admit exact membership and asset hashes
+        # and refuse signer-owned outputs before importing or binding any key.
+        env:
+          RELEASE_ASSEMBLY: .forge-ci/release-assembly.json
+        run: forge-ci release validate-assembly
       - name: Import GPG key
         # GPG agent setup is only needed when artifact signing uses the
         # GPG backend. Sigstore (keyless OIDC) and KMS (cosign + external

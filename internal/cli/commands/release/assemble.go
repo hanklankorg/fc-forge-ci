@@ -50,3 +50,16 @@ EXAMPLE:
 		},
 	}
 }
+
+func validateAssemblyCmd() *cli.Command {
+	return &cli.Command{
+		Name:  "validate-assembly",
+		Usage: "validate unsigned assembly inputs, checksum membership and asset bytes before loading signing keys",
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "assembly", Value: domainrelease.DefaultAssemblyFile, Sources: cli.EnvVars("RELEASE_ASSEMBLY"), Usage: "unsigned release assembly manifest path"},
+		},
+		Action: func(_ context.Context, cmd *cli.Command) error {
+			return apprelease.ValidateAssembly(cmd.String("assembly"))
+		},
+	}
+}

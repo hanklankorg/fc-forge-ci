@@ -201,54 +201,15 @@ func releaseFilesManifestSectionFiles(in SignInput) ([]string, error) {
 	return files, nil
 }
 
-//nolint:cyclop // iterates the assembly's signable entries, dispatching each to the signer by method — a flat loop, not nested logic.
 func signAssemblyArtifacts(ctx context.Context, signer Signer, out io.Writer, assemblyFile string) error {
-	asm, err := readAssembly(assemblyFile)
+	extensions, err := signerExtensions(signer)
 	if err != nil {
 		return err
 	}
 
-	selected := make([]string, 0, len(asm.Assets)+2)
-	seen := map[string]struct{}{}
-	selectFile := func(path string) error {
-		if path == "" {
-			return nil
-		}
-
-		if _, ok := seen[path]; ok {
-			return nil
-		}
-
-		if !regularFileExists(path) {
-			return fmt.Errorf("assembly sign target %q is missing or not a regular file: %w", path, errs.ErrMissingInput)
-		}
-
-		selected = append(selected, path)
-		seen[path] = struct{}{}
-
-		return nil
-	}
-
-	for _, asset := range asm.Assets {
-		if err := selectFile(asset.Path); err != nil {
-			return err
-		}
-	}
-
-	if asm.SBOMZipFile != "" && regularFileExists(asm.SBOMZipFile) {
-		if err := selectFile(asm.SBOMZipFile); err != nil {
-			return err
-		}
-	}
-
-	if asm.ChecksumFile != "" {
-		if regularFileNonEmpty(asm.ChecksumFile) {
-			if err := selectFile(asm.ChecksumFile); err != nil {
-				return err
-			}
-		} else if len(asm.Assets) > 0 || regularFileExists(asm.SBOMZipFile) {
-			return fmt.Errorf("assembly checksums file %q is missing or empty; run release checksums --assembly first: %w", asm.ChecksumFile, errs.ErrMissingInput)
-		}
+	_, selected, err := validatedSigningAssembly(assemblyFile, extensions)
+	if err != nil {
+		return err
 	}
 
 	for _, path := range selected {

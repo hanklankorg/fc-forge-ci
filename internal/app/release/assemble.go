@@ -4,6 +4,7 @@
 package release
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"errors"
@@ -21,6 +22,7 @@ import (
 	domainartifact "github.com/diggsweden/forge-ci/internal/domain/artifact"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
+	"github.com/diggsweden/forge-ci/internal/domain/provenance"
 	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 	domainsbom "github.com/diggsweden/forge-ci/internal/domain/sbom"
 	"github.com/diggsweden/forge-ci/internal/domain/version"
@@ -727,6 +729,144 @@ func readAssembly(path string) (domainrelease.Assembly, error) {
 	}
 
 	return asm, nil
+}
+
+// ValidateAssembly admits an unsigned assembly without loading signing material.
+// Assembly paths are not discovery hints: every declared input must exist, and
+// checksums must cover exactly the public assets and the generated SBOM ZIP.
+func ValidateAssembly(path string) error {
+	_, _, err := validatedSigningAssembly(path, nil)
+
+	return err
+}
+
+func validatedSigningAssembly(path string, extensions []string) (domainrelease.Assembly, []string, error) {
+	asm, err := readAssembly(path)
+	if err != nil {
+		return asm, nil, err
+	}
+
+	subjectPaths, err := assemblyChecksumSubjects(asm)
+	if err != nil {
+		return asm, nil, err
+	}
+
+	selected := make([]string, 0, len(subjectPaths)+1)
+	for _, asset := range asm.Assets {
+		selected = append(selected, asset.Path)
+	}
+
+	if asm.SBOMZipFile != "" && regularFileExists(asm.SBOMZipFile) {
+		selected = append(selected, asm.SBOMZipFile)
+	}
+
+	if asm.ChecksumFile == "" {
+		return asm, nil, fmt.Errorf("assembly checksums file is required: %w", errs.ErrMissingInput)
+	}
+
+	if err := checkChecksumOutputInputs(asm.ChecksumFile, append(append([]string{path}, selected...), assemblySBOMPaths(asm)...)); err != nil {
+		return asm, nil, err
+	}
+
+	selected = append(selected, asm.ChecksumFile)
+	if err := validateAssemblySignerOutputs(selected, extensions); err != nil {
+		return asm, nil, err
+	}
+
+	body, err := readReleaseFile(asm.ChecksumFile)
+	if err != nil {
+		return asm, nil, fmt.Errorf("assembly checksums file: %w", err)
+	}
+
+	// Container-only releases can have no public file subjects. The producer
+	// still writes an empty checksums file; there is nothing to sign in it.
+	if len(subjectPaths) == 0 && len(bytes.TrimSpace(body)) == 0 {
+		return asm, selected[:len(selected)-1], nil
+	}
+
+	subjects, err := provenance.ParseChecksums(bytes.NewReader(body))
+	if err != nil {
+		return asm, nil, err
+	}
+
+	if err := checkChecksumSubjects(subjects, sortedChecksumSubjectNames(subjectPaths)); err != nil {
+		return asm, nil, err
+	}
+
+	if err := verifyReleaseChecksumDigests(subjects, subjectPaths); err != nil {
+		return asm, nil, err
+	}
+
+	return asm, selected, nil
+}
+
+func assemblySBOMPaths(asm domainrelease.Assembly) []string {
+	paths := make([]string, 0, len(asm.SBOMs))
+	for _, file := range asm.SBOMs {
+		paths = append(paths, file.Path)
+	}
+
+	return paths
+}
+
+func assemblyChecksumSubjects(asm domainrelease.Assembly) (map[string]string, error) {
+	subjects := make(map[string]string, len(asm.Assets)+1)
+	paths := map[string]bool{}
+	add := func(path, name string) error {
+		if name != filepath.Base(path) || subjects[name] != "" || paths[filepath.Clean(path)] {
+			return fmt.Errorf("assembly public asset has inconsistent or duplicate name/path %q: %w", path, errs.ErrValidation)
+		}
+
+		if !regularFileExists(path) {
+			return fmt.Errorf("assembly public asset %q is missing or not regular: %w", path, errs.ErrMissingInput)
+		}
+
+		subjects[name] = path
+		paths[filepath.Clean(path)] = true
+
+		return nil
+	}
+	for _, asset := range asm.Assets {
+		if err := add(asset.Path, asset.Name); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(asm.SBOMs) > 0 && (asm.SBOMZipFile == "" || !regularFileExists(asm.SBOMZipFile)) {
+		return nil, fmt.Errorf("assembly SBOM ZIP is missing; run release sbom-zip --assembly first: %w", errs.ErrMissingInput)
+	}
+
+	if asm.SBOMZipFile != "" && regularFileExists(asm.SBOMZipFile) {
+		if err := add(asm.SBOMZipFile, filepath.Base(asm.SBOMZipFile)); err != nil {
+			return nil, err
+		}
+	}
+
+	return subjects, nil
+}
+
+// Unsigned handoffs must not supply signer-owned outputs, either as subjects or
+// as pre-existing sidecars. Check both production backends, plus the selected
+// signer's extensions for defense in depth before its first invocation.
+func validateAssemblySignerOutputs(paths, extensions []string) error {
+	extensions = append([]string{".asc", ".bundle"}, extensions...)
+	for _, path := range paths {
+		for _, ext := range extensions {
+			if strings.HasSuffix(path, ext) {
+				return fmt.Errorf("assembly contains reserved signer output %q: %w", path, errs.ErrValidation)
+			}
+
+			if _, err := os.Lstat(path + ext); !errors.Is(err, fs.ErrNotExist) {
+				if err != nil {
+					return fmt.Errorf("inspect assembly signer output: %w", err)
+				}
+
+				return fmt.Errorf("assembly contains reserved signer output %q: %w", path+ext, errs.ErrValidation)
+			}
+		}
+	}
+
+	return nil
 }
 
 func validateAssemblyPaths(asm domainrelease.Assembly) error {
