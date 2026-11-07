@@ -621,12 +621,14 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, scenario gitlab
 		logGitLabReleaseInventory(t, ctx, client, project, child)
 	}
 
-	requireGitLabReleaseRunnerRouting(t, ctx, client, project, child,
-		gitLabReleaseRunnerRoles(buildRunnerTags, checksRunnerTags, imageBuilder, releaseImages, len(exportCommand) != 0))
-
 	requireReleaseGit(t, target, repo, keys, request, requestTag, finalTag)
 	verified := requireGitLabReleaseBundles(t, client, target, repo, child, run.SHA, keys, finalTag)
 	t.Logf("verified %d published Cosign bundles", verified)
+
+	// Read back and retain the public payloads before an independent routing
+	// assertion can end the trial and run its disposable-resource cleanup.
+	requireGitLabReleaseRunnerRouting(t, ctx, client, project, child,
+		gitLabReleaseRunnerRoles(buildRunnerTags, checksRunnerTags, imageBuilder, releaseImages, len(exportCommand) != 0))
 
 	if consumer != nil {
 		requireGitLabPackageSignatures(t, target, repo, keys, finalTag)
