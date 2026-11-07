@@ -25,11 +25,14 @@ import (
 
 	"github.com/diggsweden/forge-ci/internal/adapters/cosign"
 	apprelease "github.com/diggsweden/forge-ci/internal/app/release"
+	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
 	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
+	domainsbom "github.com/diggsweden/forge-ci/internal/domain/sbom"
 )
 
 type nativeReleaseFixture struct {
 	producer, signer       map[string][]byte
+	publisher              map[string][]byte
 	published              map[string][]byte
 	checksum, root, binary string
 	adapter                *cosign.Adapter
@@ -154,6 +157,12 @@ func TestGitLabReleaseEvidenceRejectsSubstitutions(t *testing.T) {
 
 func newNativeReleaseFixture(t *testing.T, binary, cosignPath string, goMetadata bool) *nativeReleaseFixture {
 	t.Helper()
+
+	return newNativeReleaseJourney(t, binary, cosignPath, goMetadata, false)
+}
+
+func newNativeReleaseJourney(t *testing.T, binary, cosignPath string, goMetadata, images bool) *nativeReleaseFixture {
+	t.Helper()
 	root := t.TempDir()
 
 	producer, signer := filepath.Join(root, "producer"), filepath.Join(root, "signer")
@@ -205,7 +214,24 @@ func newNativeReleaseFixture(t *testing.T, binary, cosignPath string, goMetadata
 		runNativeEvidenceCLI(t, binary, producer, "declare", "--asset", "dist/app.tar.gz", "--sbom", "dist/app.tar.gz.sbom.json", "--evidence-file", "dist/release-notes.md")
 	}
 
-	if err := os.CopyFS(signer, os.DirFS(producer)); err != nil {
+	input := producer
+
+	var (
+		publisher  map[string][]byte
+		imageNames []string
+	)
+
+	if images {
+		input = filepath.Join(root, "publisher")
+		if err := os.CopyFS(input, os.DirFS(producer)); err != nil {
+			t.Fatal(err)
+		}
+
+		imageNames = addNativeImageEvidence(t, binary, input)
+		publisher = nativeEvidenceTree(t, input)
+	}
+
+	if err := os.CopyFS(signer, os.DirFS(input)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -216,7 +242,7 @@ func newNativeReleaseFixture(t *testing.T, binary, cosignPath string, goMetadata
 		t.Fatalf("offline ephemeral key generation: %v\n%s", err, out)
 	}
 
-	fixture := &nativeReleaseFixture{root: root, binary: binary, checksum: checksum, adapter: &cosign.Adapter{Bin: cosignPath, Env: key.Env, Transparency: domainrelease.TransparencyNone}}
+	fixture := &nativeReleaseFixture{root: root, binary: binary, checksum: checksum, publisher: publisher, adapter: &cosign.Adapter{Bin: cosignPath, Env: key.Env, Transparency: domainrelease.TransparencyNone}}
 
 	sum, err := os.ReadFile(filepath.Join(signer, "dist/"+checksum))
 	if err != nil {
@@ -232,7 +258,7 @@ func newNativeReleaseFixture(t *testing.T, binary, cosignPath string, goMetadata
 	write(filepath.Join(signer, "dist/"+checksum+".bundle"), fixture.sign(t, sum))
 	write(filepath.Join(signer, "dist/"+apprelease.ProvenanceStatementName+".bundle"), fixture.sign(t, prov))
 
-	for _, name := range []string{"app.tar.gz.sbom.json", "release-notes.md"} {
+	for _, name := range append([]string{"app.tar.gz.sbom.json", "release-notes.md"}, imageNames...) {
 		body, err := os.ReadFile(filepath.Join(signer, "dist/"+name))
 		if err != nil {
 			t.Fatal(err)
@@ -255,6 +281,64 @@ func newNativeReleaseFixture(t *testing.T, binary, cosignPath string, goMetadata
 	}
 
 	return fixture
+}
+
+func addNativeImageEvidence(t *testing.T, binary, root string) []string {
+	t.Helper()
+
+	const repository = "registry.example/org/app"
+
+	entries := make([]imageledger.Entry, 0, 2)
+	names := make([]string, 0, 4)
+
+	for _, role := range []string{"app", "distroless"} {
+		child := "sha256:" + strings.Repeat("a", 64)
+		index := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"mediaType":"application/vnd.oci.image.manifest.v1+json","size":123,"digest":"` + child + `","platform":{"os":"linux","architecture":"amd64"}}]}`)
+		inventory := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[]}`)
+		ref := fmt.Sprintf("%s@sha256:%x", repository, sha256.Sum256(index))
+		inventoryName := "sbom-" + role + "-amd64.json"
+		bomName := "image-sbom-" + role + ".cyclonedx.json"
+
+		bom, err := domainsbom.ComposeIndexBOM(ref, index, []domainsbom.IndexBOMPart{{
+			Platform: "linux/amd64", ImageRef: repository + "@" + child,
+			URL:    "https://example.invalid/org/app/releases/download/v0.94.0/" + inventoryName,
+			SHA256: fmt.Sprintf("%x", sha256.Sum256(inventory)), Document: inventory,
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for name, body := range map[string][]byte{inventoryName: inventory, bomName: bom} {
+			if err := os.WriteFile(filepath.Join(root, "dist", name), body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		entries = append(entries, imageledger.Entry{Role: role, ImageKind: imageledger.ImageKindRelease, Ref: ref,
+			Digest: "sha256:" + fmt.Sprintf("%x", sha256.Sum256(index)), CandidateTag: repository + ":staging-v0.94.0-" + role,
+			FinalTag: repository + ":v0.94.0-" + role, SBOM: "dist/" + bomName, SBOMSHA256: fmt.Sprintf("%x", sha256.Sum256(bom))})
+		names = append(names, bomName, inventoryName)
+	}
+
+	body, err := json.Marshal(entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "dist/release-images.json"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	args := make([]string, 0, 6+2*len(names))
+
+	args = append(args, "manifest", "--unsigned", "--manifest", "dist/release-files.json", "--release-images-ledger", "dist/release-images.json")
+	for _, name := range names {
+		args = append(args, "--evidence-file", "dist/"+name)
+	}
+
+	runNativeEvidenceCLI(t, binary, root, args...)
+
+	return names
 }
 
 func (f *nativeReleaseFixture) sign(t *testing.T, blob []byte) []byte {
@@ -281,7 +365,18 @@ func (f *nativeReleaseFixture) sign(t *testing.T, blob []byte) []byte {
 func (f *nativeReleaseFixture) check(t *testing.T, producer, signer, published map[string][]byte) (GitLabReleaseBundleEvidence, error) {
 	t.Helper()
 
-	return VerifyGitLabReleaseEvidence(t.Context(), f.binary, nativeEvidenceZIP(t, producer, "_release-build/"), nativeEvidenceZIP(t, signer, "_release-sign/"), slices.Collect(maps.Keys(published)), func(name string) ([]byte, error) {
+	return f.checkWithPublisher(t, producer, nil, signer, published)
+}
+
+func (f *nativeReleaseFixture) checkWithPublisher(t *testing.T, producer, publisher, signer, published map[string][]byte) (GitLabReleaseBundleEvidence, error) {
+	t.Helper()
+
+	var publisherZIP []byte
+	if publisher != nil {
+		publisherZIP = nativeEvidenceZIP(t, publisher, "_release-images/")
+	}
+
+	return VerifyGitLabReleaseEvidence(t.Context(), f.binary, nativeEvidenceZIP(t, producer, "_release-build/"), publisherZIP, nativeEvidenceZIP(t, signer, "_release-sign/"), slices.Collect(maps.Keys(published)), func(name string) ([]byte, error) {
 		b, ok := published[name]
 		if !ok {
 			return nil, fs.ErrNotExist

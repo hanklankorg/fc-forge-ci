@@ -34,14 +34,19 @@ var errReleaseEvidence = errors.New("release evidence contract violated")
 const evidenceDistFlag = "--dist-dir"
 const evidenceManifestFlag = "--manifest"
 const evidenceDist = "dist"
+const evidenceUnsignedFlag = "--unsigned"
+const evidenceChecksumsCommand = "validate-checksums"
+const evidenceExpectedManifest = "acceptance-expected.json"
+const evidenceValidateCommand = "validate"
 
 type releaseEvidenceCommand func(string, ...string) ([]byte, error)
 
 // VerifyGitLabReleaseEvidence uses the native file-contract CLI in private
 // workspaces, never changing the suite's working directory or reimplementing
-// manifest/checksum policy. The caller binds both archives to the same native
+// manifest/checksum policy. The caller binds all archives to the same native
 // child pipeline and uses its authenticated release-asset reader for download.
-func VerifyGitLabReleaseEvidence(ctx context.Context, binary string, producerZIP, signerZIP []byte, names []string,
+// A nil publisher archive denotes a file-only release, selected by caller policy.
+func VerifyGitLabReleaseEvidence(ctx context.Context, binary string, producerZIP, publisherZIP, signerZIP []byte, names []string,
 	download func(string) ([]byte, error), verify func([]byte, []byte) error,
 ) (GitLabReleaseBundleEvidence, error) {
 	var result GitLabReleaseBundleEvidence
@@ -62,15 +67,13 @@ func VerifyGitLabReleaseEvidence(ctx context.Context, binary string, producerZIP
 		return result, err
 	}
 
-	for _, dir := range []string{producer, signer} {
-		digest, err := readEvidenceFile(dir, "digest")
-		if err != nil {
-			return result, err
-		}
+	publisher, err := stageReleasePublisher(root, publisherZIP)
+	if err != nil {
+		return result, err
+	}
 
-		if err := apprelease.VerifyDistWithManifestRoot(filepath.Join(dir, "dist"), strings.TrimSpace(string(digest)), "."); err != nil {
-			return result, err
-		}
+	if err := verifyReleaseHandoffDigests(producer, publisher, signer); err != nil {
+		return result, err
 	}
 
 	run := func(dir string, args ...string) ([]byte, error) {
@@ -93,7 +96,7 @@ func VerifyGitLabReleaseEvidence(ctx context.Context, binary string, producerZIP
 
 	flags := []string{evidenceDistFlag, evidenceDist, evidenceManifestFlag, "dist/release-files.json"}
 
-	finalized, err := verifyRetainedRelease(producer, signer, flags, run)
+	finalized, err := verifyRetainedRelease(producer, publisher, signer, flags, run)
 	if err != nil {
 		return result, err
 	}
@@ -125,21 +128,53 @@ func VerifyGitLabReleaseEvidence(ctx context.Context, binary string, producerZIP
 	}
 	// Exact coverage and hashes use the native owner, including its exclusions
 	// for checksum-self, evidence, provenance and post-signing sidecars.
-	if _, err := run(published, append([]string{"validate-checksums"}, flags...)...); err != nil {
+	if _, err := run(published, append([]string{evidenceChecksumsCommand}, flags...)...); err != nil {
 		return result, err
 	}
 
 	return verifyPublishedBundles(signer, published, checksum, finalized, verify, result)
 }
 
-func verifyRetainedRelease(producer, signer string, flags []string, run releaseEvidenceCommand) (apprelease.FileManifest, error) {
+func stageReleasePublisher(root string, body []byte) (string, error) {
+	if body == nil {
+		return "", nil
+	}
+
+	publisher := filepath.Join(root, "publisher")
+	if err := stageReleaseArchive(body, "_release-images/", publisher); err != nil {
+		return "", err
+	}
+
+	return publisher, nil
+}
+
+func verifyReleaseHandoffDigests(dirs ...string) error {
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+
+		digest, err := readEvidenceFile(dir, "digest")
+		if err != nil {
+			return err
+		}
+
+		if err := apprelease.VerifyDistWithManifestRoot(filepath.Join(dir, "dist"), strings.TrimSpace(string(digest)), "."); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func verifyRetainedRelease(producer, publisher, signer string, flags []string, run releaseEvidenceCommand) (apprelease.FileManifest, error) {
 	var empty apprelease.FileManifest
 
-	if _, err := run(producer, append([]string{"validate", "--unsigned"}, flags...)...); err != nil {
+	if _, err := run(producer, append([]string{evidenceValidateCommand, evidenceUnsignedFlag}, flags...)...); err != nil {
 		return empty, err
 	}
 
-	if _, err := run(producer, append([]string{"validate-checksums"}, flags...)...); err != nil {
+	if _, err := run(producer, append([]string{evidenceChecksumsCommand}, flags...)...); err != nil {
 		return empty, err
 	}
 
@@ -152,11 +187,28 @@ func verifyRetainedRelease(producer, signer string, flags []string, run releaseE
 		return empty, err
 	}
 
+	if publisher != "" {
+		if err := compareProducerSubjects(producer, publisher, original); err != nil {
+			return empty, err
+		}
+
+		original, err = verifyPublisherDeclaration(publisher, original, flags, run)
+		if err != nil {
+			return empty, err
+		}
+
+		producer = publisher
+
+		if err := compareEvidenceSubject(publisher, signer, "dist/release-images.json"); err != nil {
+			return empty, err
+		}
+	}
+
 	if err := compareProducerSubjects(producer, signer, original); err != nil {
 		return empty, err
 	}
 
-	if _, err := run(signer, append([]string{"validate"}, flags...)...); err != nil {
+	if _, err := run(signer, append([]string{evidenceValidateCommand}, flags...)...); err != nil {
 		return empty, err
 	}
 
@@ -172,12 +224,71 @@ func verifyRetainedRelease(producer, signer string, flags []string, run releaseE
 	return finalized, nil
 }
 
+// Reconstruct the trusted image publisher's unsigned extension from the build
+// declaration. Native admission checks the complete ledger-pinned index and
+// platform documents; finalized signer roles are never used as input here.
+func verifyPublisherDeclaration(publisher string, original apprelease.FileManifest, flags []string, run releaseEvidenceCommand) (apprelease.FileManifest, error) {
+	var empty apprelease.FileManifest
+
+	if _, err := run(publisher, append([]string{evidenceValidateCommand, evidenceUnsignedFlag}, flags...)...); err != nil {
+		return empty, err
+	}
+
+	if _, err := run(publisher, append([]string{evidenceChecksumsCommand}, flags...)...); err != nil {
+		return empty, err
+	}
+
+	declared, err := readReleaseEvidenceManifest(publisher, "dist/release-files.json")
+	if err != nil {
+		return empty, err
+	}
+
+	body, err := json.Marshal(original)
+	if err != nil {
+		return empty, err
+	}
+
+	if err := os.WriteFile(filepath.Join(publisher, "producer-manifest.json"), body, 0o600); err != nil {
+		return empty, err
+	}
+
+	args := []string{"manifest", evidenceUnsignedFlag, evidenceDistFlag, evidenceDist, evidenceManifestFlag, "producer-manifest.json",
+		"--output", evidenceExpectedManifest, "--release-images-ledger", "dist/release-images.json"}
+
+	for _, entry := range declared.Evidence {
+		// Match the native publisher's two output families, not arbitrary
+		// evidence asserted by the retained manifest. Admission below owns the
+		// exact ledger-derived set and all content/pin checks.
+		imageDocument := strings.HasPrefix(entry.Name, "image-sbom-") && strings.HasSuffix(entry.Name, ".cyclonedx.json")
+		inventory := strings.HasPrefix(entry.Name, "sbom-") && strings.HasSuffix(entry.Name, ".json")
+
+		if !slices.Contains(original.Evidence, entry) && (imageDocument || inventory) {
+			args = append(args, "--evidence-file", entry.Path)
+		}
+	}
+
+	if _, err := run(publisher, args...); err != nil {
+		return empty, err
+	}
+
+	expected, err := readReleaseEvidenceManifest(publisher, evidenceExpectedManifest)
+	if err != nil {
+		return empty, err
+	}
+
+	if !sameReleaseManifest(declared, expected) {
+		return empty, fmt.Errorf("publisher manifest disagrees with native extension of producer declaration: %w", errReleaseEvidence)
+	}
+
+	return declared, nil
+}
+
 func verifyProducerDeclaration(producer string, original apprelease.FileManifest, run releaseEvidenceCommand) error {
 	// Recreate producer classification through the owning constructors. A
 	// non-empty but fabricated Source/section is not an accepted declaration.
-	args := []string{"import-goreleaser", evidenceDistFlag, evidenceDist, evidenceManifestFlag, "acceptance-expected.json"}
+	args := []string{"import-goreleaser", evidenceDistFlag, evidenceDist, evidenceManifestFlag, evidenceExpectedManifest}
 	if _, err := os.Stat(filepath.Join(producer, "dist/artifacts.json")); os.IsNotExist(err) {
-		args = []string{"declare", evidenceDistFlag, evidenceDist, evidenceManifestFlag, "acceptance-expected.json", "--checksums-file", original.Checksums[0].Path}
+		args = []string{"declare", evidenceDistFlag, evidenceDist, evidenceManifestFlag, evidenceExpectedManifest, "--checksums-file", original.Checksums[0].Path}
 		for _, a := range original.Assets {
 			if slices.ContainsFunc(original.Checksums, func(e apprelease.FileEntry) bool { return e.Path == a.Path }) ||
 				slices.ContainsFunc(original.Evidence, func(e apprelease.FileEntry) bool { return e.Path == a.Path }) ||
@@ -208,7 +319,7 @@ func verifyProducerDeclaration(producer string, original apprelease.FileManifest
 		return err
 	}
 
-	expectedProducer, err := readReleaseEvidenceManifest(producer, "acceptance-expected.json")
+	expectedProducer, err := readReleaseEvidenceManifest(producer, evidenceExpectedManifest)
 	if err != nil {
 		return err
 	}
@@ -222,19 +333,27 @@ func verifyProducerDeclaration(producer string, original apprelease.FileManifest
 
 func compareProducerSubjects(producer, signer string, original apprelease.FileManifest) error {
 	for _, a := range original.Assets {
-		before, err := readEvidenceFile(producer, a.Path)
-		if err != nil {
+		if err := compareEvidenceSubject(producer, signer, a.Path); err != nil {
 			return err
 		}
+	}
 
-		after, err := readEvidenceFile(signer, a.Path)
-		if err != nil {
-			return err
-		}
+	return nil
+}
 
-		if !bytes.Equal(before, after) {
-			return fmt.Errorf("signer changed producer subject %s: %w", a.Name, errReleaseEvidence)
-		}
+func compareEvidenceSubject(beforeRoot, afterRoot, name string) error {
+	before, err := readEvidenceFile(beforeRoot, name)
+	if err != nil {
+		return err
+	}
+
+	after, err := readEvidenceFile(afterRoot, name)
+	if err != nil {
+		return err
+	}
+
+	if !bytes.Equal(before, after) {
+		return fmt.Errorf("handoff changed producer subject %s: %w", name, errReleaseEvidence)
 	}
 
 	return nil
@@ -252,11 +371,11 @@ func verifySignerDeclaration(signer string, original, finalized apprelease.FileM
 		return err
 	}
 
-	if _, err := run(signer, "manifest", evidenceDistFlag, evidenceDist, evidenceManifestFlag, "producer-manifest.json", "--output", "acceptance-expected.json"); err != nil {
+	if _, err := run(signer, "manifest", evidenceDistFlag, evidenceDist, evidenceManifestFlag, "producer-manifest.json", "--output", evidenceExpectedManifest); err != nil {
 		return err
 	}
 
-	expectedSigner, err := readReleaseEvidenceManifest(signer, "acceptance-expected.json")
+	expectedSigner, err := readReleaseEvidenceManifest(signer, evidenceExpectedManifest)
 	if err != nil {
 		return err
 	}

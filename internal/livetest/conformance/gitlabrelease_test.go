@@ -623,7 +623,7 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, scenario gitlab
 	}
 
 	requireReleaseGit(t, target, repo, keys, request, requestTag, finalTag)
-	verified := requireGitLabReleaseBundles(t, client, target, repo, child, run.SHA, keys, finalTag)
+	verified := requireGitLabReleaseBundles(t, client, target, repo, child, run.SHA, keys, finalTag, releaseImages)
 	t.Logf("verified %d published Cosign bundles", verified)
 
 	// Read back and retain the public payloads before an independent routing
@@ -650,7 +650,7 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, scenario gitlab
 		child := requireGitLabReleaseChild(t, ctx, client, project, next)
 		requireReleaseGit(t, target, repo, keys, parent, requestTag, finalTag)
 
-		bundles := requireGitLabReleaseBundles(t, client, target, repo, child, next.SHA, keys, finalTag)
+		bundles := requireGitLabReleaseBundles(t, client, target, repo, child, next.SHA, keys, finalTag, releaseImages)
 		if consumer != nil {
 			requireGitLabPackageSignatures(t, target, repo, keys, finalTag)
 			requireGitLabPublishedImages(t, client, target, repo, publication, child, keys)
@@ -1131,7 +1131,7 @@ func requireGitLabPublishedImages(t *testing.T, client *gitlabapi.Client, target
 	t.Logf("verified %d final images and their attestations in the publication project", len(entries))
 }
 
-func requireGitLabReleaseBundles(t *testing.T, client *gitlabapi.Client, target livetest.Target, repo string, child int64, requestSHA string, keys releaseKeys, tag string) int {
+func requireGitLabReleaseBundles(t *testing.T, client *gitlabapi.Client, target livetest.Target, repo string, child int64, requestSHA string, keys releaseKeys, tag string, images bool) int {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(livetest.Context(t), time.Minute)
@@ -1140,37 +1140,18 @@ func requireGitLabReleaseBundles(t *testing.T, client *gitlabapi.Client, target 
 	release := mustReadRelease(ctx, t, target, repo, tag)
 	project := livetest.RepoSlug(target, repo)
 
-	jobs, _, err := client.Jobs.ListPipelineJobs(project, child, &gitlabapi.ListJobsOptions{PerPage: 100}, gitlabapi.WithContext(ctx))
+	jobs, response, err := client.Jobs.ListPipelineJobs(project, child, &gitlabapi.ListJobsOptions{PerPage: 100}, gitlabapi.WithContext(ctx))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	var signerID, producerID int64
-
-	for _, job := range jobs {
-		if job.Pipeline.ID != child || job.Commit == nil || requestSHA == "" || job.Commit.ID != requestSHA {
-			t.Fatal("release artifact job is not bound to the expected native child pipeline/commit")
-		}
-
-		if job.Name == "Build: release files" && job.Status == "success" && job.ArtifactsFile.Size > 0 {
-			if producerID != 0 {
-				t.Fatal("release has multiple successful producer artifacts")
-			}
-
-			producerID = job.ID
-		}
-
-		if job.Name == "Sign: files and images" && job.Status == "success" && job.ArtifactsFile.Size > 0 {
-			if signerID != 0 {
-				t.Fatal("release has multiple successful signer artifacts")
-			}
-
-			signerID = job.ID
-		}
+	if response == nil || response.NextPage != 0 {
+		t.Fatal("release artifact binding requires a complete job listing")
 	}
 
-	if signerID == 0 || producerID == 0 {
-		t.Fatal("release has no unique successful producer/signer artifact pair")
+	selected, err := livetest.SelectGitLabReleaseEvidenceJobs(jobs, child, requestSHA, images)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	archive := func(id int64) []byte {
@@ -1183,15 +1164,29 @@ func requireGitLabReleaseBundles(t *testing.T, client *gitlabapi.Client, target 
 	if err != nil {
 		t.Fatal("retain release inventory: ", err)
 	}
-	evidence, err := livetest.VerifyGitLabReleaseEvidence(livetest.Context(t), livetest.Binary(t), archive(producerID), archive(signerID), release.AssetNames(), func(assetName string) ([]byte, error) {
+
+	var publisherZIP []byte
+	if images {
+		publisherZIP = archive(selected.Publisher)
+	}
+
+	producerZIP, signerZIP := archive(selected.Build), archive(selected.Signer)
+
+	readback, err := retained.CaptureReadback(func(assetName string) ([]byte, error) {
 		limit := int64(maxReleaseFile)
 		if strings.HasSuffix(assetName, ".apk") {
 			limit = 256 << 20
 		}
 
 		body := livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, tag, assetName), limit)
-		return body, retained.Retain(assetName, body)
-	}, func(blob, bundle []byte) error {
+
+		return body, nil
+	})
+	if err != nil {
+		t.Fatal("retain public release readback: ", err)
+	}
+
+	evidence, err := livetest.VerifyGitLabReleaseEvidence(livetest.Context(t), livetest.Binary(t), producerZIP, publisherZIP, signerZIP, release.AssetNames(), readback, func(blob, bundle []byte) error {
 		return livetest.VerifyBlob(t, target, keys.cosignPublicPath, blob, bundle)
 	})
 	if err != nil {
