@@ -6,6 +6,7 @@ package livetest
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -28,8 +29,18 @@ func (consumer Consumer) WithDraftLayer(tb TB, layer Layer) Consumer {
 
 func (consumer Consumer) bindDraftLayer(ctx context.Context, layer Layer) (Consumer, error) {
 	listed, err := consumer.git.output(ctx, consumer.stage, nil, "ls-tree", "-z", "--name-only", consumer.Commit, consumerWorkflows+"/")
-	if err != nil || len(listed) == 0 {
+	if err != nil {
 		return consumer, err
+	}
+	hasWorkflow := false
+	for path := range strings.SplitSeq(string(listed), "\x00") {
+		if ext := filepath.Ext(path); ext == ".yml" || ext == ".yaml" {
+			hasWorkflow = true
+			break
+		}
+	}
+	if !hasWorkflow {
+		return consumer, nil
 	}
 
 	workflows, err := consumer.workflows(ctx)

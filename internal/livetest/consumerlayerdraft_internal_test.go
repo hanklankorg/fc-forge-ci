@@ -14,7 +14,7 @@ import (
 func TestConsumerDraftLayerBindsPolicyAndGateOnlyInPrivateIndex(t *testing.T) {
 	t.Parallel()
 
-	for _, scenario := range []string{"draft", "published", "mixed", "no native workflows"} {
+	for _, scenario := range []string{"draft", "published", "mixed", "no native workflows", "documentation only"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
 
@@ -33,8 +33,11 @@ func TestConsumerDraftLayerBindsPolicyAndGateOnlyInPrivateIndex(t *testing.T) {
 			if scenario == "mixed" {
 				writeLayerFile(t, root, consumerWorkflows+"/other.yml", strings.ReplaceAll(workflow, pin, consumerPinned))
 			}
-			if scenario == "no native workflows" {
+			if scenario == "no native workflows" || scenario == "documentation only" {
 				mustLayerGit(t, git, root, "rm", "-f", consumerWorkflows+"/ci.yml")
+			}
+			if scenario == "documentation only" {
+				writeLayerFile(t, root, consumerWorkflows+"/README.md", "GitLab is the only CI provider.\n")
 			}
 			mustLayerGit(t, git, root, "add", "--all")
 			mustLayerGit(t, git, root, "commit", "--quiet", "--message", "test: stage provider draft")
