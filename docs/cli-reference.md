@@ -1930,6 +1930,7 @@ EXAMPLE:
 | `--source-dir` | release checkout the plan's Containerfile and context paths are relative to | string | `"."` | n/a |
 | `--created` | org.opencontainers.image.created value: the release commit's time, so the label names the source, not the build (required) | string | `""` | n/a |
 | `--metadata-dir` | directory the staged <name>-arch-<arch> layouts are written under; keep it outside the build context (required) | string | `""` | n/a |
+| `--inputs-dir` | secret-free prepared inputs root, with a <name>-arch-<arch> fetch-build-inputs directory for every build | string | `""` | n/a |
 | `--image-builder` | image builder type: buildah (default; rootless, needs user namespaces) or kaniko (for a pool that denies them; runs as root in the job image CI_IMAGE_BUILDER_JOB_IMAGE names, builds to a layout, exports a stage's files in local mode, no load mode, no build secrets). Set CI_IMAGE_BUILDER on the repository to select it. | string | `"buildah"` | `$CI_IMAGE_BUILDER` |
 | `--kaniko-executor` | path of the kaniko executor (default /kaniko/executor) | string | `""` | `$KANIKO_EXECUTOR` |
 
@@ -2123,6 +2124,8 @@ EXAMPLE:
 | `--layouts-dir` | directory holding the <name>-arch-<arch> layouts; exclusive with --layout-source | string | `""` | n/a |
 | `--layout-source` | native job artifact root as amd64=PATH or arm64=PATH (repeatable); admit/read without copying | string | `""` | n/a |
 | `--output-dir` | directory for release-images.json and the scan evidence; must not exist yet (required) | string | `""` | n/a |
+| `--prepublication-sboms` | retain release-image platform inventories and pin signer-ready index SBOM bytes | bool | `false` | n/a |
+| `--sbom-url-prefix` | public release download directory for inventory URLs; required with --prepublication-sboms | string | `""` | n/a |
 
 #### `forge-ci container release-images rollback`
 

@@ -8,14 +8,28 @@ import (
 	"log"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/diggsweden/forge-ci/internal/adapters/kaniko"
 	"github.com/diggsweden/forge-ci/internal/adapters/ociregistry"
 	appcontainer "github.com/diggsweden/forge-ci/internal/app/container"
+	domaincontainer "github.com/diggsweden/forge-ci/internal/domain/container"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/google/go-containerregistry/pkg/registry"
 	"github.com/stretchr/testify/require"
 )
+
+// The builder is inert, but identity uses the real adapter's executable hash.
+type identifiedStagingTool struct {
+	*stagingSignerTool
+	executable string
+}
+
+func (tool identifiedStagingTool) Identity() (domaincontainer.BuilderIdentity, error) {
+	return (&kaniko.Adapter{Executor: tool.executable}).Identity()
+}
 
 func TestPreparedInputsPreservePublicBuildsWithoutRegistryAccess(t *testing.T) {
 	t.Chdir(t.TempDir())
@@ -90,8 +104,22 @@ func TestPreparedReleaseBuildRunsOfflineForColdAndWarmCaches(t *testing.T) {
 			require.NoError(t, appcontainer.FetchReleaseBuildInputs(t.Context(), client, io.Discard, input, parents, "inputs"))
 			server.Close() // Build phase cannot pull a missing private input.
 
-			tool := &stagingSignerTool{t: t}
+			executable := filepath.Join(t.TempDir(), "executor")
+			require.NoError(t, os.WriteFile(executable, []byte("#!/bin/sh\nexit 99\n"), 0o700))
+			tool := identifiedStagingTool{stagingSignerTool: &stagingSignerTool{t: t}, executable: executable}
+			identity, err := tool.Identity()
+			require.NoError(t, err)
+			input.BuilderMaterialID = identity.MaterialID()
 			loader := &registryInputFixture{}
+			require.NoError(t, os.WriteFile(executable, []byte("#!/bin/sh\nexit 98\n"), 0o700))
+			_, err = appcontainer.StageReleaseBuildWithInputs(t.Context(), tool, loader, ociregistry.NewAnonymous(), io.Discard, input, parents, "inputs")
+			require.ErrorIs(t, err, errs.ErrValidation)
+			require.Empty(t, tool.events, "identity mismatch must precede cache use and parent import")
+			require.Zero(t, loader.loads)
+			_, err = appcontainer.StageSignerImageArch(t.Context(), tool, ociregistry.NewAnonymous(), io.Discard, input)
+			require.ErrorIs(t, err, errs.ErrValidation)
+			require.Empty(t, tool.events)
+			require.NoError(t, os.WriteFile(executable, []byte("#!/bin/sh\nexit 99\n"), 0o700))
 			metadata, err := appcontainer.StageReleaseBuildWithInputs(t.Context(), tool, loader, ociregistry.NewAnonymous(), io.Discard, input, parents, "inputs")
 			require.NoError(t, err)
 			require.NotEmpty(t, metadata.Digest)

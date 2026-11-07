@@ -88,6 +88,9 @@ type PreparedBuildRegistry interface {
 // access. Every parent is verified before the first builder operation. Cached
 // output still passes the ordinary complete-set scan/publication barrier.
 func StageReleaseBuildWithInputs(ctx context.Context, tool SignerImageTool, loader RegistryInputLoader, registry PreparedBuildRegistry, out io.Writer, input SignerImageBuildArchInput, parents map[string]string, directory string) (*SignerImageArchMetadata, error) {
+	if err := CheckSignerImageBuilderIdentity(tool, input.BuilderMaterialID); err != nil {
+		return nil, err
+	}
 	if err := pipeline.ValidateRegistryInputs(pipeline.ReleaseImageBuild{BuildArgs: strings.Join(input.BuildArgs, "\n"), RegistryInputs: parents}); err != nil {
 		return nil, err
 	}

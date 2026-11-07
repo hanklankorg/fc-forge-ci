@@ -392,11 +392,27 @@ rc_images_build() {
 	find "${handoff}" \( -type d -o -type f \) -exec chmod u=rwX,go=rX -- {} +
 }
 
+# The admitted native publication outputs have a flat dist/<file> mapping.
+# Keep this copy boundary shared with inert handoff tests. Base ledgers and
+# premade-sboms/ are not supported by this dist-only handoff; the engine refuses
+# base plans rather than flattening their canonical signer paths.
+rc_collect_release_images() {
+	local images=$1 file
+	# Admit the complete fan-in before copying any entry.
+	for file in "${images}"/*; do
+		rc_require_regular_file "${file}" || return 1
+		rc_require_absent "${DIST_DIR:?}/${file##*/}" || return 1
+	done
+	for file in "${images}"/*; do
+		cp -- "${file}" "${DIST_DIR}/" || return 1
+	done
+}
+
 # rc_images_publish scans and pushes every planned image under its staging
 # tag in this project's registry with the job token, then joins the ledger and
 # its evidence to the build's dist in a hand-off of its own, digested again.
 rc_images_publish() {
-	local file images="${RC_WORK}/images" auth_file="${RC_WORK}/registry-auth.json"
+	local images="${RC_WORK}/images" auth_file="${RC_WORK}/registry-auth.json"
 	rc_release_checkout
 	rc_read_handoff "${CI_PROJECT_DIR}/_release-build" || return
 	# shellcheck source=scripts/bootstrap/install-trivy.sh
@@ -412,10 +428,7 @@ rc_images_publish() {
 		--layout-source "arm64=${CI_PROJECT_DIR}/_release-images-arm64" \
 		--output-dir "${images}" --auth-file "${auth_file}"
 	rm -f -- "${auth_file}"
-	for file in "${images}"/*; do
-		rc_require_absent "${DIST_DIR:?}/${file##*/}" || return 1
-		cp -- "${file}" "${DIST_DIR}/"
-	done
+	rc_collect_release_images "${images}" || return
 	rc_require_regular_file "${DIST_DIR}/release-images.json" || return 1
 	rc_engine release prepare-dist --path "${DIST_DIR}" --prune-dirs false
 	local handoff="${CI_PROJECT_DIR}/_release-images"

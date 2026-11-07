@@ -16,6 +16,7 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/diggsweden/forge-ci/internal/adapters/ociregistry"
+	"github.com/diggsweden/forge-ci/internal/adapters/syft"
 	"github.com/diggsweden/forge-ci/internal/adapters/trivy"
 	appcontainer "github.com/diggsweden/forge-ci/internal/app/container"
 	appsnapshot "github.com/diggsweden/forge-ci/internal/app/snapshotimage"
@@ -23,7 +24,6 @@ import (
 	"github.com/diggsweden/forge-ci/internal/cli/deps"
 	"github.com/diggsweden/forge-ci/internal/cliio"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
-	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
 	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
 )
 
@@ -61,6 +61,7 @@ EXAMPLE:
 			&cli.StringFlag{Name: flagSourceDir, Value: ".", Usage: "release checkout the plan's Containerfile and context paths are relative to"},
 			&cli.StringFlag{Name: flagCreated, Required: true, Usage: "org.opencontainers.image.created value: the release commit's time, so the label names the source, not the build"},
 			&cli.StringFlag{Name: flagMetadataDir, Required: true, Usage: "directory the staged <name>-arch-<arch> layouts are written under; keep it outside the build context"},
+			&cli.StringFlag{Name: "inputs-dir", Usage: "secret-free prepared inputs root, with a <name>-arch-<arch> fetch-build-inputs directory for every build"},
 		), imageBuilderFlags()...),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			plan, err := readReleaseImagesPlanFile(cmd)
@@ -75,8 +76,23 @@ EXAMPLE:
 
 			arch := cmd.String(flagArch)
 			builds := releaseImageBuildsOf(plan, arch)
+			if root := cmd.String("inputs-dir"); root != "" && !filepath.IsLocal(root) {
+				return fmt.Errorf("inputs-dir must be a safe relative directory: %w", errs.ErrUsage)
+			}
+			// Check the whole native share before the first build or cache import.
+			for _, build := range builds {
+				if err := validateReleaseImageBuilder(builder, build, cmd.String("inputs-dir") != ""); err != nil {
+					return err
+				}
+			}
 
 			for _, build := range builds {
+				if cmd.String("inputs-dir") != "" {
+					if err := stagePreparedReleaseImageBuild(ctx, cmd, builder, build, filepath.Join(cmd.String("inputs-dir"), build.Name+"-arch-"+build.Arch)); err != nil {
+						return fmt.Errorf("release image %s (%s): %w", build.Name, build.Arch, err)
+					}
+					continue
+				}
 				if _, err := appcontainer.StageSignerImageArch(ctx, signerImageTool{builder}, ociregistry.NewAnonymous(), os.Stderr, releaseImageBuildInput(cmd, build)); err != nil {
 					return fmt.Errorf("release image %s (%s): %w", build.Name, build.Arch, err)
 				}
@@ -123,24 +139,25 @@ func releaseImageBuildInput(cmd *cli.Command, build pipeline.ReleaseImageBuild) 
 	}
 
 	return appcontainer.SignerImageBuildArchInput{
-		Arch:            build.Arch,
-		HostArch:        runtime.GOARCH,
-		SourceSHA:       cmp.Or(build.Revision, cmd.String(flagReleaseSHA)),
-		ServerURL:       cmd.String(flagServerURL),
-		Repository:      cmd.String(flagRepository),
-		ImageRepository: build.ImageRepository,
-		TagName:         build.CandidateTag,
-		Name:            build.Name,
-		Title:           build.Name,
-		Containerfile:   filepath.Join(source, build.ContainerFile),
-		Context:         filepath.Join(source, build.Context),
-		Target:          build.Target,
-		BuildArgs:       splitSignerLines(build.BuildArgs),
-		Labels:          labels,
-		CacheTag:        build.CacheTag,
-		CacheLabels:     cacheLabels,
-		MetadataDir:     filepath.Join(cmd.String(flagMetadataDir), build.Name+"-arch-"+build.Arch),
-		RetryAttempts:   cmd.Int(flagRetryAttempts),
+		Arch:              build.Arch,
+		HostArch:          runtime.GOARCH,
+		SourceSHA:         cmp.Or(build.Revision, cmd.String(flagReleaseSHA)),
+		ServerURL:         cmd.String(flagServerURL),
+		Repository:        cmd.String(flagRepository),
+		ImageRepository:   build.ImageRepository,
+		TagName:           build.CandidateTag,
+		Name:              build.Name,
+		Title:             build.Name,
+		Containerfile:     filepath.Join(source, build.ContainerFile),
+		Context:           filepath.Join(source, build.Context),
+		Target:            build.Target,
+		BuildArgs:         splitSignerLines(build.BuildArgs),
+		Labels:            labels,
+		CacheTag:          build.CacheTag,
+		CacheLabels:       cacheLabels,
+		MetadataDir:       filepath.Join(cmd.String(flagMetadataDir), build.Name+"-arch-"+build.Arch),
+		RetryAttempts:     cmd.Int(flagRetryAttempts),
+		BuilderMaterialID: build.BuilderMaterialID,
 	}
 }
 
@@ -169,6 +186,8 @@ EXAMPLE:
 			&cli.StringFlag{Name: flagLayoutsDir, Usage: "directory holding the <name>-arch-<arch> layouts; exclusive with --layout-source"},
 			&cli.StringSliceFlag{Name: "layout-source", Usage: "native job artifact root as amd64=PATH or arm64=PATH (repeatable); admit/read without copying"},
 			&cli.StringFlag{Name: flagOutputDir, Required: true, Usage: "directory for release-images.json and the scan evidence; must not exist yet"},
+			&cli.BoolFlag{Name: "prepublication-sboms", Usage: "retain release-image platform inventories and pin signer-ready index SBOM bytes"},
+			&cli.StringFlag{Name: "sbom-url-prefix", Usage: "public release download directory for inventory URLs; required with --prepublication-sboms"},
 		),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			plan, err := readReleaseImagesPlanFile(cmd)
@@ -193,18 +212,21 @@ EXAMPLE:
 				scanner := trivy.New()
 
 				return appcontainer.PublishReleaseImages(ctx, ociregistry.WithAuthFile(cmd.String(flagAuthFile)), dep.SummarySink, os.Stderr, appcontainer.PublishReleaseImagesInput{
-					Plan:          plan,
-					LayoutsDir:    cmd.String(flagLayoutsDir),
-					LayoutSources: sources,
-					OutputDir:     cmd.String(flagOutputDir),
-					AuthFile:      cmd.String(flagAuthFile),
-					ReleaseTag:    cmd.String(flagReleaseTag),
-					ReleaseSHA:    cmd.String(flagReleaseSHA),
-					ServerURL:     cmd.String(flagServerURL),
-					Repository:    cmd.String(flagRepository),
-					RetryAttempts: cmd.Int(flagRetryAttempts),
-					Trivy:         scanner,
-					Gate:          publicationGate(scanner, deps.Annotator(cmd)),
+					Plan:                plan,
+					LayoutsDir:          cmd.String(flagLayoutsDir),
+					LayoutSources:       sources,
+					OutputDir:           cmd.String(flagOutputDir),
+					AuthFile:            cmd.String(flagAuthFile),
+					ReleaseTag:          cmd.String(flagReleaseTag),
+					ReleaseSHA:          cmd.String(flagReleaseSHA),
+					ServerURL:           cmd.String(flagServerURL),
+					Repository:          cmd.String(flagRepository),
+					RetryAttempts:       cmd.Int(flagRetryAttempts),
+					Trivy:               scanner,
+					Syft:                syft.New(),
+					PrepublicationSBOMs: cmd.Bool("prepublication-sboms"),
+					SBOMURLPrefix:       cmd.String("sbom-url-prefix"),
+					Gate:                publicationGate(scanner, deps.Annotator(cmd)),
 				})
 			})
 		},
@@ -236,36 +258,15 @@ func readReleaseImagesPlanFile(cmd *cli.Command) (pipeline.ReleaseImagesPlan, er
 		return pipeline.ReleaseImagesPlan{}, err
 	}
 
-	return plan, refuseUnsupportedJobPlan(plan)
-}
-
-// refuseUnsupportedJobPlan refuses what the job verbs do not carry out: a
-// base image, which has its own import and signing path, and a builder
-// material ID, which comes only from a consumer's image-plan-json.
-func refuseUnsupportedJobPlan(plan pipeline.ReleaseImagesPlan) error {
-	for _, image := range plan.Images {
-		if image.ImageKind == string(imageledger.ImageKindBase) {
-			return fmt.Errorf("release image %s: a base image is not published by the release-images job verbs: %w", image.Name, errs.ErrInvalidConfig)
-		}
-	}
-
-	for _, build := range plan.Builds {
-		if build.BuilderMaterialID != "" {
-			return fmt.Errorf("release image %s: a planned builder-material-id is not carried out by the release-images job verbs: %w", build.Name, errs.ErrInvalidConfig)
-		}
-	}
-
-	return nil
+	return plan, appcontainer.ValidateNativeReleaseImagesPlan(plan)
 }
 
 // writeReleaseImagesPlanFile writes the plan for the job verbs, after
-// refusing what they do not carry out and a build of an architecture no job
-// builds, so the plan stops before any image job runs.
+// refusing a build of an architecture no job builds.
 func writeReleaseImagesPlanFile(path string, plan pipeline.ReleaseImagesPlan, runnerArchs string) error {
-	if err := refuseUnsupportedJobPlan(plan); err != nil {
+	if err := appcontainer.ValidateNativeReleaseImagesPlan(plan); err != nil {
 		return err
 	}
-
 	if runnerArchs != "" {
 		available := strings.FieldsFunc(runnerArchs, func(r rune) bool { return r == ',' || r == '\n' || r == ' ' })
 		for _, build := range plan.Builds {

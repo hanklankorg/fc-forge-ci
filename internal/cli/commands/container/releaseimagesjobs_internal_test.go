@@ -5,16 +5,19 @@ package container
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v3"
 
+	"github.com/diggsweden/forge-ci/internal/adapters/kaniko"
 	appcontainer "github.com/diggsweden/forge-ci/internal/app/container"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
-	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
 	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
 	"github.com/diggsweden/forge-ci/internal/testutil/testenv"
 )
@@ -92,20 +95,96 @@ func TestReleaseImagesPlanOutput_RefusesAnArchitectureWithoutABuildJob(t *testin
 	require.ErrorIs(t, err, errs.ErrUsage)
 }
 
-// What the job verbs do not carry out stops the plan before any image job
-// runs, and is refused again when a job reads the plan.
-func TestReleaseImagesPlanFile_RefusesWhatTheJobVerbsDoNotCarryOut(t *testing.T) {
-	for name, plan := range map[string]pipeline.ReleaseImagesPlan{
-		"base image":          {Images: []pipeline.ReleaseImage{{Name: "base", ImageKind: string(imageledger.ImageKindBase)}}},
-		"builder material ID": {Builds: []pipeline.ReleaseImageBuild{{Name: "app", Arch: "amd64", BuilderMaterialID: "sha256:x"}}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "plan.json")
-
-			require.ErrorIs(t, writeReleaseImagesPlanFile(path, plan, ""), errs.ErrInvalidConfig)
-			require.NoFileExists(t, path)
-			require.ErrorIs(t, refuseUnsupportedJobPlan(plan), errs.ErrInvalidConfig)
+func TestReleaseImagesResolvedNativePlansPreserveIdentityAndBasePolicy(t *testing.T) {
+	writeReleaseJobsArtifacts(t)
+	executable := filepath.Join(t.TempDir(), "executor")
+	require.NoError(t, os.WriteFile(executable, []byte("#!/bin/sh\nexit 99\n"), 0o700))
+	tool := signerImageTool{&kaniko.Adapter{Executor: executable}}
+	identity, err := tool.Identity()
+	require.NoError(t, err)
+	for _, base := range []bool{true, false} {
+		var plan pipeline.ReleaseImagesPlan
+		// Start with the same artifacts planner used by ordinary native jobs.
+		require.NoError(t, releaseImagesPlanCmd().Run(t.Context(), releaseJobsPlanArgs("--output", "ordinary.json")))
+		body, err := os.ReadFile("ordinary.json")
+		require.NoError(t, err)
+		require.NoError(t, json.Unmarshal(body, &plan))
+		if base {
+			image := &plan.Images[0]
+			image.ImageKind, image.Role, image.Flavor = "base", "base", "core"
+			image.BaseInputID = strings.Repeat("a", 64)
+			image.FinalTagName = image.BaseInputID + "-core"
+			image.CandidateTag = "staging-" + image.FinalTagName
+			image.Revision = image.BaseInputID
+			image.RequiredLabels = "org.example.base-input-id=" + image.BaseInputID
+			image.CacheTagPrefix = "cache-" + image.FinalTagName
+			for i := range plan.Builds {
+				build := &plan.Builds[i]
+				build.FinalTagName, build.CandidateTag, build.Revision = image.FinalTagName, image.CandidateTag, image.Revision
+				build.RequiredLabels = image.RequiredLabels
+				build.Labels = image.RequiredLabels
+				build.CacheTag = image.CacheTagPrefix + "-" + build.Arch
+			}
+		}
+		for i := range plan.Builds {
+			plan.Builds[i].BuilderMaterialID = identity.MaterialID()
+		}
+		if base {
+			require.ErrorIs(t, writeReleaseImagesPlanFile("refused-base.json", plan, "amd64,arm64"), errs.ErrInvalidConfig)
+			require.NoFileExists(t, "refused-base.json")
+			// Domain transport still admits base plans for the supported base
+			// lifecycle. A planted plan cannot bypass native job admission.
+			body, err = json.Marshal(plan)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile("resolved.json", body, 0o600))
+		} else {
+			require.NoError(t, writeReleaseImagesPlanFile("resolved.json", plan, "amd64,arm64"))
+		}
+		body, err = os.ReadFile("resolved.json")
+		require.NoError(t, err)
+		admitted, err := pipeline.ReadImageBuildPlan(string(body), "registry.example/group/app", "v1.2.3")
+		require.NoError(t, err)
+		require.Equal(t, plan, admitted)
+		input := releaseImageBuildInputFor(t, admitted.Builds[0])
+		require.Equal(t, identity.MaterialID(), input.BuilderMaterialID)
+		if base {
+			require.Equal(t, admitted.Images[0].Revision, input.SourceSHA)
+			require.Equal(t, admitted.Builds[0].CacheTag, input.CacheTag)
+			require.Equal(t, []string{admitted.Images[0].RequiredLabels}, input.CacheLabels)
+			require.Contains(t, input.Labels, admitted.Images[0].RequiredLabels)
+		}
+		require.NoError(t, appcontainer.CheckSignerImageBuilderIdentity(tool, input.BuilderMaterialID))
+		// Hash the real adapter executable again: no build/probe may run.
+		require.NoError(t, os.WriteFile(executable, []byte("#!/bin/sh\nexit 98\n"), 0o700))
+		require.ErrorIs(t, appcontainer.CheckSignerImageBuilderIdentity(tool, input.BuilderMaterialID), errs.ErrValidation)
+		err = releaseImagesBuildCmd().Run(t.Context(), []string{
+			"build", "--plan", "resolved.json", "--arch", runtime.GOARCH,
+			"--image-repository", "registry.example/group/app", "--release-tag", "v1.2.3",
+			"--release-sha", strings.Repeat("b", 40), "--server-url", "https://gitlab.example",
+			"--repository", "group/app", "--created", "2026-01-02T03:04:05Z",
+			"--metadata-dir", "never-staged", "--image-builder", "kaniko", "--kaniko-executor", executable,
 		})
+		if base {
+			require.ErrorIs(t, err, errs.ErrInvalidConfig)
+			require.ErrorContains(t, err, "canonical premade-sboms handoff")
+		} else {
+			require.ErrorIs(t, err, errs.ErrValidation)
+			require.ErrorContains(t, err, "native builder material ID differs")
+		}
+		require.NoDirExists(t, "never-staged")
+		buildJSON, err := json.Marshal(admitted.Builds[0])
+		require.NoError(t, err)
+		err = releaseImagesBuildPreparedCmd().Run(t.Context(), []string{
+			"build-prepared", "--build-json", string(buildJSON), "--inputs-dir", "never-inputs",
+			"--release-tag", "v1.2.3", "--release-sha", strings.Repeat("b", 40),
+			"--server-url", "https://gitlab.example", "--repository", "group/app",
+			"--created", "2026-01-02T03:04:05Z", "--metadata-dir", "never-staged",
+			"--image-builder", "kaniko", "--kaniko-executor", executable,
+		})
+		require.ErrorIs(t, err, errs.ErrValidation)
+		require.ErrorContains(t, err, "native builder material ID differs")
+		require.NoDirExists(t, "never-staged")
+		require.NoError(t, os.WriteFile(executable, []byte("#!/bin/sh\nexit 99\n"), 0o700))
 	}
 }
 
