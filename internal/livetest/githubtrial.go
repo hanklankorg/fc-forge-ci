@@ -48,6 +48,11 @@ const (
 	githubTrialEmail     = "forge-lab-trial@hosted.invalid"
 )
 
+var (
+	errGitHubJobLogRequest = errors.New("could not prepare the job log request")
+	errGitHubJobLogFetch   = errors.New("could not fetch the job log")
+)
+
 // GitHubTrial is one hosted trial: the organization the context authorized,
 // and the client, which refuses repositories outside the context's prefix.
 type GitHubTrial struct {
@@ -557,9 +562,11 @@ func (trial *GitHubTrial) SetSecret(repo, name, value string) {
 	if trial.secrets == nil {
 		trial.secrets = map[string]map[string]string{}
 	}
+
 	if trial.secrets[repo] == nil {
 		trial.secrets[repo] = map[string]string{}
 	}
+
 	trial.secrets[repo][name] = value
 }
 
@@ -658,6 +665,7 @@ func (trial *GitHubTrial) ReportRun(repo string, run *github.WorkflowRun) {
 			if snapshotEvidenceRoot() != "" {
 				trial.tb.Errorf("livetest: job %d log URL unavailable; no full evidence retained", job.GetID())
 			}
+
 			trial.tb.Logf("    (no log: %s)", redactJobLog(Target{Token: trial.token, CredentialUsername: "x-access-token"}, logErr.Error(), trial.secrets[repo]))
 			trial.reportJobAnnotations(ctx, repo, job)
 
@@ -671,35 +679,6 @@ func (trial *GitHubTrial) ReportRun(repo string, run *github.WorkflowRun) {
 			trial.reportJobAnnotations(ctx, repo, job)
 		}
 	}
-}
-
-// Retain before ReportRun returns to the verdict and disposable cleanup. Reuse
-// the snapshot destination, bounds and redactor rather than a second archive.
-func (trial *GitHubTrial) failureEvidence(ctx context.Context, repo string, run *github.WorkflowRun, job *github.WorkflowJob, location string) string {
-	if snapshotEvidenceRoot() == "" {
-		return failureOf(ctx, location, 40)
-	}
-
-	reader, err := openGitHubJobLog(ctx, location)
-	if err != nil {
-		trial.tb.Errorf("livetest: job %d log unavailable; no full evidence retained", job.GetID())
-
-		return err.Error()
-	}
-	defer func() { _ = reader.Close() }()
-
-	body, err := io.ReadAll(io.LimitReader(reader, maxJobLog+1))
-	if err != nil || len(body) > maxJobLog {
-		trial.tb.Errorf("livetest: job %d log unreadable or exceeds evidence limit; no full evidence retained", job.GetID())
-
-		return "could not fetch the job log within the evidence limit"
-	}
-
-	target := Target{Forge: "github", Host: "github.com", Owner: trial.org, Token: trial.token, CredentialUsername: "x-access-token"}
-	log := redactJobLog(target, string(body), trial.secrets[repo])
-	retainJobLogText(trial.tb, target, trial.org+"/"+repo, RunJob{RunID: run.GetID(), ID: job.GetID(), Attempt: int64(max(1, run.GetRunAttempt()))}, log, trial.secrets[repo])
-
-	return readFailureExcerpt(strings.NewReader(log), 40)
 }
 
 // Jobs rejected before a runner starts may have no log archive. GitHub records
@@ -769,19 +748,19 @@ func failureOf(ctx context.Context, location string, lines int) string {
 func openGitHubJobLog(ctx context.Context, location string) (io.ReadCloser, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil) //nolint:gosec // G704: pre-signed URL comes from the authenticated GitHub job-log API, not repository content.
 	if err != nil {
-		return nil, errors.New("could not prepare the job log request")
+		return nil, errGitHubJobLogRequest
 	}
 
 	response, err := (&http.Client{Timeout: time.Minute}).Do(request) //nolint:gosec // G704: fetch the GitHub-issued pre-signed log URL without an API token.
 	if err != nil {
 		// The URL is pre-signed; transport errors can include its credentials.
-		return nil, errors.New("could not fetch the job log")
+		return nil, errGitHubJobLogFetch
 	}
 
 	if response.StatusCode != http.StatusOK {
 		_ = response.Body.Close()
 
-		return nil, fmt.Errorf("could not fetch the job log: HTTP %d", response.StatusCode)
+		return nil, fmt.Errorf("%w: HTTP %d", errGitHubJobLogFetch, response.StatusCode)
 	}
 
 	return response.Body, nil
@@ -1069,6 +1048,35 @@ func (trial *GitHubTrial) CheckImage(repo, image, final string, engine GitHubEng
 	trial.tb.Errorf("no promoted tag of %s for %s verifies", reference, final)
 
 	return ""
+}
+
+// Retain before ReportRun returns to the verdict and disposable cleanup. Reuse
+// the snapshot destination, bounds and redactor rather than a second archive.
+func (trial *GitHubTrial) failureEvidence(ctx context.Context, repo string, run *github.WorkflowRun, job *github.WorkflowJob, location string) string {
+	if snapshotEvidenceRoot() == "" {
+		return failureOf(ctx, location, 40)
+	}
+
+	reader, err := openGitHubJobLog(ctx, location)
+	if err != nil {
+		trial.tb.Errorf("livetest: job %d log unavailable; no full evidence retained", job.GetID())
+
+		return err.Error()
+	}
+	defer func() { _ = reader.Close() }()
+
+	body, err := io.ReadAll(io.LimitReader(reader, maxJobLog+1))
+	if err != nil || len(body) > maxJobLog {
+		trial.tb.Errorf("livetest: job %d log unreadable or exceeds evidence limit; no full evidence retained", job.GetID())
+
+		return "could not fetch the job log within the evidence limit"
+	}
+
+	target := Target{Forge: "github", Host: "github.com", Owner: trial.org, Token: trial.token, CredentialUsername: "x-access-token"}
+	log := redactJobLog(target, string(body), trial.secrets[repo])
+	retainJobLogText(trial.tb, target, trial.org+"/"+repo, RunJob{RunID: run.GetID(), ID: job.GetID(), Attempt: int64(max(1, run.GetRunAttempt()))}, log, trial.secrets[repo])
+
+	return readFailureExcerpt(strings.NewReader(log), 40)
 }
 
 // waitWorkflows waits until GitHub lists every workflow just pushed to a new
