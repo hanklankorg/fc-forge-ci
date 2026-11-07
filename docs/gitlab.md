@@ -1152,6 +1152,85 @@ copies producer signatures or publishes final tags. A failure after base
 promotion can leave a valid immutable cache entry for the next request; bases
 are not rolled back with release tags.
 
+### Native BASE boundary: cold single root only
+
+`container base-images root-base` is a deliberately narrow, provider-neutral
+CLI boundary, not activation of the native release workflow. Its `plan` admits
+an already-resolved consumer `builds`/`images` plan with exactly one root base
+and writes the frozen native plan. Product graph selection and content IDs are
+not computed by the engine. `--runner-archs` must cover the selected builds.
+`build` reuses the existing native builder and layout records without registry
+writes. `publish` admits the complete layout set, scans/gates all platforms
+before uploading any, and publishes unsigned staging candidates only.
+
+Use the same `--image-repository`, `--release-tag`, `--release-sha`,
+`--server-url` and `--repository` on these three commands:
+
+```bash
+forge-ci container base-images root-base plan --plan consumer-plan.json \
+  --output plan.json --runner-archs amd64 # plus the common flags above
+forge-ci container base-images root-base build --plan plan.json --arch amd64 \
+  --metadata-dir layouts --created "$COMMIT_TIME" # plus common flags
+forge-ci container base-images root-base publish --plan plan.json \
+  --layouts-dir layouts --output-dir handoff/payload --auth-file staging-auth.json # plus common flags
+forge-ci release dist-digest --canonical-payload --dist-dir handoff/payload >handoff/digest
+```
+
+The output parent must already exist; the payload must not. Transport the whole
+`handoff/payload/` tree and sibling `digest`, preserving `dist/` and
+`premade-sboms/`. Never flatten or digest just `dist/`. On the trusted side:
+
+```bash
+forge-ci release validate-dist --canonical-payload --dist-dir handoff/payload \
+  --digest-file handoff/digest --stage-dir verified-payload
+```
+
+The digest binds bytes; the caller still authenticates which producer/job and
+source supplied it. Existing `base-images import` consumes
+`verified-payload/dist/base-images.json`, with `--dist-dir verified-payload/dist`,
+the exact staging `--source-repository`, a separate publication
+`--expected-repository`, and a new publication ledger under that dist.
+Existing `base-images sign` consumes that publication ledger with
+`--evidence-root verified-payload`, the pinned source/workflow and its trusted
+signing authority. It uses the retained SBOM bytes, not a signer-side rescan.
+Existing `base-images promote --ledger ...` verifies signatures and lineage,
+enforces immutable final tags and emits `base_images_json` with digest-pinned
+publication refs and opaque input IDs. Registry credentials and signing keys
+remain confined to their existing separate lanes.
+
+The GitLab adapter accepts this unsigned transport only through the explicit
+`rc_read_handoff DIRECTORY canonical-payload` mode. After successful independent
+staging it exposes `DIST_DIR=verified-payload/dist` and
+`RC_EVIDENCE_ROOT=verified-payload`. A caller must explicitly pass that evidence
+root to signing. No production job selects this mode, and it is not a signed
+handoff protocol: producer publication ledgers remain forbidden. The existing
+dist-only release workflow and general native BASE refusal are unchanged.
+
+#### Exact next unit (not supported here)
+
+Parents, multiple/mixed images, warm reuse and architecture caches are refused
+by every root-base verb before external tools or registry writes. This is not
+whole-Nano enablement and does not support a dependent release-image build.
+Before enabling those paths:
+
+- Admit a flat consumer-owned stage/dependency projection. Nano already owns
+  `dependency-inputs` and `build-plan --verified-parents-json`: the engine should
+  consume explicit immediate parent refs/IDs, never parse Nano flavors or hash
+  its graph. Authenticate completed fan-in before projecting a child plan.
+- Carry registry parents through the existing credentialed fetch/prepared-input
+  boundary into secret-free native builders; preserve immediate lineage through
+  the ledger, import and signing. Test native dependent-build admission.
+- Close the promotion expectation gap: promotion currently verifies source,
+  workflow, flavor and input ID but does not accept an independent expected
+  immediate parent. Do not claim parent binding merely because signing retained
+  `parent_base`. Add explicit expected-parent admission/comparison before any
+  promotion copy, including warm/cold fan-in and negative lineage tests.
+- Review the protected YAML stage DAG, `needs`, native architecture fan-in and
+  trust lanes. Keep scheduling there; reuse Go dependency admission, validation
+  and lifecycle sequencing. Carry verified warm/cold outputs and all evidence
+  between stages, including signed handoffs, before changing the general native
+  refusal or activating any production policy.
+
 ### Package publication
 
 The Catalog publish components are separate from the native release and run

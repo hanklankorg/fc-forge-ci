@@ -71,6 +71,7 @@ lineage attestations, sign digest-pinned base images, and promote verified
 candidate images to immutable final base tags. Checkout and pinned-binary
 bootstrap remain owned by the caller.`,
 		Commands: []*cli.Command{
+			rootBaseGroup(),
 			baseImagesImportCmd(),
 			baseImagesSignCmd(),
 			baseImagesVerifyCmd(),
