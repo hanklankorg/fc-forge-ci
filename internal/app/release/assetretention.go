@@ -16,11 +16,12 @@ import (
 )
 
 // DefaultAssetRetentionKeepFiles matches the files an old release keeps: the
-// checksum manifests, every signature and bundle, and the SBOMs. They are
+// checksum manifests, every signature and bundle, the SBOMs (including native
+// sbom-<image>-<arch>.json inventories), and release-plan.json. They are
 // small, and with them a file rebuilt from the tag can still be checked
 // against what was released: by its checksum, and by its own signature when
 // the build is reproducible.
-const DefaultAssetRetentionKeepFiles = `(?i)(checksums\.txt|sha256sums)|\.(bundle|sig|asc|pem|intoto\.jsonl?)$|\.(sbom|cyclonedx|spdx)\.json$`
+const DefaultAssetRetentionKeepFiles = `(?i)(checksums\.txt|sha256sums)|\.(bundle|sig|asc|pem|intoto\.jsonl?)$|\.(sbom|cyclonedx|spdx)\.json$|^(sbom-[a-z0-9][a-z0-9._-]*|release-plan)\.json$`
 
 // AssetRetentionInput drives `release asset-retention`.
 type AssetRetentionInput struct {

@@ -131,6 +131,52 @@ func TestApplyAssetRetention_KeepsPublishedSBOMAndProvenanceNames(t *testing.T) 
 	}
 }
 
+func TestApplyAssetRetention_KeepsPublicReleaseEvidenceDependencies(t *testing.T) {
+	t.Parallel()
+
+	old := goRelease("v1.0.0", 1)
+	// The index SBOM references the native inventories; the plan and each
+	// inventory are also subjects of the retained signing bundles.
+	for _, name := range []string{
+		"image-sbom-distroless.cyclonedx.json",
+		"image-sbom-distroless.cyclonedx.json.bundle",
+		"sbom-distroless-amd64.json",
+		"sbom-distroless-amd64.json.bundle",
+		"sbom-distroless-arm64.json",
+		"sbom-distroless-arm64.json.bundle",
+		"sbom-alpine-amd64.json",
+		"sbom-alpine-amd64.json.bundle",
+		"release-plan.json",
+		"release-plan.json.bundle",
+	} {
+		old.Assets = append(old.Assets, provider.ListedAsset{Name: name, Size: 1e3})
+	}
+
+	want := []string{"v1.0.0/app_v1.0.0_linux_amd64.tar.gz", "v1.0.0/app_v1.0.0_amd64.deb"}
+	for _, name := range []string{
+		"release-images.json", // Internal image ledger, not public evidence.
+		"trivy-results-distroless-amd64.json",
+		"payload.json",
+		"other-release-plan.json",
+		"release-plan.json.backup",
+		"other-sbom-distroless-amd64.json",
+		"sbom-distroless-amd64.json.backup",
+	} {
+		old.Assets = append(old.Assets, provider.ListedAsset{Name: name, Size: 1e3})
+		want = append(want, old.Tag+"/"+name)
+	}
+
+	pruner := &releasePruner{releases: []provider.ListedRelease{old, goRelease("v1.1.0", 2)}}
+	result, err := apprelease.ApplyAssetRetention(t.Context(), pruner, &bytes.Buffer{}, retention(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !slices.Equal(pruner.deleted, want) || result.Files != len(want) || result.Bytes != 15e6+7e3 {
+		t.Fatalf("deleted %v, result %+v; want only obsolete payloads and non-evidence %v", pruner.deleted, result, want)
+	}
+}
+
 // A pass larger than the bound deletes nothing, so a first run over years of
 // releases is read before it acts.
 func TestApplyAssetRetention_RefusesMoreThanTheBound(t *testing.T) {
