@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/adapters/maven"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/testutil/mockbinary"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEvalExpression_ReturnsTrimmedStdout(t *testing.T) {
@@ -39,6 +41,28 @@ func TestEvalExpression_ReturnsTrimmedStdout(t *testing.T) {
 	if !slices.Equal(invs[0].Args, want) {
 		t.Errorf("args = %v, want %v", invs[0].Args, want)
 	}
+}
+
+func TestProjectDirectoryBindsLifecycleAndMetadataWithoutGlobalChdir(t *testing.T) {
+	mock := mockbinary.New(t)
+	mock.OnPath()
+	mock.Add("mvn", `pwd`)
+
+	before, err := os.Getwd()
+	require.NoError(t, err)
+	directory := t.TempDir()
+	adapter := &maven.Adapter{Dir: directory}
+	metadata, err := adapter.EvalExpression(t.Context(), "project.version")
+	require.NoError(t, err)
+	require.Equal(t, directory, metadata)
+
+	var output bytes.Buffer
+	require.NoError(t, adapter.RunInherit(t.Context(), &output, &output, "install"))
+	require.Equal(t, directory, strings.TrimSpace(output.String()))
+
+	after, err := os.Getwd()
+	require.NoError(t, err)
+	require.Equal(t, before, after)
 }
 
 func TestEvalExpression_NonZeroExitIncludesOutput(t *testing.T) {

@@ -136,10 +136,10 @@ jobs:
         # build → SBOM → summaries); the binary threads metadata internally and
         # branches on --build-type, so the same `build maven run` runs
         # identically on GitLab. The per-step variations (build type, profile,
-        # SBOM plugin version, skip-tests) are configuration here. mvn runs in
-        # this step's working-directory; only checkout/cache/upload wrap it.
-        working-directory: ${{ inputs['working-directory'] }}
+        # SBOM plugin version, skip-tests) are configuration here. The CLI binds
+        # metadata and every Maven subprocess to the selected project directory.
         env:
+          WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
           ADMIN_APPLICATION_TESTS: ${{ inputs['enforce-application-tests'] }}
           BUILD_TYPE: ${{ inputs['build-type'] }}
           MAVEN_PROFILE: ${{ inputs['profile'] }}

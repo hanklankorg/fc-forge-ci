@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: The Forge CI Authors
+# SPDX-License-Identifier: CC0-1.0
+# Ephemeral CLI snapshot: builds/tests only, without signing or publication.
+# Copy beside the PR/release callers and use the same authenticated layer pin.
+# Product-specific generation and extra static gates remain product-owned.
+name: Snapshot
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [main]
+concurrency:
+  group: snapshot-${{ forgejo.repository }}-${{ forgejo.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 30
+    env:
+      GOTOOLCHAIN: local
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: '*'
+    steps:
+      - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/checkout-consumer@PIN_FORGE_CI_SHA
+        with:
+          ref: ${{ forgejo.sha }}
+      - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/build-go@PIN_FORGE_CI_SHA
+        with:
+          version: 0.0.0-snapshot
+          commit: ${{ forgejo.sha }}
+          main-package: ./cmd/my-cli
+          enable-build-sbom: 'false'

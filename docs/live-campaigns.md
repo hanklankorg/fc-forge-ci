@@ -7,6 +7,18 @@ mutable repository/package coordinates, expected peak RAM/CPU/disk, and evidence
 destination. Read Forge Lab's current `AGENTS.md` and documented recipes before
 operating its providers or runners.
 
+An unpublished consumer draft may use exactly `PIN_FORGE_CI_SHA` in every layer
+reference. The consumer-trial planner replaces that marker, including policy-test
+literals, with the frozen lab layer commit before serving any workflow. Mixed
+draft/commit pins, arbitrary markers and branches are refused; full SHA-1 and
+SHA-256 layer commits are supported. This is lab rendering, not a relaxation of
+production immutable-pin checks. Retain reviewed public signer/key literals for
+PR-only trials, whose isolation gate reads but never executes them. Release
+trials replace those literals with the lab's verified signer and key facts;
+unresolved trust placeholders are not valid PR isolation inputs.
+Both source checkouts must still be clean and frozen before a live trial; do not
+bypass source, target, acknowledgement or cleanup admission to run a dirty draft.
+
 Inspect host available memory, CPU/load, free disk, active jobs and runner
 concurrency/limits. Forge Lab's read-only doctor/status interfaces and host
 metrics provide the observations; configured runner limits and previous measured

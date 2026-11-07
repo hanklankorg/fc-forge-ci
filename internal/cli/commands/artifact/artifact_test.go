@@ -46,12 +46,12 @@ func TestDownloadIgnoresAmbientProjectSettings(t *testing.T) {
 }
 
 // The transfer verbs mirror upload-artifact/download-artifact inputs, which a
-// step states explicitly. Only the run and repository, which describe the run,
-// may come from the environment.
+// step states explicitly. Only the run, the repository and the runner's temp
+// directory, which describe the run, may come from the environment.
 func TestTransferFlagsReadNoEnvironment(t *testing.T) {
 	t.Parallel()
 
-	runContext := map[string]bool{"download --run-id": true, "download --repository": true}
+	runContext := map[string]bool{"download --run-id": true, "download --repository": true, "upload --temp-dir": true}
 
 	for _, sub := range artifact.New().Commands {
 		for _, flag := range sub.Flags {

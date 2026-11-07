@@ -84,6 +84,51 @@ func TestAssembleDist_DownloadsNamedArtifactsAndWritesDigest(t *testing.T) {
 	}
 }
 
+func TestAssembleDist_DefaultLedgerFollowsTheDistDirectory(t *testing.T) {
+	for _, test := range []struct {
+		name, path string
+		absolute   bool
+	}{
+		{"default directory", "dist/", false},
+		{"custom directory", "handoff files/", false},
+		{"nested directory", "output/release/", false},
+		{"absolute contained directory", "output/release/", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			chdirTempForAssembleDist(t)
+
+			path := test.path
+			if test.absolute {
+				var err error
+
+				path, err = filepath.Abs(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			_, err := apprelease.AssembleDist(t.Context(), &assembleDistDownloader{}, osfs.New(), fakeoutputsink.New(t), nil, apprelease.AssembleDistInput{
+				ArtifactTransferPlanJSON: `{"version":1,"items":[]}`,
+				Path:                     path, LedgerFiles: "absent-image-ledger.json",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			expected := filepath.Join(test.path, "release-images.json")
+			if got := readFileForAssembleDist(t, expected); got != "[]\n" {
+				t.Fatalf("ledger %s = %q, want an empty array", expected, got)
+			}
+
+			if test.path != "dist/" {
+				if _, err := os.Stat("dist/release-images.json"); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("custom handoff unexpectedly wrote to the default dist path: %v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestAssembleDist_DownloadsTransferPlanAndWarnsForOptionalFailures(t *testing.T) {
 	chdirTempForAssembleDist(t)
 

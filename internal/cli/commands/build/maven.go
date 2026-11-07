@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/urfave/cli/v3"
@@ -67,16 +68,15 @@ func mavenRunCmd() *cli.Command {
    Build SBOM with the pinned cyclonedx-maven-plugin (unless --no-build-sbom),
    and write the summaries. The project POM/profile owns attached artifacts.
 
-   mvn executes in the current directory, not --working-dir: run this from the
-   project root, or cd into the module first (the forge job does, then wraps it
-   with checkout + artifact upload). --working-dir only locates the pom.xml for
-   metadata.
+   --working-dir selects the workspace-relative project for every metadata and
+   lifecycle invocation. Parent-directory steps and linked directories are
+   refused. Relative settings paths are resolved from that project directory.
 
 EXAMPLE:
-   cd module && forge-ci build maven run --build-type app --cli-opts "-B -ntp" --sbom-tool-version 2.9.3`,
+   forge-ci build maven run --working-dir module --build-type app --cli-opts "-B -ntp" --sbom-tool-version 2.9.3`,
 		Flags: append(dependencyFlags(), []cli.Flag{
 			&cli.StringFlag{Name: "settings-path", Sources: cli.EnvVars("MAVEN_SETTINGS_PATH"), Usage: "consumer-owned Maven settings; required with private dependencies; reference DEPENDENCY_TOKEN and DEPENDENCY_USERNAME"},
-			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Sources: cli.EnvVars("WORKING_DIRECTORY"), Usage: "directory of the pom.xml to read for metadata; mvn itself runs in the current directory (cd in first)"},
+			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Sources: cli.EnvVars("WORKING_DIRECTORY"), Usage: "workspace-relative project directory for metadata, lifecycle and SBOM generation"},
 			&cli.StringFlag{Name: "build-type", Sources: cli.EnvVars("BUILD_TYPE"), Usage: "lifecycle: \"app\" (clean package) or \"lib\" (compile/test/package with optional --profile; POM owns attached artifacts)"},
 			&cli.StringFlag{Name: flagCLIOpts, Sources: cli.EnvVars("MAVEN_CLI_OPTS"), Usage: "extra args forwarded to mvn (whitespace-separated, e.g. \"-B -ntp\")"},
 			&cli.StringFlag{Name: "profile", Sources: cli.EnvVars("MAVEN_PROFILE"), Usage: "Maven profile to activate for dependency resolution, metadata and the build lifecycle"},
@@ -87,6 +87,11 @@ EXAMPLE:
 			&cli.StringFlag{Name: "expect-version", Usage: "fail unless the project already declares this version (a release build; leading v allowed)"},
 		}...),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
+			directory, err := appbuild.MavenProjectDirectory(cmd.String(flagWorkingDir))
+			if err != nil {
+				return err
+			}
+
 			settings := cmd.String("settings-path")
 			if cmd.Bool("private-dependencies") && settings == "" {
 				return fmt.Errorf("private Maven dependencies require --settings-path with the project's repository authentication; existing mirrors/settings are never overwritten: %w", errs.ErrInvalidConfig)
@@ -95,6 +100,15 @@ EXAMPLE:
 			var options []string
 
 			if settings != "" {
+				if !filepath.IsAbs(settings) {
+					settings = filepath.Join(directory, settings)
+				}
+
+				settings, err = filepath.Abs(settings)
+				if err != nil {
+					return err
+				}
+
 				info, err := os.Stat(settings)
 				if err != nil {
 					return fmt.Errorf("dependency settings file: %w: %w", err, errs.ErrMissingInput)
@@ -123,8 +137,8 @@ EXAMPLE:
 
 			return dependencyDiagnostics(environment.token, func(out, stderr io.Writer) error {
 				return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error {
-					return appbuild.MavenReleaseBuild(ctx, d.SummarySink, &maven.Adapter{Env: environment.authenticated, Options: options}, out, stderr, appbuild.MavenReleaseBuildInput{
-						Dir:             cmd.String(flagWorkingDir),
+					return appbuild.MavenReleaseBuild(ctx, d.SummarySink, &maven.Adapter{Env: environment.authenticated, Options: options, Dir: directory}, out, stderr, appbuild.MavenReleaseBuildInput{
+						Dir:             directory,
 						SkipTests:       cmd.Bool(flagSkipTests),
 						EnableBuildSBOM: cmd.Bool(flagBuildSBOM),
 						BuildType:       cmd.String("build-type"),

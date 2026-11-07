@@ -461,23 +461,25 @@ func TestVerifyReleaseRequest_BindsTheCommitAndRefusesADriftingRequest(t *testin
 
 // An expected commit that is not a full OID is a caller mistake, refused
 // before any repository query.
-func TestVerifyReleaseRequest_RefusesAShortExpectedCommit(t *testing.T) {
+func TestVerifyReleaseRequest_RefusesMalformedExpectedCommits(t *testing.T) {
 	t.Parallel()
 
-	git := newFakeReleaseRequestGit()
+	for _, expected := range []string{"bbbbbbb", strings.Repeat("A", 40), strings.Repeat("b", 41)} {
+		git := newFakeReleaseRequestGit()
 
-	err := apprelease.VerifyReleaseRequest(context.Background(), git, &bytes.Buffer{}, apprelease.VerifyReleaseRequestInput{
-		ReleaseRequest:     "release-request/v1.2.3",
-		ReleaseTag:         "v1.2.3",
-		AllowedSignersPath: writeAllowedSigners(t, "signer"),
-		ExpectedCommit:     "bbbbbbb",
-	})
-	if !errors.Is(err, errs.ErrUsage) {
-		t.Fatalf("err = %v, want ErrUsage", err)
-	}
+		err := apprelease.VerifyReleaseRequest(context.Background(), git, &bytes.Buffer{}, apprelease.VerifyReleaseRequestInput{
+			ReleaseRequest:     "release-request/v1.2.3",
+			ReleaseTag:         "v1.2.3",
+			AllowedSignersPath: writeAllowedSigners(t, "signer"),
+			ExpectedCommit:     expected,
+		})
+		if !errors.Is(err, errs.ErrUsage) {
+			t.Fatalf("err = %v, want ErrUsage", err)
+		}
 
-	if git.queries != 0 {
-		t.Error("repository queried for an invalid expected commit")
+		if git.queries != 0 {
+			t.Error("repository queried for an invalid expected commit")
+		}
 	}
 }
 

@@ -91,14 +91,15 @@ func TestBuildCLIWorkflowSignsBeforeHandoff(t *testing.T) {
 			require.NoError(t, os.WriteFile(filepath.Join(root, "dist", archive), payload, 0o600))
 			require.NoError(t, os.WriteFile(filepath.Join(root, "dist/checksums.txt"), []byte(manifest), 0o600))
 
-			stub := "#!/bin/sh\nset -eu\n[ \"$*\" = 'release sign --method=sigstore --no-checksums-file --no-release-artifacts-dir --file dist/checksums.txt' ]\nprintf '{}\\n' >\"$7.bundle\"\n"
-			require.NoError(t, os.WriteFile(filepath.Join(root, "bin/forge-ci"), []byte(stub), 0o700))
+			releaseOwnerMetadata(t, filepath.Join(root, "dist"))
+			releaseOwnerStub(t, filepath.Join(root, "bin"))
 
 			cmd := exec.CommandContext(t.Context(), testBash(t), "-c", signingCommand)
 			cmd.Dir = root
 			cmd.Env = []string{
 				"PATH=" + filepath.Join(root, "bin") + string(os.PathListSeparator) + testenv.GNUPath(t, "sha256sum") + string(os.PathListSeparator) + os.Getenv("PATH"),
 				"GORELEASER_CURRENT_TAG=v0.90.0-pre", "LC_ALL=C",
+				"RELEASE_OWNER_BINARY=" + os.Args[0],
 			}
 			output, runErr := cmd.CombinedOutput()
 			bundle := filepath.Join(root, "dist/checksums.txt.bundle")

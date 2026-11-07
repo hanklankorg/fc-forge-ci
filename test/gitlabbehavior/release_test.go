@@ -72,15 +72,18 @@ func TestReleaseHandoffNeverSourcesItsDigestAsShell(t *testing.T) {
 
 	script := filepath.Join(reporoot.Path(t), ".gitlab", "bin", "release.sh")
 
-	const invocation = `set -eu; source "$1"; engine_status=$3; rc_engine() { echo engine-called; return "$engine_status"; }; if rc_read_handoff "$2"; then exit 0; else exit $?; fi`
+	const invocation = `set -eu; source "$1"; engine_status=$3; rc_engine() {
+if [ "$engine_status" = owner ]; then OWNER_CLI_HELPER=1 "$OWNER_CLI_BINARY" -test.run='^TestOwnerCLI$' -- "$@"; return; fi
+echo engine-called; if [ "$engine_status" != 0 ]; then return "$engine_status"; fi; mkdir dist
+}; if rc_read_handoff "$2"; then exit 0; else exit $?; fi`
 
-	command := exec.CommandContext(ctx, componentBash(t), "--noprofile", "--norc", "-c", invocation, "handoff-guard", script, dir, "0")
+	command := exec.CommandContext(ctx, componentBash(t), "--noprofile", "--norc", "-c", invocation, "handoff-guard", script, dir, "owner")
 	command.Dir = dir
-	command.Env = []string{"PATH=" + componentTools(t), "HOME=" + dir}
+	command.Env = []string{"PATH=" + componentTools(t), "HOME=" + dir, "OWNER_CLI_BINARY=" + os.Args[0]}
 
 	output, err := command.CombinedOutput()
 	if err == nil || strings.Contains(string(output), "engine-called") {
-		t.Fatal("invalid digest reached an engine operation")
+		t.Fatal("invalid digest was not refused by the Go owner")
 	}
 
 	if _, err := os.Stat(filepath.Join(dir, "exploited")); !os.IsNotExist(err) {
@@ -408,9 +411,9 @@ func TestReleasePathGuardsStopTheJob(t *testing.T) {
 			defer cancel()
 
 			command := exec.CommandContext(ctx, componentBash(t), "--noprofile", "--norc", "-c",
-				`set -euo pipefail; source "$1"; rc_engine() { :; }; `+setup+`; `+test.call+`; echo went-on`, "guards", script)
+				`set -euo pipefail; source "$1"; `+ownerCLI+setup+`; `+test.call+`; echo went-on`, "guards", script)
 			command.Dir = t.TempDir()
-			command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + command.Dir}
+			command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + command.Dir, "OWNER_CLI_BINARY=" + os.Args[0]}
 
 			output, err := command.CombinedOutput()
 			if stopped := err != nil && !strings.Contains(string(output), "went-on"); stopped != test.stops {

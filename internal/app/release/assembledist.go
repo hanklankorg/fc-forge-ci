@@ -26,8 +26,6 @@ import (
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
 )
 
-const defaultReleaseImagesPath = "dist/release-images.json"
-
 // AssembleDistInput drives `forge-ci release assemble-dist`, the Forgejo CI
 // signer hand-off fan-in: download run artifacts, optionally merge image
 // ledgers, prune directories on request, and emit the canonical dist digest.
@@ -65,13 +63,17 @@ type distWorkspace interface {
 // forgejo-ci's assemble-release-dist.sh.
 func AssembleDist(ctx context.Context, dl provider.RunArtifactDownloader, workspace distWorkspace, sink domainci.OutputSink, stderr io.Writer, in AssembleDistInput) (AssembleDistResult, error) {
 	path := defaultIfEmpty(in.Path, "dist/")
-	releaseImagesPath := defaultIfEmpty(in.ReleaseImagesPath, defaultReleaseImagesPath)
 
 	if err := validateSingleLineValue(path, "path"); err != nil {
 		return AssembleDistResult{}, err
 	}
 
 	if err := workspace.ContainDistPath(path); err != nil {
+		return AssembleDistResult{}, err
+	}
+
+	releaseImagesPath, err := assembleReleaseImagesPath(path, in.ReleaseImagesPath)
+	if err != nil {
 		return AssembleDistResult{}, err
 	}
 
@@ -114,6 +116,26 @@ func AssembleDist(ctx context.Context, dl provider.RunArtifactDownloader, worksp
 	}
 
 	return AssembleDistResult{Digest: digest}, nil
+}
+
+func assembleReleaseImagesPath(distPath, override string) (string, error) {
+	if override != "" {
+		return override, nil
+	}
+
+	if filepath.IsAbs(distPath) {
+		workspace, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+
+		distPath, err = filepath.Rel(workspace, distPath)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	return filepath.Join(distPath, "release-images.json"), nil
 }
 
 func downloadAssembleArtifacts(ctx context.Context, dl provider.RunArtifactDownloader, stderr io.Writer, artifactNames, planJSON, path, runID, repository string) error {

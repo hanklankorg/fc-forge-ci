@@ -4,13 +4,12 @@
 package forgejoguard
 
 import (
-	"crypto/sha256"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -18,14 +17,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
-	"github.com/diggsweden/forge-ci/internal/testutil/testenv"
 )
 
 func TestRuntimePublicationBarriersAndSigningBoundary(t *testing.T) {
 	t.Parallel()
 
-	runtimeWorkflow := loadWorkflow(t, "examples/forgejo/runtime-images.yml")
-	signerImage := "${{ vars.CI_SIGNER_IMAGE }}"
+	runtimeWorkflow := loadWorkflow(t, ".forgejo/workflows/runtime-images.yml")
 
 	for name, prerequisite := range map[string]string{
 		"build": "request-runner", "collect": "build", "smoke": "collect",
@@ -62,7 +59,12 @@ func TestRuntimePublicationBarriersAndSigningBoundary(t *testing.T) {
 				require.NotContains(t, text, forbidden, "%s must not execute source or install tools", name)
 			}
 
-			require.Contains(t, text, "multiarch-image verify", "%s must bind the index to its complete native metadata", name)
+			if name == "sign" {
+				require.Contains(t, text, "runtime-publication sign", "Go signing must verify the entire index and evidence before signing")
+				require.NotContains(t, text, "while read", "native evidence/signing iteration belongs in Go")
+			} else {
+				require.Contains(t, text, "runtime-publication promote", "Go promotion must verify evidence, freshness and promoted bytes")
+			}
 		}
 	}
 
@@ -70,78 +72,119 @@ func TestRuntimePublicationBarriersAndSigningBoundary(t *testing.T) {
 	require.Contains(t, runtimeWorkflow.jobs["smoke"].node.String(), "sha256sum --check --strict")
 	require.True(t, jobRunsStep(runtimeWorkflow.jobs["plan"], "container platform-plan"))
 	require.True(t, jobRunsStep(runtimeWorkflow.jobs["request-runner"], "platform request-runner"))
-	require.Contains(t, runtimeWorkflow.jobs["build"].node.String(), "vars.CI_IMAGE_BUILDER")
-	require.Equal(t, "${{ fromJSON(vars[matrix.arch == 'arm64' && 'CI_RUNNER_LABEL_CONTAINER_ARM64' || 'CI_RUNNER_LABEL_CONTAINER'] || vars[matrix.arch == 'arm64' && 'CI_RUNNER_LABEL_ARM64' || 'CI_RUNNER_LABEL']) }}", runtimeWorkflow.jobs["build"].runsOn())
-	require.Equal(t, "${{ fromJSON(vars[matrix.arch == 'arm64' && 'CI_RUNNER_LABEL_ARM64' || 'CI_RUNNER_LABEL'] || vars[matrix.arch == 'arm64' && 'CI_RUNNER_LABEL_CONTAINER_ARM64' || 'CI_RUNNER_LABEL_CONTAINER']) }}", runtimeWorkflow.jobs["smoke"].runsOn())
-	require.Contains(t, runtimeWorkflow.jobs["publish"].node.String(), "Refusing stale runtime publication")
-	require.Contains(t, runtimeWorkflow.jobs["publish"].node.String(), "--preserve-digests")
+	require.Equal(t, "${{ needs.coordinates.outputs.builder }}", scalarString(mappingValue(mappingValue(runtimeWorkflow.jobs["build"].node, "env"), "CI_IMAGE_BUILDER")))
+	require.Equal(t, runtimeBuildRunner, runtimeWorkflow.jobs["build"].runsOn())
+	require.Equal(t, runtimeSmokeRunner, runtimeWorkflow.jobs["smoke"].runsOn())
+	require.Contains(t, runtimeWorkflow.jobs["publish"].node.String(), "runtime-publication promote")
 	require.NotContains(t, runtimeWorkflow.jobs["publish"].node.String(), "--no-creds")
 	require.NotContains(t, runtimeWorkflow.jobs["publish"].node.String(), "git ls-remote")
-	require.Contains(t, runtimeWorkflow.jobs["publish"].node.String(), "curl --config -")
+	require.NotContains(t, runtimeWorkflow.jobs["publish"].node.String(), "curl --config -", "authenticated API effects belong to the provider adapter")
 	credentials := mappingValue(mappingValue(runtimeWorkflow.jobs["smoke"].node, "container"), "credentials")
 	require.Equal(t, "${{ secrets.RELEASE_REGISTRY_TOKEN }}", scalarString(mappingValue(credentials, "password")))
 }
 
-func TestRuntimePublicationVerifiesAuthenticatedPromotedBytes(t *testing.T) {
+func TestRuntimePublicationChecksToolchainBeforeExposingTheEngine(t *testing.T) {
 	t.Parallel()
 
-	w := loadWorkflow(t, "examples/forgejo/runtime-images.yml")
-	step, ok := w.findStep("Verify published digest and report the consumer pin")
+	workflow := loadWorkflow(t, ".forgejo/workflows/runtime-images.yml")
+	for name, target := range workflow.jobs {
+		if target.containerImage() != signerImage {
+			continue
+		}
+
+		steps := target.steps()
+		require.GreaterOrEqual(t, len(steps), 5, name)
+		require.Equal(t, "Expose the verified engine", scalarString(mappingValue(steps[4], "name")), name)
+		require.Contains(t, scalarString(mappingValue(steps[4], "run")), "setup-forge-ci.sh", name)
+
+		for _, step := range steps[:4] {
+			require.NotContains(t, scalarString(mappingValue(step, "run")), "setup-forge-ci.sh", name)
+			require.NotContains(t, scalarString(mappingValue(step, "run")), "--version", name)
+		}
+	}
+
+	require.False(t, anyString(workflow.jobs["build-cli"].node, secretReference.MatchString), "native CLI compilation receives no named secret")
+
+	for _, name := range []string{"build-cli", "build", "smoke"} {
+		for _, key := range []string{"RELEASE_COSIGN", "RELEASE_GPG", "RELEASE_SSH", "RELEASE_TOKEN"} {
+			require.NotContains(t, workflow.jobs[name].node.String(), key, "%s must have no release/signing authority", name)
+		}
+	}
+}
+
+func TestRuntimePublicationPreflightAdmitsOnlyPinnedBuildImages(t *testing.T) {
+	t.Parallel()
+
+	script := preflightScript(t, ".forgejo/workflows/runtime-images.yml")
+	for _, test := range []struct {
+		name     string
+		env      []string
+		accepted bool
+	}{
+		{"buildah host", nil, true},
+		{"kaniko pinned", []string{"BUILDER_INPUT=kaniko", "BUILDER_JOB_IMAGE_INPUT=" + exampleSigner}, true},
+		{"kaniko absent", []string{"BUILDER_INPUT=kaniko"}, false},
+		{"mutable builder", []string{"BUILDER_JOB_IMAGE_INPUT=registry.example/acme/builder:latest"}, false},
+		{"unknown builder", []string{"BUILDER_INPUT=docker"}, false},
+		{"mutable go", []string{"GO_BUILD_IMAGE_INPUT=registry.example/acme/go:latest"}, false},
+		{"missing go", []string{"GO_BUILD_IMAGE_INPUT="}, false},
+		{"malformed key pin", []string{"PUBLIC_KEY_SHA256=not-a-digest"}, false},
+		{"short engine commit", []string{"RUNTIME_ENGINE_SHA=1234567"}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			accepted, output, _ := runPreflightWithStderr(t, script, exampleRepository, exampleSigner, test.env...)
+			require.Equal(t, test.accepted, accepted)
+
+			if !accepted {
+				require.Empty(t, output, "refusal cannot emit partial trusted coordinates")
+			}
+		})
+	}
+}
+
+func TestRuntimePublicationPromotionDelegatesCoordinatesAndStatus(t *testing.T) {
+	t.Parallel()
+
+	w := loadWorkflow(t, ".forgejo/workflows/runtime-images.yml")
+	step, ok := w.findStep("Verify signatures and reject a stale main before promotion")
 	require.True(t, ok)
 	literal, ok := mappingValue(step, "run").(*ast.LiteralNode)
 	require.True(t, ok)
 
-	for _, changed := range []bool{false, true} {
-		t.Run(fmt.Sprintf("changed=%t", changed), func(t *testing.T) {
+	for _, status := range []int{0, 69} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
 			t.Parallel()
+
 			root := t.TempDir()
-			auth := filepath.Join(t.TempDir(), "auth.json")
-			require.NoError(t, os.WriteFile(auth, []byte(`{"auths":{}}`), 0o600))
+			record := filepath.Join(root, "arguments")
+			require.NoError(t, os.WriteFile(filepath.Join(root, "forge-ci"), []byte("#!/bin/sh\nprintf '%s\\0' \"$@\" >\"$CLI_ARGS\"\nexit \"$CLI_STATUS\"\n"), 0o700))
 
-			expected := []byte(`{"schemaVersion":2,"manifests":[]}`)
-			ref := fmt.Sprintf("registry.example/acme/runtime@sha256:%x", sha256.Sum256(expected))
-			require.NoError(t, os.WriteFile(filepath.Join(root, "published-ref.txt"), []byte(ref+"\n"), 0o600))
-
-			served := expected
-			if changed {
-				served = []byte(`{"different":"manifest"}`)
-			}
-
-			input := filepath.Join(root, "input.json")
-			require.NoError(t, os.WriteFile(input, served, 0o600))
-
-			for name, body := range map[string]string{
-				"skopeo": `#!/bin/sh
-set -eu
-test "$1" = inspect
-test "$2" = --authfile
-test "$3" = "$REGISTRY_AUTH_FILE"
-test -f "$3"
-test "$4" = --raw
-test "$5" = "docker://$IMAGE_REPOSITORY:sha-$SOURCE_SHA"
-cat "$INDEX_FIXTURE"
-`,
-				"forge-ci": "#!/bin/sh\nset -eu\ntest \"$1 $2\" = 'artifact upload'\nprintf uploaded >\"$PUBLISHED_MARKER\"\n",
-			} {
-				path := filepath.Join(root, name)
-				require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
-				require.NoError(t, os.Chmod(path, 0o700))
-			}
-
-			marker := filepath.Join(root, "uploaded")
 			cmd := exec.CommandContext(t.Context(), testBash(t), "-c", literal.Value.Value)
 			cmd.Dir = root
-			cmd.Env = append(os.Environ(), "PATH="+root+":"+testenv.GNUPath(t, "sha256sum")+":"+os.Getenv("PATH"), "TARGET=base", "REGISTRY_AUTH_FILE="+auth, "IMAGE_REPOSITORY=registry.example/acme/runtime", "SOURCE_SHA="+strings.Repeat("a", 40), "INDEX_FIXTURE="+input, "PUBLISHED_MARKER="+marker)
+			cmd.Env = append(os.Environ(), "PATH="+root+":"+os.Getenv("PATH"), "TARGET=go", "REGISTRY_AUTH_FILE=auth with spaces.json",
+				"FORGEJO_SERVER=https://forge.example", "FORGEJO_REPO=acme/widget", "FORGEJO_TOKEN=fixture-forge-token",
+				"IMAGE_REPOSITORY=registry.example/acme/runtime", "SOURCE_SHA="+strings.Repeat("a", 40), "CANDIDATE_TAG=staging-123-1",
+				`ARCHS_JSON=["amd64","arm64"]`, "TRUSTED_KEY_INPUT=fixture public key", "TRUSTED_KEY_SHA256="+strings.Repeat("b", 64),
+				"CLI_ARGS="+record, "CLI_STATUS="+strconv.Itoa(status))
 
 			out, err := cmd.CombinedOutput()
-			if changed {
-				require.Error(t, err, "%s", out)
-				require.NoFileExists(t, marker)
-			} else {
+			if status == 0 {
 				require.NoError(t, err, "%s", out)
-				require.FileExists(t, marker)
-				require.Contains(t, string(out), ref)
+			} else {
+				var exit *exec.ExitError
+				require.ErrorAs(t, err, &exit)
+				require.Equal(t, status, exit.ExitCode())
 			}
+
+			body, err := os.ReadFile(record)
+			require.NoError(t, err)
+			require.Equal(t, []string{"container", "runtime-publication", "promote", "--auth-file", "auth with spaces.json",
+				"--source-sha", strings.Repeat("a", 40), "--server-url", "https://forge.example", "--repository", "acme/widget",
+				"--image-repository", "registry.example/acme/runtime", "--tag", "staging-123-1", "--name", "runtime-go",
+				"--archs", "amd64\narm64", "--cosign-public-key-path", "cosign.pub", "--cosign-public-key-sha256", strings.Repeat("b", 64)}, strings.Split(strings.TrimSuffix(string(body), "\x00"), "\x00"))
+			require.NotContains(t, string(body), "fixture-forge-token", "API credentials must not enter argv")
 		})
 	}
 }
@@ -149,7 +192,7 @@ cat "$INDEX_FIXTURE"
 func TestRuntimeSmokeReceiptIsWrittenOnlyAfterSuccessfulChecks(t *testing.T) {
 	t.Parallel()
 
-	w := loadWorkflow(t, "examples/forgejo/runtime-images.yml")
+	w := loadWorkflow(t, ".forgejo/workflows/runtime-images.yml")
 	checked := false
 	recorded := false
 
@@ -180,13 +223,13 @@ func TestRuntimeSmokeReceiptIsWrittenOnlyAfterSuccessfulChecks(t *testing.T) {
 func TestRuntimeSmokeRunnerRequestsOnlyMissingNativeARMCapacity(t *testing.T) {
 	t.Parallel()
 
-	w := loadWorkflow(t, "examples/forgejo/runtime-images.yml")
+	w := loadWorkflow(t, ".forgejo/workflows/runtime-images.yml")
 
 	var script string
 
 	for _, step := range w.jobs["request-smoke-runner"].steps() {
 		if scalarString(mappingValue(step, "name")) == "Request fresh smoke runners when ARM64 uses the build pool" {
-			require.Equal(t, "vars.CI_RUNNER_LABEL_ARM64 == ''", scalarString(mappingValue(step, "if")))
+			require.Equal(t, "inputs['runner-label-arm64'] == ''", scalarString(mappingValue(step, "if")))
 			literal, ok := mappingValue(step, "run").(*ast.LiteralNode)
 			require.True(t, ok)
 
@@ -285,9 +328,10 @@ func TestRuntimeExampleRequiresExplicitPublicationPolicy(t *testing.T) {
 
 	for _, file := range []string{"runtime-images.yml"} {
 		body := string(reporoot.ReadFile(t, "examples/forgejo/"+file))
-		require.Contains(t, body, "GIT_DEFAULT_HASH: sha1", file)
 		require.Contains(t, body, "vars.RUNTIME_IMAGE_NAMESPACE", file)
-		require.Contains(t, body, "vars.COSIGN_PUBLIC_KEY_SHA256", file)
+		require.Contains(t, body, "cosign-public-key-sha256: PIN_COSIGN_PUBLIC_KEY_SHA256", file)
+		require.Contains(t, body, ".forgejo/workflows/runtime-images.yml@FORGE_CI_COMMIT", file)
+		require.NotContains(t, body, "runtime-images.sh", file)
 		require.NotContains(t, body, "itiquette", file)
 
 		for _, forbidden := range []string{"182c68718a03dc3f085cab23897f5eb5d8c69d29", "localhost/forge-ci-signer", "--object-format sha256", "object-format: sha256"} {
@@ -296,7 +340,7 @@ func TestRuntimeExampleRequiresExplicitPublicationPolicy(t *testing.T) {
 
 		for line := range strings.SplitSeq(body, "\n") {
 			if strings.Contains(line, "uses:") {
-				require.Contains(t, line, "https://forge.example/owner/forge-ci/", file)
+				require.Contains(t, line, "OWNER/forge-ci/", file)
 				require.Contains(t, line, "@FORGE_CI_COMMIT", file)
 			}
 		}

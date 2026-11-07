@@ -26,6 +26,7 @@ import (
 	domainversion "github.com/diggsweden/forge-ci/internal/domain/version"
 	"github.com/diggsweden/forge-ci/internal/listval"
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
+	"github.com/diggsweden/forge-ci/internal/retry"
 )
 
 // GoTool runs `go` commands.
@@ -72,7 +73,29 @@ type GoBuildSBOMInput struct {
 
 // GoDownload runs `go mod download`.
 func GoDownload(ctx context.Context, tool GoTool, w, stderr io.Writer, dir string) error {
-	return tool.Run(ctx, GoRunInput{Dir: defaultGoDir(dir), Args: []string{"mod", "download"}, Stdout: w, Stderr: stderr})
+	return GoDownloadWithRetry(ctx, tool, w, stderr, GoDownloadInput{Dir: dir, Attempts: 1})
+}
+
+// GoDownloadInput allows explicit bounded retries without changing existing callers.
+type GoDownloadInput struct {
+	Dir        string
+	Attempts   int
+	RetryDelay time.Duration
+}
+
+// GoDownloadWithRetry retries dependency reads only, with cancellation-aware waits.
+func GoDownloadWithRetry(ctx context.Context, tool GoTool, w, stderr io.Writer, in GoDownloadInput) error {
+	if in.Attempts < 1 || in.Attempts > 10 || in.RetryDelay < 0 || in.RetryDelay > time.Minute {
+		return fmt.Errorf("go download requires 1–10 attempts and a retry delay between 0 and 1m: %w", errs.ErrUsage)
+	}
+
+	return retry.Run(ctx, stderr, in.Attempts, in.RetryDelay, func() error {
+		if err := ctx.Err(); err != nil {
+			return retry.Permanent(err)
+		}
+
+		return tool.Run(ctx, GoRunInput{Dir: defaultGoDir(in.Dir), Args: []string{"mod", "download"}, Stdout: w, Stderr: stderr})
+	})
 }
 
 // GoTest runs `go test ./...` with optional build tags.

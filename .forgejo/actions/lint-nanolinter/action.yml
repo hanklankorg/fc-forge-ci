@@ -45,23 +45,9 @@ runs:
         LINT_ADMIN_VULNERABILITIES: ${{ inputs.enforce-vulnerabilities }}
       run: |
         set -euo pipefail
-        case "${LINT_OFFLINE}" in
-          true | false) ;;
-          *) echo "ERROR: offline must be true or false" >&2; exit 1 ;;
-        esac
         if ! command -v nanolinter >/dev/null 2>&1; then
           echo "ERROR: nanolinter is not on PATH: run this job in a nanolinter image, or on a runner that provides it" >&2
           exit 69
-        fi
-        arguments=()
-        if [ -n "${LINT_REQUIRED_LINTS}" ]; then
-          arguments+=(--require "${LINT_REQUIRED_LINTS}")
-        fi
-        if [ -n "${LINT_DISABLE_CHECKS}" ]; then
-          arguments+=(--disable-check "${LINT_DISABLE_CHECKS}")
-        fi
-        if [ "${LINT_OFFLINE}" = true ]; then
-          arguments+=(--offline)
         fi
         # Read repository files consistently, including Unicode ignore files.
         # The action's own immutable engine owns policy. A consumer PATH or
@@ -78,4 +64,6 @@ runs:
         LANG=C.UTF-8 LC_ALL=C.UTF-8 run_forge_ci policy nanolinter \
           --enforce-lint="${LINT_ADMIN_LINT:?enforce-lint is required}" \
           --enforce-vulnerabilities="${LINT_ADMIN_VULNERABILITIES:?enforce-vulnerabilities is required}" \
-          -- nanolinter verify "${arguments[@]}" --report sarif --out -
+          --required-lints "${LINT_REQUIRED_LINTS}" \
+          --disable-checks "${LINT_DISABLE_CHECKS}" \
+          --offline "${LINT_OFFLINE}"

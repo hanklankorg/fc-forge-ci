@@ -804,6 +804,32 @@ architecture, never emulated. With `export-files: true`:
    the `build` commands run, refusing a path two of them hold, so the build
    declares the files with the rest.
 
+The shell adapters pass literal policy inputs to `plan release-exports` for
+admission and architecture selection. Invalid or duplicated platforms fail rather
+than silently skipping an export. `release gather-exports` validates all local
+producer trees and top-level collisions before copying, including hidden entries;
+it rejects links/special files and never overwrites an existing top-level path.
+This is a pre-manifest merge, not a signer handoff: the producer still declares
+the final file manifest and the existing digest/signing boundary remains intact.
+
+Release jobs reuse `container setup-image-builder --require-job-image` with
+package installation disabled. The adapter owns only the job-token login against
+the policy's registry, stdin secret transfer and isolated auth-file cleanup.
+
+Release publication passes each native artifact root as `--layout-source
+amd64=PATH` or `arm64=PATH`. The image owner admits the complete planned set and
+each root's architecture before scanning or publishing; it reads those layouts
+directly instead of trusting a shell merge. The existing `--layouts-dir` mode
+remains available for callers that already have one combined artifact root.
+
+`release validate-dist --digest-file RECORD --stage-dir dist --manifest-root .`
+copies handoff files into private staging, hashes those copied bytes with the
+existing handoff digest, and installs them only after verification. It refuses
+an existing destination and cleans failed staging. Native GitLab handoff readers
+use this mode rather than validating one tree and then separately copying it.
+Base promotion accepts `--ledger` directly; ledger admission and the projection
+to candidate/final metadata happen in Go before registry login.
+
 ```yaml
 export-files: true
 export:
@@ -1138,6 +1164,11 @@ runners. Buildah is the default; kaniko requires the admitted digest-pinned
 registry publication credentials. Publishers use `SNAPSHOT_REGISTRY_USER` and
 `SNAPSHOT_REGISTRY_PASSWORD`, falling back to GitLab registry credentials.
 The collect job retains `container-images.json` as a child-pipeline artifact.
+
+`plan gitlab-snapshot-pipeline` renders that graph in Go from the frozen snapshot
+plan and explicit policy coordinates. It preserves typed enforcement inputs,
+native runner routing, parent-pipeline context binding and the whole-build
+publication barrier; the shell adapter only forwards inputs and output paths.
 
 The default `context-job: 'Snapshot: plan'` enables automatic required
 artifact-first producers in the child pipeline. They invoke the existing Go,

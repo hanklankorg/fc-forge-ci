@@ -115,6 +115,13 @@ func TestHelperRepositoryIsTheCallersInputOrVariable(t *testing.T) {
 	const want = "${{ inputs['forge-ci-repository'] || vars.FORGE_CI_REPOSITORY }}"
 
 	for _, path := range layerWorkflows(t) {
+		// Retention executes an explicitly checksum-pinned job-image engine,
+		// not helper source. Its alternative bootstrap and preview-only scope
+		// are checked by TestCallableRetentionNeverAcquiresDeletionAuthority.
+		if path == ".forgejo/workflows/package-retention.yml" {
+			continue
+		}
+
 		step, ok := loadWorkflow(t, path).jobs["coordinates"].stepByID("validate")
 		if !ok {
 			t.Errorf("%s: coordinates job has no validate step", path)

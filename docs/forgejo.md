@@ -42,13 +42,13 @@ immutable release request
 
 | Path | Content |
 |---|---|
-| `.forgejo/workflows/` | Five reusable workflows; see [Reusable workflows](#reusable-workflows). |
-| `.forgejo/actions/` | Nineteen composite actions; see [Composite actions](#composite-actions). |
+| `.forgejo/workflows/` | Reusable workflows; see [Reusable workflows](#reusable-workflows). |
+| `.forgejo/actions/` | Composite actions; see [Composite actions](#composite-actions). |
 | `.engine/bin/` | The resolver `lib-forge-ci.sh` and the engine binary checksums, shared with the GitLab layer. The binary is not in the tree: a job downloads it by its checksum. See [The binary in the layer](#the-binary-in-the-layer). |
 | `.forgejo/scripts/verify-signer-toolchain.sh` | The check every privileged job runs first, and the signer image runs at build time. |
 | `containers/signer/Containerfile` | The definition of the signer image. No image is published; see [The signer image](#the-signer-image). |
 | `examples/<ecosystem>/forgejo/` | A pull-request and a release workflow to start from, for [Go CLI](../examples/go-cli/forgejo/), [Go service](../examples/go-service/forgejo/), [Cargo](../examples/cargo-app/forgejo/) and [Maven](../examples/maven-app/forgejo/). |
-| `examples/forgejo/` | The workflow an organization publishes the layer's binary and builds its signer image with. |
+| `examples/forgejo/` | Organization publication callers, including runtime images and package-retention preview. |
 
 Lint and build ship as actions, not as workflows: the pull-request jobs and
 the release build job stay the consumer's, and an action is one step in them.
@@ -344,7 +344,7 @@ alone. Each `action.yml` documents its own inputs and outputs.
 | `guard-release-tag`, `render-changelog`, `prepare-release` | The steps `prepare-release.yml` is made of, with rendering and signing in separate jobs. Call the workflow; see [The prepare job](#the-prepare-job). |
 | `upload-dist`, `assemble-release-dist` | Hand `dist/` to the signer with its digest, from one producer or several. |
 | `registry-login`, `setup-buildah`, `record-release-image` | Registry authentication, Buildah preparation and ledger recording for a custom image job that builds with Buildah only (`build-push-oci-image`). Any other container build, a `container build --mode local` export included, prepares its builder with `setup-image-builder`. Build/push directly with `forge-ci container build-push-oci-image`, which requires `--scan-output-template` and so needs Trivy on the runner; `forge-ci container image-evidence` scans an image already published. |
-| `setup-image-builder` | Prepares whichever image builder `CI_IMAGE_BUILDER` selects: Buildah's storage, or admission of the digest-pinned kaniko job image `CI_IMAGE_BUILDER_JOB_IMAGE`, so a workflow names no builder. The step before `multiarch-image build-arch` or `container build`; the job's `container:` is `CI_IMAGE_BUILDER_JOB_IMAGE`, empty for Buildah. |
+| `setup-image-builder` | Forwards to `forge-ci container setup-image-builder`: Go selects existing Buildah storage setup or verifies the digest-pinned Kaniko job image's native architecture and engine source/title labels. The action only resolves the fetched layer's source coordinate; it does not duplicate backend policy. The step before `multiarch-image build-arch` or `container build`; the job's `container:` is `CI_IMAGE_BUILDER_JOB_IMAGE`, empty for Buildah. |
 | `prune-base-images` | Base-image maintenance on a schedule: deletes promoted base images that no supported release image's attestation names. A dry run unless told otherwise. |
 | `verify-forgejo-token` | Checks a release token before it is needed. |
 
@@ -545,6 +545,19 @@ architecture, then merges directly through that same registry adapter. Its
 read-back must match the constructed index digest. The assembly job needs no
 Buildah installation or local image store. Both registry operations use the
 explicit auth file.
+
+For exact artifact handoffs, `artifact upload --verify-readback` captures the
+selected file paths/content before upload, uploads once, then downloads once
+into private temporary storage. Missing, changed or extra returned regular files
+(including hidden extras) fail before success outputs are emitted. Source hidden
+files remain excluded unless `--include-hidden` is requested. Verification requires
+`--if-no-files error` and does not combine with `--blob-store`; it never retries an
+uncertain upload/finalization. Runtime assembly uses this shared handoff owner.
+
+Runtime `container runtime-publication verify-cli` checks either `--file` or a
+digest-pinned `--image-ref` against the checkout's `.engine/bin` checksum recording
+for `--arch`. Image verification reuses pinned OCI input admission and extracts
+only the CLI with trusted tools; candidate executables are never run.
 
 `build-arch --stage`, which `release-images.yml` uses, publishes nothing
 instead: each architecture job retains its layout inside the metadata
@@ -806,6 +819,22 @@ directory of each ecosystem example is the two workflows they add up to.
 | Hand-off | a `run:` step | `release files declare`, which writes the checksums file and `dist/release-files.json`; then `upload-dist`. |
 | Image | `release-images.yml` reusable workflow | Native per-architecture builds, scan-before-publication assembly and a release image ledger. |
 
+The lint action forwards `required-lints`, `disable-checks` and the strict
+`offline` boolean to the pinned Go CLI. The standard PR invocation is owned by
+`forge-ci policy nanolinter`, for example:
+
+```sh
+forge-ci policy nanolinter --required-lints secrets,sast --offline false
+```
+
+These typed options construct the fixed `nanolinter verify` SARIF command in Go
+and use the existing administrator-policy gate. Explicitly empty
+`--required-lints` keeps the existing no-floor choice. The explicit child-command
+form (`-- nanolinter verify ...`) remains supported for existing callers; mixing
+that form with typed verify options is refused before execution. Checksum-bound
+engine bootstrap and dependency-presence diagnostics remain in the action, not
+a second implementation of lint policy.
+
 **Where the tools come from.** The engine's runtime images are published on
 ghcr.io by this repository's GitHub workflows, which a Forgejo instance may
 not reach, so no action assumes one. Each runs in whatever the job provides:
@@ -885,6 +914,94 @@ on that runner. It is emulation-free only for COPY-only target stages, with any
 `RUN` confined to `FROM --platform=$BUILDPLATFORM` stages. Nothing checks the
 Containerfile for this. Use `release-images.yml` for native per-architecture
 builds, including images whose target stages have `RUN` steps.
+
+### Reusable dependency outputs
+
+For a conditionally run reusable producer, use an ordinary `if: always()` facts
+job to admit `${{ toJSON(needs) }}` through `forge-ci platform dependency` before
+another reusable call reads its outputs. For example, set `NEEDS_JSON` and run
+`forge-ci platform dependency --job build --output artifact-name`. The Go owner
+requires exactly one exact/local-or-qualified ID, success by default, and a
+nonempty single-line string output. Ambiguous namespaces, duplicate JSON fields,
+failed/skipped/cancelled producers and successful wrappers without that output
+fail closed. `--result` can explicitly admit another result; the narrowly scoped
+`--allow-missing-output` is only for optional paths whose caller separately
+checks whether the producer was required. It never relaxes uniqueness or result
+admission. Product-specific selection and JSON schema validation stay with the
+consumer. This parses data only; it never evaluates workflow expressions or
+calls the forge. It does not authenticate producer artifacts; keep independent
+source, digest and signing-boundary checks at their existing owners.
+
+### Unsigned GoReleaser handoff
+
+GoReleaser is an optional producer adapter, not the shared release contract.
+Java/Kotlin, npm, Cargo and other consumers retain their native build and
+packaging tools. The reusable prepare/sign/publish workflows and dist fan-in
+consume the producer's release manifest and digest; they do not invoke or require
+GoReleaser. Use the existing Maven, Gradle, npm, Cargo or other CLI builder for
+that ecosystem, retaining product-specific generation in the unsigned build job.
+
+`.forgejo/actions/build-goreleaser` packages an already checked-out prepared
+release and imports its unsigned manifest. It requires `release-tag`,
+`release-sha` and an existing `release-notes` file outside the dist directory;
+`config` defaults to `.goreleaser.yml` and `dist-directory` to `dist` (the latter
+must match the product configuration). The job supplies GoReleaser and any SBOM
+tools its configuration uses. The action installs nothing.
+
+The action refuses a checkout that does not match the prepared SHA and skips
+GoReleaser signing, publication and announcements. Follow it with the existing
+`upload-dist` action, then pass that action's digest to
+`sign-and-publish-release.yml`. Keep signing credentials out of the build job.
+This action does not by itself establish independent rebuild reproducibility;
+that remains a separate required check when the product's release policy
+requires it. Product archive/platform choices stay in the product configuration.
+
+If evidence arrives after packaging, extend the existing producer manifest with
+`release files manifest --unsigned --evidence-file dist/release-plan.json`
+(repeat `--evidence-file` for each additional subject). This preserves its
+assets, checksums and classifications without reading GoReleaser metadata again.
+Existing signatures/provenance, duplicate paths and asset reclassification are
+refused. Run product acceptance before the final digest/upload handoff; the
+ordinary `release files manifest` still finalizes the signed file set.
+
+Cargo consumers with product-specific test tiers must not substitute the generic
+`build-cargo` action for those tiers: its release builder runs mandatory
+`cargo test --locked --all-targets`, and `--skip-tests` is rejected by policy.
+For a custom unsigned producer, `build cargo fetch --attempts 5 --retry-delay 10s`
+fetches locked dependencies with cancellation-aware retries, without compiling
+or executing tests. Keep test selection and packaging configuration product-owned.
+
+`examples/go-cli/forgejo/release-goreleaser.yml` is the complete alternative
+caller: copy it **as `release.yml`** and use the existing `pullrequest.yml`
+beside it. It has only prepare, unsigned build and sign/publish jobs, using the
+same isolation gate and digest channel as the ordinary Go CLI example. It
+requires the product's locked tool configuration and GoReleaser config; it adds
+no generic hook runner or second orchestrator. The implementation remains in
+the upstream actions, CLI and existing trusted workflows, not in the template.
+
+As with every action, use an authenticated published full commit SHA. Existing
+callers must not switch to an unpublished revision or a mutable migration branch.
+
+Keep the consumer's build job focused on product preparation: completions, man
+pages, translations, release configuration and any product-specific rebuild
+check. Do not copy the layer's manifest-import, checksum or artifact-handoff
+implementation into that job. A GoReleaser build uses `build-goreleaser` followed
+by `upload-dist`; a custom producer uses `release files declare` and the same
+handoff. Both feed the existing isolated signer, not a second signing path.
+
+When files and container evidence arrive from separate jobs, use the existing
+`assemble-release-dist` action with `artifact-names: |` listing `release-files`
+and `release-images`. It owns the download, optional ledger merge, digest and
+upload through the CLI; its `digest` output feeds the same signer input as
+`upload-dist`. See `examples/go-service/forgejo/release.yml`. Import GoReleaser
+metadata once in the producer, not again after assembling an already declared
+manifest. Product generation and independent rebuild checks stay before the
+producer's artifact upload.
+
+The CLI owns the assembled ledger's default path: an empty
+`release-images-path` means `<path>/release-images.json`, including a contained
+absolute dist path. An explicit override is unchanged. Composite actions forward
+that empty/default choice rather than calculating a second path in shell.
 
 ## Releases and promotion
 
@@ -1582,6 +1699,95 @@ Forgejo ingests no SARIF report
 log; it writes no SARIF file. `forge-ci security report upload-sarif` on a
 Forgejo runner prints a notice and exits 0.
 
+## GHCR package retention previews
+
+`.forgejo/workflows/package-retention.yml` is a callable, preview-only workflow.
+Its small caller owns manual/schedule policy; the implementation has only a
+`workflow_call` event and no deletion mode. See the caller in
+`examples/forgejo/package-retention.yml`.
+
+Supply runner labels, a reviewed digest-pinned job image containing the CLI,
+the literal `engine-sha256` of that CLI, and `packages-json` shaped as
+`{"include":[{"repository":"ghcr.io/owner/name","digest":"sha256:..."}]}`.
+The complete inventory is forwarded to Go once. Repeated repositories are
+grouped and all their consumer pins are protected together, including each
+pin's signature/manifest closure. Duplicate pins are idempotent; malformed rows
+refuse the entire declaration before credentials or registry requests. The
+serial inventory pass has a 120-minute job budget. Set `registry-user` and pass the
+registry inventory credential as `RELEASE_REGISTRY_TOKEN`; signing keys are
+neither accepted nor needed. The engine bytes are checked before the credential
+is exposed to the inventory step. This workflow requires no source checkout or
+helper-repository bootstrap. `recent-count` defaults to 10 and `max-delete` to
+100; the existing CLI validates and applies those preview limits.
+
+Retain organisation policy and protected-digest inventories in reviewed caller
+configuration, coordinated with actual consumers. Do not infer that recent
+tags protect every supported consumer. Applying deletions remains a separately
+authorised operation outside this workflow. Do not enable a second schedule
+until the previous organisation preview has been retired.
+
+## Runtime publication extraction (not yet activated)
+
+The callable `.forgejo/workflows/runtime-images.yml` and its thin example caller
+are under migration. Their static bootstrap, coordinate, native-runner and
+signing-boundary contracts pass, but no matching tuple has been published or
+end-to-end publication accepted. Do not replace a production workflow or its
+published pins with this draft.
+
+Shared runtime planning and candidate collection live in
+`forge-ci container runtime-publication`:
+
+- `plan` validates the entire product-owned roster, exact source/main/run identity
+  and native platform selection before emitting build and image matrices.
+  With `--target`, it instead prints one admitted target as JSON; `--arch`
+  narrows to a declared native leg, and `--metadata-root` validates the complete
+  selected metadata set using the collection validator before emitting candidate
+  refs. Build/assembly shell adapters only project those fields and execute tools;
+  they no longer implement separate roster, coordinate or metadata policy.
+- `collect` uses that same admission, validates all selected CLI checksum pins
+  before downloading artifacts, and reuses the multiarch-image metadata validator
+  to bind each candidate to its repository, architecture and run tag. It emits
+  the smoke matrix only after the complete candidate set passes. Downloads use
+   the existing provider-neutral run-artifact API and private temporary storage.
+- `verify-smoke` checks a downloaded native receipt against its exact source,
+  target, architecture and digest-pinned candidate. Strict, bounded JSON reads
+  refuse malformed or unknown fields; a green job for older candidate bytes is
+  not evidence for a rebuild. Download and temporary-directory cleanup remain
+  shell glue; the identity decision is owned and tested in Go.
+- `sign` runs inside the verified signer job. It checks the complete retained
+  native SBOM set, source/revision labels and exact multiarch index before its
+  first signing mutation, recursively signs the index, attests each native
+  SBOM and records source-bound SLSA provenance. It reuses existing image and
+  ledger validators and generic signing adapters, without regenerating SBOMs.
+- `promote` runs in a separate verified job without signing keys. It checks
+  native signatures, attestations and index identity, then reads current main
+  through the authenticated Forgejo SDK before copying the digest-pinned index.
+  It verifies both the destination digest and registry-served index bytes before
+  reporting `published-ref.txt`. Source credentials never enter process argv,
+  and the SDK refuses redirects to another authority. Source-branch resolution
+  is currently implemented for Forgejo; other providers fail as unsupported.
+
+Planning and collection run no candidate code and contact no registry. Signing
+writes signatures/attestations, not image tags; promotion writes the existing
+`sha-<source>` convenience pointer, while consumers retain immutable digest pins.
+Neither signing nor promotion blindly retries uncertain mutations. The workflow
+owns native job routing and explicit credential handoffs; the product retains
+its Containerfile, roster and runtime smoke commands.
+
+For published product image snapshots, use the existing `snapshot-images.yml` rather
+than the runtime publisher. The thin caller in
+`examples/go-service/forgejo/snapshot.yml` demonstrates a protected-main,
+container-only snapshot with an explicit registry credential and no release
+signing authority. PR and release callers keep their existing actions and
+prepare/build/sign separation; product preparation stays in the unsigned job.
+
+For an **ephemeral CLI build**, use
+`examples/go-cli/forgejo/snapshot.yml`: its existing `build-go` action runs tests
+and builds without signing, artifact upload or publication. It uses the job
+image's tools and receives no secret. Keep product-specific checks in the
+product; do not replace an unpublished branch snapshot with an image-publishing
+workflow just to make its YAML look like another provider's caller.
+
 ## Forks
 
 ### Using the layer from a fork
@@ -1725,6 +1931,28 @@ Tool subsets still need all tools the job actually invokes; this check does not
 infer project build dependencies. Locked installs need a committed `mise.lock`;
 an unlocked install must supply the dependency token required by the action.
 
+#### Self-CI extraction boundary
+
+The Go CLI release starters are not replacements for the engine's own acceptance
+campaign. When thinning an existing engine fork, preserve these responsibilities:
+
+| Existing responsibility | Owner after extraction |
+|---|---|
+| Engine lint, workflow-input validation, recorded-binary checks and strict companion tests | Engine self-CI and its pinned companion suite; these are product acceptance, not generic Go checks. |
+| Strict integration before release preparation | An explicit self-CI job gating `prepare`; do not remove it to match the three-job starter. |
+| Prepared-source GoReleaser packaging and metadata import | `build-goreleaser`, followed by `upload-dist`; import the manifest once in the producer. |
+| Release isolation and digest handoff | Existing `check-l3-isolation`, prepare and sign/publish interfaces; retain the caller's exact build job and output names. |
+| Release summary | Existing `forge-ci report release`; job results and scheduling remain in YAML. |
+| Runner images, dependency credentials and companion repository/trust pins | Explicit deployment configuration; no automatic substitution from an example. |
+
+Before adding another command or action, ask whether the existing CLI already
+owns the decision. Keep simple tool execution in the build adapter, reusable
+validation and policy in Go, and job/secret boundaries in YAML. In particular,
+do not add a generic shell-hook runner just to hide product acceptance jobs.
+The alternative GoReleaser caller demonstrates the shared handoff, not completed
+self-CI migration or hosted release acceptance. Switch active callers only after
+the new engine package and reviewed image/trust tuple are published and verified.
+
 ### Updating pins and checking a migration
 
 Treat a pin update as one reviewed change:
@@ -1831,6 +2059,19 @@ instance. Record the actual revision and selected scenarios with each result.
 | Plain `cosign verify` fails on a release | Signatures made with `transparency-log: none` need `--insecure-ignore-tlog`; see [The transparency log](#the-transparency-log). |
 
 `forge-ci doctor` in a job prints what the detected forge supports.
+
+Artifact finalization is a separate PATCH after the file uploads. A transport
+failure there reports a safe category (for example, deadline exceeded or
+connection reset), the artifact byte count and elapsed finalization time. It
+does not establish whether the server committed the artifact. The client does
+not automatically retry that mutation. Keep the run/job identity and UTC log
+timestamp for the forge operator to correlate with server and proxy logs;
+a successful rerun alone does not identify the original cause.
+
+For a separately authorized upload, `forge-ci --log-level=debug artifact upload
+...` also logs finalization start and the response status/timing when available.
+These diagnostics omit runtime URLs, credentials and response bodies. Do not
+enable raw HTTP/header dumps to investigate token-bearing artifact requests.
 
 ## Limits
 

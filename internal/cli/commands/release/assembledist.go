@@ -42,7 +42,7 @@ EXAMPLE:
 			&cli.StringFlag{Name: "path", Value: defaultDistPath, Sources: planfile.Vars(planScopeAssembleDist, "path", "DIST_DIR"), Usage: "directory to assemble and digest"},
 			&cli.StringFlag{Name: "ledger-files", Sources: planfile.Vars(planScopeAssembleDist, "ledger-files", "LEDGER_FILES"), Usage: "newline-separated ledger files or directories to merge after artifact download"},
 			&cli.IntFlag{Name: "ledger-expected-count", Sources: planfile.Vars(planScopeAssembleDist, "ledger-expected-count", "LEDGER_EXPECTED_COUNT"), Usage: "when greater than zero, require the merged release image ledger to contain exactly this many entries"},
-			&cli.StringFlag{Name: "release-images-path", Value: "dist/release-images.json", Sources: planfile.Vars(planScopeAssembleDist, "release-images-path", "RELEASE_IMAGES_PATH"), Usage: "merged release image ledger path"},
+			&cli.StringFlag{Name: "release-images-path", Sources: planfile.Vars(planScopeAssembleDist, "release-images-path", "RELEASE_IMAGES_PATH"), Usage: "merged release image ledger path (default: <path>/release-images.json)"},
 			&cli.StringFlag{Name: "prune-dirs", Value: "false", Sources: planfile.Vars(planScopeAssembleDist, "prune-dirs", "PRUNE_DIRS"), Usage: "whether to remove top-level directories before digesting: true|false"}, //nolint:goconst // generic bool literal, not a shared identifier.
 			&cli.StringFlag{Name: "run-id", Sources: planfile.Chain(planScopeAssembleDist, "run-id", cienv.RunID()), Usage: "run the artifact belongs to (default: current run)"},
 			&cli.StringFlag{Name: "repository", Sources: planfile.Chain(planScopeAssembleDist, "repository", cienv.Repository()), Usage: "owner/repo the run belongs to (default: current repo)"},

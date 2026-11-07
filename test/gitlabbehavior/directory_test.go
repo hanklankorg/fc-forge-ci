@@ -36,6 +36,12 @@ func TestComponentWorkingDirectoryIsLiteralData(t *testing.T) {
 				if strings.HasPrefix(script, "cd ") {
 					changeDirectory = strings.ReplaceAll(script, "$[[ inputs.working-directory ]]", directory)
 				}
+
+				if strings.Contains(script, `--working-dir "$RC_PROJECT_DIRECTORY"`) {
+					// The fake only demonstrates argument binding; execution-directory
+					// behavior is covered by the Maven adapter and real CLI tests.
+					changeDirectory = `forge-ci() { test "$1 $2 $3" = 'build maven run'; shift 3; test "$1" = --working-dir; cd -- "$2"; }; ` + script
+				}
 			}
 
 			if changeDirectory == "" {

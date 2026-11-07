@@ -25,10 +25,11 @@ func generateSnapshot(t *testing.T, plan string, extra ...string) (map[string]an
 		t.Fatal(err)
 	}
 
-	cmd := exec.CommandContext(t.Context(), componentBash(t), "--noprofile", "--norc", "-c", `set -euo pipefail; source "$1"; snapshot_gitlab_generate plan.json child.json`, "snapshot", filepath.Join(reporoot.Path(t), ".gitlab/bin/snapshot-images.sh"))
+	cmd := exec.CommandContext(t.Context(), componentBash(t), "--noprofile", "--norc", "-c", `set -euo pipefail; source "$1"; snapshot_engine() { OWNER_CLI_HELPER=1 "$OWNER_CLI_BINARY" -test.run='^TestOwnerCLI$' -- "$@"; }; snapshot_gitlab_generate plan.json child.json`, "snapshot", filepath.Join(reporoot.Path(t), ".gitlab/bin/snapshot-images.sh"))
 	cmd.Dir = dir
 	cmd.Env = append([]string{
 		"PATH=" + os.Getenv("PATH"), "HOME=" + dir,
+		"OWNER_CLI_BINARY=" + os.Args[0],
 		"CI_PIPELINE_ID=42", "RC_SERVER_URL=https://gitlab.invalid", "RC_REGISTRY=registry.gitlab.invalid", "SNAPSHOT_LAYER_PROJECT=org/engine", "SNAPSHOT_ENGINE_SHA=" + strings.Repeat("a", 40),
 		"SNAPSHOT_JOB_IMAGE=registry.example/tools@sha256:" + strings.Repeat("b", 64),
 		"SNAPSHOT_BUILD_IMAGE=registry.example/build@sha256:" + strings.Repeat("c", 64),

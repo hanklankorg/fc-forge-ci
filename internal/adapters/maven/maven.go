@@ -21,6 +21,7 @@ type Adapter struct {
 	MvnBin  string   // empty → "mvn"
 	Env     []string // nil inherits; supplied explicitly for private dependency access
 	Options []string // settings shared by lifecycle and metadata invocations
+	Dir     string   // project directory for lifecycle and metadata; empty means current
 }
 
 // New returns an Adapter using the system mvn.
@@ -36,7 +37,7 @@ func New() *Adapter { return &Adapter{} }
 func (a *Adapter) EvalExpression(ctx context.Context, expr string) (string, error) {
 	args := append(append([]string{}, a.Options...), "help:evaluate", "-Dexpression="+expr, "-q", "-DforceStdout")
 
-	env, cleanup, err := a.trustedEnvironment(ctx, "", args...)
+	env, cleanup, err := a.trustedEnvironment(ctx, a.Dir, args...)
 	if err != nil {
 		return "", err
 	}
@@ -44,6 +45,7 @@ func (a *Adapter) EvalExpression(ctx context.Context, expr string) (string, erro
 
 	cmd := safeexec.Command(ctx, a.bin(), args...)
 	cmd.Env = env
+	cmd.Dir = a.Dir
 
 	// The value is stdout alone. A JVM that prints a notice on stderr
 	// ("Picked up JAVA_TOOL_OPTIONS: ...") must not have it read back as the
@@ -73,7 +75,7 @@ func (a *Adapter) EvalExpression(ctx context.Context, expr string) (string, erro
 // and stderr to the provided writers. Build/test/package steps want this
 // path so the user sees Maven's own progress in the CI log.
 func (a *Adapter) RunInherit(ctx context.Context, stdout, stderr io.Writer, args ...string) error {
-	return a.RunInheritIn(ctx, "", stdout, stderr, args...)
+	return a.RunInheritIn(ctx, a.Dir, stdout, stderr, args...)
 }
 
 // RunInheritIn is like RunInherit but runs mvn inside dir. dir="" runs

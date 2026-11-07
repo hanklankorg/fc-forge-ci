@@ -77,10 +77,16 @@ func uploadCmd() *cli.Command {
 			&cli.IntFlag{Name: "retention-days", Usage: "retention in days (0 = forge default)"},
 			&cli.StringFlag{Name: "if-no-files", Value: "error", Usage: "when nothing matches: error | warn | ignore"},
 			&cli.BoolFlag{Name: "include-hidden", Usage: "include dotfiles/hidden files (off by default, matching upload-artifact)"},
+			&cli.BoolFlag{Name: "verify-readback", Usage: "download once and verify exact selected paths/content before emitting success (requires --if-no-files error; no --blob-store)"},
+			&cli.StringFlag{Name: "temp-dir", Sources: cienv.TempDir(), Usage: "existing directory for the --verify-readback download (default: the system temp)"},
 			&cli.StringFlag{Name: flagBlobStore, Usage: "with --dir: upload each OCI layout blob (blobs/sha256/<digest>, 1 MiB or more) as its own artifact <prefix>-<digest>-<owner>, skipped when the run already stores that digest; download with the same prefix"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			return deps.FromCmd(ctx, cmd, func(dep *deps.Deps) error {
+				if cmd.Bool("verify-readback") && cmd.String(flagBlobStore) != "" {
+					return fmt.Errorf("--verify-readback does not support --blob-store: %w", errs.ErrUsage)
+				}
+
 				up, err := dep.RequireRunArtifactUploader()
 				if err != nil {
 					return err
@@ -113,7 +119,16 @@ func uploadCmd() *cli.Command {
 					return err
 				}
 
-				_, err = appartifact.Upload(ctx, up, dep.OutputSink, os.Stderr, in)
+				if cmd.Bool("verify-readback") {
+					dl, dlErr := dep.RequireRunArtifactDownloader()
+					if dlErr != nil {
+						return dlErr
+					}
+
+					_, err = appartifact.UploadVerified(ctx, up, dl, dep.OutputSink, os.Stderr, in, cmd.String("temp-dir"))
+				} else {
+					_, err = appartifact.Upload(ctx, up, dep.OutputSink, os.Stderr, in)
+				}
 
 				return err
 			})

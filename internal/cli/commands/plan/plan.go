@@ -22,10 +22,12 @@ func New() *cli.Command {
 		Usage: "typed release, snapshot-release, and pull-request plan composition",
 		Commands: []*cli.Command{
 			releaseCmd(),
+			releaseExportsCmd(),
 			snapshotReleaseCmd(),
 			prCmd(),
 			gitlabBuildPipelineCmd(),
 			gitlabPublishPipelineCmd(),
+			gitlabSnapshotPipelineCmd(),
 			writeCmd(),
 		},
 	}

@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -284,4 +285,30 @@ func manifestTestDigest(raw []byte) string {
 	sum := sha256.Sum256(raw)
 
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+type deniedManifestRegistry struct {
+	fakeManifestPushRegistry
+
+	calls int
+}
+
+func (d *deniedManifestRegistry) Manifest(context.Context, string) ([]byte, error) {
+	d.calls++
+
+	return nil, fmt.Errorf("token refused: %w", errs.ErrPermissionDenied)
+}
+
+// A refused credential stops at once: retrying cannot change it, and each
+// wait only delays the error a person needs to see.
+func TestResolvePushedManifestDigest_DoesNotRetryAPermissionDenial(t *testing.T) {
+	t.Parallel()
+
+	registry := &deniedManifestRegistry{}
+
+	_, err := appcontainer.ResolvePushedManifestDigest(t.Context(), registry, nil, io.Discard,
+		appcontainer.PushedManifestDigestInput{Ref: "registry.example/app:v1", RetryAttempts: 3, RetryDelay: time.Hour})
+	if !errors.Is(err, errs.ErrPermissionDenied) || registry.calls != 1 {
+		t.Fatalf("err = %v after %d calls, want one permission-denied call", err, registry.calls)
+	}
 }

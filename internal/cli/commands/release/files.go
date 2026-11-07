@@ -25,6 +25,7 @@ func filesGroup() *cli.Command {
 prefix. Run manifest/asset operations from the workspace root, for example with
 --dist-dir dist and an asset path of dist/app.tar.gz.`,
 		Commands: []*cli.Command{
+			filesCompareCmd(),
 			filesCollectCmd(),
 			filesImportGoReleaserCmd(),
 			filesDeclareCmd(),
@@ -159,6 +160,8 @@ func filesManifestCmd() *cli.Command {
 	flags := append(releaseFilesFlags(),
 		&cli.StringFlag{Name: flagOutput, Usage: "output manifest file (defaults to --manifest; '-' for stdout)"},
 		&cli.StringFlag{Name: "assets-json", Usage: "release files collect JSON to reuse instead of re-collecting ('-' for stdin)"},
+		&cli.BoolFlag{Name: "unsigned", Usage: "extend an existing unsigned manifest with evidence without rediscovering producer metadata"},
+		&cli.StringSliceFlag{Name: "evidence-file", Usage: "additional file to publish and sign as evidence; requires --unsigned (repeatable)"},
 	)
 
 	return &cli.Command{
@@ -169,13 +172,19 @@ set is kept and the provenance statement, its bundle and the <file>.bundle and
 <file>.sig of declared files are added. An evidence file without its bundle is
 refused. Without a manifest at the default path, or with --assets-json, writes
 a fresh manifest from GoReleaser discovery; a manifest named with --manifest
-must exist, so a fresh write to another path uses --output.`,
+must exist, so a fresh write to another path uses --output.
+
+With --unsigned, preserve the producer's existing file set and add explicit
+--evidence-file paths before signing. Refuses existing signatures, provenance,
+duplicate paths and reclassification; does not read GoReleaser metadata.`,
 		Flags: flags,
 		Action: func(_ context.Context, cmd *cli.Command) error {
 			input := apprelease.WriteReleaseFileManifestInput{
 				FilesInput:     releaseFilesInput(cmd),
 				OutputFile:     cmd.String(flagOutput),
 				AssetsJSONFile: cmd.String("assets-json"),
+				Unsigned:       cmd.Bool("unsigned"),
+				EvidenceFiles:  cmd.StringSlice("evidence-file"),
 			}
 
 			_, err := apprelease.WriteReleaseFileManifest(input)

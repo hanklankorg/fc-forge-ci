@@ -9,11 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Admit exact or namespace-qualified workflow dependencies with
+  `platform dependency`: require one job, an admitted result and explicit output
+  presence before downstream reusable calls consume producer facts.
+- Fetch locked Cargo dependencies with bounded cancellation-aware retries,
+  without invoking builds or tests. Extend existing unsigned file manifests
+  with evidence without rediscovering GoReleaser metadata or replacing subjects.
+- Admit base promotion ledgers and native layout-source bindings in existing
+  image commands; stage and verify release handoff bytes in the release owner.
+- Reuse release-request source admission before loading the prepare signing key.
+- **BREAKING**: Maven `build maven run --working-dir` now selects the execution
+  directory as well as metadata. It must stay workspace-relative; relative
+  settings resolve from that project. The three forge adapters use this contract.
+- Move GitLab snapshot child rendering, native export admission and pre-manifest
+  export fan-in into Go owners; reuse shared image-builder admission for releases.
+- Compare reproducible release subjects with caller-owned inventory patterns in
+  Go, and reuse release checksum validation before GitHub self-release signing.
+- Add optional exact-content artifact upload read-back verification and bounded,
+  cancellation-aware retries to the existing Go dependency download command.
+- Verify runtime downloaded/baked CLI bytes in Go without executing candidates.
+- Move Forgejo image-builder setup selection and Kaniko job-image admission
+  into Go, reusing existing Buildah storage setup and registry validation.
+- Verify runtime smoke receipts in Go against the exact source, target, native
+  architecture and candidate digest, refusing stale evidence before assembly.
+- Add a reusable Forgejo unsigned GoReleaser packaging action and a callable,
+  preview-only GHCR retention workflow. Keep product packaging and protected
+  consumer pins in caller-owned configuration rather than copied workflows.
 - Add read-only `doctor --requirements` setup guidance for GitHub, GitLab and
   Forgejo release entry points, with caller mappings and explicit coverage limits.
 
 ### Fixed
 
+- Protect the union of consumer digests per GHCR package in retention previews,
+  and reuse Go runtime admission for build/assembly target and metadata selection.
+- Classify redacted HTTP transport failures without exposing private causes.
+  Report Forgejo artifact finalization timing and uncertain server outcomes,
+  with safe debug progress logs and no automatic mutation retries.
 - Run GitHub self-release binary publication after a successful release even
   when optional ancestor gates are skipped; retain failure/cancellation refusal.
 - Explicitly sign GitHub CLI checksum manifests after unsigned packaging and

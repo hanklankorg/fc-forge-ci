@@ -5,6 +5,7 @@ package container
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/urfave/cli/v3"
@@ -14,6 +15,8 @@ import (
 	appbaseimages "github.com/diggsweden/forge-ci/internal/app/baseimages"
 	"github.com/diggsweden/forge-ci/internal/cli/deps"
 	"github.com/diggsweden/forge-ci/internal/cli/regflags"
+	"github.com/diggsweden/forge-ci/internal/cliio"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
 
 func baseImagesPromoteCmd() *cli.Command {
@@ -23,10 +26,14 @@ func baseImagesPromoteCmd() *cli.Command {
 		Description: `Verifies each image's signature, CycloneDX SBOM attestation and SLSA lineage
 with the trusted key, then makes its candidate the immutable final tag.
 
+Use --ledger to admit and project a publication base-image ledger directly,
+or --all-images-json for the existing metadata contract, never both.
+
 Every image must be in the one base-image repository, --expected-repository
 or the one derived from --server-url and --repository; the login goes to its
 registry.`,
 		Flags: append(baseImagesCommonFlags(),
+			&cli.StringFlag{Name: flagLedger, Usage: "publication base-image ledger to admit and project; exclusive with --all-images-json"},
 			&cli.StringFlag{Name: "all-images-json", Sources: cli.EnvVars("ALL_IMAGES_JSON"), Usage: "JSON array of base image metadata to verify/promote"},
 			&cli.StringFlag{Name: flagBaseInputID, Sources: cli.EnvVars("BASE_INPUT_ID"), Usage: "optional single sha256 base input ID expected for every image"},
 			regflags.Username(),
@@ -42,7 +49,7 @@ registry.`,
 				return keyErr
 			}
 
-			images, err := parseBaseImages(cmd.String("all-images-json"))
+			images, err := basePromotionImages(cmd, common.ExpectedRepository)
 			if err != nil {
 				return err
 			}
@@ -74,6 +81,23 @@ registry.`,
 			})
 		},
 	}
+}
+
+func basePromotionImages(cmd *cli.Command, repository string) ([]appbaseimages.BaseImageMetadata, error) {
+	if cmd.String(flagLedger) == "" {
+		return parseBaseImages(cmd.String("all-images-json"))
+	}
+
+	if cmd.String("all-images-json") != "" {
+		return nil, fmt.Errorf("use --ledger or --all-images-json, not both: %w", errs.ErrUsage)
+	}
+
+	body, err := cliio.ReadRegularFile(cmd.String(flagLedger))
+	if err != nil {
+		return nil, err
+	}
+
+	return appbaseimages.PromotionImagesFromLedger(body, repository)
 }
 
 func writeBaseImagesPromoteOutputs(ctx context.Context, dep *deps.Deps, result appbaseimages.BaseImagePromoteResult) error {

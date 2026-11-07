@@ -247,17 +247,13 @@ jobs:
     outputs:
       dist_digest: ${{ steps.dist.outputs.digest }}
     steps:
-      - name: Set up forge-ci
-        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA
-      - name: Collect release files and image ledger
-        run: |
-          set -euo pipefail
-          forge-ci artifact download --name release-files --dir dist
-          forge-ci artifact download --name release-images --dir dist
-      - name: Upload the unsigned hand-off
+      - name: Assemble the unsigned hand-off
         id: dist
-        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/upload-dist@PIN_FORGE_CI_SHA
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/assemble-release-dist@PIN_FORGE_CI_SHA
         with:
+          artifact-names: |
+            release-files
+            release-images
           artifact-name: build-dist
           path: dist/
   # ===========================================================================

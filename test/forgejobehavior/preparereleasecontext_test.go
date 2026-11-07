@@ -18,18 +18,13 @@ import (
 
 const (
 	releaseContextStep = "Derive release context"
-	requestCommit      = "1111111111111111111111111111111111111111"
-	otherCommit        = "2222222222222222222222222222222222222222"
 )
 
-// releaseContextFakeGit answers the two commit lookups of the step from the
-// environment, and the tagger queries the engine makes for
-// release-request/v1.2.3.
+// releaseContextFakeGit answers only the tagger queries used in derivation.
+// Source identity admission belongs to release validate-request, not this step.
 const releaseContextFakeGit = `#!/usr/bin/env bash
 set -euo pipefail
 case "$*" in
-  'rev-parse --verify HEAD^{commit}') printf '%s\n' "${FAKE_HEAD_COMMIT:?}" ;;
-  'rev-parse --verify refs/tags/'*'^{commit}') printf '%s\n' "${FAKE_TAG_COMMIT:?}" ;;
   'for-each-ref refs/tags/release-request/v1.2.3 --format=%(taggername) <%(taggeremail)>'|'for-each-ref refs/tags/release-request/v1.2.3-beta.2 --format=%(taggername) <%(taggeremail)>')
     printf 'Release Administrator <admin@example.test>\n' ;;
   'for-each-ref refs/tags/release-request/v1.2.3 --format=%(taggerdate:iso8601)'|'for-each-ref refs/tags/release-request/v1.2.3-beta.2 --format=%(taggerdate:iso8601)')
@@ -48,11 +43,10 @@ func releaseContextSandbox(t *testing.T) (*sandbox, string) {
 	return box, "PATH=" + filepath.Join(box.root, "fakebin") + ":" + os.Getenv("PATH")
 }
 
-// releaseContextEnv is a request whose checkout, tag and event commit agree.
+// releaseContextEnv supplies the key-free derivation inputs.
 func releaseContextEnv(path, ref string) []string {
 	return []string{
 		path, "RELEASE_CONTEXT_REF=" + ref, "VERIFY_RELEASE_REQUEST_SIGNATURE=false",
-		"RELEASE_REQUEST_EVENT_SHA=" + requestCommit, "FAKE_HEAD_COMMIT=" + requestCommit, "FAKE_TAG_COMMIT=" + requestCommit,
 	}
 }
 
@@ -108,44 +102,26 @@ func TestPrepareReleaseContextCallsTheEngine(t *testing.T) {
 	}
 }
 
-// After the engine has accepted the request, the step holds the checkout and
-// the request tag to the commit the event authorized: the caller's input when
-// it passes one, else the event's own commit. Either one on another commit
-// stops the action before a renderer is installed or a key is loaded.
-func TestPrepareReleaseContextBindsTheRequestToTheEventCommit(t *testing.T) {
+// The existing Go request owner checks the full OID, request tag and HEAD.
+// Keep that admission in the key-free pre-signing step, not shell derivation.
+func TestPrepareReleaseSourceBindingIsOwnedByRequestValidation(t *testing.T) {
 	t.Parallel()
-	script := actionStep(t, "prepare-release", releaseContextStep)
 
-	for _, test := range []struct {
-		name    string
-		env     []string
-		refused string
-	}{
-		{name: "checkout and tag are the event commit"},
-		{name: "the caller's commit takes the place of the event's", env: []string{
-			"RELEASE_REQUEST_SHA_INPUT=" + otherCommit, "FAKE_HEAD_COMMIT=" + otherCommit, "FAKE_TAG_COMMIT=" + otherCommit,
-		}},
-		{name: "the checkout is another commit", env: []string{"FAKE_HEAD_COMMIT=" + otherCommit}, refused: "does not match the event commit"},
-		{name: "the tag names another commit", env: []string{"FAKE_TAG_COMMIT=" + otherCommit}, refused: "does not match the event commit"},
-		{name: "the caller's commit is not the checkout", env: []string{"RELEASE_REQUEST_SHA_INPUT=" + otherCommit}, refused: "does not match the event commit"},
-		{name: "an abbreviated commit", env: []string{"RELEASE_REQUEST_SHA_INPUT=1111111"}, refused: "release-request-sha must be"},
-		{name: "an uppercase commit", env: []string{"RELEASE_REQUEST_SHA_INPUT=" + strings.ToUpper(strings.Repeat("a", 40))}, refused: "release-request-sha must be"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
+	derive := actionStep(t, "prepare-release", releaseContextStep)
+	if strings.Contains(derive, "git rev-parse") || strings.Contains(derive, "expected_release_request_sha") {
+		t.Fatal("derivation reintroduced source identity decisions")
+	}
 
-			box, path := releaseContextSandbox(t)
-
-			got := box.run(script, append(releaseContextEnv(path, "release-request/v1.2.3"), test.env...)...)
-			if (got.status == 0) != (test.refused == "") || !strings.Contains(got.stderr, test.refused) {
-				t.Fatalf("status %d, want refusal %q; stderr %s", got.status, test.refused, got.stderr)
-			}
-		})
+	validate := actionStep(t, "prepare-release", "Revalidate release request before loading signing key")
+	for _, fragment := range []string{"release validate-request", `--expected-commit "${expected_release_request_sha}"`, "unset SSH_SIGNING_KEY"} {
+		if !strings.Contains(validate, fragment) {
+			t.Fatalf("pre-key validation lacks %s", fragment)
+		}
 	}
 }
 
 // The step runs this tree's engine: stable is the default, prereleases require
-// explicit opt-in, and the authorized request remains bound to the event commit.
+// explicit opt-in. Source binding is separately admitted before signing.
 func TestPrepareReleaseContextEngine(t *testing.T) {
 	t.Parallel()
 	script := actionStep(t, "prepare-release", releaseContextStep)

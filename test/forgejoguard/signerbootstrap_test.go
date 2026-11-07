@@ -47,6 +47,7 @@ func signerWorkflows() map[string]int {
 		".forgejo/workflows/sign-container-images.yml":         1,
 		".forgejo/workflows/promote-base-container-images.yml": 1,
 		".forgejo/workflows/verify-base-container-images.yml":  1,
+		".forgejo/workflows/runtime-images.yml":                7,
 	}
 }
 

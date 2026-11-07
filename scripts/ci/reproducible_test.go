@@ -56,12 +56,18 @@ func TestReleaseArchiveComparison(t *testing.T) {
 				}
 			}
 
-			output, err := exec.CommandContext(t.Context(), "bash", script, "--compare", first, second).CombinedOutput()
+			bin := t.TempDir()
+			releaseOwnerStub(t, bin)
+			cmd := exec.CommandContext(t.Context(), "bash", script, "--compare", first, second)
+
+			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "RELEASE_OWNER_BINARY="+os.Args[0])
+
+			output, err := cmd.CombinedOutput()
 			if scenario == "equal" {
 				if err != nil || !strings.Contains(string(output), "4 release files are byte-identical") {
 					t.Fatalf("comparison failed: %v\n%s", err, output)
 				}
-			} else if err == nil || (!strings.Contains(string(output), "Expected") && !strings.Contains(string(output), "Different or missing")) {
+			} else if err == nil || (!strings.Contains(string(output), "expected") && !strings.Contains(string(output), "different") && !strings.Contains(string(output), "empty")) {
 				t.Fatalf("expected an actionable comparison failure: %v\n%s", err, output)
 			}
 		})

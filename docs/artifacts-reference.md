@@ -27,7 +27,7 @@ Co-located with the other forge-ci files:
 
 ### JSON Schema
 
-[`.forge-ci/artifacts.schema.json`](../.forge-ci/artifacts.schema.json) is a Draft 2020-12 schema for editor completion and structural checks. Most editors honour the `# yaml-language-server: $schema=…` directive at the top of a YAML file:
+[`.forge-ci/artifacts.schema.json`](../.forge-ci/artifacts.schema.json) is a Draft 2020-12 schema for editor completion and structural checks. `forge-ci config schema > .forge-ci/artifacts.schema.json` writes the one your binary validates against. Most editors honour the `# yaml-language-server: $schema=…` directive at the top of a YAML file:
 
 ```yaml
 # yaml-language-server: $schema=./artifacts.schema.json

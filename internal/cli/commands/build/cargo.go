@@ -6,6 +6,7 @@ package build
 import (
 	"context"
 	"os"
+	"time"
 
 	"github.com/urfave/cli/v3"
 
@@ -22,6 +23,22 @@ func cargoCmd() *cli.Command {
 		Usage: "Cargo build helpers (artifact-first Rust projects)",
 		Commands: []*cli.Command{
 			cargoRunCmd(),
+			cargoFetchCmd(),
+		},
+	}
+}
+
+func cargoFetchCmd() *cli.Command {
+	return &cli.Command{
+		Name: "fetch", Usage: "fetch locked Cargo dependencies without building or running tests",
+		Description: "Runs cargo fetch --locked once by default. Explicit bounded retries use cancellation-aware linear waits; no compilation, artifact publication or signing is retried.",
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Sources: cli.EnvVars("WORKING_DIRECTORY"), Usage: usageCargoDirectory},
+			&cli.IntFlag{Name: "attempts", Value: 1, Usage: "dependency fetch attempts (1–10)"},
+			&cli.DurationFlag{Name: "retry-delay", Value: 2 * time.Second, Usage: "linear retry delay (0–1m)"},
+		},
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			return appbuild.CargoFetchWithRetry(ctx, cargo.New(), os.Stderr, os.Stderr, appbuild.CargoFetchInput{Dir: cmd.String(flagWorkingDir), Attempts: cmd.Int("attempts"), RetryDelay: cmd.Duration("retry-delay")})
 		},
 	}
 }
@@ -33,7 +50,7 @@ func cargoRunCmd() *cli.Command {
 		Name:  subCmdRun,
 		Usage: "run the full Cargo release build (metadata, fetch, test, SBOM, compile, status)",
 		Description: `Runs the whole Cargo build sequence in one step: resolve metadata, fetch
-   deps, run tests under the admin enforcement policy, generate the Build SBOM with cargo-cyclonedx
+    deps, run mandatory all-target tests under the admin enforcement policy, generate the Build SBOM with cargo-cyclonedx
    (unless --no-build-sbom), and cross-compile per platform into dist/. The
    forge job wraps this with checkout + artifact upload only.
 

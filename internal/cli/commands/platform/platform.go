@@ -52,6 +52,7 @@ func New() *cli.Command {
 			checkoutCmd(),
 			stagePublicKeyCmd(),
 			requestRunnerCmd(),
+			dependencyCmd(),
 		},
 	}
 }

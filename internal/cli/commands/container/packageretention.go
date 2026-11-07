@@ -28,6 +28,7 @@ const (
 	flagRecentCount         = "recent-count"
 	flagPackagesTokenFile   = "token-file"
 	flagKeepDigest          = "keep-digest"
+	flagProtectedPackages   = "packages-json"
 
 	// defaultKeepTags keeps release and pre-release tags such as v1.2.3,
 	// v1.2, v1 and v1.0.0-rc.1, and a rolling tag such as v0.90.0-pre; a
@@ -55,6 +56,11 @@ cannot be read stops the pass.
 even if its tag is old or absent. It requires exactly one --repository. A
 protected digest missing from the complete package inventory refuses the pass.
 
+--packages-json accepts {"include":[{"repository":"ghcr.io/owner/name","digest":"sha256:..."}]}.
+It groups all protected pins by repository before inventory work, preserving
+their union in one pass per package. It cannot be mixed with repository, prefix
+or keep-digest selectors. All declarations are validated before credentials.
+
 The token is $GITHUB_TOKEN with packages: write for packages linked to the
 repository, or a classic token with read:packages and delete:packages.
 
@@ -64,6 +70,7 @@ EXAMPLE:
    forge-ci container package-retention \
      --repository-prefix ghcr.io/example-org/forge-ci-runtime --recent-count 10`,
 		Flags: []cli.Flag{
+			&cli.StringFlag{Name: flagProtectedPackages, Usage: "protected inventory JSON with include rows of repository/digest; all pins for each package are kept together; exclusive with repository, prefix and keep-digest"},
 			&cli.StringSliceFlag{Name: flagKeepDigest, Usage: "consumer-pinned sha256 digest to preserve regardless of tag age; repeatable with one --repository"},
 			&cli.StringSliceFlag{Name: flagRetentionRepository, Usage: "package to prune, as ghcr.io/<owner>/<name>; repeatable"},
 			&cli.StringFlag{Name: flagRetentionPrefix, Sources: cli.EnvVars("PACKAGE_RETENTION_PREFIX"), Usage: "prune every container package of the owner whose name starts with this, given as ghcr.io/<owner>/<name-prefix>"},
@@ -97,9 +104,25 @@ EXAMPLE:
 				return err
 			}
 
-			repositories, err := retentionRepositories(ctx, cmd, packages)
-			if err != nil {
-				return err
+			var repositories []string
+
+			protected := make(map[string][]string)
+
+			if raw := cmd.String(flagProtectedPackages); raw != "" {
+				groups, err := domaincontainer.ParsePackageRetentionPins(raw)
+				if err != nil {
+					return err
+				}
+
+				for _, group := range groups {
+					repositories = append(repositories, group.Repository)
+					protected[group.Repository] = group.Digests
+				}
+			} else {
+				repositories, err = retentionRepositories(ctx, cmd, packages)
+				if err != nil {
+					return err
+				}
 			}
 
 			return withBaseImagesDockerConfig(func(authFile string) error {
@@ -112,9 +135,14 @@ EXAMPLE:
 				manifests := ociregistry.WithAuthFile(authFile)
 
 				for _, repository := range repositories {
+					packageRule := rule
+					if pins, found := protected[repository]; found {
+						packageRule.KeepDigests = pins
+					}
+
 					if _, err := appcontainer.ApplyPackageRetention(ctx, packages, manifests, os.Stdout, appcontainer.PackageRetentionInput{
 						Repository: repository,
-						Rule:       rule,
+						Rule:       packageRule,
 						MaxDelete:  cmd.Int(flagMaxDelete),
 						DryRun:     cmd.Bool(flagDryRun),
 					}); err != nil {
@@ -134,6 +162,20 @@ func retentionRuleFromCmd(cmd *cli.Command) (domaincontainer.RetentionRule, erro
 	}
 
 	rule := domaincontainer.RetentionRule{RecentCount: cmd.Int(flagRecentCount), KeepDigests: cmd.StringSlice(flagKeepDigest)}
+	if raw := cmd.String(flagProtectedPackages); raw != "" {
+		if len(cmd.StringSlice(flagRetentionRepository)) != 0 || cmd.String(flagRetentionPrefix) != "" || len(rule.KeepDigests) != 0 {
+			return rule, fmt.Errorf("packages-json is exclusive with repository, repository-prefix and keep-digest: %w", errs.ErrUsage)
+		}
+
+		groups, err := domaincontainer.ParsePackageRetentionPins(raw)
+		if err != nil {
+			return rule, err
+		}
+
+		// This validates pin-only rules too. Each package receives its own union
+		// before ApplyPackageRetention; no pin is borrowed across repositories.
+		rule.KeepDigests = groups[0].Digests
+	}
 
 	for flag, target := range map[string]**regexp.Regexp{flagKeepTags: &rule.Keep, flagRecentTags: &rule.Recent} {
 		pattern := strings.TrimSpace(cmd.String(flag))

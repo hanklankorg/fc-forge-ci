@@ -39,7 +39,7 @@ func TestReleaseExportCheckRefusesWhatTheJobsWouldNotCarryOut(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			out, err := runReleaseFunction(t, t.TempDir(), "rc_check_exports "+test.args+" <<'EOF'\n"+test.commands+"\nEOF\n")
+			out, err := runReleaseFunction(t, t.TempDir(), ownerCLI+"rc_check_exports "+test.args+" <<'EOF'\n"+test.commands+"\nEOF\n", "OWNER_CLI_BINARY="+os.Args[0])
 			if test.refusal == "" {
 				if err != nil {
 					t.Fatalf("refused: %v\n%s", err, out)
@@ -72,9 +72,9 @@ func TestReleaseExportJobRunsForTheSelectedArchitectures(t *testing.T) {
 		{"arm64", "linux/amd64,linux/arm64", true},
 		{"arm64", "linux/amd64", false},
 	} {
-		_, err := runReleaseFunction(t, t.TempDir(), "rc_export_selected "+test.arch+" '"+test.platforms+"'")
-		if (err == nil) != test.selected {
-			t.Errorf("%s with release-platforms %q: selected=%v, want %v", test.arch, test.platforms, err == nil, test.selected)
+		out, err := runReleaseFunction(t, t.TempDir(), ownerCLI+"rc_export_selected "+test.arch+" '"+test.platforms+"'", "OWNER_CLI_BINARY="+os.Args[0])
+		if err != nil || strings.TrimSpace(out) != fmt.Sprint(test.selected) {
+			t.Errorf("%s with release-platforms %q: selected=%s, want %v: %v", test.arch, test.platforms, out, test.selected, err)
 		}
 	}
 }
@@ -104,7 +104,7 @@ func TestReleaseExportCheckKeepsTheExportsToTheImagesArchitectures(t *testing.T)
 				}
 			}
 
-			out, err := runReleaseFunction(t, work, "rc_check_exports true '"+pinnedBuilderImage+"' '"+test.platforms+"' '[\"arm64\"]' <<'EOF'\n[\"x\"]\nEOF\n", "RC_WORK="+work)
+			out, err := runReleaseFunction(t, work, ownerCLI+"rc_check_exports true '"+pinnedBuilderImage+"' '"+test.platforms+"' '[\"arm64\"]' <<'EOF'\n[\"x\"]\nEOF\n", "RC_WORK="+work, "OWNER_CLI_BINARY="+os.Args[0])
 			if (err != nil) != (test.refusal != "") || !strings.Contains(out, test.refusal) {
 				t.Fatalf("err=%v, want refusal %q:\n%s", err, test.refusal, out)
 			}
@@ -132,7 +132,7 @@ func TestReleaseBuildGathersTheExportsWithoutOverwriting(t *testing.T) {
 		}
 	}
 
-	if out, err := runReleaseFunction(t, work, "rc_gather_exports true", "CI_PROJECT_DIR="+project); err != nil {
+	if out, err := runReleaseFunction(t, work, ownerCLI+"rc_gather_exports true", "CI_PROJECT_DIR="+project, "OWNER_CLI_BINARY="+os.Args[0]); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
 
@@ -142,7 +142,7 @@ func TestReleaseBuildGathersTheExportsWithoutOverwriting(t *testing.T) {
 		}
 	}
 
-	if out, err := runReleaseFunction(t, work, "rc_gather_exports true", "CI_PROJECT_DIR="+project); err == nil || !strings.Contains(out, "must not exist yet") {
+	if out, err := runReleaseFunction(t, work, ownerCLI+"rc_gather_exports true", "CI_PROJECT_DIR="+project, "OWNER_CLI_BINARY="+os.Args[0]); err == nil || !strings.Contains(out, "must not exist yet") {
 		t.Fatalf("a second export of the same path was merged: %v\n%s", err, out)
 	}
 
@@ -156,11 +156,11 @@ func TestReleaseBuildGathersTheExportsWithoutOverwriting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if out, err := runReleaseFunction(t, fresh, "rc_gather_exports true", "CI_PROJECT_DIR="+project); err == nil || !strings.Contains(out, "regular files") {
+	if out, err := runReleaseFunction(t, fresh, ownerCLI+"rc_gather_exports true", "CI_PROJECT_DIR="+project, "OWNER_CLI_BINARY="+os.Args[0]); err == nil || !strings.Contains(out, "regular files") {
 		t.Fatalf("an export holding a link was gathered: %v\n%s", err, out)
 	}
 
-	if out, err := runReleaseFunction(t, fresh, "rc_gather_exports false", "CI_PROJECT_DIR="+project); err != nil {
+	if out, err := runReleaseFunction(t, fresh, ownerCLI+"rc_gather_exports false", "CI_PROJECT_DIR="+project, "OWNER_CLI_BINARY="+os.Args[0]); err != nil {
 		t.Fatalf("without export-files nothing is gathered: %v\n%s", err, out)
 	}
 }

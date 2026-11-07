@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -218,8 +219,16 @@ func resolveVerifiedManifestDigest(ctx context.Context, registry RawManifestRegi
 		expectedDigest = ""
 	}
 
+	// Retries cover a registry that has not yet served a just-pushed
+	// manifest. A refused credential does not change between attempts, so it
+	// stops at once instead of waiting out every retry.
 	registryDigest, err := retry.Do(ctx, out, retry.Attempts(retryAttempts, defaultBuildPushRetryAttempts), retry.Delay(retryDelay, defaultBuildPushRetryDelay), func() (string, error) {
-		return registryManifestDigest(ctx, registry, ref)
+		digest, err := registryManifestDigest(ctx, registry, ref)
+		if errors.Is(err, errs.ErrPermissionDenied) {
+			return "", retry.Permanent(err)
+		}
+
+		return digest, err
 	})
 	if err != nil {
 		return "", err

@@ -90,11 +90,30 @@ func TestConsumerPRIsolationInputsMatchReleaseHandoff(t *testing.T) {
 // consumer replaces: the forge host, the owner and the forge-ci pin.
 func consumerTemplates() []string {
 	templates := consumerReleaseTemplates()
+	templates = append(templates, "examples/go-cli/forgejo/release-goreleaser.yml", "examples/go-cli/forgejo/snapshot.yml")
+
 	for _, release := range consumerReleaseTemplates() {
 		templates = append(templates, strings.TrimSuffix(release, "release.yml")+"pullrequest.yml")
 	}
 
 	return templates
+}
+
+func TestGoReleaserCallerSharesTheGoCLIIsolationContract(t *testing.T) {
+	t.Parallel()
+
+	body := strings.NewReplacer("PIN_FORGE_CI_SHA", strings.Repeat("a", 40),
+		"PIN_SIGNER_IMAGE_DIGEST", strings.Repeat("b", 64),
+		"PIN_COSIGN_PUBLIC_KEY_SHA256", strings.Repeat("c", 64),
+		"FORGE_HOST", "forge.example", "OWNER", "owner").Replace(string(reporoot.ReadFile(t, "examples/go-cli/forgejo/release-goreleaser.yml")))
+
+	violations, err := validate.CheckIsolation([]byte(body), validate.IsolationConfig{
+		BuildJob: "build", SignJob: "sign-and-publish", PrepareJob: "prepare", DistDigestOutput: "dist-digest",
+		SigningSecrets: []string{"RELEASE_COSIGN_PRIVATE_KEY", "RELEASE_COSIGN_PASSPHRASE", "RELEASE_GPG_PRIVATE_KEY", "RELEASE_GPG_PASSPHRASE", "RELEASE_GPG_FINGERPRINT"},
+	})
+	if err != nil || len(violations) != 0 {
+		t.Fatalf("GoReleaser caller isolation: %v; violations: %v", err, violations)
+	}
 }
 
 // Every action and reusable workflow of the layer the consumer kit references

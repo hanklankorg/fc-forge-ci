@@ -302,7 +302,8 @@ type ConsumerPin struct {
 	// Workflows is the same of its called workflows:
 	// owner/repository/.forgejo/workflows/.
 	Workflows string
-	// Commit is the one commit every reference ends in.
+	// Commit is the one commit every reference ends in, or the exact
+	// PIN_FORGE_CI_SHA draft marker replaced before a lab workflow is served.
 	Commit string
 	// BinarySHA256 is the digest of the layer's binary it passes as
 	// expected-sha256, or "" when it passes none.
@@ -310,8 +311,8 @@ type ConsumerPin struct {
 }
 
 var (
-	consumerActionUse   = regexp.MustCompile(`uses:[ \t]*['"]?(https://[^/\s'"]+/[^/\s]+/[^/\s]+/\.forgejo/actions/)[^@\s'"]+@([0-9a-f]{40})\b`)
-	consumerWorkflowUse = regexp.MustCompile(`uses:[ \t]*['"]?([^/\s'"]+/[^/\s]+/\.forgejo/workflows/)[^@\s'"]+@([0-9a-f]{40})\b`)
+	consumerActionUse   = regexp.MustCompile(`uses:[ \t]*['"]?(https://[^/\s'"]+/[^/\s]+/[^/\s]+/\.forgejo/actions/)[^@\s'"]+@([0-9a-f]{64}|[0-9a-f]{40}|PIN_FORGE_CI_SHA)\b`)
+	consumerWorkflowUse = regexp.MustCompile(`uses:[ \t]*['"]?([^/\s'"]+/[^/\s]+/\.forgejo/workflows/)[^@\s'"]+@([0-9a-f]{64}|[0-9a-f]{40}|PIN_FORGE_CI_SHA)\b`)
 	consumerBinary      = regexp.MustCompile(`expected-sha256:[ \t]*['"]?([0-9a-f]{64})\b`)
 
 	// consumerLayerUse finds every reference into a layer directory, pinned
@@ -327,6 +328,8 @@ var (
 // A consumer that names the layer in two places or at two commits is refused:
 // one layer under test cannot stand in for both, and guessing which is meant
 // would test something the consumer does not run.
+// Draft templates may use the one explicit layer marker; this is lab-only
+// rendering admission, not production pin validation or publication evidence.
 func ReadConsumerPin(workflows map[string]string) (ConsumerPin, error) {
 	var (
 		pin      ConsumerPin

@@ -77,25 +77,16 @@ runs:
         build_type=${BUILD_MAVEN_BUILD_TYPE:?build-type is required}
         skip_tests=${BUILD_MAVEN_SKIP_TESTS:?skip-tests is required}
         build_sbom=${BUILD_MAVEN_BUILD_SBOM:?enable-build-sbom is required}
-        # Everything the job keeps is rooted at this value, so a path out of
-        # the workspace is refused before mvn runs, as GitHub's workflow does.
         directory=${BUILD_MAVEN_WORKING_DIRECTORY:?working-directory is required}
-        case "${directory}" in
-          /*) echo "working-directory must be workspace-relative: ${directory}" >&2; exit 1 ;;
-        esac
-        case "/${directory}/" in
-          */../*) echo "working-directory must not contain parent-directory steps: ${directory}" >&2; exit 1 ;;
-        esac
         # GitHub's and GitLab's Maven options and SBOM plugin pin, so the
         # three forges run the same build.
         # shellcheck source=.forgejo/actions/build-maven/versions.env
         source "${GITHUB_ACTION_PATH}/versions.env"
         cli_opts='--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always'
-        # mvn runs in the current directory, so the build starts in the project.
-        cd -- "${directory}"
+        # The Go owner admits the project and binds every Maven subprocess to it.
         run_forge_ci build maven run \
           --enforce-application-tests="${BUILD_MAVEN_ADMIN_APPLICATION_TESTS:?enforce-application-tests is required}" \
-          --working-dir . \
+          --working-dir "${directory}" \
           --build-type "${build_type}" \
           --profile "${BUILD_MAVEN_PROFILE}" \
           --cli-opts "${cli_opts}" \

@@ -227,6 +227,7 @@ var (
 	_ provider.Provider                = (*Provider)(nil)
 	_ provider.RepoMetadataFetcher     = (*Provider)(nil)
 	_ provider.TokenValidator          = (*Provider)(nil)
+	_ provider.BranchHeadResolver      = (*Provider)(nil)
 	_ provider.ReleaseCreator          = (*Provider)(nil)
 	_ provider.ReleasePublisher        = (*Provider)(nil)
 	_ provider.ReleaseAssetUploader    = (*Provider)(nil)

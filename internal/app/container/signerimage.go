@@ -87,7 +87,10 @@ type SignerImageBuildArchInput struct {
 // SignerImageAssembleInput drives multi-arch manifest assembly.
 type SignerImageAssembleInput struct {
 	// LayoutsDir is the gathered architecture-artifact root; empty preserves cwd.
-	LayoutsDir       string
+	LayoutsDir string
+	// LayoutRoots selects read-only architecture artifact roots, when a forge
+	// extracts native jobs separately instead of merging their directories.
+	LayoutRoots      map[string]string
 	AuthFile         string
 	SourceSHA        string
 	ServerURL        string
@@ -401,12 +404,17 @@ func stagedSignerInputs(ctx context.Context, registry LayoutInspector, in Signer
 	for _, arch := range derived.Archs {
 		tag := derived.ManifestTag + "-" + arch
 
-		ref, err := signerArchRef(in.LayoutsDir, arch, derived.ImageRepository, derived.Name, tag)
+		root, err := signerLayoutRoot(in, arch)
 		if err != nil {
 			return nil, err
 		}
 
-		directory := filepath.Join(in.LayoutsDir, derived.Name+"-arch-"+arch, "layout")
+		ref, err := signerArchRef(root, arch, derived.ImageRepository, derived.Name, tag)
+		if err != nil {
+			return nil, err
+		}
+
+		directory := filepath.Join(root, derived.Name+"-arch-"+arch, "layout")
 
 		record, err := readImageLayoutRecord(directory)
 		if err != nil {
@@ -425,6 +433,23 @@ func stagedSignerInputs(ctx context.Context, registry LayoutInspector, in Signer
 	}
 
 	return inputs, nil
+}
+
+func signerLayoutRoot(in SignerImageAssembleInput, arch string) (string, error) {
+	if len(in.LayoutRoots) == 0 {
+		return in.LayoutsDir, nil
+	}
+
+	if in.LayoutsDir != "" {
+		return "", fmt.Errorf("use one layout root mode: %w", errs.ErrUsage)
+	}
+
+	root := in.LayoutRoots[arch]
+	if root == "" {
+		return "", fmt.Errorf("missing layout root for architecture %s: %w", arch, errs.ErrMissingInput)
+	}
+
+	return root, nil
 }
 
 // AssembleSignerImageManifest assembles the per-arch signer images into the
@@ -749,7 +774,7 @@ func localScratchImage(name string) string {
 func signerArchRef(root, arch, imageRepository, name, expectedTag string) (string, error) {
 	metadataFile := filepath.Join(root, name+"-arch-"+arch, name+"-"+arch+".json")
 
-	body, err := os.ReadFile(metadataFile) //nolint:gosec // workspace-local metadata artifact downloaded by the workflow.
+	body, err := cliio.ReadRegularFile(metadataFile)
 	if err != nil {
 		return "", fmt.Errorf("image metadata missing: %s: %w", metadataFile, err)
 	}

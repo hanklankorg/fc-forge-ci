@@ -115,8 +115,8 @@ type mavenDeps struct {
 // (unless disabled), and write the SBOM-status + build summaries.
 //
 // It is the Maven sibling of GoReleaseBuild — the binary-owned build sequence
-// (Design Rule 1). mvn runs in the process working directory (the forge job's
-// working-directory), matching MavenOps. When enabled, the Build SBOM is a
+// (Design Rule 1). The CLI binds MavenOps to the same project as in.Dir, without
+// changing process cwd. When enabled, the Build SBOM is a
 // mandatory release deliverable and generation failure fails the build.
 func MavenReleaseBuild(ctx context.Context, summarySink ci.SummarySink, ops MavenOps, out, stderr io.Writer, in MavenReleaseBuildInput) error {
 	if err := validateMavenReleaseBuildInput(ctx, in); err != nil {

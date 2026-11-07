@@ -39,7 +39,7 @@ func CargoBuildSBOM(ctx context.Context, tool CargoTool, w, stderr io.Writer, di
 }
 
 // CargoReleaseBuild runs the whole Cargo release build as one step: resolve
-// metadata, fetch deps, test (unless skipped), generate the Build SBOM (unless
+// metadata, fetch deps, run mandatory tests, generate the Build SBOM (unless
 // disabled), cross-compile per platform into dist/, and append the SBOM status.
 //
 // It is the Cargo sibling of GoReleaseBuild — the binary-owned build sequence

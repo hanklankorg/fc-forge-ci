@@ -189,6 +189,91 @@ func TestConsumerReleaseTemplateBuildsWithTheBuildAction(t *testing.T) {
 	}
 }
 
+func TestGoReleaserCallerDelegatesPackagingAndUnsignedHandoff(t *testing.T) {
+	t.Parallel()
+
+	workflow := loadWorkflow(t, "examples/go-cli/forgejo/release-goreleaser.yml")
+	if len(workflow.jobs) != 3 {
+		t.Fatalf("GoReleaser starter has %d jobs, want prepare, build and sign/publish", len(workflow.jobs))
+	}
+
+	build := workflow.jobs["build"]
+
+	var order []string
+
+	for _, step := range build.steps() {
+		uses := scalarString(mappingValue(step, "uses"))
+		if strings.Contains(uses, "/build-goreleaser@") {
+			with := mappingValue(step, "with")
+			for name, expected := range map[string]string{
+				"release-tag":   "${{ needs.prepare.outputs.release-tag }}",
+				"release-sha":   "${{ needs.prepare.outputs.release-sha }}",
+				"release-notes": "release-notes.md",
+			} {
+				if got := scalarString(mappingValue(with, name)); got != expected {
+					t.Errorf("GoReleaser %s = %q, want %q", name, got, expected)
+				}
+			}
+
+			order = append(order, "package")
+		}
+
+		if strings.Contains(uses, "/upload-dist@") {
+			order = append(order, "upload")
+		}
+
+		for _, copied := range []string{"goreleaser release", "files import-goreleaser", "artifact upload"} {
+			if strings.Contains(scalarString(mappingValue(step, "run")), copied) {
+				t.Errorf("starter copies shared operation %q instead of using the existing action", copied)
+			}
+		}
+	}
+
+	if strings.Join(order, ",") != "package,upload" {
+		t.Errorf("GoReleaser handoff order = %q, want package then upload", order)
+	}
+
+	if anyString(build.node, secretReference.MatchString) {
+		t.Error("the locked public-tool build starter must not receive signing/publication credentials")
+	}
+}
+
+func TestServiceReleaseFanInUsesTheExistingAssembler(t *testing.T) {
+	t.Parallel()
+
+	workflow := loadWorkflow(t, "examples/go-service/forgejo/release.yml")
+	handoff := workflow.jobs["handoff"]
+	steps := handoff.steps()
+
+	if len(steps) != 1 {
+		t.Fatalf("handoff has %d steps, want one existing assembler action", len(steps))
+	}
+
+	step := steps[0]
+	if got := scalarString(mappingValue(step, "uses")); got != "https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/assemble-release-dist@PIN_FORGE_CI_SHA" {
+		t.Fatalf("handoff calls %q, want the pinned shared assembler", got)
+	}
+
+	with := mappingValue(step, "with")
+
+	names, ok := mappingValue(with, "artifact-names").(*ast.LiteralNode)
+	if !ok {
+		t.Fatal("handoff must enumerate its artifact names as a literal block")
+	}
+
+	if got := strings.Fields(names.Value.Value); strings.Join(got, ",") != "release-files,release-images" {
+		t.Errorf("handoff artifact set = %q, want release files and image evidence", got)
+	}
+
+	if got := scalarString(mappingValue(mappingValue(handoff.node, "outputs"), "dist_digest")); got != "${{ steps.dist.outputs.digest }}" {
+		t.Errorf("handoff digest output = %q, want the assembler digest", got)
+	}
+
+	if anyString(handoff.node, secretReference.MatchString) {
+		t.Error("release assembly must not receive signing or publication secrets")
+	}
+}
+
 func checkConsumerReleaseBuild(t *testing.T, kit consumerKit) {
 	t.Helper()
 

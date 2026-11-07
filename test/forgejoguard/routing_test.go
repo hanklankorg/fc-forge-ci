@@ -28,7 +28,9 @@ const (
 	// archRunner is where a layer workflow's per-architecture build runs: a
 	// native runner of the architecture, never CPU emulation, so an arm64
 	// build takes the caller's second label.
-	archRunner = "${{ fromJSON(matrix.build.arch == 'arm64' && inputs['runner-label-arm64'] || inputs['runner-label']) }}"
+	archRunner         = "${{ fromJSON(matrix.build.arch == 'arm64' && inputs['runner-label-arm64'] || inputs['runner-label']) }}"
+	runtimeBuildRunner = "${{ fromJSON(matrix.arch == 'arm64' && (inputs['runner-label-container-arm64'] || inputs['runner-label-arm64']) || (inputs['runner-label-container'] || inputs['runner-label'])) }}"
+	runtimeSmokeRunner = "${{ fromJSON(matrix.arch == 'arm64' && (inputs['runner-label-arm64'] || inputs['runner-label-container-arm64']) || inputs['runner-label']) }}"
 )
 
 // routingViolation reports how a consumer job leaves the repository's runners:
@@ -88,6 +90,19 @@ func TestReusableWorkflowsRunOnTheCallersRunner(t *testing.T) {
 		takesArm64 := mappingValue(inputs, "runner-label-arm64") != nil
 
 		for name, job := range loadWorkflow(t, path).jobs {
+			if path == ".forgejo/workflows/runtime-images.yml" && (name == "build" || name == "smoke") {
+				want := runtimeBuildRunner
+				if name == "smoke" {
+					want = runtimeSmokeRunner
+				}
+
+				if got := job.runsOn(); got != want || !takesArm64 {
+					t.Errorf("%s job %s runs on %q, want native routing %q with ARM64 input", path, name, got, want)
+				}
+
+				continue
+			}
+
 			if got := job.runsOn(); got != reusableRunner && (got != archRunner || !takesArm64) {
 				t.Errorf("%s job %s runs on %q, want %q", path, name, got, reusableRunner)
 			}

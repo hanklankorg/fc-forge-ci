@@ -13,37 +13,11 @@ expected=(
 )
 
 compare() {
-	local first=$1 second=$2 directory pattern file count
-	local -a files
-	shopt -s nullglob
-	for directory in "$first" "$second"; do
-		files=("$directory"/*.tar.gz "$directory"/*.deb "$directory"/*.rpm "$directory"/*.apk)
-		if ((${#files[@]} != ${#expected[@]})); then
-			printf 'Expected %s release files in %s; found %s\n' "${#expected[@]}" "$directory" "${#files[@]}" >&2
-			return 1
-		fi
-		for pattern in "${expected[@]}"; do
-			count=0
-			for file in "${files[@]}"; do
-				# shellcheck disable=SC2053 # Match the release inventory's glob.
-				if [[ ${file##*/} == $pattern && -f $file && -s $file && ! -L $file ]]; then
-					count=$((count + 1))
-				fi
-			done
-			if ((count != 1)); then
-				printf 'Expected exactly one %s in %s; found %s\n' "$pattern" "$directory" "$count" >&2
-				return 1
-			fi
-		done
-	done
-	files=("$first"/*.tar.gz "$first"/*.deb "$first"/*.rpm "$first"/*.apk)
-	for file in "${files[@]}"; do
-		if ! cmp -s -- "$file" "$second/${file##*/}"; then
-			printf 'Different or missing: %s and %s/%s\n' "$file" "$second" "${file##*/}" >&2
-			return 1
-		fi
-	done
-	printf '%s release files are byte-identical\n' "${#files[@]}"
+	local pattern
+	local -a patterns=()
+	for pattern in "${expected[@]}"; do patterns+=(--expected "$pattern"); done
+	forge-ci release files compare --reference "$1" --dist-dir "$2" "${patterns[@]}" \
+		--inventory-pattern '*.tar.gz' --inventory-pattern '*.deb' --inventory-pattern '*.rpm' --inventory-pattern '*.apk'
 }
 
 release_tag='' reference=''

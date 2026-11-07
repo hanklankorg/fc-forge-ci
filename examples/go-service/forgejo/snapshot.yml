@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+# Copy beside pullrequest.yml and release.yml. Replace placeholders with the
+# same authenticated, published layer pin used by those callers. Requires the
+# product's .forge-ci/artifacts.yml; this is container-only, not a CLI release.
+name: Snapshot
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+# Configure a read-default repository token in Forgejo settings; Forgejo does
+# not enforce GitHub's workflow permissions block.
+concurrency:
+  group: snapshot-${{ forgejo.repository }}-${{ forgejo.ref }}
+  cancel-in-progress: false
+jobs:
+  snapshot:
+    if: forgejo.ref == 'refs/heads/main'
+    uses: OWNER/forge-ci/.forgejo/workflows/snapshot-images.yml@PIN_FORGE_CI_SHA
+    with:
+      branch: main
+      forge-ci-repository: OWNER/forge-ci
+      forge-ci-sha: PIN_FORGE_CI_SHA
+      runner-label: ${{ vars.CI_RUNNER_LABEL_CONTAINER || vars.CI_RUNNER_LABEL }}
+      runner-label-arm64: ${{ vars.CI_RUNNER_LABEL_CONTAINER_ARM64 || vars.CI_RUNNER_LABEL_ARM64 }}
+      artifact-job-image-go: REGISTRY/OWNER/go-build@sha256:PIN_GO_BUILD_DIGEST
+      image-repository: REGISTRY/OWNER/APP
+      registry-user: ${{ vars.RELEASE_REGISTRY_USER }}
+    secrets:
+      SNAPSHOT_REGISTRY_PASSWORD: ${{ secrets.SNAPSHOT_REGISTRY_PASSWORD }}

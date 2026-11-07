@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/diggsweden/forge-ci/internal/docslink"
 )
 
 // ForgeAPI identifies the forge whose API the binary talks to: the server
@@ -54,7 +56,7 @@ func (p ForgeAPI) IsValid() bool {
 func (p ForgeAPI) TroubleshootingGuide() string {
 	switch p {
 	case ForgeGitHub, ForgeGitLab, ForgeForgejo:
-		return "https://github.com/diggsweden/forge-ci/blob/main/docs/" + string(p) + ".md#troubleshooting"
+		return docslink.URL(string(p) + ".md#troubleshooting")
 	case ForgeLocal:
 		return ""
 	default:

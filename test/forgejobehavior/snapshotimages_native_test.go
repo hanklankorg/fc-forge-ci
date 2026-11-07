@@ -177,10 +177,10 @@ func TestSnapshotNativeKanikoAdmissionReadsWithTheJobToken(t *testing.T) {
 	}{
 		"gitlab": {env: []string{
 			"FORGE_CI_PROVIDER=gitlab", "RC_REGISTRY=registry.example", "CI_REGISTRY=registry.attacker.invalid", "CI_JOB_TOKEN=job-token-canary",
-		}, want: "login registry.example gitlab-ci-token job-token-canary\nusable-digest --auth-file\n"},
+		}, want: "login registry.example gitlab-ci-token job-token-canary\nsetup-image-builder --auth-file\n"},
 		"forgejo": {env: []string{
 			"FORGE_CI_PROVIDER=forgejo", "RC_REGISTRY=registry.example", "CI_REGISTRY=registry.attacker.invalid", "CI_JOB_TOKEN=job-token-canary",
-		}, want: "usable-digest\n"},
+		}, want: "setup-image-builder\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := testfs.NewReal(t).Root
@@ -193,7 +193,14 @@ source "$1"
 snapshot_engine() {
   case "$1 $2" in
   "container login") printf 'login %s %s %s\n' "$4" "$6" "$(cat)"; test -n "${10}" && : >"${10}"; printf '%s\n' "${10}" >auth-path ;;
-  "container image") if [ "$8" = --auth-file ]; then test -f "$9"; echo 'usable-digest --auth-file' >&2; else echo usable-digest >&2; fi ;;
+  "container setup-image-builder")
+    test "$3 $4" = '--image-builder kaniko'
+    test "$5" = --job-image
+    test "$6" = "$CI_IMAGE_BUILDER_JOB_IMAGE"
+    test "$7" = --engine-repository
+    test "$8" = "$FORGE_CI_REPOSITORY_URL"
+    test "${*: -2}" = '--arch amd64'
+    if [ "${13:-}" = --auth-file ]; then test -f "${14}"; echo 'setup-image-builder --auth-file' >&2; else echo setup-image-builder >&2; fi ;;
   esac
 }
 snapshot_build api amd64

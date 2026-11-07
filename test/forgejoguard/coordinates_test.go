@@ -55,6 +55,7 @@ func coordinateWorkflows() map[string]coordinateContract {
 		".forgejo/workflows/verify-base-container-images.yml":  {"forge-ci-sha", 1, false},
 		".forgejo/workflows/release-images.yml":                {"forge-ci-sha", 5, true},
 		".forgejo/workflows/snapshot-images.yml":               {"forge-ci-sha", 6, true},
+		".forgejo/workflows/runtime-images.yml":                {"forge-ci-sha", 9, false},
 	}
 }
 
@@ -339,6 +340,26 @@ func assertCoordinateConsumerJob(t *testing.T, relative string, contract coordin
 		return consumer, false
 	}
 
+	// Runtime publication has separate native Go and candidate-container jobs.
+	// Neither is a signing boundary; their exact containers and lack of signing
+	// credentials are checked separately, rather than treating them as signers.
+	if relative == ".forgejo/workflows/runtime-images.yml" && (name == "build-cli" || name == "build" || name == "smoke") {
+		want := "${{ needs.coordinates.outputs.go_build_image }}"
+		if name == "build" {
+			want = builderJobImage
+		}
+
+		if name == "smoke" {
+			want = "${{ matrix.ref }}"
+		}
+
+		if image := target.containerImage(); image != want {
+			t.Errorf("%s: job %s runs container %q, want %q", relative, name, image, want)
+		}
+
+		return consumer, false
+	}
+
 	// The one container job that is not a signer: prepare-release's version
 	// bump, in the project's own validated build image, which therefore may
 	// not even name a secret.
@@ -429,6 +450,9 @@ func runPreflightWithStderr(t *testing.T, script, repository, signer string, env
 		"SIGNER_IMAGE_INPUT=" + signer,
 		"FORGEJO_OUTPUT=" + output,
 		"TRANSPARENCY_LOG_INPUT=none",
+		"GO_BUILD_IMAGE_INPUT=" + exampleSigner,
+		"PUBLIC_KEY_SHA256=" + strings.Repeat("a", 64),
+		"RUNTIME_ENGINE_SHA=" + strings.Repeat("b", 40),
 	}
 	command.Env = append(command.Env, env...)
 
@@ -481,6 +505,10 @@ func TestCoordinatePreflightResolvesTheHelperRepository(t *testing.T) {
 				wantOutput := "helpers_repository=" + fetched + "\nsigner_image=" + exampleSigner + "\n"
 				if contract.builder {
 					wantOutput = "helpers_repository=" + fetched + "\nbuilder=buildah\nbuilder_job_image=\n"
+				}
+
+				if relative == ".forgejo/workflows/runtime-images.yml" {
+					wantOutput += "go_build_image=" + exampleSigner + "\nbuilder=buildah\nbuilder_job_image=\n"
 				}
 
 				if isSignerWorkflow(relative) {

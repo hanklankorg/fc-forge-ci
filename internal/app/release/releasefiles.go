@@ -104,6 +104,8 @@ type WriteReleaseFileManifestInput struct {
 
 	OutputFile     string
 	AssetsJSONFile string
+	Unsigned       bool
+	EvidenceFiles  []string
 }
 
 // ImportGoReleaserFileManifestInput selects additional evidence to sign alongside
@@ -149,6 +151,50 @@ func WriteReleaseFileManifest(in WriteReleaseFileManifestInput) (*FileManifest, 
 	output := strings.TrimSpace(in.OutputFile)
 	if output == "" {
 		output = ctx.manifestFile
+	}
+
+	if in.Unsigned {
+		if in.AssetsJSONFile != "" {
+			return nil, fmt.Errorf("unsigned evidence extension requires an existing manifest, not assets-json: %w", errs.ErrUsage)
+		}
+
+		manifest, err := readReleaseFileManifest(ctx.manifestFile)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := validateReleaseFileManifest(ctx, manifest); err != nil {
+			return nil, err
+		}
+
+		if err := validateUnsignedReleaseFiles(ctx, manifest); err != nil {
+			return nil, err
+		}
+
+		collector := &releaseFileCollector{}
+		for _, entry := range manifest.Assets {
+			if err := collector.add(ctx, entry.Path, entry.Source); err != nil {
+				return nil, err
+			}
+		}
+
+		evidence, err := addEvidenceEntries(ctx, collector, in.EvidenceFiles)
+		if err != nil {
+			return nil, err
+		}
+
+		manifest.Assets = collector.entries
+
+		manifest.Evidence = append(manifest.Evidence, evidence...)
+		if err := validateUnsignedReleaseFiles(ctx, manifest); err != nil {
+			return nil, err
+		}
+
+		return writeReleaseFileManifest(ctx, manifest, output)
+	}
+
+	if len(in.EvidenceFiles) != 0 {
+		return nil, fmt.Errorf("adding evidence requires --unsigned before signing: %w", errs.ErrUsage)
 	}
 
 	manifest, err := prepareReleaseFileManifest(ctx, in.AssetsJSONFile)

@@ -26,23 +26,9 @@ elif [[ ${GORELEASER_CURRENT_TAG:-} == *-pre ]]; then
 else
 	: "${FORGE_CI_RELEASE_REFERENCE:?Prepare an unsigned final-tag rebuild before signing}"
 fi
-shopt -s nullglob
-# SBOM bytes are not reproducible, but any published SBOM still needs coverage
-# by the signed manifest just as its archive does.
-for archive in "$directory"/*.tar.gz "$directory"/*.tar.gz.cdx.sbom.json; do
-	awk -v expected="${archive##*/}" '
-    $2 == expected || $2 == "*" expected {
-      count++
-      if (NF != 2 || length($1) != 64 || $1 ~ /[^0-9a-fA-F]/) invalid = 1
-    }
-    END { exit(count != 1 || invalid) }
-  ' "$manifest" || {
-		printf 'Expected exactly one valid checksum for %s\n' "${archive##*/}" >&2
-		exit 1
-	}
-done
-(
-	cd "$directory"
-	sha256sum --strict --check checksums.txt
-)
+# Reuse the release owner's exact subject coverage and digest validation. The
+# unsigned GoReleaser producer supplies artifacts.json; this step executes none.
+# Metadata subjects are workspace-relative, even if the signer's file argument
+# spells this workspace's dist as an absolute path.
+forge-ci release files validate-checksums --dist-dir "${directory#"$PWD"/}" --checksums-file "$manifest"
 exec forge-ci "$@"

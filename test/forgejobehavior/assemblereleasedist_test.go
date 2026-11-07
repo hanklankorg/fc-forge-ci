@@ -70,8 +70,8 @@ func TestAssembleReleaseDist(t *testing.T) {
 		argv         []string
 	}{
 		{
-			"defaults the images path under the dist directory without a doubled slash", assemble,
-			append(slices.Clone(common), "RELEASE_IMAGES_PATH=", "FAKE_ENGINE_STATUS=0"), 0, assembleArgv("dist-v/release-images.json"),
+			"delegates the default images path to the engine", assemble,
+			append(slices.Clone(common), "RELEASE_IMAGES_PATH=", "FAKE_ENGINE_STATUS=0"), 0, assembleArgv(""),
 		},
 		{
 			"forwards an explicit images path", assemble,
@@ -79,7 +79,7 @@ func TestAssembleReleaseDist(t *testing.T) {
 		},
 		{
 			"propagates the assembly status", assemble,
-			append(slices.Clone(common), "RELEASE_IMAGES_PATH=", "FAKE_ENGINE_STATUS=9"), 9, assembleArgv("dist-v/release-images.json"),
+			append(slices.Clone(common), "RELEASE_IMAGES_PATH=", "FAKE_ENGINE_STATUS=9"), 9, assembleArgv(""),
 		},
 		{"forwards the upload inputs and fixed flags", upload, append(slices.Clone(uploadEnv), "FAKE_ENGINE_STATUS=0"), 0, uploadArgv},
 		{"propagates the upload status", upload, append(slices.Clone(uploadEnv), "FAKE_ENGINE_STATUS=4"), 4, uploadArgv},

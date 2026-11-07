@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/diggsweden/forge-ci/internal/docslink"
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
@@ -379,7 +380,7 @@ func withUserNamespaceHint(err error) error {
 		return err
 	}
 
-	return fmt.Errorf("%w\nthis runner denies user namespaces, which rootless Buildah needs; no storage driver can help. Run container-building jobs on a runner that permits them: CI_RUNNER_LABEL_CONTAINER selects it, and `forge-ci platform request-runner` can lend one; or build without them with CI_IMAGE_BUILDER=kaniko (https://github.com/diggsweden/forge-ci/blob/main/docs/runners.md)", err)
+	return fmt.Errorf("%w\nthis runner denies user namespaces, which rootless Buildah needs; no storage driver can help. Run container-building jobs on a runner that permits them: CI_RUNNER_LABEL_CONTAINER selects it, and `forge-ci platform request-runner` can lend one; or build without them with CI_IMAGE_BUILDER=kaniko (%s)", err, docslink.URL("runners.md"))
 }
 
 func writeBuildahStorage(ctx context.Context, tool BuildahSetupTool, out io.Writer, paths buildahSetupPaths, driver string, probe bool) error {

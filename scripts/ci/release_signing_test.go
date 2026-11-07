@@ -91,10 +91,13 @@ func TestReleaseSigningRequiresMatchingRebuild(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(second, "checksums.txt"), []byte(manifest.String()), 0o600))
 			}
 
-			require.NoError(t, os.WriteFile(filepath.Join(bin, "forge-ci"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" >\"$SIGN_CALL\"\n"), 0o700))
+			releaseOwnerMetadata(t, second)
+			releaseOwnerStub(t, bin)
+
 			call := filepath.Join(root, "sign-called")
 			cmd := exec.CommandContext(t.Context(), testBash(t), script, "release", "sign", "--method=sigstore", "--no-checksums-file", "--no-release-artifacts-dir", "--file", filepath.Join(second, "checksums.txt"))
-			cmd.Env = []string{"PATH=" + bin + string(os.PathListSeparator) + testenv.GNUPath(t, "realpath") + string(os.PathListSeparator) + os.Getenv("PATH"), "SIGN_CALL=" + call, "LC_ALL=C"}
+			cmd.Dir = root
+			cmd.Env = []string{"PATH=" + bin + string(os.PathListSeparator) + testenv.GNUPath(t, "realpath") + string(os.PathListSeparator) + os.Getenv("PATH"), "SIGN_CALL=" + call, "LC_ALL=C", "RELEASE_OWNER_BINARY=" + os.Args[0]}
 
 			if scenario == "same-directory" {
 				first = second
@@ -209,6 +212,7 @@ func TestFinalTagReferenceBuild(t *testing.T) {
 		"PATH=" + bin + string(os.PathListSeparator) + testenv.GNUPath(t, "realpath") + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"HOME=" + root, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 		"SOURCE_CHECKOUT=" + source, "TMPDIR=" + root,
+		"RELEASE_OWNER_BINARY=" + os.Args[0],
 	}
 	git := func(args ...string) {
 		t.Helper()
@@ -237,6 +241,7 @@ done
 `
 	require.NoError(t, os.WriteFile(filepath.Join(bin, "goreleaser"), []byte(packager), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(bin, "go"), []byte("#!/bin/sh\n[ \"$1\" = version ]\n"), 0o700))
+	releaseOwnerStub(t, bin)
 
 	for _, tag := range []string{"v1.2.3", "v9.9.9"} {
 		output := filepath.Join(root, "output-"+tag)

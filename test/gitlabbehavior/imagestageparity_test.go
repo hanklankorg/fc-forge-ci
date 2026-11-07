@@ -174,7 +174,7 @@ func TestReleaseImageHandoffsAreTheOnesTheirReadersRead(t *testing.T) {
 
 	for reader, reads := range map[string][]string{
 		"rc_images_build":   {`"${CI_PROJECT_DIR}/_release-images-plan/plan.json"`, `"${CI_PROJECT_DIR}/_release-build/image-context"`},
-		"rc_images_publish": {`"${CI_PROJECT_DIR}/_release-images-plan/plan.json"`, `"${CI_PROJECT_DIR}/_release-images-${arch}"`, `rc_read_handoff "${CI_PROJECT_DIR}/_release-build"`},
+		"rc_images_publish": {`"${CI_PROJECT_DIR}/_release-images-plan/plan.json"`, `"amd64=${CI_PROJECT_DIR}/_release-images-amd64"`, `"arm64=${CI_PROJECT_DIR}/_release-images-arm64"`, `rc_read_handoff "${CI_PROJECT_DIR}/_release-build"`},
 		"rc_sign_release":   {`rc_read_handoff "${CI_PROJECT_DIR}/_release-images"`, `rc_read_handoff "${CI_PROJECT_DIR}/_release-build"`},
 	} {
 		body := releaseShellFunction(t, reader)

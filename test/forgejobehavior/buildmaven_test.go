@@ -131,17 +131,17 @@ func TestBuildMavenForwardsEveryInput(t *testing.T) {
 }
 
 // Everything the job keeps is rooted at working-directory, so a path that
-// leaves the workspace is refused before the engine runs.
+// leaves the workspace is refused by the engine before Maven runs.
 func TestBuildMavenRefusesAWorkingDirectoryOutsideTheWorkspace(t *testing.T) {
 	t.Parallel()
 
 	script := actionStep(t, buildMaven, "Build Maven project")
 
 	for _, directory := range []string{"/tmp/app", "..", "../app", "app/../..", "app/.."} {
-		box, _ := mavenSandbox(t, false)
+		box, env := mavenSandbox(t, true)
 
-		got := box.run(script, mavenInputs("BUILD_MAVEN_WORKING_DIRECTORY="+directory)...)
-		if got.status == 0 || box.argv() != nil || !strings.Contains(got.stderr, "working-directory must") {
+		got := box.run(script, append(env, mavenInputs("BUILD_MAVEN_WORKING_DIRECTORY="+directory, "BUILD_MAVEN_BUILD_TYPE=app", "BUILD_MAVEN_SKIP_TESTS=false", "BUILD_MAVEN_BUILD_SBOM=false", "BUILD_MAVEN_ADMIN_APPLICATION_TESTS=true")...)...)
+		if got.status == 0 || !strings.Contains(got.stderr, "working-directory must") {
 			t.Errorf("working-directory %q: status %d argv %q stderr %q", directory, got.status, box.argv(), got.stderr)
 		}
 	}
@@ -175,13 +175,19 @@ func TestBuildMavenThroughTheEngine(t *testing.T) {
 			box, env := mavenSandbox(t, true)
 			box.write("service/pom.xml", "<project><modelVersion>4.0.0</modelVersion><groupId>example.invalid</groupId>"+
 				"<artifactId>app</artifactId><version>"+declared+"</version></project>\n", 0o600)
+			settings := box.write("service/settings.xml", "<settings/>\n", 0o600)
 
 			got := box.run(actionStep(t, buildMaven, "Build Maven project"), append(env, mavenInputs(
 				"FORGEJO_REF_NAME=release-request/v1.2.3", "FORGEJO_SHA="+strings.Repeat("f", 40),
 				"BUILD_MAVEN_BUILD_TYPE=app", "BUILD_MAVEN_WORKING_DIRECTORY=service", "BUILD_MAVEN_PROFILE=",
+				"BUILD_MAVEN_SETTINGS_PATH=settings.xml",
 				"BUILD_MAVEN_SKIP_TESTS=false", "BUILD_MAVEN_BUILD_SBOM=true", "BUILD_MAVEN_ADMIN_APPLICATION_TESTS=true")...)...)
 
 			log := readSandboxFile(t, box, "tool-log")
+			if !strings.Contains(log, "--settings "+settings) {
+				t.Fatalf("project-relative settings were not resolved once: %s", log)
+			}
+
 			if strings.Contains(log, "versions:set") {
 				t.Fatalf("the build rewrote the POM version:\n%s", log)
 			}

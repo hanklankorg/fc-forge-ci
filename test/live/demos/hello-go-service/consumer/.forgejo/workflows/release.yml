@@ -247,17 +247,13 @@ jobs:
     outputs:
       dist_digest: ${{ steps.dist.outputs.digest }}
     steps:
-      - name: Set up forge-ci
-        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@2f4e845cee96973d1082bf00a5a18689c1482148
-      - name: Collect release files and image ledger
-        run: |
-          set -euo pipefail
-          forge-ci artifact download --name release-files --dir dist
-          forge-ci artifact download --name release-images --dir dist
-      - name: Upload the unsigned hand-off
+      - name: Assemble the unsigned hand-off
         id: dist
-        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/upload-dist@2f4e845cee96973d1082bf00a5a18689c1482148
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/assemble-release-dist@2f4e845cee96973d1082bf00a5a18689c1482148
         with:
+          artifact-names: |
+            release-files
+            release-images
           artifact-name: build-dist
           path: dist/
   # ===========================================================================

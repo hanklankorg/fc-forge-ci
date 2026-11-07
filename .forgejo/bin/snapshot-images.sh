@@ -98,18 +98,13 @@ snapshot_gather_context() {
 	)
 }
 
-snapshot_build() {
-	local name=$1 arch=$2 builder=${CI_IMAGE_BUILDER:-buildah}
-	case "${builder}" in
-	buildah)
-		snapshot_engine container setup-buildah --install-packages=true --probe-build=true --print-store=false --summary=false
-		;;
-	kaniko)
-		# Same job-image admission as setup-image-builder; the layer's source
-		# identity is part of the trusted builder, never supplied by the project.
-		[[ "${CI_IMAGE_BUILDER_JOB_IMAGE:-}" =~ @sha256:[0-9a-f]{64}$ ]]
-		local auth_dir='' status=0
-		local -a auth=()
+snapshot_setup_builder() (
+	local builder=$1 arch=$2 auth_dir=''
+	local -a auth=()
+	trap 'if [ -n "$auth_dir" ]; then rm -rf -- "$auth_dir"; fi' EXIT
+	trap 'exit 130' INT
+	trap 'exit 143' TERM HUP
+	if [ "$builder" = kaniko ]; then
 		# A private GitLab registry refuses an anonymous read; the job token
 		# reads what the runner pulled the job image with. Its destination is
 		# the policy's readonly literal, never the overridable CI_REGISTRY.
@@ -117,21 +112,17 @@ snapshot_build() {
 			auth_dir=$(mktemp -d) || return
 			auth=(--auth-file "${auth_dir}/auth.json")
 			printf '%s' "${CI_JOB_TOKEN}" | snapshot_engine container login --registry "${RC_REGISTRY}" \
-				--registry-username gitlab-ci-token --registry-password-file - "${auth[@]}" || status=$?
+				--registry-username gitlab-ci-token --registry-password-file - "${auth[@]}" || return
 		fi
-		if [ "${status}" -eq 0 ]; then
-			snapshot_engine container image usable-digest --ref "${CI_IMAGE_BUILDER_JOB_IMAGE}" \
-				--arch "${arch}" "${auth[@]}" --require-label "org.opencontainers.image.source=${FORGE_CI_REPOSITORY_URL%.git}" \
-				--require-label 'org.opencontainers.image.title=forge-ci kaniko job image' >/dev/null || status=$?
-		fi
-		if [ -n "${auth_dir}" ]; then rm -rf -- "${auth_dir}"; fi
-		if [ "${status}" -ne 0 ]; then return "${status}"; fi
-		;;
-	*)
-		echo 'ERROR: snapshot builder must be buildah or kaniko' >&2
-		return 1
-		;;
-	esac
+	fi
+	snapshot_engine container setup-image-builder --image-builder "$builder" \
+		--job-image "${CI_IMAGE_BUILDER_JOB_IMAGE:-}" --engine-repository "${FORGE_CI_REPOSITORY_URL:-}" \
+		--install-packages=true --probe-build=true --print-store=false --summary=false "${auth[@]}" --arch "$arch"
+)
+
+snapshot_build() {
+	local name=$1 arch=$2 builder=${CI_IMAGE_BUILDER:-buildah}
+	snapshot_setup_builder "$builder" "$arch" || return
 	(
 		cd snapshot-source || exit
 		# Checkout and artifact reads have finished. No registry or release

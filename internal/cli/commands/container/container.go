@@ -69,9 +69,9 @@ func New() *cli.Command {
 		Name:  "container",
 		Usage: "container-image helpers (name resolution, manifests, namespace policy, tag/label metadata, …)",
 		Commands: slices.Concat(
-			cmdmeta.WithCategory("Build & sign", setupBuildahCmd(), buildCmd(), buildPushOCIImageCmd(), imageGroup(), layoutGroup(), signerImageGroup(), loginCmd(), logoutCmd(), signCmd(), attestCmd()),
+			cmdmeta.WithCategory("Build & sign", setupBuildahCmd(), setupImageBuilderCmd(), buildCmd(), buildPushOCIImageCmd(), imageGroup(), layoutGroup(), signerImageGroup(), loginCmd(), logoutCmd(), signCmd(), attestCmd()),
 			cmdmeta.WithCategory("Image metadata & manifests", builderIdentityCmd(), refGroup(), metadataCmd(), containerfileArgDefaultCmd(), releaseLabelsCmd(), releaseIdentityMatchesCmd(), imageLabelsJSONCmd(), imageEvidenceCmd(), platformPlanCmd(), manifestGroup(), writeDigestMarkerCmd()),
-			cmdmeta.WithCategory("Release promotion", ledgerGroup(), releaseImagesGroup(), snapshotImagesGroup(), baseImagesGroup(), packageRetentionCmd()),
+			cmdmeta.WithCategory("Release promotion", ledgerGroup(), releaseImagesGroup(), snapshotImagesGroup(), baseImagesGroup(), packageRetentionCmd(), runtimePublicationCmd()),
 			cmdmeta.WithCategory("Validation", validateGroup()),
 			cmdmeta.WithCategory("Workflow plumbing", prepareKanikoActionCmd(), materializeBuildSecretsCmd(), extractNPMTarballCmd(), suffixBinariesCmd()),
 		),

@@ -65,10 +65,6 @@ runs:
         PRUNE_DIRS: ${{ inputs['prune-dirs'] }}
       run: |
         set -euo pipefail
-        release_images_path="${RELEASE_IMAGES_PATH}"
-        if [ -z "${release_images_path}" ]; then
-          release_images_path="${DIST_DIR%/}/release-images.json"
-        fi
         # shellcheck source=.engine/bin/lib-forge-ci.sh
         source "${GITHUB_ACTION_PATH}/../../../.engine/bin/lib-forge-ci.sh"
         FORGE_CI_PROVIDER=forgejo run_forge_ci release assemble-dist \
@@ -77,7 +73,7 @@ runs:
           --path "${DIST_DIR}" \
           --ledger-files "${LEDGER_FILES}" \
           --ledger-expected-count "${LEDGER_EXPECTED_COUNT}" \
-          --release-images-path "${release_images_path}" \
+          --release-images-path "${RELEASE_IMAGES_PATH}" \
           --prune-dirs "${PRUNE_DIRS}"
 
     - name: Upload artifact

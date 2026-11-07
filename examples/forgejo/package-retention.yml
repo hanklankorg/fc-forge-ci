@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: The Forge CI Authors
 # SPDX-License-Identifier: CC0-1.0
 
-# Copy into a consumer repository after setting PACKAGE_RETENTION_MATRIX to
-# {"include":[{"package":"runtime","digest":"sha256:<consumer digest>"}]}.
-# Replace FORGE_CI_COMMIT with a published immutable engine revision.
-# Schedules only preview; an operator applies the reviewed policy separately.
+# Replace the workflow, image and engine-checksum pins with a verified tuple.
+# PACKAGE_RETENTION_MATRIX is reviewed policy, shaped as:
+# {"include":[{"repository":"ghcr.io/owner/runtime","digest":"sha256:<protected consumer pin>"}]}.
+# Only this caller owns scheduling; the reusable workflow always previews.
 name: Preview package retention
 on:
   schedule:
@@ -15,28 +15,14 @@ concurrency:
   cancel-in-progress: false
 jobs:
   preview:
-    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
-    container: ${{ vars.CI_JOB_IMAGE }}
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      # Reviewed supported-consumer pins, maintained alongside consumer pins.
-      # Recent-count alone must never evict an older image still in use.
-      matrix: ${{ fromJSON(vars.PACKAGE_RETENTION_MATRIX) }}
-    steps:
-      - name: Set up the published checkout engine
-        uses: https://forge.example/owner/forge-ci/.forgejo/actions/setup-forge-ci@FORGE_CI_COMMIT
-      - name: Preview the reviewed policy
-        env:
-          IMAGE_PACKAGE: ${{ matrix.package }}
-          KEEP_DIGEST: ${{ matrix.digest }}
-          GH_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
-          REGISTRY_USER: ${{ vars.RELEASE_REGISTRY_USER }}
-          RUNTIME_IMAGE_NAMESPACE: ${{ vars.RUNTIME_IMAGE_NAMESPACE }}
-        run: |
-          set -euo pipefail
-          forge-ci container package-retention \
-            --repository "${RUNTIME_IMAGE_NAMESPACE:?}/${IMAGE_PACKAGE:?}" --keep-digest "${KEEP_DIGEST:?}" \
-            --recent-count 10 --max-delete 100 \
-            --registry-username "${REGISTRY_USER:?set RELEASE_REGISTRY_USER}" --dry-run=true
+    uses: OWNER/forge-ci/.forgejo/workflows/package-retention.yml@FORGE_CI_COMMIT
+    with:
+      runner-label: ${{ vars.CI_RUNNER_LABEL }}
+      job-image: REGISTRY/OWNER/forge-ci-signer@sha256:PIN_SIGNER_IMAGE_DIGEST
+      engine-sha256: PIN_ENGINE_BINARY_SHA256
+      packages-json: ${{ vars.PACKAGE_RETENTION_MATRIX }}
+      registry-user: ${{ vars.RELEASE_REGISTRY_USER }}
+      recent-count: 10
+      max-delete: 100
+    secrets:
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}

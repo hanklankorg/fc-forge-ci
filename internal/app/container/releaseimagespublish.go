@@ -33,6 +33,9 @@ type PublishReleaseImagesInput struct {
 	// consumer code, so the directory is read only after it is admitted, and
 	// never written.
 	LayoutsDir string
+	// LayoutSources binds each native job's extracted root to its architecture.
+	// Exclusive with LayoutsDir; roots are admitted/read directly, never merged.
+	LayoutSources map[string]string
 	// OutputDir receives the ledger, the scan results and the index
 	// manifests. It must not exist yet.
 	OutputDir     string
@@ -59,7 +62,15 @@ func PublishReleaseImages(ctx context.Context, registry StagedSignerRegistry, su
 		return fmt.Errorf("release-images publish: %s already exists: %w", in.OutputDir, errs.ErrUsage)
 	}
 
-	if err := AdmitReleaseImageLayouts(in.LayoutsDir, in.Plan.Images); err != nil {
+	if len(in.LayoutSources) != 0 {
+		if in.LayoutsDir != "" {
+			return fmt.Errorf("use layouts-dir or layout-source, not both: %w", errs.ErrUsage)
+		}
+
+		if err := AdmitReleaseImageLayoutSources(in.LayoutSources, in.Plan.Images); err != nil {
+			return err
+		}
+	} else if err := AdmitReleaseImageLayouts(in.LayoutsDir, in.Plan.Images); err != nil {
 		return err
 	}
 
@@ -122,6 +133,7 @@ func releaseImageAssembleInput(out io.Writer, in PublishReleaseImagesInput, imag
 
 	return SignerImageAssembleInput{
 		LayoutsDir:      in.LayoutsDir,
+		LayoutRoots:     in.LayoutSources,
 		AuthFile:        in.AuthFile,
 		SourceSHA:       revision,
 		ServerURL:       in.ServerURL,

@@ -80,6 +80,11 @@ func (d *Deps) RequireTokenValidator() (provider.TokenValidator, error) {
 	return requireRole[provider.TokenValidator](d, "token validation")
 }
 
+// RequireBranchHeadResolver returns the authenticated source-freshness reader.
+func (d *Deps) RequireBranchHeadResolver() (provider.BranchHeadResolver, error) {
+	return requireRole[provider.BranchHeadResolver](d, "source branch resolution")
+}
+
 // RequireReleaseCreator returns the ReleaseCreator role when the
 // active provider implements it. GitHub, GitLab and Forgejo do; local does not.
 func (d *Deps) RequireReleaseCreator() (provider.ReleaseCreator, error) {

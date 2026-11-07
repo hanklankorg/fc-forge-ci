@@ -148,9 +148,13 @@ func releaseImagesPublishCmd() *cli.Command {
 	return &cli.Command{
 		Name:  subCmdPublish,
 		Usage: "scan, assemble and push every planned release image from its staged layouts, and write the release-images ledger",
+		// --layout-source takes arch=PATH, and a path may hold a comma.
+		DisableSliceFlagSeparator: true,
 		Description: `Reads the plan file and admits --layouts-dir: it must hold exactly the
 planned <name>-arch-<arch> layouts, with no other entry and no link, and is
-only read. Then it verifies and scans every staged architecture layout of
+only read. Alternatively, repeat --layout-source arch=PATH to admit each native
+job's own root and read layouts directly, without a merged copy. These source
+modes are exclusive. Then it verifies and scans every staged architecture layout of
 every image, and only when all of them pass pushes each index under its
 staging candidate tag, as multiarch-image assemble --from-layouts does, and
 records it as ledger add does. The ledger
@@ -162,7 +166,8 @@ EXAMPLE:
    forge-ci container release-images publish --plan plan.json --image-repository registry.example.com/group/app --release-tag v1.2.3 --release-sha "$(git rev-parse HEAD)" --layouts-dir layouts --output-dir images --auth-file auth.json`,
 		Flags: append(releaseImagesJobFlags(),
 			ledgerAuthFileFlag("registry auth file that may push to --image-repository"),
-			&cli.StringFlag{Name: flagLayoutsDir, Required: true, Usage: "directory holding the <name>-arch-<arch> layouts release-images build staged, and nothing else"},
+			&cli.StringFlag{Name: flagLayoutsDir, Usage: "directory holding the <name>-arch-<arch> layouts; exclusive with --layout-source"},
+			&cli.StringSliceFlag{Name: "layout-source", Usage: "native job artifact root as amd64=PATH or arm64=PATH (repeatable); admit/read without copying"},
 			&cli.StringFlag{Name: flagOutputDir, Required: true, Usage: "directory for release-images.json and the scan evidence; must not exist yet"},
 		),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -175,12 +180,22 @@ EXAMPLE:
 				return fmt.Errorf("release-images publish pushes images: pass --auth-file: %w", errs.ErrUsage)
 			}
 
+			sources, err := appcontainer.ParseReleaseImageLayoutSources(cmd.StringSlice("layout-source"))
+			if err != nil {
+				return err
+			}
+
+			if (len(sources) == 0) == (cmd.String(flagLayoutsDir) == "") {
+				return fmt.Errorf("use exactly one of --layouts-dir or --layout-source: %w", errs.ErrUsage)
+			}
+
 			return deps.FromCmd(ctx, cmd, func(dep *deps.Deps) error {
 				scanner := trivy.New()
 
 				return appcontainer.PublishReleaseImages(ctx, ociregistry.WithAuthFile(cmd.String(flagAuthFile)), dep.SummarySink, os.Stderr, appcontainer.PublishReleaseImagesInput{
 					Plan:          plan,
 					LayoutsDir:    cmd.String(flagLayoutsDir),
+					LayoutSources: sources,
 					OutputDir:     cmd.String(flagOutputDir),
 					AuthFile:      cmd.String(flagAuthFile),
 					ReleaseTag:    cmd.String(flagReleaseTag),

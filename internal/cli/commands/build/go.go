@@ -6,6 +6,7 @@ package build
 import (
 	"context"
 	"os"
+	"time"
 
 	"github.com/urfave/cli/v3"
 
@@ -81,13 +82,18 @@ func goDownloadCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "download",
 		Usage: "download Go module dependencies",
-		Description: `EXAMPLE:
-   forge-ci build go download --working-dir .`,
+		Description: `Runs once by default. Explicit retries use linear, cancellation-aware waits;
+only dependency reads are retried, never artifact publication or signing.
+
+EXAMPLE:
+   forge-ci build go download --working-dir . --attempts 3 --retry-delay 2s`,
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Sources: cli.EnvVars("WORKING_DIRECTORY"), Usage: usageGoModDirectory},
+			&cli.IntFlag{Name: "attempts", Value: 1, Usage: "dependency download attempts (1–10)"},
+			&cli.DurationFlag{Name: "retry-delay", Value: 2 * time.Second, Usage: "linear retry delay (0–1m)"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			return appbuild.GoDownload(ctx, gotool.Go{}, os.Stderr, os.Stderr, cmd.String(flagWorkingDir))
+			return appbuild.GoDownloadWithRetry(ctx, gotool.Go{}, os.Stderr, os.Stderr, appbuild.GoDownloadInput{Dir: cmd.String(flagWorkingDir), Attempts: cmd.Int("attempts"), RetryDelay: cmd.Duration("retry-delay")})
 		},
 	}
 }

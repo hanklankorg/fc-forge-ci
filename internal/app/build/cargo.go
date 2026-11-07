@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
 	domainbuild "github.com/diggsweden/forge-ci/internal/domain/build"
@@ -20,6 +21,7 @@ import (
 	domainversion "github.com/diggsweden/forge-ci/internal/domain/version"
 	"github.com/diggsweden/forge-ci/internal/listval"
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
+	"github.com/diggsweden/forge-ci/internal/retry"
 )
 
 // CargoTool runs `cargo` commands. The shape mirrors GoTool: a single
@@ -71,17 +73,34 @@ type CargoBuildBinariesInput struct {
 // so a dependency that drifted vs the lockfile fails the build at fetch
 // time rather than producing a non-reproducible binary at compile time.
 func CargoFetch(ctx context.Context, tool CargoTool, w, stderr io.Writer, dir string) error {
-	return tool.Run(ctx, CargoRunInput{
-		Dir:    defaultCargoDir(dir),
-		Args:   []string{"fetch", flagCargoLocked},
-		Stdout: w,
-		Stderr: stderr,
+	return CargoFetchWithRetry(ctx, tool, w, stderr, CargoFetchInput{Dir: dir, Attempts: 1})
+}
+
+// CargoFetchInput permits bounded dependency-read retries, never build retries.
+type CargoFetchInput struct {
+	Dir        string
+	Attempts   int
+	RetryDelay time.Duration
+}
+
+// CargoFetchWithRetry uses the shared cancellation-aware dependency retry owner.
+func CargoFetchWithRetry(ctx context.Context, tool CargoTool, w, stderr io.Writer, in CargoFetchInput) error {
+	if in.Attempts < 1 || in.Attempts > 10 || in.RetryDelay < 0 || in.RetryDelay > time.Minute {
+		return fmt.Errorf("cargo fetch requires 1–10 attempts and a retry delay between 0 and 1m: %w", errs.ErrUsage)
+	}
+
+	return retry.Run(ctx, stderr, in.Attempts, in.RetryDelay, func() error {
+		if err := ctx.Err(); err != nil {
+			return retry.Permanent(err)
+		}
+
+		return tool.Run(ctx, CargoRunInput{Dir: defaultCargoDir(in.Dir), Args: []string{"fetch", flagCargoLocked}, Stdout: w, Stderr: stderr})
 	})
 }
 
 // CargoTest runs `cargo test --locked` against the workspace. Tests
 // remain caller-owned in pull-request quality flows; this is the release
-// build's pre-compile gate, opt-out via --skip-tests.
+// build's mandatory pre-compile gate. Administrator policy rejects --skip-tests.
 func CargoTest(ctx context.Context, tool CargoTool, w, stderr io.Writer, in CargoTestInput) error {
 	_, err := appenforcement.TestRun(ctx, w, stderr, enforcement.Cargo, func(stdout, stderr io.Writer) error {
 		return tool.Run(ctx, CargoRunInput{

@@ -55,21 +55,19 @@ EXAMPLE:
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			return deps.FromCmd(ctx, cmd, func(dep *deps.Deps) error {
-				_, err := appcontainer.SetupBuildah(ctx, buildah.New(), apt.New(), dep.OutputSink, dep.SummarySink, os.Stderr, appcontainer.SetupBuildahInput{
-					ExtraPackages:   cmd.String("extra-packages"),
-					InstallPackages: cmd.Bool("install-packages"),
-					ProbeBuild:      cmd.Bool("probe-build"),
-					PrintStore:      cmd.Bool("print-store"),
-					WriteSummary:    cmd.Bool("summary"),
-					StorageConf:     cmd.String("storage-conf"),
-					StorageRoot:     cmd.String("storage-root"),
-					TmpDir:          cmd.String("container-tmpdir"),
-					RunnerTemp:      cmd.String(flagTempDir),
-					EnvFile:         cmd.String("env-file"),
-				})
+				_, err := appcontainer.SetupBuildah(ctx, buildah.New(), apt.New(), dep.OutputSink, dep.SummarySink, os.Stderr, setupBuildahInput(cmd))
 
 				return err
 			})
 		},
+	}
+}
+
+func setupBuildahInput(cmd *cli.Command) appcontainer.SetupBuildahInput {
+	return appcontainer.SetupBuildahInput{
+		ExtraPackages: cmd.String("extra-packages"), InstallPackages: cmd.Bool("install-packages"),
+		ProbeBuild: cmd.Bool("probe-build"), PrintStore: cmd.Bool("print-store"), WriteSummary: cmd.Bool("summary"),
+		StorageConf: cmd.String("storage-conf"), StorageRoot: cmd.String("storage-root"),
+		TmpDir: cmd.String("container-tmpdir"), RunnerTemp: cmd.String(flagTempDir), EnvFile: cmd.String("env-file"),
 	}
 }

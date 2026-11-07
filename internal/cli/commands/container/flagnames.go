@@ -62,6 +62,7 @@ const (
 	flagSourceSHA               = "source-sha"
 	flagStartedOn               = "started-on"
 	flagTag                     = "tag"
+	flagTarget                  = "target"
 	flagVersion                 = "version"
 	flagWorkflow                = "workflow"
 )

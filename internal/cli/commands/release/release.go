@@ -36,7 +36,7 @@ func New() *cli.Command {
 		Usage: "release-flow helpers (GPG lifecycle, signing, checksums, notes, create, attachments, …)",
 		Commands: slices.Concat(
 			cmdmeta.WithCategory("Assemble & publish",
-				resolveGroup(), assembleCmd(), prepareDistCmd(), assembleDistCmd(), downloadArtifactsCmd(), checksumsCmd(),
+				resolveGroup(), assembleCmd(), prepareDistCmd(), assembleDistCmd(), gatherExportsCmd(), downloadArtifactsCmd(), checksumsCmd(),
 				notesCmd(), sbomZipCmd(), filesGroup(), attachmentsGroup(), signPublishContextCmd(), publishCmd(), publishSelfRuntimeCLICmd(),
 				assetRetentionCmd()),
 			cmdmeta.WithCategory("Sign", gpgGroup(), sshGroup(), signCmd(), provenanceCmd()),

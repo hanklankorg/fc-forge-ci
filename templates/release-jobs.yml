@@ -480,7 +480,7 @@ stages: [check, prepare, build, images, sign, publish]
     - job: "Prepare: release commit and tag"
       artifacts: false
   script:
-    - if ! rc_export_selected amd64 '$[[ inputs.release-platforms ]]'; then exit 0; fi
+    - selected=$(rc_export_selected amd64 '$[[ inputs.release-platforms ]]') || exit; if [ "$selected" = false ]; then exit 0; fi
     - rc_export_prepare amd64 '$[[ inputs.image-builder ]]' '$[[ inputs.builder-job-image ]]'
     - $[[ inputs.export ]]
     - rc_export_handoff amd64
@@ -499,7 +499,7 @@ stages: [check, prepare, build, images, sign, publish]
     - job: "Prepare: release commit and tag"
       artifacts: false
   script:
-    - if ! rc_export_selected arm64 '$[[ inputs.release-platforms ]]'; then exit 0; fi
+    - selected=$(rc_export_selected arm64 '$[[ inputs.release-platforms ]]') || exit; if [ "$selected" = false ]; then exit 0; fi
     - rc_export_prepare arm64 '$[[ inputs.image-builder ]]' '$[[ inputs.builder-job-image ]]'
     - $[[ inputs.export ]]
     - rc_export_handoff arm64

@@ -118,38 +118,23 @@ rc_release_checkout() {
 # nothing is installed at run time. kaniko's image is admitted as the
 # snapshot builds admit it: by the kaniko job image's title and the engine
 # project it was built from.
-rc_image_builder() {
+rc_image_builder() (
 	local -a auth_args=()
-	case "${CI_IMAGE_BUILDER:-buildah}" in
-	buildah | kaniko) ;;
-	*)
-		echo "ERROR: image-builder must be buildah or kaniko, got '${CI_IMAGE_BUILDER}'" >&2
-		return 1
-		;;
-	esac
-	if [[ ! "${CI_IMAGE_BUILDER_JOB_IMAGE:-}" =~ ^[^[:space:]]+@sha256:[0-9a-f]{64}$ ]]; then
-		echo "ERROR: image-builder ${CI_IMAGE_BUILDER:-buildah} needs builder-job-image, its job image pinned by digest; got '${CI_IMAGE_BUILDER_JOB_IMAGE:-}'" >&2
-		return 1
-	fi
-	if [ "${CI_IMAGE_BUILDER:-buildah}" = buildah ]; then
-		rc_engine container setup-buildah --install-packages=false --probe-build=true --print-store=false --summary=false
-		return
-	fi
+	local auth_dir=''
+	trap 'if [ -n "$auth_dir" ]; then rm -rf -- "$auth_dir"; fi' EXIT
+	trap 'exit 130' INT
+	trap 'exit 143' TERM HUP
 	# The job token reads what the runner pulled the job's image with.
-	if [ -n "${RC_REGISTRY:-}" ]; then
-		auth_args=(--auth-file "${RC_WORK:?}/builder-auth.json")
+	if [ "${CI_IMAGE_BUILDER:-buildah}" = kaniko ] && [ -n "${RC_REGISTRY:-}" ]; then
+		auth_dir=$(mktemp -d "${RC_WORK:?}/builder-auth.XXXXXX") || return
+		auth_args=(--auth-file "${auth_dir}/auth.json")
 		printf '%s' "${CI_JOB_TOKEN:?}" | rc_engine container login --registry "${RC_REGISTRY}" \
 			--registry-username gitlab-ci-token --registry-password-file - "${auth_args[@]}" || return
 	fi
-	rc_engine container image usable-digest --ref "${CI_IMAGE_BUILDER_JOB_IMAGE}" \
-		--arch "${HELPERS_ENGINE_ARCH:?}" "${auth_args[@]}" \
-		--require-label "org.opencontainers.image.source=${FORGE_CI_REPOSITORY_URL%.git}" \
-		--require-label 'org.opencontainers.image.title=forge-ci kaniko job image' >/dev/null || {
-		echo "ERROR: builder-job-image is not a kaniko job image built from ${FORGE_CI_REPOSITORY_URL%.git} for ${HELPERS_ENGINE_ARCH}" >&2
-		return 1
-	}
-	if [ ${#auth_args[@]} -ne 0 ]; then rm -f -- "${RC_WORK}/builder-auth.json"; fi
-}
+	rc_engine container setup-image-builder --image-builder "${CI_IMAGE_BUILDER:-buildah}" \
+		--job-image "${CI_IMAGE_BUILDER_JOB_IMAGE:-}" --engine-repository "${FORGE_CI_REPOSITORY_URL:?}" \
+		--require-job-image --install-packages=false --probe-build=true --print-store=false --summary=false "${auth_args[@]}"
+)
 
 rc_render_changelog() {
 	rc_request_checkout
@@ -261,74 +246,22 @@ rc_build_handoff() {
 # The export jobs: the consumer's export commands, once per selected
 # architecture, natively, in builder-job-image with image-builder.
 
-# rc_export_archs prints the architectures the export jobs run for: those
-# release-platforms names, or without it amd64, the platform a container
-# declares when it names none. A runner serves an architecture; it never
-# selects one.
-rc_export_archs() {
-	local platforms=$1 platform
-	if [ -z "${platforms}" ]; then
-		echo amd64
-		return
-	fi
-	IFS=, read -r -a platforms_list <<<"${platforms}"
-	for platform in "${platforms_list[@]}"; do
-		case "${platform}" in
-		linux/amd64 | linux/arm64) printf '%s\n' "${platform#linux/}" ;;
-		*)
-			echo "ERROR: release-platforms names '${platform}'; the export jobs build linux/amd64 and linux/arm64" >&2
-			return 1
-			;;
-		esac
-	done
-}
-
 # rc_check_exports refuses, at the release request, an export the jobs would
 # not carry out: commands without export-files, an export without
 # builder-job-image, or one for arm64 without its runner. The export
 # commands arrive on stdin as the interpolated input, data only.
 rc_check_exports() {
-	local enabled=$1 job_image=$2 platforms=$3 arm64_tags=$4 archs commands
-	commands=$(cat)
-	case "${enabled}" in
-	true) ;;
-	false)
-		if [ "${commands//[[:space:]]/}" != '[]' ] && [ -n "${commands//[[:space:]]/}" ]; then
-			echo 'ERROR: the release policy sets export commands but export-files is false; set export-files to true or remove export.' >&2
-			return 1
-		fi
-		return 0
-		;;
-	*)
-		echo "ERROR: export-files must be true or false, got '${enabled}'" >&2
-		return 1
-		;;
-	esac
-	if [[ ! "${job_image}" =~ ^[^[:space:]]+@sha256:[0-9a-f]{64}$ ]]; then
-		echo "ERROR: export-files builds in builder-job-image; set it to the image builder's job image pinned by digest" >&2
-		return 1
+	local -a image_plan=()
+	if [ -e "${RC_WORK-}/release-images-plan.json" ] || [ -L "${RC_WORK-}/release-images-plan.json" ]; then
+		image_plan=(--image-plan "${RC_WORK}/release-images-plan.json")
 	fi
-	archs=$(rc_export_archs "${platforms}") || return
-	if grep -qx arm64 <<<"${archs}" && [ "${arm64_tags}" = '[]' ]; then
-		echo "ERROR: release-platforms selects linux/arm64 for the export, so set build-runner-tags-arm64 to a native arm64 runner; nothing builds emulated" >&2
-		return 1
-	fi
-	# Without release-platforms the images build what each container
-	# declares and the exports linux/amd64; the image plan this job made
-	# must then build no other architecture, or the two would differ.
-	if [ -z "${platforms}" ] && [ -f "${RC_WORK-}/release-images-plan.json" ] &&
-		grep -Eq '"arch": *"arm64"' "${RC_WORK}/release-images-plan.json"; then
-		echo 'ERROR: a container declares linux/arm64, which the export jobs build only when release-platforms names it; set release-platforms so the images and the exports build the same architectures.' >&2
-		return 1
-	fi
+	rc_engine plan release-exports --enabled "$1" --job-image "$2" --release-platforms "$3" \
+		--arm64-tags "$4" "${image_plan[@]}" --commands-file -
 }
 
-# rc_export_selected succeeds when this job's architecture is selected.
+# rc_export_selected prints a Go-admitted selection; errors must not mean skip.
 rc_export_selected() {
-	local arch=$1 platforms=$2
-	case ",${platforms:-linux/amd64}," in *",linux/${arch},"*) return 0 ;; esac
-	echo "linux/${arch} is not in release-platforms; this job exports nothing."
-	return 1
+	rc_engine plan release-exports --selected-arch "$1" --release-platforms "$2"
 }
 
 # rc_export_prepare admits the builder, checks the release commit out and
@@ -351,16 +284,8 @@ rc_export_prepare() {
 # rc_export_handoff hands this architecture's dist/ to the build job.
 rc_export_handoff() {
 	local handoff="${CI_PROJECT_DIR}/_release-export-$1"
-	if [ ! -d dist ] || [ -L dist ]; then
-		echo 'ERROR: the export commands left no dist/ directory; export-files needs export commands that write it.' >&2
-		return 1
-	fi
-	if [ -n "$(find dist ! -type f ! -type d -print -quit)" ]; then
-		echo 'ERROR: the exported dist/ may hold only regular files and directories.' >&2
-		return 1
-	fi
 	rc_new_handoff "${handoff}" || return
-	cp -R -- dist "${handoff}/dist"
+	rc_engine release gather-exports --source dist --path "${handoff}/dist" || return
 	# A kaniko build leaves no shell at the paths after_script is run with;
 	# make the hand-off readable for the uploader here.
 	find "${handoff}" \( -type d -o -type f \) -exec chmod u=rwX,go=rX -- {} +
@@ -369,21 +294,8 @@ rc_export_handoff() {
 # rc_gather_exports lays every export job's dist/ into the build's, refusing
 # a path two of them, or the checkout, both hold.
 rc_gather_exports() {
-	local enabled=$1 export_dir entry
-	if [ "${enabled}" != true ]; then return 0; fi
-	mkdir -p dist
-	for export_dir in "${CI_PROJECT_DIR}"/_release-export-amd64/dist "${CI_PROJECT_DIR}"/_release-export-arm64/dist; do
-		[ -e "${export_dir}" ] || continue
-		if [ ! -d "${export_dir}" ] || [ -L "${export_dir}" ] || [ -n "$(find "${export_dir}" ! -type f ! -type d -print -quit)" ]; then
-			echo "ERROR: ${export_dir} must be a directory of regular files." >&2
-			return 1
-		fi
-		for entry in "${export_dir}"/* "${export_dir}"/.[!.]*; do
-			[ -e "${entry}" ] || continue
-			rc_require_absent "dist/${entry##*/}" || return
-			cp -R -- "${entry}" dist/
-		done
-	done
+	rc_engine release gather-exports --enabled "$1" --allow-missing --path dist \
+		--source "${CI_PROJECT_DIR}/_release-export-amd64/dist" --source "${CI_PROJECT_DIR}/_release-export-arm64/dist"
 }
 
 # The image stage: plan, one native build job per architecture, and one
@@ -484,13 +396,9 @@ rc_images_build() {
 # tag in this project's registry with the job token, then joins the ledger and
 # its evidence to the build's dist in a hand-off of its own, digested again.
 rc_images_publish() {
-	local arch file layouts="${RC_WORK}/layouts" images="${RC_WORK}/images" auth_file="${RC_WORK}/registry-auth.json"
+	local file images="${RC_WORK}/images" auth_file="${RC_WORK}/registry-auth.json"
 	rc_release_checkout
 	rc_read_handoff "${CI_PROJECT_DIR}/_release-build" || return
-	mkdir -m 0700 -- "${layouts}"
-	for arch in amd64 arm64; do
-		rc_gather_layouts "${CI_PROJECT_DIR}/_release-images-${arch}" "${arch}" "${layouts}" || return
-	done
 	# shellcheck source=scripts/bootstrap/install-trivy.sh
 	source "${RC_HELPERS_DIR}/scripts/bootstrap/install-trivy.sh"
 	install_trivy
@@ -500,7 +408,9 @@ rc_images_publish() {
 		--plan "${CI_PROJECT_DIR}/_release-images-plan/plan.json" \
 		--image-repository "${RC_REGISTRY_IMAGE:?}" --release-tag "${RELEASE_TAG}" --release-sha "${RELEASE_SHA}" \
 		--server-url "${RC_SERVER_URL}" --repository "${CI_PROJECT_PATH}" \
-		--layouts-dir "${layouts}" --output-dir "${images}" --auth-file "${auth_file}"
+		--layout-source "amd64=${CI_PROJECT_DIR}/_release-images-amd64" \
+		--layout-source "arm64=${CI_PROJECT_DIR}/_release-images-arm64" \
+		--output-dir "${images}" --auth-file "${auth_file}"
 	rm -f -- "${auth_file}"
 	for file in "${images}"/*; do
 		rc_require_absent "${DIST_DIR:?}/${file##*/}" || return 1
@@ -514,42 +424,11 @@ rc_images_publish() {
 	rc_engine release dist-digest --dist-dir "${handoff}/dist" --manifest-root . >"${handoff}/digest"
 }
 
-# rc_gather_layouts copies the <name>-arch-<arch> layout directories of one
-# architecture's hand-off into layouts, and refuses any other entry, so each
-# layout comes from its own architecture's job and none replaces another.
-# Each is copied to a name that does not exist yet, which cp -R defines the
-# same everywhere. The engine admits the gathered directory again.
-rc_gather_layouts() {
-	local handoff=$1 arch=$2 layouts=$3 entry name
-	if [ ! -e "${handoff}" ] && [ ! -L "${handoff}" ]; then return 0; fi
-	if [ ! -d "${handoff}" ] || [ -L "${handoff}" ]; then
-		echo "ERROR: ${handoff} must be a directory, not a link." >&2
-		return 1
-	fi
-	for entry in "${handoff}"/* "${handoff}"/.[!.]* "${handoff}"/..?*; do
-		if [ ! -e "${entry}" ] && [ ! -L "${entry}" ]; then continue; fi
-		name=${entry##*/}
-		if [[ "${name}" != ?*-arch-"${arch}" ]] || [ ! -d "${entry}" ] || [ -L "${entry}" ]; then
-			echo "ERROR: ${entry} is not a <name>-arch-${arch} layout directory of the ${arch} image job." >&2
-			return 1
-		fi
-		rc_require_absent "${layouts}/${name}" || return 1
-		cp -R -- "${entry}" "${layouts}/${name}" || return
-	done
-}
-
 rc_read_handoff() {
-	local directory=$1 digest
-	rc_require_regular_file "${directory}/digest" || return 1
-	digest=$(<"${directory}/digest") || return 1
-	# A conditional caller disables Bash errexit inside this function. Each
-	# failed validation must return before the handoff can be copied or exposed.
-	[[ "${digest}" =~ ^[0-9a-f]{64}$ ]] || return 1
-	rc_engine release validate-dist --dist-dir "${directory}/dist" --expected-digest "${digest}" --manifest-root . || return
-	# Preserve the manifest's dist/... paths in a private checkout, not in the
-	# runner's artifact extraction directory. Consumer files cannot preseed it.
-	rc_require_absent dist || return 1
-	cp -R -- "${directory}/dist" dist || return
+	local directory=$1
+	# Conditional callers disable errexit. Return explicitly before exposing paths.
+	rc_engine release validate-dist --dist-dir "${directory}/dist" --digest-file "${directory}/digest" \
+		--manifest-root . --stage-dir dist || return
 	export DIST_DIR=dist RELEASE_FILES_MANIFEST=dist/release-files.json
 }
 
@@ -691,14 +570,12 @@ rc_promote_bases() {
 	if [ ! -f "${DIST_DIR}/base-images-publication.json" ]; then return; fi
 	test "${RC_BASE_IMAGES}" = true
 	rc_public_key
-	local images
-	# Project the already-admitted ledger into the base promoter's metadata
-	# contract. Values remain JSON arguments; none are evaluated or sourced.
-	images=$(jq -c '[.[] | {flavor, tag: .final_tag, ref: .ref, candidate_tag: .candidate_tag, candidate_ref: .ref, base_input_id, sbom_sha256}]' "${DIST_DIR}/base-images-publication.json")
+	local ledger
+	ledger=$(realpath -e -- "${DIST_DIR}/base-images-publication.json") || return
 	(
 		cd -- "${RC_WORK}" || exit
 		REGISTRY_USER="${RELEASE_REGISTRY_USER:?}" REGISTRY_TOKEN="${RELEASE_REGISTRY_TOKEN:?}" \
-			rc_engine container base-images promote --all-images-json "${images}" \
+			rc_engine container base-images promote --ledger "${ledger}" \
 			--expected-repository "${RC_PUBLICATION_IMAGE_REPOSITORY}/bases" \
 			--registry "${RC_REGISTRY}" --server-url "${RC_SERVER_URL}" --repository "${CI_PROJECT_PATH}" \
 			--expected-workflow gitlab/release.yml --cosign-public-key-path trusted.pub \

@@ -2,21 +2,13 @@
 # SPDX-FileCopyrightText: The Forge CI Authors
 # SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
 
-# Native GitLab transport only. Image policy and every executable container
-# operation remain in `container snapshot-images`, shared with the other forges.
-# A project, group or instance variable outranks a job's own, so no policy
-# value is a job variable: the job starts assign them from the inputs, read
-# only, and the generated jobs pass their image, architecture and context
-# job as arguments.
+# Native GitLab transport only. The Go owners plan and admit the child graph.
 snapshot_gitlab_checkout() {
 	local sha
 	sha=$(snapshot_engine container snapshot-images read-plan --plan snapshot-plan.json --field source-sha) || return
 	snapshot_checkout "${sha}"
 }
 
-# snapshot_gitlab_handoff moves a job's output to its top-level hand-off
-# name. A build step may have left that name in the workspace; it is refused,
-# never moved into.
 snapshot_gitlab_handoff() {
 	if [ -e "$2" ] || [ -L "$2" ]; then
 		echo "ERROR: $2 must not exist yet; it is reserved for this job's hand-off." >&2
@@ -25,8 +17,6 @@ snapshot_gitlab_handoff() {
 	mv -- "$1" "$2"
 }
 
-# snapshot_gitlab_build name arch context-job builds one image natively; an
-# empty context job is the child's own context job.
 snapshot_gitlab_build() {
 	local name=${1:?} arch=${2:?} context=${3-}
 	snapshot_gitlab_checkout
@@ -36,12 +26,10 @@ snapshot_gitlab_build() {
 		snapshot_apply_context snapshot-context snapshot-plan.json
 	fi
 	snapshot_build "${name}" "${arch}"
-	# Kaniko deletes the native tools. Resolve the surviving /kaniko toolset
-	# through PATH instead of Bash's cached /usr/bin command locations.
+	# Kaniko deletes native tools; use the surviving /kaniko toolset.
 	hash -r
 	snapshot_gitlab_handoff snapshot-source/snapshot-layouts snapshot-layouts || return
-	# A kaniko build leaves no shell at the paths after_script is run with;
-	# make the hand-off readable for the uploader here.
+	# after_script has no shell after Kaniko; prepare uploader access here.
 	find snapshot-layouts \( -type d -o -type f \) -exec chmod u=rwX,go=rX -- {} +
 }
 
@@ -63,7 +51,7 @@ snapshot_gitlab_gather() {
 
 snapshot_gitlab_publish() {
 	local name=${1:?}
-	# Checkout only reads the scanner policy; no source commands are executed.
+	# Checkout reads scanner policy only; no source commands execute.
 	snapshot_gitlab_checkout
 	if [ -f snapshot-source/.trivyignore.yaml ]; then cp snapshot-source/.trivyignore.yaml .; fi
 	snapshot_evidence_tools "${name}"
@@ -72,84 +60,16 @@ snapshot_gitlab_publish() {
 	snapshot_publish "${name}" snapshot-layouts
 }
 
-# JSON is YAML: jq safely serializes names, branch inputs and runner tags, and
-# @sh the generated jobs' arguments. The generated native jobs extend a
-# SHA-pinned template. Every publisher depends on ALL native builds, not just
-# the architectures of its own image.
 snapshot_gitlab_generate() {
-	local plan=$1 output=$2
-	local context=${SNAPSHOT_CONTEXT_JOB:-}
-	if [ "${context}" = 'Snapshot: plan' ]; then context=; fi
-	local tags=${SNAPSHOT_RUNNER_TAGS:-[]} amd64=${SNAPSHOT_AMD64_TAGS:-[]} arm64=${SNAPSHOT_ARM64_TAGS:-[]}
-	if [ "${CI_IMAGE_BUILDER:-buildah}" = kaniko ]; then
-		[[ "${CI_IMAGE_BUILDER_JOB_IMAGE:-}" =~ @sha256:[0-9a-f]{64}$ ]]
-		test "${SNAPSHOT_BUILD_IMAGE:?}" = "${CI_IMAGE_BUILDER_JOB_IMAGE}"
-	fi
-	jq -e --argjson arm64 "${arm64}" \
-		'([.builds[] | select(.arch == "arm64")] | length == 0) or ($arm64 | length > 0)' "${plan}" >/dev/null || {
-		echo 'ERROR: arm64 snapshot builds require native arm64 runner tags' >&2
-		return 1
-	}
-	jq --arg project "${SNAPSHOT_LAYER_PROJECT:?}" --arg pin "${SNAPSHOT_ENGINE_SHA:?}" \
-		--arg server "${RC_SERVER_URL:?}" --arg registry "${RC_REGISTRY?}" --arg pipeline "${CI_PIPELINE_ID:?}" --arg context "${context}" \
-		--arg job_image "${SNAPSHOT_JOB_IMAGE:?}" --arg build_image "${SNAPSHOT_BUILD_IMAGE:?}" \
-		--arg builder "${CI_IMAGE_BUILDER:-buildah}" --arg kaniko_image "${CI_IMAGE_BUILDER_JOB_IMAGE:-}" \
-		--arg go_image "${SNAPSHOT_ARTIFACT_IMAGE_GO:-${SNAPSHOT_JOB_IMAGE}}" \
-		--arg java_image "${SNAPSHOT_ARTIFACT_IMAGE_JAVA:-${SNAPSHOT_JOB_IMAGE}}" \
-		--arg node_image "${SNAPSHOT_ARTIFACT_IMAGE_NODE:-${SNAPSHOT_JOB_IMAGE}}" \
-		--arg rust_image "${SNAPSHOT_ARTIFACT_IMAGE_RUST:-${SNAPSHOT_JOB_IMAGE}}" \
-		--argjson tags "${tags}" --argjson amd64 "${amd64}" \
-		--argjson arm64 "${arm64}" \
-		--argjson tests "${SNAPSHOT_ADMIN_APPLICATION_TESTS:?}" \
-		--argjson vulnerabilities "${SNAPSHOT_ADMIN_VULNERABILITIES:?}" '
-		def buildjob: "Snapshot: build " + .name + " " + .arch;
-		def publishjob: "Snapshot: publish " + .name;
-		def parent: {pipeline: $pipeline, job: "Snapshot: plan", artifacts: true};
-		def producerjob: "Snapshot: artifact " + .name;
-		def artifactimage:
-		  if .project_type == "go" then $go_image
-		  elif .project_type == "maven" or .project_type == "gradle" then $java_image
-		  elif .project_type == "npm" then $node_image
-		  elif .project_type == "cargo" then $rust_image
-		  else error("unsupported snapshot artifact family: " + .project_type) end;
-		. as $plan |
-		(if $context == "" then ($plan.artifacts // []) else [] end) as $artifacts |
-		($plan.builds | map({job: buildjob, artifacts: true})) as $buildneeds |
-		{
-		  include: [{project: $project, ref: $pin, file: "/templates/snapshot-image-jobs.yml", inputs: {
-		    "engine-sha": $pin, "forge-ci-repository": $project, "server-url": $server, "registry": $registry,
-		    "job-image": $job_image, "build-image": $build_image,
-		    "runner-tags": $tags, "image-builder": $builder, "builder-job-image": $kaniko_image,
-		    "enforce-application-tests": $tests, "enforce-vulnerabilities": $vulnerabilities
-		  }}],
-		  stages: ["artifacts", "context", "build", "publish", "collect"]
-		} +
-		(reduce $artifacts[] as $a ({};
-		  . + {($a | producerjob): {
-		    extends: ".forge-ci-snapshot-produce", stage: "artifacts", tags: $amd64,
-		    image: {name: ($a | artifactimage), entrypoint: [""]},
-		    script: ["snapshot_gitlab_produce " + ([$a.name] | @sh)], needs: [parent]
-		  }})) +
-		(if $context == "" and ($plan.images | length > 0) then
-		  {"Snapshot: context": {
-		    extends: ".forge-ci-snapshot-context", stage: "context",
-		    needs: ([parent] + ($artifacts | map({job: producerjob, artifacts: true})))
-		  }} else {} end) +
-		(reduce $plan.builds[] as $b ({};
-		  . + {($b | buildjob): {
-		    extends: ".forge-ci-snapshot-build", stage: "build",
-		    tags: (if $b.arch == "arm64" then $arm64 else $amd64 end),
-		    script: ["snapshot_gitlab_build " + ([$b.name, $b.arch, $context] | @sh)],
-		    needs: ([parent] + if $context == "" then [{job: "Snapshot: context", artifacts: true}] else [{pipeline: $pipeline, job: $context, artifacts: true}] end)
-		  }})) +
-		(reduce $plan.images[] as $im ({};
-		  . + {($im | publishjob): {
-		    extends: ".forge-ci-snapshot-publish", stage: "publish",
-		    script: ["snapshot_gitlab_publish " + ([$im.name] | @sh)], needs: ([parent] + $buildneeds)
-		  }})) +
-		{"Snapshot: collect": {
-		  extends: ".forge-ci-snapshot-collect", stage: "collect",
-		  needs: ([parent] + ($plan.images | map({job: publishjob, artifacts: true})))
-		}}
-	' "${plan}" >"${output}"
+	snapshot_engine plan gitlab-snapshot-pipeline --plan "$1" --output "$2" \
+		--project "${SNAPSHOT_LAYER_PROJECT:?}" --engine-sha "${SNAPSHOT_ENGINE_SHA:?}" \
+		--server-url "${RC_SERVER_URL:?}" --registry "${RC_REGISTRY?}" --pipeline-id "${CI_PIPELINE_ID:?}" \
+		--context-job "${SNAPSHOT_CONTEXT_JOB:-}" --job-image "${SNAPSHOT_JOB_IMAGE:?}" --build-image "${SNAPSHOT_BUILD_IMAGE:?}" \
+		--image-builder "${CI_IMAGE_BUILDER:-buildah}" --builder-job-image "${CI_IMAGE_BUILDER_JOB_IMAGE:-}" \
+		--runtime-image-go "${SNAPSHOT_ARTIFACT_IMAGE_GO:-${SNAPSHOT_JOB_IMAGE}}" \
+		--runtime-image-java "${SNAPSHOT_ARTIFACT_IMAGE_JAVA:-${SNAPSHOT_JOB_IMAGE}}" \
+		--runtime-image-node "${SNAPSHOT_ARTIFACT_IMAGE_NODE:-${SNAPSHOT_JOB_IMAGE}}" \
+		--runtime-image-rust "${SNAPSHOT_ARTIFACT_IMAGE_RUST:-${SNAPSHOT_JOB_IMAGE}}" \
+		--runner-tags "${SNAPSHOT_RUNNER_TAGS:-[]}" --amd64-tags "${SNAPSHOT_AMD64_TAGS:-[]}" --arm64-tags "${SNAPSHOT_ARM64_TAGS:-[]}" \
+		--enforce-application-tests="${SNAPSHOT_ADMIN_APPLICATION_TESTS:?}" --enforce-vulnerabilities="${SNAPSHOT_ADMIN_VULNERABILITIES:?}"
 }
