@@ -54,9 +54,17 @@ type BaseImageMetadata struct {
 
 // BaseInput maps a flavor to the sha256 content ID that produced that base.
 type BaseInput struct {
-	Flavor      string `json:"flavor"`
-	ContentID   string `json:"content_id,omitempty"`
-	BaseInputID string `json:"base_input_id"`
+	Flavor      string           `json:"flavor"`
+	ContentID   string           `json:"content_id,omitempty"`
+	BaseInputID string           `json:"base_input_id"`
+	ParentBase  *BaseImageParent `json:"parent_base,omitempty"`
+}
+
+// BaseImageParent is a caller-verified parent projection to require in the
+// child's signed lineage. It does not request recursive parent verification.
+type BaseImageParent struct {
+	Ref     string `json:"ref"`
+	InputID string `json:"input_id"`
 }
 
 // BaseImageVerifyExistingInput drives VerifyExistingBaseImages.

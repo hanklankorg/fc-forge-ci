@@ -4,6 +4,7 @@
 package imageledger_test
 
 import (
+	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
@@ -18,8 +19,20 @@ func TestBaseImportPreservesIdentityAndCopiesOnlyUnsignedDigest(t *testing.T) {
 	entry := baseEntry()
 	source := "forge.example/examplescope/myapp-base"
 	entry.BaseRef = "registry.example.test/trusted/parent@" + otherDigest
-	entry.Provenance = map[string]any{"build_inputs": "original"}
-	before := entry
+	entry.Provenance = map[string]any{
+		"build_inputs": "original",
+		"parent_base":  map[string]any{"ref": entry.BaseRef, "input_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+	}
+
+	beforeJSON, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var before imageledger.Entry
+	if err := json.Unmarshal(beforeJSON, &before); err != nil {
+		t.Fatal(err)
+	}
 	registry := &fakeRegistry{digests: map[string]string{entry.Ref: goodDigest, entry.CandidateTag: otherDigest}}
 
 	result, err := imageledger.ImportBaseImages(t.Context(), registry, []imageledger.Entry{entry}, source, importDestination)
@@ -27,7 +40,7 @@ func TestBaseImportPreservesIdentityAndCopiesOnlyUnsignedDigest(t *testing.T) {
 		t.Fatalf("base import: %v", err)
 	}
 
-	want := entry
+	want := before
 	want.Ref = importDestination + "@" + goodDigest
 	want.FinalTag = importDestination + ":" + entry.BaseInputID + "-go"
 
