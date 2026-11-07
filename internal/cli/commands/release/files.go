@@ -162,6 +162,7 @@ func filesManifestCmd() *cli.Command {
 		&cli.StringFlag{Name: "assets-json", Usage: "release files collect JSON to reuse instead of re-collecting ('-' for stdin)"},
 		&cli.BoolFlag{Name: "unsigned", Usage: "extend an existing unsigned manifest with evidence without rediscovering producer metadata"},
 		&cli.StringSliceFlag{Name: "evidence-file", Usage: "additional file to publish and sign as evidence; requires --unsigned (repeatable)"},
+		&cli.StringFlag{Name: "release-images-ledger", Usage: "require the exact pinned native final-image SBOM evidence from this ledger; requires --unsigned"},
 	)
 
 	return &cli.Command{
@@ -176,15 +177,19 @@ must exist, so a fresh write to another path uses --output.
 
 With --unsigned, preserve the producer's existing file set and add explicit
 --evidence-file paths before signing. Refuses existing signatures, provenance,
-duplicate paths and reclassification; does not read GoReleaser metadata.`,
+duplicate paths and reclassification; does not read GoReleaser metadata.
+Optional --release-images-ledger requires the complete producer-pinned native
+final-image index/platform SBOM set; ordinary legacy/base evidence calls do not
+opt into this flat-dist contract.`,
 		Flags: flags,
 		Action: func(_ context.Context, cmd *cli.Command) error {
 			input := apprelease.WriteReleaseFileManifestInput{
-				FilesInput:     releaseFilesInput(cmd),
-				OutputFile:     cmd.String(flagOutput),
-				AssetsJSONFile: cmd.String("assets-json"),
-				Unsigned:       cmd.Bool("unsigned"),
-				EvidenceFiles:  cmd.StringSlice("evidence-file"),
+				FilesInput:          releaseFilesInput(cmd),
+				OutputFile:          cmd.String(flagOutput),
+				AssetsJSONFile:      cmd.String("assets-json"),
+				Unsigned:            cmd.Bool("unsigned"),
+				EvidenceFiles:       cmd.StringSlice("evidence-file"),
+				ReleaseImagesLedger: cmd.String("release-images-ledger"),
 			}
 
 			_, err := apprelease.WriteReleaseFileManifest(input)

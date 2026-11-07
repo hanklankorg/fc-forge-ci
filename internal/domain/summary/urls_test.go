@@ -15,6 +15,8 @@ import (
 
 type fakeURLs struct{}
 
+func (fakeURLs) ReleaseDownloadURLPrefix(server, repo, version string) string { return "unused" }
+
 func (fakeURLs) ReleaseWebURL(server, repo, version string) string {
 	return server + "/" + repo + "/rel/" + version
 }
