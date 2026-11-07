@@ -63,6 +63,7 @@ func runGitLabConsumerTrial(t *testing.T, root string, private bool) {
 
 	engineRepo := livetest.NewPublicScratchRepo(t, target, "gitlab-consumer-layer", livetest.ReadLayerAnonymously)
 	layer := livetest.PushLayer(t, target, engineRepo)
+	consumer = consumer.WithDraftLayer(t, layer)
 	image := livetest.PushJobImage(t, target, engineRepo, os.Getenv("FORGE_CI_LIVE_CONSUMER_IMAGE_ARCHIVE"))
 	repo := livetest.NewBareScratchRepo(t, target, "gitlab-consumer-trial", consumer.ObjectFormat, private)
 

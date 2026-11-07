@@ -368,6 +368,9 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, scenario gitlab
 	}
 
 	layer := livetest.PushLayer(t, target, gitlabReleaseRepo(t, target, "release-engine", livetest.ReadLayerAnonymously))
+	if consumer != nil {
+		*consumer = consumer.WithDraftLayer(t, layer)
+	}
 
 	images := pushGitLabReleaseImages(t, target, archives, layer)
 	jobImage, buildImage, signerImage := images.job, images.build, images.signer
