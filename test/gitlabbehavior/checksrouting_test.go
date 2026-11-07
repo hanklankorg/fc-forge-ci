@@ -68,7 +68,7 @@ func TestReleaseChecksRoutingAndPreparationBarrier(t *testing.T) {
 		t.Fatalf("authorization must stay restricted and execute no consumer commands: %+v", auth)
 	}
 
-	if !reflect.DeepEqual(auth.Needs, []any{"Check: signing access", "Check: publishing access", "Check: registry access"}) {
+	if !reflect.DeepEqual(auth.Needs, []any{"Check: signing access", "Check: publishing access", map[string]any{"job": "Check: registry access", "optional": true}}) {
 		t.Fatal("authorization bypasses access preflights")
 	}
 

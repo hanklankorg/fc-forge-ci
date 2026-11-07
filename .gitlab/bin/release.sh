@@ -607,7 +607,7 @@ rc_cleanup_release() {
 }
 
 # rc_release_summary writes the release overview. Its job runs only when every
-# release job succeeded, so each row is a success by construction.
+# scheduled release job succeeded, so each included row is a success by construction.
 rc_release_summary() {
 	local images=${1:-false} arm64_tags=${2:-[]} name jobs=()
 	for name in "Check: signing access" "Check: publishing access" "Check: registry access" \
@@ -616,6 +616,7 @@ rc_release_summary() {
 		"Images: build arm64" "Images: publish" "Sign: files and images" \
 		"Publish: images" "Publish: release" "Publish: tidy up"; do
 		if [ "${name}" = "Prepare: version" ] && [ -z "${RC_VERSION_BUMP:-}" ]; then continue; fi
+		if [ "${name}" = "Check: registry access" ] && [ "${images}" != true ] && [ "${RC_BASE_IMAGES:-false}" != true ]; then continue; fi
 		case "${name}" in "Images: "*) if [ "${images}" != true ]; then continue; fi ;; esac
 		if [ "${name}" = "Images: build arm64" ] && [ "${arm64_tags}" = '[]' ]; then continue; fi
 		jobs+=(--job "${name}=success")

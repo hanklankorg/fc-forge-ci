@@ -23,6 +23,7 @@ func TestReleaseJobRejectsCredentialsOutsideItsRole(t *testing.T) {
 
 	for _, pair := range [][2]string{
 		{"Check: release request", "RELEASE_SSH_SIGNING_KEY"},
+		{"Check: release request", "RELEASE_REGISTRY_TOKEN"},
 		{"Check: consumer checks", "RELEASE_SSH_SIGNING_KEY"},
 		{"Check: consumer checks", "RELEASE_COSIGN_PRIVATE_KEY"},
 		{"Check: consumer checks", "RELEASE_REGISTRY_TOKEN"},
@@ -30,6 +31,9 @@ func TestReleaseJobRejectsCredentialsOutsideItsRole(t *testing.T) {
 		{"Prepare: changelog", "RELEASE_COSIGN_PRIVATE_KEY"},
 		{"Prepare: version", "RELEASE_SSH_SIGNING_KEY"},
 		{"Build: release files", "RELEASE_TOKEN"},
+		{"Build: release files", "RELEASE_REGISTRY_TOKEN"},
+		{"Build: export amd64", "RELEASE_REGISTRY_TOKEN"},
+		{"Images: build amd64", "RELEASE_REGISTRY_TOKEN"},
 		{"Sign: files and images", "RELEASE_SSH_SIGNING_KEY"},
 		{"Sign: files and images", "RELEASE_TOKEN"},
 		{"Publish: images", "RELEASE_COSIGN_PRIVATE_KEY"},
