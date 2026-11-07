@@ -12,6 +12,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/adapters/forgejo"
 	"github.com/diggsweden/forge-ci/internal/adapters/github"
 	"github.com/diggsweden/forge-ci/internal/adapters/gitlab"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
 	"github.com/diggsweden/forge-ci/internal/runcontext"
 	"github.com/diggsweden/forge-ci/internal/testutil/testenv"
@@ -185,4 +186,19 @@ func TestProviderTokenEnv_NamesTheDetectedForgeOnly(t *testing.T) {
 			owner[name] = forge
 		}
 	}
+}
+
+// Outside CI the error for a forge-only capability says how to reach a forge,
+// with the variables the adapters really read.
+func TestLocalUnsupportedErrorSaysHowToReachAForge(t *testing.T) {
+	t.Parallel()
+
+	err := unsupportedRoleError(provider.ForgeLocal, "release asset retention")
+	require.ErrorIs(t, err, errs.ErrUnsupported)
+
+	for _, want := range []string{"--provider github with GH_TOKEN or GITHUB_TOKEN", "FORGEJO_SERVER_URL", "--provider gitlab with GITLAB_TOKEN"} {
+		require.ErrorContains(t, err, want)
+	}
+
+	require.NotContains(t, unsupportedRoleError(provider.ForgeGitHub, "x").Error(), "--provider")
 }

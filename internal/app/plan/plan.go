@@ -212,9 +212,14 @@ type PRInput struct {
 
 // PR composes typed pull-request quality plan outputs.
 func PR(ctx context.Context, sink ci.OutputSink, in PRInput) (*pipeline.PRPlan, error) {
+	if in.ProjectType == "" {
+		return nil, fmt.Errorf("project type is required: pass --project-type <type> or set $PROJECT_TYPE, one of %v: %w",
+			config.ValidProjectTypes, errs.ErrUsage)
+	}
+
 	pt := projecttype.Type(in.ProjectType)
 	if !projecttype.IsIn(pt, config.ValidProjectTypes) {
-		return nil, fmt.Errorf("unknown project-type %q: %w", in.ProjectType, errs.ErrUsage)
+		return nil, fmt.Errorf("unknown project-type %q, want one of %v: %w", in.ProjectType, config.ValidProjectTypes, errs.ErrUsage)
 	}
 
 	engine, err := pipeline.ParseLintEngine(in.LintEngine)

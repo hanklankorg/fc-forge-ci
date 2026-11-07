@@ -23,8 +23,8 @@ func TestPorcelainCommandsResolve(t *testing.T) {
 			porcelainCommands[0].path, porcelainCommands[1].path)
 	}
 
-	if startHereCount != 2 {
-		t.Fatalf("startHereCount = %d, want 2 (init, doctor)", startHereCount)
+	if startHereCount != 3 || porcelainCommands[2].path != "setup status" {
+		t.Fatalf("startHereCount = %d, want 3 (init, doctor, setup status)", startHereCount)
 	}
 
 	for _, pc := range porcelainCommands {

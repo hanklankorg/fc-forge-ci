@@ -54,6 +54,12 @@ type Result struct {
 	Kept      []string // existing files init keeps rather than refuses, such as the changelog configuration
 	Conflicts []string
 	Remaining map[string][]domain.Placeholder
+	// Project is what init read from the consumer's build files and wrote in
+	// place of the example's project placeholders.
+	Project domain.Project
+	// Optional names the example's workflows init did not write, such as a
+	// snapshot workflow, which a person may copy from the release by hand.
+	Optional []string
 }
 
 // Run pins the mirror's release, reads its examples and defaults at that
@@ -93,10 +99,12 @@ func Run(ctx context.Context, in Input) (Result, error) {
 }
 
 func initializeFiles(release fs.FS, in Input, defaults domain.Defaults, result Result) (Result, error) {
-	plan, err := planFiles(release, result.Forge, in.Example)
+	plan, optional, err := planFiles(release, result.Forge, in.Example)
 	if err != nil {
 		return Result{}, err
 	}
+
+	result.Optional = optional
 
 	directory, err := filepath.Abs(in.Dir)
 	if err != nil {
@@ -104,13 +112,14 @@ func initializeFiles(release fs.FS, in Input, defaults domain.Defaults, result R
 	}
 
 	result.Directory = directory
+	result.Project = DetectProject(os.DirFS(directory))
 
 	plan, result.Kept, err = keepExisting(directory, plan)
 	if err != nil {
 		return Result{}, err
 	}
 
-	files, err := render(release, plan, domain.Replacements(result.Forge, in.Example, result.Source, defaults), &result)
+	files, err := render(release, plan, domain.Replacements(result.Forge, in.Example, result.Source, defaults), domain.ProjectReplacements(result.Project), &result)
 	if err != nil {
 		return Result{}, err
 	}
@@ -197,7 +206,7 @@ func pin(ctx context.Context, remote Remote, repoURL, ref string) (string, strin
 	if tag == "" {
 		tags, err := remote.VersionTags(ctx, repoURL)
 		if err != nil {
-			return "", "", err
+			return "", "", unreachable(repoURL, err)
 		}
 
 		if tag = domain.LatestReleaseTag(tags); tag == "" {
@@ -205,9 +214,18 @@ func pin(ctx context.Context, remote Remote, repoURL, ref string) (string, strin
 		}
 	}
 
+	// Not unreachable: a missing --ref tag fails here too, with the same
+	// error class, and the mirror hint would mislead it.
 	commit, err := remote.TagCommit(ctx, repoURL, tag)
 
 	return tag, commit, err
+}
+
+// unreachable says what the URL has to be when git cannot read it: off
+// github.com, a Forge CI mirror an operator keeps on the organization's forge.
+func unreachable(repoURL string, err error) error {
+	return fmt.Errorf("cannot read the release tags of %s; on a forge other than github.com it is your "+
+		"organization's Forge CI mirror: ask its operator for the URL, or see forge-ci docs forgejo#quick-start: %w", repoURL, err)
 }
 
 // readRelease exports the release's examples, changelog configurations and
@@ -237,10 +255,10 @@ func readRelease(ctx context.Context, remote Remote, repoURL, tag, snapshot stri
 }
 
 // planFiles lists the available initialization files of the selected example.
-func planFiles(release fs.FS, forge provider.ForgeAPI, example string) ([]domain.FileCopy, error) {
+func planFiles(release fs.FS, forge provider.ForgeAPI, example string) ([]domain.FileCopy, []string, error) {
 	entries, err := fs.ReadDir(release, path.Join(domain.ExamplesDir, example, domain.ForgeDir(forge)))
 	if err != nil {
-		return nil, fmt.Errorf("this release has no %s files for example %s; choose another with --example: %w", forge, example, errs.ErrUsage)
+		return nil, nil, fmt.Errorf("this release has no %s files for example %s; choose another with --example: %w", forge, example, errs.ErrUsage)
 	}
 
 	names := make([]string, 0, len(entries))
@@ -258,15 +276,15 @@ func planFiles(release fs.FS, forge provider.ForgeAPI, example string) ([]domain
 		if _, statErr := fs.Stat(release, c.From); statErr == nil {
 			plan = append(plan, c)
 		} else if !errors.Is(statErr, fs.ErrNotExist) {
-			return nil, statErr
+			return nil, nil, statErr
 		}
 	}
 
 	if !slices.ContainsFunc(plan, func(c domain.FileCopy) bool { return strings.HasPrefix(c.From, domain.ExamplesDir+"/") }) {
-		return nil, fmt.Errorf("this release has no initialization files for %s example %s: %w", forge, example, errs.ErrUsage)
+		return nil, nil, fmt.Errorf("this release has no initialization files for %s example %s: %w", forge, example, errs.ErrUsage)
 	}
 
-	return plan, nil
+	return plan, domain.OptionalWorkflows(forge, names), nil
 }
 
 type renderedFile struct {
@@ -275,7 +293,7 @@ type renderedFile struct {
 }
 
 // render is shared by previews and writes, including placeholder reporting.
-func render(release fs.FS, plan []domain.FileCopy, replacements []domain.Replacement, result *Result) ([]renderedFile, error) {
+func render(release fs.FS, plan []domain.FileCopy, replacements, project []domain.Replacement, result *Result) ([]renderedFile, error) {
 	files := make([]renderedFile, 0, len(plan))
 	for _, file := range plan {
 		body, err := fs.ReadFile(release, file.From)
@@ -283,7 +301,7 @@ func render(release fs.FS, plan []domain.FileCopy, replacements []domain.Replace
 			return nil, err
 		}
 
-		content := domain.Apply(string(body), replacements)
+		content := domain.ApplyProject(domain.Apply(string(body), replacements), project)
 		files = append(files, renderedFile{path: file.To, content: []byte(content)})
 		result.Proposed = append(result.Proposed, file.To)
 

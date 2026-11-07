@@ -130,13 +130,15 @@ type Placeholder struct {
 }
 
 // Remaining lists the placeholders content still holds, one per token and
-// line, outside comment lines: a comment that explains a placeholder is not
-// one.
+// line, outside comments: a comment that explains a placeholder is not one,
+// whether it fills its own line or trails the value (`main-package: . #
+// FIXME: …` is filled; the FIXME was the instruction).
 func Remaining(content string) []Placeholder {
 	var found []Placeholder
 
 	for index, line := range strings.Split(content, "\n") {
-		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "#") {
+		line = withoutComment(line)
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
 
@@ -150,4 +152,164 @@ func Remaining(content string) []Placeholder {
 	}
 
 	return found
+}
+
+// withoutComment drops a YAML/shell comment: a # at the line start or after
+// whitespace, outside single or double quotes. It is a reading aid for the
+// placeholder scan, not a YAML parser; a # inside a block scalar is kept or
+// dropped by the same rule, which errs towards reporting.
+func withoutComment(line string) string {
+	var (
+		quote   rune
+		escaped bool // the previous rune was a backslash inside "…"
+	)
+
+	for i, r := range line {
+		switch {
+		case escaped:
+			escaped = false
+		case quote == '"' && r == '\\':
+			escaped = true
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			}
+		case r == '\'' || r == '"':
+			quote = r
+		case r == '#' && (i == 0 || line[i-1] == ' ' || line[i-1] == '\t'):
+			return line[:i]
+		}
+	}
+
+	return line
+}
+
+// Hint says how to fill one placeholder token: where its value comes from
+// and, when the binary can find it, the command that does.
+func Hint(token string) string {
+	switch {
+	case token == "PIN_FORGE_CI_SHA":
+		return "the Forge CI commit the workflows pin; forge-ci init fills it with the commit of the release tag"
+	case token == "PIN_SIGNER_IMAGE_DIGEST" || token == "PIN_COSIGN_PUBLIC_KEY_SHA256":
+		return "your Forge CI mirror's signer image and Cosign key digest; its operator records them as signer-image and " +
+			"cosign-public-key-sha256 in " + DefaultsFile + " so that forge-ci init fills them"
+	case token == "PIN_DIGEST":
+		return "the lint image's digest: forge-ci container manifest digest --anonymous --ref <image>:<tag>, then write @sha256:<digest>"
+	case strings.HasPrefix(token, "PIN_"):
+		return "the image's digest: forge-ci container manifest digest --anonymous --ref <image>:<tag>, then write @sha256:<digest>"
+	case strings.HasPrefix(token, "FIXME-release-bot"):
+		return "the release bot's email; it must be the principal of the bot key's line in .forge-ci/allowed_signers " +
+			"(forge-ci setup signer --principal <email> --public-key <bot key>.pub)"
+	case token == "FIXME-app" || token == "FIXME-service" || strings.HasPrefix(token, "FIXME-service-"):
+		return "your project's name, as the build names its binary or jar"
+	case strings.HasPrefix(token, "FIXME"):
+		return "a value only you know; the comment above the line says which (bot-name: the release bot's display name)"
+	case token == "FORGE_HOST" || token == "OWNER/forge-ci":
+		return "your forge host and Forge CI mirror; forge-ci init fills them from the URL it is given"
+	case strings.Contains(token, ".example."):
+		return "your own host: the forge, registry or package repository the line names"
+	case strings.HasPrefix(token, "com.example.myapp"):
+		return "your Android application id"
+	case strings.HasPrefix(token, "my-"):
+		return "your project's name (artifact, binary or image); forge-ci init fills it when the build files name the project"
+	default:
+		return "a value for your project"
+	}
+}
+
+// Project is what init reads from the consumer's own build files. Empty
+// fields are unknown and leave their placeholders for a person to fill.
+type Project struct {
+	// Name is the artifact, binary or image name: the Go module's last path
+	// element, the package.json/Cargo.toml name, the POM artifactId, or the
+	// Gradle rootProject.name.
+	Name string
+	// MainPackage is the Go main package, "." or "./cmd/<x>".
+	MainPackage string
+}
+
+// projectName is what a name has to look like to be written into a
+// workflow unquoted: a binary, artifact or image name.
+var projectName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
+
+// FillsName reports whether init writes p.Name for the example's names. The
+// one example name is both the image name, which must be lowercase, and the
+// jar or binary file name, which keeps the build's case; a name with capitals
+// cannot be both, so it is left for the person rather than lowercased.
+func (p Project) FillsName() bool {
+	return projectName.MatchString(p.Name)
+}
+
+// ProjectReplacements fills the example's project placeholders with what the
+// consumer's build files say. The example main packages are listed even when
+// none was detected, kept as they are: ApplyProject then leaves ./cmd/my-cli
+// for the person to fill rather than guessing ./cmd/<name>.
+func ProjectReplacements(p Project) []Replacement {
+	var replacements []Replacement
+
+	for _, example := range []string{"./cmd/my-cli", "./cmd/my-service"} {
+		mainPackage := example
+		if p.MainPackage == "." || strings.HasPrefix(p.MainPackage, "./cmd/") {
+			mainPackage = p.MainPackage
+		}
+
+		replacements = append(replacements, Replacement{Old: example, New: mainPackage})
+	}
+
+	if p.FillsName() {
+		for _, old := range []string{"FIXME-service", "FIXME-app", "my-service", "my-cli", "my-app"} {
+			replacements = append(replacements, Replacement{Old: old, New: p.Name})
+		}
+	}
+
+	return replacements
+}
+
+// ApplyProject substitutes the project replacements in one left-to-right pass
+// on whole tokens only, so that my-app in my-application, or FIXME-app in
+// FIXME-apple, is left alone. The earliest match wins, and on a tie the first
+// replacement listed: ./cmd/my-cli is replaced whole and never as ./cmd/<name>,
+// and no replacement rewrites another's output.
+func ApplyProject(content string, r []Replacement) string {
+	var out strings.Builder
+
+	prev := byte(' ') // the byte before content, once part of it is written
+
+	for {
+		at, match := -1, Replacement{}
+		for _, rep := range r {
+			if i := strings.Index(content, rep.Old); rep.Old != "" && i >= 0 && (at < 0 || i < at) {
+				at, match = i, rep
+			}
+		}
+
+		if at < 0 {
+			out.WriteString(content)
+
+			return out.String()
+		}
+
+		before := prev
+		if at > 0 {
+			before = content[at-1]
+		}
+
+		end := at + len(match.Old)
+		whole := !wordByte(before) && (end == len(content) || !wordByte(content[end]))
+		prev = match.Old[len(match.Old)-1]
+
+		out.WriteString(content[:at])
+
+		if whole {
+			out.WriteString(match.New)
+		} else {
+			out.WriteString(match.Old)
+		}
+
+		content = content[end:]
+	}
+}
+
+func wordByte(b byte) bool {
+	return b == '_' || ('0' <= b && b <= '9') || ('a' <= b && b <= 'z') || ('A' <= b && b <= 'Z')
 }

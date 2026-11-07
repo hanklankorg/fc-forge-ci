@@ -16,10 +16,16 @@ import (
 
 // writeRepo lays out a minimal repo under root with the supplied
 // artifacts.yml. Optional extra files via files map (relative path → body).
+// Unless files brings its own CI entry point, the repo gets a minimal
+// .github/workflows/ci.yml: doctor fails a repository with no CI at all.
 func writeRepo(t *testing.T, artifactsYAML string, files map[string]string) string {
 	t.Helper()
 
 	root := t.TempDir()
+
+	if !hasCIFile(files) {
+		files = withFile(files, ".github/workflows/ci.yml", "on: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps: []\n")
+	}
 
 	if err := os.MkdirAll(filepath.Join(root, ".forge-ci"), 0o755); err != nil {
 		t.Fatal(err)
@@ -43,6 +49,25 @@ func writeRepo(t *testing.T, artifactsYAML string, files map[string]string) stri
 	return root
 }
 
+func hasCIFile(files map[string]string) bool {
+	for rel := range files {
+		if strings.HasPrefix(rel, ".github/workflows/") || strings.HasPrefix(rel, ".forgejo/workflows/") || rel == ".gitlab-ci.yml" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func withFile(files map[string]string, rel, body string) map[string]string {
+	out := map[string]string{rel: body}
+	for k, v := range files {
+		out[k] = v
+	}
+
+	return out
+}
+
 func findCheck(checks []doctor.Check, name string) *doctor.Check {
 	for i := range checks {
 		if checks[i].Name == name {
@@ -58,7 +83,7 @@ func TestRun_HappyPath_GPGDefault(t *testing.T) {
 
 	root := writeRepo(t, `
 artifacts:
-  - name: my-app
+  - name: fixture-app
     project-type: meta
 `, nil)
 
@@ -79,7 +104,7 @@ func TestRun_ReportsUnsupportedGitHubEnterpriseReleaseWorkflow(t *testing.T) {
 
 	root := writeRepo(t, `
 artifacts:
-  - name: my-app
+  - name: fixture-app
     project-type: meta
 `, nil)
 
@@ -130,13 +155,31 @@ func TestRun_MissingArtifactsYML_AutoDerivesSingleManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(root, ".github", "workflows"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, ".github", "workflows", "ci.yml"), []byte("on: push\njobs: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	checks, err := doctor.Run(doctor.Input{Root: root})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	c := findCheck(checks, "artifacts.yml present")
-	if c == nil || c.Severity != doctor.SeverityOK || !strings.Contains(c.Message, "auto-derived go artifact \"widget\"") {
+	// The check says the configuration was derived; it no longer claims an
+	// absent artifacts.yml is "present".
+	if c := findCheck(checks, "artifacts.yml present"); c != nil {
+		t.Errorf("an absent artifacts.yml must not be reported as present; got %+v", c)
+	}
+
+	c := findCheck(checks, "configuration auto-derives")
+	if c == nil || c.Severity != doctor.SeverityOK || !strings.Contains(c.Message, "go artifact \"widget\" derived from the root manifest") {
 		t.Errorf("single manifest should auto-derive a usable config; got %+v", c)
 	}
 
@@ -173,7 +216,7 @@ func TestRun_RequireAuthorizationWithoutAllowlist_Fails(t *testing.T) {
 
 	root := writeRepo(t, `
 artifacts:
-  - name: my-app
+  - name: fixture-app
     project-type: meta
     require-authorization: true
 `, nil)
@@ -194,7 +237,7 @@ func TestRun_RequireAuthorizationWithAllowlist_Passes(t *testing.T) {
 
 	root := writeRepo(t, `
 artifacts:
-  - name: my-app
+  - name: fixture-app
     project-type: meta
     require-authorization: true
 `, map[string]string{
@@ -217,7 +260,7 @@ func TestRun_SigstoreWithoutIDTokenPermission_Fails(t *testing.T) {
 
 	root := writeRepo(t, `
 artifacts:
-  - name: my-app
+  - name: fixture-app
     project-type: meta
 sign:
   method: sigstore
@@ -246,7 +289,7 @@ func TestRun_SigstoreWithIDTokenPermission_Passes(t *testing.T) {
 
 	root := writeRepo(t, `
 artifacts:
-  - name: my-app
+  - name: fixture-app
     project-type: meta
 sign:
   method: sigstore
@@ -273,7 +316,7 @@ func TestRun_SigstoreWithForgejoOpenIDConnect_Passes(t *testing.T) {
 
 	root := writeRepo(t, `
 artifacts:
-  - name: my-app
+  - name: fixture-app
     project-type: meta
 sign:
   method: sigstore
@@ -297,7 +340,7 @@ func TestRun_FloatingForgeCIRef_Warns(t *testing.T) {
 
 	root := writeRepo(t, `
 artifacts:
-  - name: my-app
+  - name: fixture-app
     project-type: meta
 `, map[string]string{
 		".github/workflows/release.yml": "name: release\non: push\njobs:\n  release:\n    uses: diggsweden/forge-ci/.github/workflows/release-orchestrator.yml@main\n",
@@ -324,7 +367,7 @@ func TestRun_KMSWithBadKey_FailsAtSignBlock(t *testing.T) {
 
 	root := writeRepo(t, `
 artifacts:
-  - name: my-app
+  - name: fixture-app
     project-type: meta
 sign:
   method: kms
@@ -371,7 +414,7 @@ func TestRun_KeylessRecommendation_AppearsForGPGOnKeylessForge(t *testing.T) {
 
 	root := writeRepo(t, `
 artifacts:
-  - name: my-app
+  - name: fixture-app
     project-type: meta
 `, nil) // no sign block → gpg default
 
@@ -399,7 +442,7 @@ func TestRun_KeylessRecommendation_SilentWhenForgeLacksKeyless(t *testing.T) {
 
 	root := writeRepo(t, `
 artifacts:
-  - name: my-app
+  - name: fixture-app
     project-type: meta
 `, nil)
 
@@ -439,7 +482,7 @@ func TestRun_KeylessRecommendation_SilentWhenAlreadySigstore(t *testing.T) {
 
 	root := writeRepo(t, `
 artifacts:
-  - name: my-app
+  - name: fixture-app
     project-type: meta
 sign:
   method: sigstore
@@ -457,12 +500,14 @@ sign:
 
 const sshAllowlistCheck = "ssh git-signing allowlist"
 
+// A missing allowlist warns: only the release reads it, so a pull request
+// passes without it. The warning names the command that writes it.
 func TestRun_SSHGitSigning_WarnsWhenAllowedSignersMissing(t *testing.T) {
 	t.Parallel()
 
 	root := writeRepo(t, `
 artifacts:
-  - name: my-app
+  - name: fixture-app
     project-type: meta
 git-signing:
   method: ssh
@@ -475,7 +520,11 @@ git-signing:
 
 	c := findCheck(checks, sshAllowlistCheck)
 	if c == nil || c.Severity != doctor.SeverityWarn {
-		t.Errorf("ssh git-signing without allowed_signers should WARN; got %+v", c)
+		t.Fatalf("ssh git-signing without allowed_signers should WARN; got %+v", c)
+	}
+
+	if !strings.Contains(c.Remediation, "forge-ci setup signer") {
+		t.Errorf("remediation must name the command that writes the file; got %q", c.Remediation)
 	}
 }
 
@@ -484,7 +533,7 @@ func TestRun_SSHGitSigning_OKWhenAllowedSignersPresent(t *testing.T) {
 
 	root := writeRepo(t, `
 artifacts:
-  - name: my-app
+  - name: fixture-app
     project-type: meta
 git-signing:
   method: ssh
@@ -508,7 +557,7 @@ func TestRun_GPGGitSigning_NoSSHAllowlistCheck(t *testing.T) {
 
 	root := writeRepo(t, `
 artifacts:
-  - name: my-app
+  - name: fixture-app
     project-type: meta
 `, nil) // git-signing defaults to gpg
 
@@ -527,7 +576,7 @@ func TestRun_SSHGitSigning_FailsWhenAllowedSignersMalformed(t *testing.T) {
 
 	root := writeRepo(t, `
 artifacts:
-  - name: my-app
+  - name: fixture-app
     project-type: meta
 git-signing:
   method: ssh

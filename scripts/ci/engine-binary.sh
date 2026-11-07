@@ -22,7 +22,7 @@
 # cross-compiled on any host, no cgo, trimmed paths, no VCS stamp, one
 # constant version string, modules from the local cache only. It names no
 # commit and no date, so two commits with the same build inputs (cmd/,
-# internal/, go.mod, go.sum) build the same bytes, and test/forgejobehavior
+# internal/, docs/, go.mod, go.sum) build the same bytes, and test/forgejobehavior
 # holds the recorded checksums to this build.
 set -euo pipefail
 umask 022
@@ -30,7 +30,8 @@ umask 022
 script_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 repo_root=$(CDPATH='' cd -- "$script_dir/../.." && pwd -P)
 go_bin=${GO:-go}
-build_inputs=(cmd internal go.mod go.sum)
+# docs/: the binary embeds the user-facing pages (forge-ci docs, package docs).
+build_inputs=(cmd docs internal go.mod go.sum)
 architectures=(amd64 arm64)
 # What `forge-ci --version` of the layer's binary answers. The sha256 is
 # its identity; setup-forge-ci prints both.

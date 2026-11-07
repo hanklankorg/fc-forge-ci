@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -133,8 +134,22 @@ func chooseExample(flag, dir string, in *os.File, out io.Writer) (string, error)
 		return example, nil
 	}
 
+	// The examples are for one project at the root. Build files one level
+	// down are a repository with several artifacts, which no example fits.
+	nested := ""
+	if found := nestedProjects(dir, entries); len(found) > 0 {
+		nested = fmt.Sprintf("; found %s below the root: a repository with several artifacts writes "+
+			".forge-ci/artifacts.yml by hand (forge-ci docs artifacts-reference#monorepo-configuration), "+
+			"then takes the workflows of one example", strings.Join(found, ", "))
+	}
+
 	if !term.IsTerminal(int(in.Fd())) {
-		return "", fmt.Errorf("no build file tells the ecosystem; pass --example, one of %s: %w", strings.Join(domain.Examples(), ", "), errs.ErrUsage)
+		return "", fmt.Errorf("no build file at the root tells the ecosystem%s; pass --example, one of %s: %w",
+			nested, strings.Join(domain.Examples(), ", "), errs.ErrUsage)
+	}
+
+	if nested != "" {
+		_, _ = fmt.Fprintf(out, "No build file at the root%s.\n", nested)
 	}
 
 	_, _ = fmt.Fprintf(out, "Example (%s) [go-cli]: ", strings.Join(domain.Examples(), ", "))
@@ -145,6 +160,34 @@ func chooseExample(flag, dir string, in *os.File, out io.Writer) (string, error)
 	}
 
 	return "go-cli", nil
+}
+
+// nestedProjects names the immediate subdirectories of dir whose build files
+// an example would match, as "api (go)".
+func nestedProjects(dir string, entries []os.DirEntry) []string {
+	var found []string
+
+	for _, e := range entries {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+
+		sub, err := os.ReadDir(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+
+		names := make([]string, 0, len(sub))
+		for _, s := range sub {
+			names = append(names, s.Name())
+		}
+
+		if t := projecttype.DetectFromEntries(names); domain.ExampleFor(t) != "" {
+			found = append(found, fmt.Sprintf("%s (%s)", e.Name(), t))
+		}
+	}
+
+	return found
 }
 
 func report(out io.Writer, example string, result appinit.Result) {
@@ -160,17 +203,17 @@ func report(out io.Writer, example string, result appinit.Result) {
 	}
 
 	reportFiles(out, result)
+	reportProject(out, result.Project)
 
 	if len(result.Remaining) == 0 {
 		_, _ = fmt.Fprintln(out, "\nNo recognized placeholders remain. Review the generated build paths, names and release settings before running.")
 	} else {
-		_, _ = fmt.Fprintln(out, "\nReview and customize before running")
+		reportRemaining(out, result)
+	}
 
-		for _, f := range result.Proposed {
-			for _, p := range result.Remaining[f] {
-				_, _ = fmt.Fprintf(out, "  %s:%d  %s\n", f, p.Line, p.Token)
-			}
-		}
+	if len(result.Optional) > 0 {
+		_, _ = fmt.Fprintf(out, "\nOptional workflows in this example, not written: %s. Copy one from %s/%s/%s/ at %s if you want it.\n",
+			strings.Join(result.Optional, ", "), domain.ExamplesDir, example, domain.ForgeDir(result.Forge), result.Source.Tag)
 	}
 
 	_, _ = fmt.Fprintln(out, "\nLinter configuration: no Nanolinter or MegaLinter configuration is generated.")
@@ -189,8 +232,58 @@ func report(out io.Writer, example string, result appinit.Result) {
 		return
 	}
 
-	_, _ = fmt.Fprintf(out, "\nNext: read the Getting started section of %s for the secrets and variables, then run forge-ci doctor in your project.\n",
-		forgeGuideLocation(result.Source, string(result.Forge)))
+	_, _ = fmt.Fprintf(out, "\nNext: fill the values above, then run forge-ci setup status for the remaining steps to a first release "+
+		"(signers, secrets, forge-ci doctor, the release request).\n"+
+		"Guide: the Getting started section of %s (offline: forge-ci docs %s)\n",
+		forgeGuideLocation(result.Source, string(result.Forge)), result.Forge)
+}
+
+// reportProject says which values init took from the project's own build
+// files, so a wrong guess is visible before it is committed.
+func reportProject(out io.Writer, p domain.Project) {
+	if p.Name == "" && p.MainPackage == "" {
+		return
+	}
+
+	_, _ = fmt.Fprintln(out, "\nFrom your build files:")
+
+	if p.Name != "" {
+		note := ""
+		if !p.FillsName() {
+			note = " (not filled: the example name is also the image name, which takes lowercase letters, digits, '.', '_' and '-')"
+		}
+
+		_, _ = fmt.Fprintf(out, "  project name   %s%s\n", p.Name, note)
+	}
+
+	if p.MainPackage != "" {
+		_, _ = fmt.Fprintf(out, "  main package   %s\n", p.MainPackage)
+	}
+}
+
+// reportRemaining lists every placeholder by file and line, then once per
+// kind of placeholder says where its value comes from.
+func reportRemaining(out io.Writer, result appinit.Result) {
+	_, _ = fmt.Fprintln(out, "\nStill to fill in before running")
+
+	var hints []string
+
+	seen := map[string]bool{}
+
+	for _, f := range result.Proposed {
+		for _, p := range result.Remaining[f] {
+			_, _ = fmt.Fprintf(out, "  %s:%d  %s\n", f, p.Line, p.Token)
+
+			if hint := domain.Hint(p.Token); !seen[hint] {
+				seen[hint] = true
+				hints = append(hints, fmt.Sprintf("  %-20s %s", p.Token, hint))
+			}
+		}
+	}
+
+	_, _ = fmt.Fprintln(out, "\nHow to fill them")
+	_, _ = fmt.Fprintln(out, strings.Join(hints, "\n"))
+	_, _ = fmt.Fprintln(out, "forge-ci doctor fails until they are filled; values only the release workflow reads warn until then.")
 }
 
 // forgeGuideLocation says where the per-forge guide for the pinned release

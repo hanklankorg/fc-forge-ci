@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/urfave/cli/v3"
 
@@ -185,7 +186,32 @@ func (d *Deps) WebURLBuilder() provider.WebURLBuilder {
 }
 
 func unsupportedRoleError(p provider.ForgeAPI, capability string) error {
+	if p == provider.ForgeLocal {
+		return fmt.Errorf("%s is not supported on platform %q: %s: %w", capability, p, localForgeHint(), errs.ErrUnsupported)
+	}
+
 	return fmt.Errorf("%s is not supported on platform %q: %w", capability, p, errs.ErrUnsupported)
+}
+
+// localForgeHint says how to reach a forge from outside a CI job, where
+// detection finds no forge: name it, and set the variables its adapter reads,
+// taken from providerEnvKeysFor so the advice is what the adapters do.
+func localForgeHint() string {
+	forges := []provider.ForgeAPI{provider.ForgeGitHub, provider.ForgeForgejo, provider.ForgeGitLab}
+	parts := make([]string, 0, len(forges))
+
+	for _, forge := range forges {
+		keys := providerEnvKeysFor(forge)
+		part := fmt.Sprintf("--provider %s with %s", forge, strings.Join(keys.ownTokens, " or "))
+
+		if forge != provider.ForgeGitHub {
+			part += " and " + keys.serverURL.name
+		}
+
+		parts = append(parts, part)
+	}
+
+	return "outside a CI job no forge is detected; pass " + strings.Join(parts, "; ")
 }
 
 // Build produces a *Deps wired for the detected platform. Most CLI actions

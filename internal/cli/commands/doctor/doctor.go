@@ -17,6 +17,7 @@ import (
 
 	"github.com/diggsweden/forge-ci/internal/adapters/platform"
 	appdoctor "github.com/diggsweden/forge-ci/internal/app/doctor"
+	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
 	"github.com/diggsweden/forge-ci/internal/cli/deps"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/output"
@@ -63,8 +64,8 @@ Exit codes:
 				Usage:   "owner/repo this binary belongs to, for the workflow-pin check (default: derived from the binary's own module path)",
 			},
 		},
-		Action: func(_ context.Context, cmd *cli.Command) error {
-			env := resolveEnvironment()
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			env := resolveEnvironment(ctx)
 
 			checks, err := appdoctor.Run(appdoctor.Input{
 				Root:             cmd.String("root"),
@@ -145,9 +146,11 @@ func writeTextReport(out io.Writer, env appdoctor.Environment, checks []appdocto
 		_, _ = fmt.Fprintln(out, "Next: fix the FAIL lines above, then run forge-ci doctor again.")
 	case env.Runner != string(provider.RunnerLocal):
 	case hasWarnings(checks):
-		_, _ = fmt.Fprintln(out, "Next: review the WARN lines above, then commit the Forge CI files and open a pull request; the reusable workflows check the rest in CI.")
+		_, _ = fmt.Fprintln(out, "Next: review the WARN lines above, then commit the Forge CI files and open a pull request; the reusable workflows check the rest in CI. "+
+			"forge-ci setup status lists what is left before a first release.")
 	default:
-		_, _ = fmt.Fprintln(out, "Next: commit the Forge CI files and open a pull request; the reusable workflows check the rest in CI.")
+		_, _ = fmt.Fprintln(out, "Next: commit the Forge CI files and open a pull request; the reusable workflows check the rest in CI. "+
+			"forge-ci setup status lists what is left before a first release.")
 	}
 }
 
@@ -167,11 +170,21 @@ func hasWarnings(checks []appdoctor.Check) bool {
 // the doctor environment block. Detection (env reads) lives in
 // internal/adapters/platform and the provider factory in internal/cli/deps; this
 // helper only assembles their results into the app-layer Environment.
-func resolveEnvironment() appdoctor.Environment {
-	return appdoctor.Environment{
+func resolveEnvironment(ctx context.Context) appdoctor.Environment {
+	env := appdoctor.Environment{
 		Provider:     deps.DescriberForDetected().Describe().DisplayName,
 		ForgeAPI:     platform.Detect().String(),
 		Runner:       platform.DetectRunner().String(),
 		Capabilities: deps.CapabilitiesForDetected(),
 	}
+
+	// The same resolver the gates use, so the line says what this binary,
+	// with this command line, would block. When it refuses, the
+	// administrator-policy check fails with the reason, and there is no
+	// policy to describe.
+	if policy, err := appenforcement.Resolve(ctx); err == nil {
+		env.Enforcement = appenforcement.Summary(policy)
+	}
+
+	return env
 }

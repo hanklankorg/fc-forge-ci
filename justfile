@@ -628,7 +628,7 @@ check-engine-binary:
 
 # ▪ Generate the CLI reference and schemas
 [group('documentation')]
-generate: gen-cli-reference gen-artifacts-schema gen-release-images-schema
+generate: gen-cli-reference gen-artifacts-schema gen-release-images-schema gen-runby
 
 # Renders the urfave/cli command tree.
 [doc('Generate docs/cli-reference.md')]
@@ -636,6 +636,13 @@ generate: gen-cli-reference gen-artifacts-schema gen-release-images-schema
 gen-cli-reference:
     @go run ./cmd/gen-cli-reference > docs/cli-reference.md
     @printf "Regenerated docs/cli-reference.md\n"
+
+# Scans the reusable workflows for the RUN BY section of --help.
+[doc('Generate internal/cli/runby.json')]
+[group('documentation')]
+gen-runby:
+    @go run ./cmd/gen-runby > internal/cli/runby.json.tmp && mv internal/cli/runby.json.tmp internal/cli/runby.json
+    @printf "Regenerated internal/cli/runby.json\n"
 
 # Writes .forge-ci/artifacts.schema.json from the Go schema declarations.
 [doc('Generate the artifacts.yml JSON schema')]

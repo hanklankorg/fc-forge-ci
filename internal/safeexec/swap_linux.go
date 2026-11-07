@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"github.com/diggsweden/forge-ci/internal/cliio"
+	"github.com/diggsweden/forge-ci/internal/docslink"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
 
@@ -132,7 +133,7 @@ func RequireNoSwap(debugAllowSwap bool) (SwapState, error) {
 			"Debug-only escape hatch (LOCAL USE ONLY — NOT for production releases):\n"+
 			"  forge-ci release sign --debug-allow-swap\n"+
 			"  When set, the policy is bypassed and a Warning annotation is emitted.\n\n"+
-			"Background: https://github.com/diggsweden/forge-ci/blob/main/docs/verification.md#swap-policy: %w",
+			"Background: "+docslink.URL("verification.md#swap-policy")+": %w",
 		errs.ErrInvalidConfig,
 	)
 }

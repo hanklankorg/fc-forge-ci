@@ -11,6 +11,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"slices"
@@ -23,6 +24,7 @@ import (
 	cmdbuild "github.com/diggsweden/forge-ci/internal/cli/commands/build"
 	cmdconfig "github.com/diggsweden/forge-ci/internal/cli/commands/config"
 	cmdcontainer "github.com/diggsweden/forge-ci/internal/cli/commands/container"
+	cmddocs "github.com/diggsweden/forge-ci/internal/cli/commands/docs"
 	cmddoctor "github.com/diggsweden/forge-ci/internal/cli/commands/doctor"
 	cmdinit "github.com/diggsweden/forge-ci/internal/cli/commands/initcmd"
 	cmdlint "github.com/diggsweden/forge-ci/internal/cli/commands/lint"
@@ -34,11 +36,13 @@ import (
 	cmdreport "github.com/diggsweden/forge-ci/internal/cli/commands/report"
 	cmdsbom "github.com/diggsweden/forge-ci/internal/cli/commands/sbom"
 	cmdsecurity "github.com/diggsweden/forge-ci/internal/cli/commands/security"
+	cmdsetup "github.com/diggsweden/forge-ci/internal/cli/commands/setup"
 	cmdtoolchain "github.com/diggsweden/forge-ci/internal/cli/commands/toolchain"
 	cmdvalidate "github.com/diggsweden/forge-ci/internal/cli/commands/validate"
 	cmdversion "github.com/diggsweden/forge-ci/internal/cli/commands/version"
 	"github.com/diggsweden/forge-ci/internal/cli/planfile"
 	"github.com/diggsweden/forge-ci/internal/clicolor"
+	"github.com/diggsweden/forge-ci/internal/docslink"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/output"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
@@ -53,18 +57,6 @@ type BuildInfo struct {
 	Version string
 	Commit  string
 	Date    string
-}
-
-// docsRef returns the git ref the help-text Docs link should target so
-// the web docs match the installed binary. A release build carries a
-// version like "v0.90.0" (a real tag with a docs/ tree); dev/snapshot
-// builds carry "dev" or some non-tag string and fall back to "main".
-func docsRef(version string) string {
-	if len(version) > 1 && version[0] == 'v' && version[1] >= '0' && version[1] <= '9' {
-		return version
-	}
-
-	return "main"
 }
 
 // init makes subgroup help category-aware. urfave/cli groups the ROOT help by
@@ -84,6 +76,29 @@ func init() {
 		1,
 	)
 
+	// Below the root, the global options are one line, not their full
+	// usage: the four policy flags alone ran to a dozen wrapped lines on every
+	// page and buried the command's own options. The root help keeps them in
+	// full. A leaf workflow step also gets a RUN BY section naming the
+	// reusable workflows that call it.
+	for _, tmpl := range []*string{&cli.CommandHelpTemplate, &cli.SubcommandHelpTemplate} {
+		*tmpl = strings.Replace(*tmpl,
+			`GLOBAL OPTIONS:{{template "visiblePersistentFlagTemplate" .}}`,
+			`GLOBAL OPTIONS:
+   {{globalOptionsSummary .}}`, 1)
+		*tmpl = strings.Replace(*tmpl,
+			`{{template "descriptionTemplate" .}}{{end}}`,
+			`{{template "descriptionTemplate" .}}{{end}}{{with runByText .}}
+
+RUN BY:
+{{.}}{{end}}`, 1)
+	}
+
+	funcs := map[string]any{"runByText": runByText, "globalOptionsSummary": globalOptionsSummary}
+	cli.HelpPrinter = func(w io.Writer, templ string, data any) {
+		cli.HelpPrinterCustom(w, templ, data, funcs)
+	}
+
 	// Advertise required flags in the OPTIONS listing — urfave's default
 	// stringer does not mark them, so the requirement is otherwise invisible
 	// until the parse fails. Mirrors the reference doc (render.go).
@@ -101,6 +116,10 @@ func init() {
 // New builds the root *cli.Command. Subgroups are added here as each
 // migration phase lands them.
 func New(b BuildInfo) *cli.Command {
+	// Every docs link the binary prints (check remediations, error hints,
+	// help text) targets this binary's release, not main.
+	docslink.SetVersion(b.Version)
+
 	versionString := fmt.Sprintf("%s (commit %s, built %s)", b.Version, b.Commit, b.Date)
 
 	root := newRoot(b, versionString)
@@ -366,7 +385,7 @@ func newRoot(info BuildInfo, versionString string) *cli.Command {
 		// Action handles the two things that reach the root itself: no command
 		// at all, and a first argument that is not a command. See rootAction.
 		// It gets the bare version (info.Version), not cmd.Version, which is
-		// the composed "v0.90.0 (commit …, built …)" string: docsRef must see
+		// the composed "v0.90.0 (commit …, built …)" string: docslink.RefFor must see
 		// the tag alone, or a release build prints a broken Docs URL.
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			return rootAction(ctx, cmd, info.Version)
@@ -413,8 +432,10 @@ func newRoot(info BuildInfo, versionString string) *cli.Command {
 		Commands: slices.Concat(
 			cmdmeta.WithCategory(categoryRepository,
 				cmdconfig.New(),
+				cmddocs.New(),
 				cmddoctor.New(info.Commit),
 				cmdinit.New(),
+				cmdsetup.New(info.Commit),
 			),
 			cmdmeta.WithCategory(categoryWorkflow,
 				cmdartifact.New(),
@@ -485,12 +506,16 @@ func rootAction(_ context.Context, cmd *cli.Command, version string) error {
 // head the bare-invocation card; the rest follow on the card and in
 // `forge-ci --help`. TestPorcelainCommandsResolve asserts every path still
 // resolves to a real command, so the list cannot silently drift from the tree.
-var porcelainCommands = []struct {
+type porcelainCommand struct {
 	path string // space-separated command path, e.g. "config validate"
 	what string
-}{
+}
+
+var porcelainCommands = []porcelainCommand{
 	{"init", "write a repository's first Forge CI files from an example"},
 	{"doctor", "check that a repository is configured correctly for forge-ci"},
+	{"setup status", "list what is left before a first release, and the command for each step"},
+	{"docs", "print the documentation shipped in this binary"},
 	{"config validate", "validate .forge-ci/artifacts.yml against the schema"},
 	{"container login", "store container registry credentials"},
 	{"platform checkout", "check out a repository without persisting credentials"},
@@ -499,8 +524,8 @@ var porcelainCommands = []struct {
 }
 
 // startHereCount is how many leading porcelainCommands form the START HERE
-// block of the card: init, then doctor.
-const startHereCount = 2
+// block of the card: init, doctor, then setup status.
+const startHereCount = 3
 
 // rootCard renders what a bare `forge-ci` prints: what the tool is, the two
 // commands to run first, the other commands meant for a terminal, and where
@@ -517,14 +542,20 @@ func rootCard(version string) string {
 	// row fits an 80-column terminal, so the card is as tall as it looks.
 	fmt.Fprintf(&card, "  %-40s %s\n", "forge-ci init <forge-ci URL> --dry-run", "preview the first Forge CI files")
 	fmt.Fprintf(&card, "  %-40s %s\n", "forge-ci doctor", "check the Forge CI configuration")
+	fmt.Fprintf(&card, "  %-40s %s\n", "forge-ci setup status", "what is left before a first release")
 	card.WriteString("\nALSO RUN DIRECTLY\n")
 
 	for _, c := range porcelainCommands[startHereCount:] {
+		if c.path == "docs" {
+			continue // the Docs line below names it; the card stays within its line budget
+		}
+
 		fmt.Fprintf(&card, "  %-19s %s\n", c.path, c.what)
 	}
 
-	card.WriteString("\nThe other commands are run by the reusable workflows; see forge-ci --help.\n\n")
-	fmt.Fprintf(&card, "Docs:    https://github.com/diggsweden/forge-ci/tree/%s/docs\n", docsRef(version))
+	card.WriteString("\nVerify a release you downloaded: forge-ci validate artifact-signature --help\n")
+	card.WriteString("The other commands are mostly workflow steps; see forge-ci --help.\n")
+	fmt.Fprintf(&card, "Docs:    forge-ci docs (offline), https://github.com/diggsweden/forge-ci/tree/%s/docs\n", docslink.RefFor(version))
 	card.WriteString("Issues:  https://github.com/diggsweden/forge-ci/issues\n")
 
 	return card.String()
@@ -534,7 +565,7 @@ func rootCard(version string) string {
 // tool is, the commands meant to be run directly, and the docs/issues links.
 // The Docs link targets the installed version's tag (workflows pin forge-ci
 // to a tag, so a v0.90.0 binary points at v0.90.0 docs, not main — clig.dev
-// §Documentation); dev builds fall back to main via docsRef.
+// §Documentation); dev builds fall back to main via docslink.RefFor.
 func rootDescription(version string) string {
 	var common strings.Builder
 	for _, c := range porcelainCommands {
@@ -552,11 +583,47 @@ job environment; --provider and --runner override the detection. The commands
 below are the ones to run directly, to set up or troubleshoot a repository:
 
 %s
-Run "forge-ci <command> --help" for a command's options. The full command
-reference is cli-reference.md under Docs below.
+To verify a release you downloaded, run forge-ci validate artifact-signature
+(release files) or forge-ci validate container-signature (images).
 
-Docs:    https://github.com/diggsweden/forge-ci/tree/%s/docs
-Issues:  https://github.com/diggsweden/forge-ci/issues`, common.String(), docsRef(version))
+To trim old releases' files or old container images, run forge-ci release
+asset-retention or forge-ci container package-retention; both only report
+until you pass --dry-run=false.
+
+Run "forge-ci <command> --help" for a command's options; the full command
+reference is forge-ci docs cli-reference. Shell completion: forge-ci
+completion bash|zsh|fish|powershell.
+
+Exit codes:
+%s
+Docs:    forge-ci docs (offline), https://github.com/diggsweden/forge-ci/tree/%s/docs
+Issues:  https://github.com/diggsweden/forge-ci/issues`, common.String(), exitCodeTable(), docslink.RefFor(version))
+}
+
+// exitCodeTable lists the exit codes errs.ExitCodeFromError returns, so a
+// script author reads them from the binary rather than from its source.
+func exitCodeTable() string {
+	rows := []struct {
+		code errs.ExitCodeType
+		what string
+	}{
+		{errs.ExitCodeOK, "success"},
+		{errs.ExitCodeValidation, "a check failed (doctor, validators, gates)"},
+		{errs.ExitCodeUsage, "wrong command, flag or argument; interrupted"},
+		{errs.ExitCodeDataErr, "malformed input file or value"},
+		{errs.ExitCodeNoInput, "missing input file, ref or release"},
+		{errs.ExitCodeUnavailable, "network, registry or tool unavailable, rate limited; retry may help"},
+		{errs.ExitCodeSoftware, "internal error; please report it"},
+		{errs.ExitCodeNoPerm, "permission denied (token scope, file mode)"},
+		{errs.ExitCodeConfiguration, "invalid configuration, or unsupported here; retrying will not help"},
+	}
+
+	var b strings.Builder
+	for _, r := range rows {
+		fmt.Fprintf(&b, "   %-3d %s\n", r.code, r.what)
+	}
+
+	return b.String()
 }
 
 // applyProviderOverrides validates the --provider / --runner flags and
@@ -715,6 +782,12 @@ func onUsageError(_ context.Context, cmd *cli.Command, err error, _ bool) error 
 	_, _ = fmt.Fprintln(os.Stderr, "Error:", err)
 	_, _ = fmt.Fprintf(os.Stderr, "Run '%s --help' for available flags.\n", helpPath(cmd))
 
+	// Only a missing required flag means "you ran a workflow step by hand";
+	// a malformed value is the same mistake in CI.
+	if hint := runByHint(cmd); hint != "" && strings.Contains(err.Error(), "Required flag") {
+		_, _ = fmt.Fprintln(os.Stderr, hint)
+	}
+
 	return err
 }
 
@@ -728,4 +801,52 @@ func helpPath(cmd *cli.Command) string {
 	}
 
 	return cmd.FullName()
+}
+
+// globalOptionsSummary is the short GLOBAL OPTIONS of a subcommand's help:
+// every global flag by name, and where their full usage is. The names stay
+// so a reader (and the engine contract test) can see a flag is accepted.
+func globalOptionsSummary(data any) string {
+	cmd, ok := data.(*cli.Command)
+	if !ok {
+		return "see forge-ci --help"
+	}
+
+	var names []string
+
+	for _, f := range cmd.VisiblePersistentFlags() {
+		names = append(names, "--"+f.Names()[0])
+	}
+
+	return wrapList(names, 76, "\n   ") + "\n   Full descriptions: forge-ci --help"
+}
+
+// wrapList joins items with ", ", breaking with sep before a line passes width.
+func wrapList(items []string, width int, sep string) string {
+	var (
+		b    strings.Builder
+		line int
+	)
+
+	for i, item := range items {
+		piece := item
+		if i < len(items)-1 {
+			piece += ","
+		}
+
+		if line > 0 && line+1+len(piece) > width {
+			b.WriteString(sep)
+
+			line = 0
+		} else if line > 0 {
+			b.WriteString(" ")
+
+			line++
+		}
+
+		b.WriteString(piece)
+		line += len(piece)
+	}
+
+	return b.String()
 }

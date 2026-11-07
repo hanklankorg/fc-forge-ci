@@ -7,12 +7,14 @@ package config
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/urfave/cli/v3"
 
 	appconfig "github.com/diggsweden/forge-ci/internal/app/config"
 	"github.com/diggsweden/forge-ci/internal/cli/deps"
+	domainconfig "github.com/diggsweden/forge-ci/internal/domain/config"
 )
 
 // New returns the `config` subgroup command tree.
@@ -22,8 +24,30 @@ func New() *cli.Command {
 		Usage: "artifacts.yml schema helpers",
 		Commands: []*cli.Command{
 			validateCmd(),
+			schemaCmd(),
 			parseArtifactsCmd(),
 			expandSBOMsCmd(),
+		},
+	}
+}
+
+// schemaCmd prints the JSON Schema this binary validates artifacts.yml
+// against, so a consumer's editor can use it: the repository's copy is not in
+// the consumer's repository.
+func schemaCmd() *cli.Command {
+	return &cli.Command{
+		Name:  "schema",
+		Usage: "print the artifacts.yml JSON Schema of this binary, for editor completion",
+		Description: `EXAMPLE:
+   forge-ci config schema > .forge-ci/artifacts.schema.json
+   # then, as the first line of .forge-ci/artifacts.yml:
+   # yaml-language-server: $schema=./artifacts.schema.json
+
+The schema checks structure; forge-ci config validate stays the authority.`,
+		Action: func(_ context.Context, cmd *cli.Command) error {
+			_, err := io.WriteString(cmd.Writer, domainconfig.RenderArtifactsJSONSchema())
+
+			return err
 		},
 	}
 }

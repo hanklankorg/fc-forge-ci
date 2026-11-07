@@ -6,6 +6,7 @@ package consumerinit
 import (
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
@@ -67,10 +68,12 @@ func Plan(forge provider.ForgeAPI, example string, forgeEntries []string) []File
 		plan = append(plan, FileCopy{From: path.Join(dir, "gitlab", ".gitlab-ci.yml"), To: ".gitlab-ci.yml"})
 		plan = append(plan, changelogCopies()...)
 	case provider.ForgeForgejo:
-		// The directory also holds files the README asks to copy elsewhere,
-		// such as a Containerfile.example; only workflows are workflows.
+		// The directory also holds optional variants (snapshot.yml, an
+		// alternative release-goreleaser.yml) and files the README asks to
+		// copy elsewhere. Init writes only the workflows it owns: two release
+		// workflows would both run on one release-request tag.
 		for _, name := range forgeEntries {
-			if path.Ext(name) == ".yml" {
+			if slices.Contains(forgejoWorkflows, name) {
 				plan = append(plan, FileCopy{From: path.Join(dir, "forgejo", name), To: path.Join(".forgejo/workflows", name)})
 			}
 		}
@@ -80,6 +83,28 @@ func Plan(forge provider.ForgeAPI, example string, forgeEntries []string) []File
 	}
 
 	return plan
+}
+
+// forgejoWorkflows are the Forgejo workflows init writes.
+var forgejoWorkflows = []string{"pullrequest.yml", "release.yml"}
+
+// OptionalWorkflows lists the workflows of an example's forge directory that
+// init does not write, for the report to name: a person copies one by hand
+// when they want it.
+func OptionalWorkflows(forge provider.ForgeAPI, forgeEntries []string) []string {
+	if forge != provider.ForgeForgejo {
+		return nil
+	}
+
+	var optional []string
+
+	for _, name := range forgeEntries {
+		if path.Ext(name) == ".yml" && !slices.Contains(forgejoWorkflows, name) {
+			optional = append(optional, name)
+		}
+	}
+
+	return optional
 }
 
 func changelogCopies() []FileCopy {

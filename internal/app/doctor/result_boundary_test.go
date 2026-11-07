@@ -29,7 +29,7 @@ func TestDoctorResultsBoundary_ConfigIndependentChecks(t *testing.T) {
 			}
 
 			in := doctor.Input{Root: root, RepoSlug: "org/engine"}
-			want := []string{"artifacts.yml present", "artifacts.yml parses", "workflows pin forge-ci to a tag"}
+			want := []string{"artifacts.yml present", "artifacts.yml parses", "administrator policy resolves", "CI workflows present", "example values filled in", "workflows pin forge-ci to a tag"}
 
 			switch kind {
 			case "missing":
@@ -52,11 +52,11 @@ func TestDoctorResultsBoundary_ConfigIndependentChecks(t *testing.T) {
 			}
 
 			if kind == "valid" {
-				want = []string{"artifacts.yml present", "artifacts.yml parses + validates", "workflows pin forge-ci to a tag", "sign block valid", "release-authorization allowlist (n/a)", "workflow id-token permission (n/a)"}
+				want = []string{"artifacts.yml present", "artifacts.yml parses + validates", "administrator policy resolves", "CI workflows present", "example values filled in", "workflows pin forge-ci to a tag", "sign block valid", "artifact paths exist", "release-authorization allowlist (n/a)", "workflow id-token permission (n/a)"}
 			}
 
 			if kind == "derived" {
-				want = []string{"artifacts.yml present", "workflows pin forge-ci to a tag", "sign block valid", "release-authorization allowlist (n/a)", "workflow id-token permission (n/a)"}
+				want = []string{"configuration auto-derives", "administrator policy resolves", "CI workflows present", "example values filled in", "workflows pin forge-ci to a tag", "sign block valid", "artifact paths exist", "release-authorization allowlist (n/a)", "workflow id-token permission (n/a)"}
 			}
 
 			checks, err := doctor.Run(in)

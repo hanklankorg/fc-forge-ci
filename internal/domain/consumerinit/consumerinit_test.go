@@ -80,3 +80,86 @@ func TestResolveForge(t *testing.T) {
 		t.Errorf("codefloe.com forgejo = %s, %v", forge, err)
 	}
 }
+
+// A trailing comment that explains a filled value is not a placeholder; a
+// # inside quotes is not a comment.
+func TestRemainingIgnoresTrailingComments(t *testing.T) {
+	t.Parallel()
+
+	content := "main-package: . # FIXME: your command's main package\n" +
+		"image: \"a#b\" PIN_DIGEST\n" +
+		"bot: FIXME Release Bot # FIXME\n"
+
+	got := consumerinit.Remaining(content)
+	want := []consumerinit.Placeholder{{Token: "PIN_DIGEST", Line: 2}, {Token: "FIXME", Line: 3}}
+
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("Remaining = %v, want %v", got, want)
+	}
+}
+
+func TestProjectReplacementsFillWholeTokensOnly(t *testing.T) {
+	t.Parallel()
+
+	r := consumerinit.ProjectReplacements(consumerinit.Project{Name: "hello", MainPackage: "."})
+	content := "main-package: ./cmd/my-cli\nbinary-name: my-cli\nattach: release-artifacts/*/my-cli-*\n" +
+		"ARTIFACT_NAME: FIXME-app\nkeep: my-application FIXME-apple FIXME-release-bot@example.com\n" +
+		"COPY dist/FIXME-service-linux-x /usr/local/bin/my-service\n"
+
+	got := consumerinit.ApplyProject(content, r)
+	want := "main-package: .\nbinary-name: hello\nattach: release-artifacts/*/hello-*\n" +
+		"ARTIFACT_NAME: hello\nkeep: my-application FIXME-apple FIXME-release-bot@example.com\n" +
+		"COPY dist/hello-linux-x /usr/local/bin/hello\n"
+
+	if got != want {
+		t.Fatalf("ApplyProject =\n%s\nwant\n%s", got, want)
+	}
+
+	// A name that would not survive as an unquoted YAML value fills nothing.
+	if got := consumerinit.ApplyProject(content, consumerinit.ProjectReplacements(consumerinit.Project{Name: "bad name: x"})); got != content {
+		t.Errorf("an unsafe name filled =\n%s", got)
+	}
+
+	// A name with capitals names the jar but cannot name the image; it is
+	// left for the person, not lowercased into a jar path that does not exist.
+	if got := consumerinit.ApplyProject(content, consumerinit.ProjectReplacements(consumerinit.Project{Name: "MyService"})); got != content {
+		t.Errorf("a name with capitals filled =\n%s", got)
+	}
+
+	// Without a detected main package the example path stays for the person
+	// to fill; the name does not turn it into a ./cmd/<name> guess.
+	r = consumerinit.ProjectReplacements(consumerinit.Project{Name: "hello"})
+	if got := consumerinit.ApplyProject("main-package: ./cmd/my-cli\nbinary-name: my-cli\n", r); got != "main-package: ./cmd/my-cli\nbinary-name: hello\n" {
+		t.Errorf("undetected main package = %q", got)
+	}
+
+	// A name containing a placeholder replaces it once, not forever.
+	if got := consumerinit.ApplyProject("name: my-app", consumerinit.ProjectReplacements(consumerinit.Project{Name: "my-app-x"})); got != "name: my-app-x" {
+		t.Errorf("self-containing name = %q", got)
+	}
+}
+
+func TestEveryPlaceholderHasAHint(t *testing.T) {
+	t.Parallel()
+
+	for _, token := range []string{
+		"PIN_FORGE_CI_SHA", "PIN_SIGNER_IMAGE_DIGEST", "PIN_COSIGN_PUBLIC_KEY_SHA256", "PIN_DIGEST", "PIN_GO_IMAGE_DIGEST",
+		"FIXME", "FIXME-release-bot", "FIXME-app", "FIXME-service", "FORGE_HOST", "OWNER/forge-ci",
+		"gitlab.example.com", "com.example.myapp", "my-cli",
+	} {
+		if hint := consumerinit.Hint(token); hint == "" || hint == "a value for your project" {
+			t.Errorf("Hint(%q) = %q, want a specific hint", token, hint)
+		}
+	}
+}
+
+// An escaped quote does not end a double-quoted string, so a # after it is
+// still inside the string and a placeholder there is reported.
+func TestRemainingKeepsEscapedQuotesInsideTheString(t *testing.T) {
+	t.Parallel()
+
+	got := consumerinit.Remaining(`run: "say \"hi\" # PIN_DIGEST"` + "\n")
+	if len(got) != 1 || got[0].Token != "PIN_DIGEST" {
+		t.Fatalf("Remaining = %v, want PIN_DIGEST", got)
+	}
+}
