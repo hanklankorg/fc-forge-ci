@@ -150,10 +150,10 @@ RUN apt-get update \
 COPY scripts/bootstrap /opt/forge-ci/scripts/bootstrap
 COPY templates /opt/forge-ci/templates
 
-# The verify/publish jobs extract the matching Linux architecture's binary from
-# this run's build-cli artifact to cli-prebuilt/forge-ci. COPY preserves those
-# bytes. The rolling CLI publisher consumes the same archives; stable release
-# archives are built separately by release-binary.yml.
+# The verify/publish jobs verify the matching architecture's canonical delivery
+# artifact against .engine/bin/forge-ci-linux-<arch>.sha256 and stage it here.
+# COPY preserves those bytes. Version/commit/date-stamped release archives are
+# a separate build product and must not replace the delivery binary in runtimes.
 COPY cli-prebuilt/forge-ci /usr/local/bin/forge-ci
 
 # yq and publiccode-parser come from go-tools, built with the image's Go.

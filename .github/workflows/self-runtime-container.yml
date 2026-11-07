@@ -30,12 +30,15 @@ on:
       - scripts/bootstrap/install-publiccode-parser.sh
       - scripts/bootstrap/install-forge-ci.sh
       - scripts/ci/runtime-smoke.sh
+      - scripts/ci/engine-binary.sh
+      - .engine/bin/**
       - containers/runtime/images.json
       - cmd/forge-ci/**
       - internal/**
       - go.mod
       - go.sum
       - .github/workflows/self-runtime-container.yml
+      - .github/workflows/build-cli.yml
   push:
     # Every branch triggers so the pre-release branch can be a variable; build-cli
     # skips the whole run for pushes to any other branch.
@@ -127,26 +130,17 @@ jobs:
           egress-policy: audit
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - name: Download CLI dist
-        # JS action (bootstrap): this download OBTAINS the engine binary —
-        # cli-dist is the CLI built this run — so no engine exists yet to run
-        # `forge-ci artifact download`.
+      - name: Download canonical delivery CLIs
+        # Bootstrap the exact checksum-recorded binaries, not stamped releases.
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: cli-dist
-          path: cli-dist
+          name: engine-cli
+          path: engine-cli
       - name: Stage prebuilt forge-ci
-        # Bake the binary built once by build-cli (linux/amd64 for this host).
-        env:
-          VERSION: ${{ needs.build-cli.outputs.version }}
         run: |
           set -euo pipefail
-          tarball="$(find cli-dist -name "forge-ci_${VERSION}_linux_amd64.tar.gz" | head -1)"
-          if [ -z "$tarball" ]; then
-            echo "::error::CLI tarball for ${VERSION} linux/amd64 not found in cli-dist/"; ls -R cli-dist; exit 1
-          fi
           mkdir -p cli-prebuilt
-          tar -xzf "$tarball" -C cli-prebuilt forge-ci
+          bash scripts/ci/engine-binary.sh stage amd64 engine-cli cli-prebuilt/forge-ci
       # Make the buildah/podman dependency explicit + forge-portable: a fast
       # no-op on GitHub runners (pre-installed), installs them elsewhere.
       - name: Ensure buildah + podman
@@ -191,22 +185,17 @@ jobs:
           go_version=$(sed -n 's/^ARG GOLANG_IMAGE=\([0-9][0-9.]*\)-.*/\1/p' containers/runtime/Containerfile)
           podman run --rm -i "localhost/$RUNTIME_TAG" bash -s -- "$RUNTIME_TARGET" "$go_version" < scripts/ci/runtime-smoke.sh
       - name: Verify baked forge-ci runs
-        # The image's CLI is the build-once binary; assert it executes and
-        # reports the expected build-cli version.
+        # SDK readiness requires the actual image bytes to match delivery policy,
+        # not just a recognizable version string from a different build recipe.
         env:
-          EXPECTED_VERSION: ${{ needs.build-cli.outputs.version }}
+          RUNTIME_TAG: ${{ matrix.runtime.local-tag }}
         run: |
-          actual="$(podman run --rm localhost/${{ matrix.runtime.local-tag }} forge-ci --version 2>&1)"
-          if ! printf '%s' "$actual" | grep -qF "$EXPECTED_VERSION"; then
-            printf 'FAIL: %s does not contain expected version %s\n  output: %s\n' \
-                   "${{ matrix.runtime.local-tag }}" "$EXPECTED_VERSION" "$actual" >&2
-            exit 1
-          fi
-          printf 'OK: embedded version contains %s\n  output: %s\n' "$EXPECTED_VERSION" "$actual"
-  # Build CLI archives once for this run (goreleaser). Each image bakes the
-  # matching architecture's binary from cli-dist; publish-cli uploads those
-  # archives to the rolling pre-release. Stable archives rebuild separately in
-  # release-binary.yml.
+          set -euo pipefail
+          podman run --rm "localhost/$RUNTIME_TAG" cat /usr/local/bin/forge-ci >"$RUNNER_TEMP/baked-forge-ci"
+          bash scripts/ci/engine-binary.sh verify amd64 "$RUNNER_TEMP/baked-forge-ci"
+          podman run --rm "localhost/$RUNTIME_TAG" forge-ci --version
+  # Build canonical runtime CLIs and separately stamped release archives once.
+  # publish-cli uploads only the latter to the rolling pre-release.
   # version-tag: the real tag on a release push, else the rolling pre-release tag.
   build-cli:
     name: Build CLI
@@ -249,27 +238,23 @@ jobs:
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
-      - name: Download CLI dist
-        # JS action (bootstrap): this download OBTAINS the engine binary.
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Download canonical delivery CLIs
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: cli-dist
-          path: cli-dist
+          name: engine-cli
+          path: engine-cli
       - name: Plan the runtime image platforms
         id: plan
         env:
-          VERSION: ${{ needs.build-cli.outputs.version }}
           RUNTIME_PLATFORMS: linux/amd64,linux/arm64
           # Empty selects the declared set; an explicit value narrows it.
           RELEASE_PLATFORMS: ${{ vars.RELEASE_PLATFORMS }}
         run: |
           set -euo pipefail
-          tarball="$(find cli-dist -name "forge-ci_${VERSION}_linux_amd64.tar.gz" | head -1)"
-          if [ -z "$tarball" ]; then
-            echo "::error::CLI tarball for ${VERSION} linux/amd64 not found in cli-dist/"; ls -R cli-dist; exit 1
-          fi
           mkdir -p cli-prebuilt
-          tar -xzf "$tarball" -C cli-prebuilt forge-ci
+          bash scripts/ci/engine-binary.sh stage amd64 engine-cli cli-prebuilt/forge-ci
           cli-prebuilt/forge-ci container platform-plan --platforms "${RUNTIME_PLATFORMS}" --release-platforms "${RELEASE_PLATFORMS}"
   # Publish phase 1: build each (target, platform) leg natively on a runner of
   # its architecture; no QEMU emulation. Each leg pushes by digest only; tags
@@ -341,32 +326,24 @@ jobs:
           install_cosign
           source scripts/bootstrap/install-trivy.sh
           install_trivy
-      - name: Download CLI dist
-        # JS action (bootstrap): this download OBTAINS the engine binary —
-        # cli-dist is the CLI built this run — so no engine exists yet to run
-        # `forge-ci artifact download`.
+      - name: Download canonical delivery CLIs
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: cli-dist
-          path: cli-dist
+          name: engine-cli
+          path: engine-cli
       - name: Stage prebuilt forge-ci (bake + runner tool)
-        # Extract the per-arch binary built once by build-cli into the build
+        # Verify the per-arch canonical binary built once by build-cli in the build
         # context (cli-prebuilt/forge-ci, copied by the Containerfile) and
         # also install it as the runner-side CLI tool used by write-digest-marker
         # below — one binary, no on-runner compile. The native-runner arch
         # matches matrix.platform.suffix, so the extracted binary is correct for
         # both uses.
         env:
-          VERSION: ${{ needs.build-cli.outputs.version }}
           SUFFIX: ${{ matrix.platform.suffix }}
         run: |
           set -euo pipefail
-          tarball="$(find cli-dist -name "forge-ci_${VERSION}_linux_${SUFFIX}.tar.gz" | head -1)"
-          if [ -z "$tarball" ]; then
-            echo "::error::CLI tarball for ${VERSION} linux/${SUFFIX} not found in cli-dist/"; ls -R cli-dist; exit 1
-          fi
           mkdir -p cli-prebuilt
-          tar -xzf "$tarball" -C cli-prebuilt forge-ci
+          bash scripts/ci/engine-binary.sh stage "$SUFFIX" engine-cli cli-prebuilt/forge-ci
           sudo install -m0755 cli-prebuilt/forge-ci /usr/local/bin/forge-ci
           forge-ci --version
       - name: Validate runtime image namespace
@@ -437,11 +414,12 @@ jobs:
         run: forge-ci container write-digest-marker
       - name: Verify baked CLI == published binary (build-once gate)
         # Make "build once" machine-checked: the binary inside the just-pushed
-        # image must be byte-identical to this run's staged tarball binary. They are
+        # image must be byte-identical to this run's canonical delivery binary. They are
         # the same artifact by construction (COPY of cli-prebuilt/forge-ci),
         # so this is a regression guard against the prebuilt path being bypassed.
         env:
           IMAGE_REF: ${{ needs.image-coordinates.outputs.image-namespace }}/${{ matrix.runtime.name }}@${{ steps.build.outputs.digest }}
+          SUFFIX: ${{ matrix.platform.suffix }}
         run: |
           set -euo pipefail
           want="$(sha256sum cli-prebuilt/forge-ci | awk '{print $1}')"
@@ -449,6 +427,7 @@ jobs:
           docker cp "$cid:/usr/local/bin/forge-ci" /tmp/baked-forge-ci
           docker rm "$cid" >/dev/null
           got="$(sha256sum /tmp/baked-forge-ci | awk '{print $1}')"
+          bash scripts/ci/engine-binary.sh verify "$SUFFIX" /tmp/baked-forge-ci
           if [ "$got" != "$want" ]; then
             echo "::error::baked CLI ($got) != published binary ($want) — build-once violated"; exit 1
           fi

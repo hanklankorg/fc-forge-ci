@@ -7,6 +7,8 @@
 # recorded and published.
 #
 #   engine-binary.sh build <arch> <output>    build this tree's CLI to <output>
+#   engine-binary.sh verify <arch> <binary>  check bytes against this tree's record
+#   engine-binary.sh stage <arch> <artifact-dir> <output> verify and stage runtime input
 #   engine-binary.sh check                    fail if the recorded checksums are stale
 #   engine-binary.sh refresh                  record each build's sha256 in the tree
 #   engine-binary.sh publish <arch> <binary>  upload a build the tree records
@@ -38,7 +40,7 @@ architectures=(amd64 arm64)
 version='engine-layer'
 
 usage() {
-	printf 'usage: %s build <amd64|arm64> <output>\n       %s check\n       %s refresh\n       %s publish <amd64|arm64> <binary>\n       %s inputs\n' "$0" "$0" "$0" "$0" "$0" >&2
+	printf 'usage: %s build <amd64|arm64> <output>\n       %s verify <amd64|arm64> <binary>\n       %s stage <amd64|arm64> <artifact-dir> <output>\n       %s check\n       %s refresh\n       %s publish <amd64|arm64> <binary>\n       %s inputs\n' "$0" "$0" "$0" "$0" "$0" "$0" "$0" >&2
 	exit 2
 }
 
@@ -115,12 +117,41 @@ sha256_of() {
 # The digest the tree records for ARCH: one `<sha256>  bin/forge-ci` line, the
 # name relative to .engine/, the engine root the resolver anchors on.
 recorded_sha256() {
-	local file digest name extra
+	local file digest='' name='' extra=''
 	file=$repo_root/$(checksum_path "$1")
+	[[ -f "$file" && ! -L "$file" ]] || fail "missing recorded checksum: $file"
 	read -r digest name extra <"$file" || true
 	[[ "$digest" =~ ^[0-9a-f]{64}$ && "$name" == bin/forge-ci && -z "$extra" ]] ||
 		fail "$file is not one '<sha256>  bin/forge-ci' line; rewrite it with \`just refresh-engine-binary\`"
 	printf '%s\n' "$digest"
+}
+
+# Verify an artifact before it becomes a runtime image input. This is a local
+# byte check, not a compiler invocation, download or alternative checksum owner.
+verify() {
+	local arch=$1 binary=$2 digest recorded
+	[[ -f "$binary" && ! -L "$binary" ]] || fail "not a regular file: $binary"
+	digest=$(sha256_of "$binary")
+	recorded=$(recorded_sha256 "$arch")
+	[[ "$digest" == "$recorded" ]] || fail "linux/$arch binary does not match the recorded delivery checksum: built $digest, recorded $recorded"
+	printf 'Verified canonical linux/%s CLI: %s\n' "$arch" "$digest"
+}
+
+# The runtime artifact is one atomic two-architecture handoff. Exact inventory
+# prevents a missing leg or a duplicate/extra payload from being silently ignored.
+stage() {
+	local arch=$1 directory=$2 output=$3 candidate
+	local -a entries
+	[[ -d "$directory" && ! -L "$directory" ]] || fail "not an artifact directory: $directory"
+	shopt -s nullglob dotglob
+	entries=("$directory"/*)
+	[[ ${#entries[@]} -eq ${#architectures[@]} ]] || fail "runtime artifact requires exactly one binary per architecture"
+	for candidate in "${architectures[@]}"; do
+		[[ -f "$directory/forge-ci-linux-$candidate" && ! -L "$directory/forge-ci-linux-$candidate" ]] ||
+			fail "runtime artifact is missing a regular linux/$candidate binary"
+	done
+	verify "$arch" "$directory/forge-ci-linux-$arch"
+	install -m0755 -- "$directory/forge-ci-linux-$arch" "$output"
 }
 
 # publish uploads a build to the generic packages of the engine repository's
@@ -183,6 +214,16 @@ build)
 	# caller compares the result with the recorded checksum.
 	require_pinned_toolchain
 	build "$2" "$3"
+	;;
+verify)
+	[[ $# -eq 3 && -n "$3" ]] || usage
+	require_arch "$2"
+	verify "$2" "$3"
+	;;
+stage)
+	[[ $# -eq 4 && -n "$3" && -n "$4" ]] || usage
+	require_arch "$2"
+	stage "$2" "$3" "$4"
 	;;
 check)
 	[[ $# -eq 1 ]] || usage
