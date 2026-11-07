@@ -101,7 +101,11 @@ func PublishReleaseImages(ctx context.Context, registry StagedSignerRegistry, su
 	staged := make([]*StagedSignerImage, 0, len(in.Plan.Images))
 
 	for _, image := range in.Plan.Images {
-		admitted, err := AdmitStagedSignerImage(ctx, registry, out, releaseImageAssembleInput(out, in, image, work))
+		input, err := releaseImageAssembleInput(out, in, image, work)
+		if err != nil {
+			return err
+		}
+		admitted, err := AdmitStagedSignerImage(ctx, registry, out, input)
 		if err != nil {
 			return fmt.Errorf("release image %s: %w", image.Name, err)
 		}
@@ -122,7 +126,11 @@ func PublishReleaseImages(ctx context.Context, registry StagedSignerRegistry, su
 
 		entry := releaseImageLedgerEntry(in, image, meta.Digest)
 		if in.PrepublicationSBOMs {
-			body, readErr := cliio.ReadRegularFile(releaseImageSBOMFile(in, image))
+			file, err := releaseImageSBOMFile(in, image)
+			if err != nil {
+				return err
+			}
+			body, readErr := cliio.ReadRegularFile(file)
 			if readErr != nil {
 				return readErr
 			}
@@ -146,16 +154,20 @@ func PublishReleaseImages(ctx context.Context, registry StagedSignerRegistry, su
 
 // releaseImageAssembleInput is the staged-layout publication of one planned
 // image, its scans and gate run before any upload.
-func releaseImageAssembleInput(out io.Writer, in PublishReleaseImagesInput, image pipeline.ReleaseImage, work string) SignerImageAssembleInput {
+func releaseImageAssembleInput(out io.Writer, in PublishReleaseImagesInput, image pipeline.ReleaseImage, work string) (SignerImageAssembleInput, error) {
 	revision := cmp.Or(image.Revision, in.ReleaseSHA)
 	evidence := &StagedLayoutEvidence{
 		Trivy: in.Trivy, Syft: in.Syft, Stderr: out,
 		TrivyOutputTemplate: filepath.Join(in.OutputDir, "trivy-results-"+image.Name+"-{arch}.json"), Gate: in.Gate,
 	}
 	if in.PrepublicationSBOMs {
+		file, err := releaseImageSBOMFile(in, image)
+		if err != nil {
+			return SignerImageAssembleInput{}, err
+		}
 		id := cmp.Or(image.Flavor, image.Role, image.Name)
 		evidence.SBOMOutputTemplate = filepath.Join(in.OutputDir, "sbom-"+id+"-{arch}.json")
-		evidence.IndexSBOMOutput = releaseImageSBOMFile(in, image)
+		evidence.IndexSBOMOutput = file
 		evidence.SBOMURLPrefix = in.SBOMURLPrefix
 	}
 
@@ -176,19 +188,15 @@ func releaseImageAssembleInput(out io.Writer, in PublishReleaseImagesInput, imag
 		MetadataDir:     filepath.Join(work, image.Name+"-index"),
 		RetryAttempts:   in.RetryAttempts,
 		Evidence:        evidence,
+	}, nil
+}
+
+func releaseImageSBOMFile(in PublishReleaseImagesInput, image pipeline.ReleaseImage) (string, error) {
+	mapping, err := mapReleaseImageEvidence(image)
+	if err != nil {
+		return "", err
 	}
-}
-
-func releaseImageSBOMFile(in PublishReleaseImagesInput, image pipeline.ReleaseImage) string {
-	// The existing native collector maps OutputDir/<file> to dist/<file>,
-	// which is then staged at dist/<file> for the signer. Admission below
-	// permits exactly that mapping, not arbitrary ledger paths flattened by
-	// basename (in particular never premade-sboms/<file>).
-	return filepath.Join(in.OutputDir, strings.TrimPrefix(releaseImageCanonicalSBOM(image), "dist/"))
-}
-
-func releaseImageCanonicalSBOM(image pipeline.ReleaseImage) string {
-	return imageledger.DefaultSBOMPath(imageledger.ImageKind(cmp.Or(image.ImageKind, "release")), image.Flavor, cmp.Or(image.Role, image.Name))
+	return filepath.Join(in.OutputDir, mapping.outputSBOM), nil
 }
 
 // ValidateNativeReleaseImagesPlan retains the base refusal until native jobs
@@ -241,12 +249,16 @@ func validateReleaseImagePublication(in PublishReleaseImagesInput) error {
 			return err
 		}
 		if in.PrepublicationSBOMs {
-			canonical := releaseImageCanonicalSBOM(image)
-			relative, ok := strings.CutPrefix(canonical, "dist/")
-			if !ok || relative == "" || filepath.Base(relative) != relative {
+			mapping, err := mapReleaseImageEvidence(image)
+			if err != nil {
+				return err
+			}
+			// Native collection is still dist-only. Mapping base paths does not
+			// supply the separate pinned handoff/import/sign lifecycle.
+			if mapping.ledger != "dist/"+ReleaseImagesLedgerName || mapping.signerSBOM != "dist/"+mapping.outputSBOM {
 				return fmt.Errorf("release image SBOM has no canonical dist handoff mapping: %w", errs.ErrInvalidConfig)
 			}
-			file := releaseImageSBOMFile(in, image)
+			file := filepath.Join(in.OutputDir, mapping.outputSBOM)
 			if seen[file] {
 				return fmt.Errorf("release image SBOM output collision: %w", errs.ErrUsage)
 			}
