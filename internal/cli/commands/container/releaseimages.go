@@ -85,6 +85,7 @@ func releaseImagesSignCmd() *cli.Command {
 			append(
 				releaseImagesCommonFlags(),
 				releaseImagesAllowMissingLedgerFlag(),
+				ledgerEvidenceRootFlag(),
 				&cli.StringFlag{Name: flagProvenanceEnvelope, Sources: cli.EnvVars("SLSA_PROVENANCE_ENVELOPE"), Usage: "in-toto statement JSON; defaults to <dist-dir>/" + apprelease.ProvenanceStatementName},
 				&cli.BoolFlag{Name: flagRecursive, Sources: cli.EnvVars("LEDGER_SIGN_RECURSIVE"), Usage: "pass --recursive to cosign sign for manifest-list children"},
 				&cli.StringFlag{Name: flagExpectedBaseRepository, Sources: cli.EnvVars("LEDGER_SIGN_EXPECTED_BASE_REPOSITORY"), Usage: "exact base image repository allowed for ledger base_ref values (default: <expected-image-repository>-base)"},
@@ -124,7 +125,13 @@ func releaseImagesSignCmd() *cli.Command {
 
 			sbomPathPattern := cmd.String(flagSBOMPathPattern)
 			if sbomPathPattern == "" {
-				sbomPathPattern = "^" + regexp.QuoteMeta(common.DistDir) + `/image-sbom[-A-Za-z0-9_.]*[.]cyclonedx[.]json$`
+				sbomRoot := common.DistDir
+				if cmd.String("evidence-root") != "" {
+					// Ledger paths stay logical when the verified workspace moves.
+					sbomRoot = domainrelease.CanonicalDistRoot
+				}
+
+				sbomPathPattern = "^" + regexp.QuoteMeta(sbomRoot) + `/image-sbom[-A-Za-z0-9_.]*[.]cyclonedx[.]json$`
 			}
 
 			return withReleaseImagesDockerConfig(func(authFile string) error {
@@ -136,6 +143,7 @@ func releaseImagesSignCmd() *cli.Command {
 					cosign.NewIsolated("COSIGN_KEY", "COSIGN_PASSWORD", "DOCKER_CONFIG"),
 					ociregistry.WithAuthFile(authFile),
 					appcontainer.SignLedgerImagesInput{
+						EvidenceRoot:            cmd.String("evidence-root"),
 						Entries:                 entries,
 						ReleaseTag:              common.ReleaseTag,
 						PredicateEnvelopePath:   provenanceEnvelope,

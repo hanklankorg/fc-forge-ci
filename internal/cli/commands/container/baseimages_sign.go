@@ -56,6 +56,7 @@ EXAMPLE:
      --method kms --key env://COSIGN_KEY`,
 		Flags: append(
 			append(baseImagesLocationFlags(),
+				ledgerEvidenceRootFlag(),
 				baseImagesRegistryFlag(),
 				&cli.StringFlag{Name: flagLedger, Required: true, Sources: cli.EnvVars("BASE_IMAGES_LEDGER"), Usage: "base-image ledger JSON file: a bare array of image_kind=base entries (\"-\" reads stdin)"},
 				&cli.StringFlag{Name: flagWorkflow, Usage: "calling workflow filename/path, relative with no '..' step or control character; recorded as externalParameters.workflow, which base-image verification matches against --expected-workflow"},
@@ -122,6 +123,7 @@ EXAMPLE:
 					cosign.ForKeyRef(cmd.String("key"), "DOCKER_CONFIG"),
 					ociregistry.WithAuthFile(authFile),
 					appcontainer.SignLedgerImagesInput{
+						EvidenceRoot:            cmd.String("evidence-root"),
 						Entries:                 entries,
 						PredicateEnvelopePath:   envelope,
 						Method:                  method,

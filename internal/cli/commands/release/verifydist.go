@@ -32,11 +32,24 @@ directory names by producer and verifier.
 EXAMPLE:
    forge-ci release dist-digest --dist-dir dist`,
 		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "canonical-payload", Usage: "admit a workspace containing dist/ and optional premade-sboms/; use the stable '.' manifest prefix"},
 			&cli.StringFlag{Name: flagDistDir, Value: defaultDistDir, Usage: "directory whose release hand-off digest is printed"},
 			&cli.StringFlag{Name: "manifest-root", Usage: "path prefix written into the sha256sum manifest (defaults to --dist-dir)"},
 		},
 		Action: func(_ context.Context, cmd *cli.Command) error {
-			digest, err := apprelease.DistDigestWithManifestRoot(cmd.String(flagDistDir), cmd.String("manifest-root"))
+			if cmd.Bool("canonical-payload") && cmd.IsSet("manifest-root") {
+				return fmt.Errorf("--canonical-payload fixes --manifest-root to '.': %w", errs.ErrUsage)
+			}
+
+			var (
+				digest string
+				err    error
+			)
+			if cmd.Bool("canonical-payload") {
+				digest, err = apprelease.CanonicalPayloadDigest(cmd.String(flagDistDir))
+			} else {
+				digest, err = apprelease.DistDigestWithManifestRoot(cmd.String(flagDistDir), cmd.String("manifest-root"))
+			}
 			if err != nil {
 				return err
 			}
@@ -71,6 +84,7 @@ staged under different directory names by producer and verifier.
 EXAMPLE:
    forge-ci release validate-dist --dist-dir dist --expected-digest sha256:abc...`,
 		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "canonical-payload", Usage: "admit and verify the entire dist/ plus premade-sboms/ workspace; fixes manifest prefix to '.'"},
 			&cli.StringFlag{Name: flagDistDir, Value: defaultDistDir, Usage: "directory to verify"},
 			&cli.StringFlag{Name: "expected-digest", Sources: cli.EnvVars("EXPECTED_DIGEST", "DIST_DIGEST"), Usage: "expected dist digest (from the build job)"},
 			&cli.StringFlag{Name: "digest-file", Usage: "regular producer digest recording; exclusive with --expected-digest"},
@@ -78,6 +92,9 @@ EXAMPLE:
 			&cli.StringFlag{Name: "manifest-root", Usage: "path prefix written into the sha256sum manifest during digest recomputation (defaults to --dist-dir)"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
+			if cmd.Bool("canonical-payload") && cmd.IsSet("manifest-root") {
+				return fmt.Errorf("--canonical-payload fixes --manifest-root to '.': %w", errs.ErrUsage)
+			}
 			dir := cmd.String(flagDistDir)
 
 			digest := cmd.String("expected-digest")
@@ -96,7 +113,13 @@ EXAMPLE:
 
 			var err error
 			if destination := cmd.String("stage-dir"); destination != "" {
-				err = apprelease.StageVerifiedDist(ctx, dir, destination, digest, cmd.String("manifest-root"))
+				if cmd.Bool("canonical-payload") {
+					err = apprelease.StageVerifiedCanonicalPayload(ctx, dir, destination, digest)
+				} else {
+					err = apprelease.StageVerifiedDist(ctx, dir, destination, digest, cmd.String("manifest-root"))
+				}
+			} else if cmd.Bool("canonical-payload") {
+				err = apprelease.VerifyCanonicalPayload(dir, digest)
 			} else {
 				err = apprelease.VerifyDistWithManifestRoot(dir, digest, cmd.String("manifest-root"))
 			}
