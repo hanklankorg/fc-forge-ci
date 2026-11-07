@@ -39,6 +39,7 @@ func TestDecideCountsValidatesEligibleSubset(t *testing.T) {
 			t.Fatalf("counts %v: %v", counts, err)
 		}
 	}
+
 	decision, err := (Policy{EnforceVulnerabilities: true}).DecideCounts(Vulnerabilities, 2, 0)
 	if err != nil || decision.Findings != 2 || decision.BlockingCount != 0 || !decision.Enforced {
 		t.Fatalf("observed nonblocking findings: %+v, %v", decision, err)

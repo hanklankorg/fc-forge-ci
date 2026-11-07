@@ -25,7 +25,9 @@ type releaseImageEvidenceMapping struct {
 
 func mapReleaseImageEvidence(image pipeline.ReleaseImage) (releaseImageEvidenceMapping, error) {
 	kind := imageledger.ImageKind(cmp.Or(image.ImageKind, string(imageledger.ImageKindRelease)))
+
 	var root, ledger string
+
 	switch kind {
 	case imageledger.ImageKindRelease:
 		root, ledger = "dist/", "dist/release-images.json"
@@ -34,14 +36,18 @@ func mapReleaseImageEvidence(image pipeline.ReleaseImage) (releaseImageEvidenceM
 	default:
 		return releaseImageEvidenceMapping{}, fmt.Errorf("unsupported image evidence kind %q: %w", kind, errs.ErrInvalidConfig)
 	}
+
 	canonical := imageledger.DefaultSBOMPath(kind, image.Flavor, cmp.Or(image.Role, image.Name))
+
 	name, ok := strings.CutPrefix(canonical, root)
 	if !ok || name == "" || filepath.Base(name) != name || strings.ContainsAny(name, "\\\r\n\x00") {
 		return releaseImageEvidenceMapping{}, fmt.Errorf("image SBOM has no canonical evidence mapping: %w", errs.ErrInvalidConfig)
 	}
+
 	output := name
 	if kind == imageledger.ImageKindBase {
 		output = canonical
 	}
+
 	return releaseImageEvidenceMapping{outputSBOM: output, signerSBOM: canonical, ledger: ledger}, nil
 }

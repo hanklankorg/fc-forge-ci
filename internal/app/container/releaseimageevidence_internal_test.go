@@ -53,6 +53,7 @@ func TestMapReleaseImageEvidenceRejectsUnconfinedPaths(t *testing.T) {
 			})
 		}
 	}
+
 	for _, image := range []pipeline.ReleaseImage{{}, {ImageKind: "base", Role: "base"}, {ImageKind: "other", Flavor: "core"}, {Role: "../escape"}, {Name: "../escape"}} {
 		got, err := mapReleaseImageEvidence(image)
 		require.ErrorIs(t, err, errs.ErrInvalidConfig)
@@ -66,6 +67,7 @@ func TestMapReleaseImageEvidenceCollisionsAndSeparateLedgers(t *testing.T) {
 	second, err := mapReleaseImageEvidence(pipeline.ReleaseImage{Name: "worker", Role: "worker", Flavor: "core"})
 	require.NoError(t, err)
 	require.Equal(t, first, second, "different names must not hide a shared flavor output collision")
+
 	base, err := mapReleaseImageEvidence(pipeline.ReleaseImage{ImageKind: "base", Flavor: "core"})
 	require.NoError(t, err)
 	require.NotEqual(t, first.outputSBOM, base.outputSBOM)

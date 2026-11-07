@@ -36,6 +36,9 @@ const (
 	flagWorkspace = "workspace"
 	flagProject   = "project"
 
+	// Native selections are shared by Go and Cargo only.
+	flagTestSelectionJSON = "test-selection-json"
+
 	// defaultBuildModule is the conventional Android gradle module.
 	defaultBuildModule = "app"
 

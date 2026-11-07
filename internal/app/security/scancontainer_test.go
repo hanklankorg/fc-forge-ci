@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -330,6 +331,7 @@ const unfixedTrivyJSON = `{"ArtifactName":"img","Results":[{"Target":"debian","V
 
 func TestScanContainer_ReceiptCountsObservedAndEligible(t *testing.T) {
 	t.Setenv("SOURCE_DATE_EPOCH", "1700000000")
+
 	for _, tc := range []struct {
 		name            string
 		body            string
@@ -349,8 +351,10 @@ func TestScanContainer_ReceiptCountsObservedAndEligible(t *testing.T) {
 					SARIFFile:        filepath.Join(dir, "report.sarif"),
 					GitLabReportFile: filepath.Join(dir, "gitlab.json"),
 				}
-				ctx := appenforcement.WithAdmin(t.Context(), enforcement.Admin{enforcement.Vulnerabilities: fmt.Sprint(enforced)})
+				ctx := appenforcement.WithAdmin(t.Context(), enforcement.Admin{enforcement.Vulnerabilities: strconv.FormatBool(enforced)})
+
 				var out bytes.Buffer
+
 				err := appsecurity.ScanContainer(ctx, &recordingTrivy{writeJSON: []byte(tc.body)}, &out, io.Discard, output.Annotator{}, in)
 				if enforced && tc.eligible > 0 {
 					if !errors.Is(err, errs.ErrValidation) {
@@ -359,24 +363,29 @@ func TestScanContainer_ReceiptCountsObservedAndEligible(t *testing.T) {
 				} else if err != nil {
 					t.Fatal(err)
 				}
+
 				result := "findings"
 				if tc.total == 0 {
 					result = "clean"
 				}
+
 				want := fmt.Sprintf("vulnerabilities result=%s count=%d enforcement=%t source=flag blocking-count=%d\n", result, tc.total, enforced, tc.eligible)
 				if !strings.Contains(out.String(), want) {
 					t.Fatalf("missing receipt %q:\n%s", want, out.String())
 				}
+
 				raw, err := os.ReadFile(in.JSONFile)
 				if err != nil || string(raw) != tc.body {
 					t.Fatalf("raw report changed: %s, %v", raw, err)
 				}
+
 				if tc.total > 0 {
 					for _, path := range []string{in.SARIFFile, in.GitLabReportFile} {
 						body, err := os.ReadFile(path)
 						if err != nil {
 							t.Fatal(err)
 						}
+
 						for _, id := range []string{"CVE-C", "CVE-H"} {
 							if !bytes.Contains(body, []byte(id)) {
 								t.Errorf("%s lost observed finding %s: %s", path, id, body)
@@ -384,15 +393,18 @@ func TestScanContainer_ReceiptCountsObservedAndEligible(t *testing.T) {
 						}
 						// The receipt must not filter or otherwise change the raw-derived reports.
 						expectedPath := path + ".expected"
+
 						transform := appsecurity.TransformInput{InputPath: in.JSONFile, OutputPath: expectedPath, ImageRef: in.ImageRef}
 						if path == in.SARIFFile {
 							err = appsecurity.TrivyToSARIF(transform)
 						} else {
 							_, err = appsecurity.TrivyToGitLabContainer(transform)
 						}
+
 						if err != nil {
 							t.Fatal(err)
 						}
+
 						expected, err := os.ReadFile(expectedPath)
 						if err != nil || !bytes.Equal(body, expected) {
 							t.Fatalf("%s differs from the raw-derived report: %v", path, err)

@@ -91,6 +91,7 @@ func StageReleaseBuildWithInputs(ctx context.Context, tool SignerImageTool, load
 	if err := CheckSignerImageBuilderIdentity(tool, input.BuilderMaterialID); err != nil {
 		return nil, err
 	}
+
 	if err := pipeline.ValidateRegistryInputs(pipeline.ReleaseImageBuild{BuildArgs: strings.Join(input.BuildArgs, "\n"), RegistryInputs: parents}); err != nil {
 		return nil, err
 	}

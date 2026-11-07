@@ -52,6 +52,7 @@ func CargoReleaseBuild(ctx context.Context, summarySink ci.SummarySink, tool Car
 	if err := appenforcement.RequireTests(ctx, in.SkipTests); err != nil {
 		return err
 	}
+
 	if in.TestSelectionJSON != "" {
 		if _, err := domainbuild.ParseCargoTestSelection(in.TestSelectionJSON); err != nil {
 			return err

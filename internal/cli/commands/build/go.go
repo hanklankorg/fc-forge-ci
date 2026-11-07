@@ -38,13 +38,14 @@ func goTestCmd() *cli.Command {
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Usage: usageGoModDirectory},
 			&cli.StringFlag{Name: flagBuildTags, Usage: "comma-separated build tags passed to the selected tests"},
-			&cli.StringFlag{Name: "test-selection-json", Required: true, Usage: "explicit packages, optional run filter and required application/policy gate; always uncached with race detection"},
+			&cli.StringFlag{Name: flagTestSelectionJSON, Required: true, Usage: "explicit packages, optional run filter and required application/policy gate; always uncached with race detection"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			selection := cmd.String("test-selection-json")
+			selection := cmd.String(flagTestSelectionJSON)
 			if selection == "" {
 				return fmt.Errorf("--test-selection-json must not be empty: %w", errs.ErrUsage)
 			}
+
 			return appbuild.GoTest(ctx, gotool.Go{}, cmd.Writer, cmd.ErrWriter, appbuild.GoTestInput{
 				Dir: cmd.String(flagWorkingDir), BuildTags: cmd.String(flagBuildTags), SelectionJSON: selection,
 			})
@@ -78,7 +79,7 @@ EXAMPLE:
 			&cli.StringFlag{Name: "ldflags", Sources: cli.EnvVars("LD_FLAGS"), Usage: "extra -ldflags appended after the version-injection block"},
 			&cli.StringFlag{Name: "main-package", Value: ".", Sources: cli.EnvVars("MAIN_PACKAGE"), Usage: "main package import path relative to --working-dir"},
 			&cli.BoolFlag{Name: flagSkipTests, Sources: cli.EnvVars("SKIP_TESTS"), Usage: usageSkipTestTask},
-			&cli.StringFlag{Name: "test-selection-json", Usage: "administrator-owned native Go test selection (packages, optional run, required application/policy gate); always uncached with race detection; policy always blocks"},
+			&cli.StringFlag{Name: flagTestSelectionJSON, Usage: "administrator-owned native Go test selection (packages, optional run, required application/policy gate); always uncached with race detection; policy always blocks"},
 			&cli.BoolFlag{Name: flagBuildSBOM, Value: true, Sources: cli.EnvVars("ENABLE_BUILD_SBOM"), Usage: "generate the CycloneDX Build SBOM (default true)"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -87,7 +88,7 @@ EXAMPLE:
 					Dir:               cmd.String(flagWorkingDir),
 					ArtifactName:      cmd.String(flagArtifactName),
 					SkipTests:         cmd.Bool(flagSkipTests),
-					TestSelectionJSON: cmd.String("test-selection-json"),
+					TestSelectionJSON: cmd.String(flagTestSelectionJSON),
 					EnableBuildSBOM:   cmd.Bool(flagBuildSBOM),
 					BinaryName:        cmd.String(flagBinaryName),
 					Version:           cmd.String(flagVersion),

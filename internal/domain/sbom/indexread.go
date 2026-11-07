@@ -25,18 +25,22 @@ func ReadIndexBOMInventories(body []byte, indexRef string, read func(string) ([]
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return err
 	}
+
 	repository, _, _ := strings.Cut(indexRef, "@")
-	if !container.ValidDigestPinnedRef(indexRef) || doc.Format != "CycloneDX" || doc.Metadata.Component.Name != repository || doc.Metadata.Component.Ref != indexRef || len(doc.Components) == 0 {
+	if !container.ValidDigestPinnedRef(indexRef) || doc.Format != cycloneDXFormat || doc.Metadata.Component.Name != repository || doc.Metadata.Component.Ref != indexRef || len(doc.Components) == 0 {
 		return fmt.Errorf("index SBOM does not identify its ledger image and inventories: %w", errs.ErrValidation)
 	}
+
 	for _, component := range doc.Components {
 		if len(component.References) != 1 || component.References[0].Type != "bom" || len(component.References[0].Hashes) != 1 || component.References[0].Hashes[0].Algorithm != "SHA-256" {
 			return fmt.Errorf("index SBOM requires one checksum-bound BOM reference per platform: %w", errs.ErrValidation)
 		}
+
 		reference := component.References[0]
 		if err := ValidatePublicBOMURL(reference.URL); err != nil {
 			return err
 		}
+
 		body, err := read(reference.URL)
 		if err != nil {
 			return err
@@ -46,5 +50,6 @@ func ReadIndexBOMInventories(body []byte, indexRef string, read func(string) ([]
 			return err
 		}
 	}
+
 	return nil
 }

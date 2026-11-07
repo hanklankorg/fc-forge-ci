@@ -17,12 +17,15 @@ func ValidateReleaseTestSelections(ctx context.Context, sink ci.OutputSink, plan
 	if err != nil {
 		return err
 	}
+
 	goSelections, cargoSelections, err := pipeline.ReleaseTestSelections(plan, goJSON, cargoJSON)
 	if err != nil {
 		return err
 	}
+
 	if err := emitJSONOutput(ctx, sink, "go-test-selections-json", goSelections); err != nil {
 		return err
 	}
+
 	return emitJSONOutput(ctx, sink, "cargo-test-selections-json", cargoSelections)
 }

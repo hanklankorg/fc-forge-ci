@@ -36,13 +36,14 @@ func cargoTestCmd() *cli.Command {
 		Name: "test", Usage: "run explicitly selected native Cargo executables without a release build",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Usage: usageCargoDirectory},
-			&cli.StringFlag{Name: "test-selection-json", Required: true, Usage: "individual Cargo bin/test executables with required application/policy gates; no all-targets fallback"},
+			&cli.StringFlag{Name: flagTestSelectionJSON, Required: true, Usage: "individual Cargo bin/test executables with required application/policy gates; no all-targets fallback"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			selection := cmd.String("test-selection-json")
+			selection := cmd.String(flagTestSelectionJSON)
 			if selection == "" {
 				return fmt.Errorf("--test-selection-json must not be empty: %w", errs.ErrUsage)
 			}
+
 			return appbuild.CargoTest(ctx, cargo.New(), cmd.Writer, cmd.ErrWriter, appbuild.CargoTestInput{
 				Dir: cmd.String(flagWorkingDir), SelectionJSON: selection,
 			})
@@ -87,7 +88,7 @@ EXAMPLE:
 			&cli.StringFlag{Name: "commit", Sources: cienv.Commit(), Usage: "prepared release commit exposed as FORGE_CI_COMMIT during compilation"},
 			&cli.StringFlag{Name: flagPlatforms, Value: build.DefaultPlatform, Sources: cli.EnvVars("PLATFORMS"), Usage: "comma/space/newline-separated GOOS/GOARCH targets to cross-compile (each must have a Rust target triple mapping)"},
 			&cli.BoolFlag{Name: flagSkipTests, Sources: cli.EnvVars("SKIP_TESTS"), Usage: usageSkipTestTask},
-			&cli.StringFlag{Name: "test-selection-json", Usage: "administrator-owned individual Cargo bin/test executables with explicit application/policy gate (policy always blocks)"},
+			&cli.StringFlag{Name: flagTestSelectionJSON, Usage: "administrator-owned individual Cargo bin/test executables with explicit application/policy gate (policy always blocks)"},
 			&cli.BoolFlag{Name: flagBuildSBOM, Value: true, Sources: cli.EnvVars("ENABLE_BUILD_SBOM"), Usage: "generate the cargo-cyclonedx Build SBOM (default true)"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -96,7 +97,7 @@ EXAMPLE:
 					Dir:               cmd.String(flagWorkingDir),
 					ArtifactName:      cmd.String(flagArtifactName),
 					SkipTests:         cmd.Bool(flagSkipTests),
-					TestSelectionJSON: cmd.String("test-selection-json"),
+					TestSelectionJSON: cmd.String(flagTestSelectionJSON),
 					EnableBuildSBOM:   cmd.Bool(flagBuildSBOM),
 					BinaryName:        cmd.String(flagBinaryName),
 					Version:           cmd.String(flagVersion),

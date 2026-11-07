@@ -42,6 +42,7 @@ func TestGitLabReleaseRunnerRoutingOracle(t *testing.T) {
 			for _, exports := range []bool{false, true} {
 				expected := gitLabReleaseRunnerRoles([]string{"privileged"}, []string{"checks"}, builder, images, exports)
 				jobs := []*gitlabapi.Job{}
+
 				for name, tags := range expected {
 					runner := int64(3)
 					if len(tags) != 0 {
@@ -50,8 +51,10 @@ func TestGitLabReleaseRunnerRoutingOracle(t *testing.T) {
 							runner = 2
 						}
 					}
+
 					jobs = append(jobs, &gitlabapi.Job{Name: name, TagList: tags, Status: "success", Runner: gitlabapi.JobRunner{ID: runner}})
 				}
+
 				jobs = append(jobs, &gitlabapi.Job{Name: "Sign: release", Status: "success", Runner: gitlabapi.JobRunner{ID: 3}})
 				if err := validateGitLabReleaseRunnerRouting(jobs, expected); err != nil {
 					t.Fatalf("builder=%s images=%v exports=%v: %v", builder, images, exports, err)
@@ -76,6 +79,7 @@ func TestGitLabReleaseRunnerRoutingOracle(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			expected := gitLabReleaseRunnerRoles([]string{"privileged"}, []string{"checks"}, livetest.ImageBuilderBuildah, true, false)
+
 			jobs := []*gitlabapi.Job{
 				{Name: "Build: release files", TagList: []string{"privileged"}, Status: "success", Runner: gitlabapi.JobRunner{ID: 1}},
 				{Name: "Check: consumer checks", TagList: []string{"checks"}, Status: "success", Runner: gitlabapi.JobRunner{ID: 2}},
@@ -84,14 +88,17 @@ func TestGitLabReleaseRunnerRoutingOracle(t *testing.T) {
 			if tc.job.Name != "Images: build amd64" && tc.name != "missing builder" {
 				jobs = append(jobs, &gitlabapi.Job{Name: "Images: build amd64", TagList: []string{"privileged"}, Status: "success", Runner: gitlabapi.JobRunner{ID: 1}})
 			}
+
 			if err := validateGitLabReleaseRunnerRouting(jobs, expected); err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("got %v, want %q", err, tc.want)
 			}
 		})
 	}
+
 	for _, name := range []string{"Images: build amd64", "Build: export amd64"} {
 		for _, tagged := range []bool{false, true} {
 			expected := gitLabReleaseRunnerRoles([]string{"privileged"}, nil, livetest.ImageBuilderKaniko, true, true)
+
 			jobs := []*gitlabapi.Job{
 				{Name: "Build: release files", TagList: []string{"privileged"}, Status: "success", Runner: gitlabapi.JobRunner{ID: 1}},
 				{Name: "Check: consumer checks", Status: "success", Runner: gitlabapi.JobRunner{ID: 2}},
@@ -106,6 +113,7 @@ func TestGitLabReleaseRunnerRoutingOracle(t *testing.T) {
 					}
 				}
 			}
+
 			if err := validateGitLabReleaseRunnerRouting(jobs, expected); err == nil {
 				t.Fatalf("Kaniko role %q accepted capability leakage (tagged=%v)", name, tagged)
 			}

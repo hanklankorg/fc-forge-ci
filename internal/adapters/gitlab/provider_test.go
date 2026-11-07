@@ -481,6 +481,7 @@ func TestCreateRelease_PostsRelease(t *testing.T) {
 		if !strings.Contains(body, `"name":"foo.zip"`) || !strings.Contains(body, srv.URL()+`/group/project/uploads/abc/foo.zip`) {
 			t.Errorf("link body missing name/url: %s", body)
 		}
+
 		if !strings.Contains(body, `"direct_asset_path":"/foo.zip"`) {
 			t.Errorf("link lacks the stable public release download path: %s", body)
 		}

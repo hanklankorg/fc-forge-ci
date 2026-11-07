@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/diggsweden/forge-ci/internal/domain/enforcement"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
 
 const cargoPassed = "running 1 test\ntest safe ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n"
@@ -26,6 +27,32 @@ const goFailed = `{"Action":"start","Package":"safe"}
 {"Action":"fail","Package":"safe","Test":"TestSafe"}
 {"Action":"fail","Package":"safe"}
 `
+
+func TestMalformedSelectedReportKeepsErrorTextButNotExitCode(t *testing.T) {
+	for _, tc := range []struct {
+		name, commandText string
+		commandError      error
+	}{
+		{"exit zero", "<nil>", nil},
+		{"native failure", "native test result", testExitError(101)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := selectedNativeRun(enforcement.Cargo, func(io.Writer, io.Writer) error {
+				return tc.commandError
+			})(io.Discard, io.Discard)
+
+			want := "selected tests require a complete nonempty native report (command error: " + tc.commandText + "): " + errs.ErrValidation.Error()
+			if err == nil || err.Error() != want || !errors.Is(err, errs.ErrValidation) {
+				t.Fatalf("malformed-report error: got %v, want %q", err, want)
+			}
+
+			var exitCode interface{ ExitCode() int }
+			if errors.As(err, &exitCode) {
+				t.Fatal("malformed report exposed a waivable native ExitCode")
+			}
+		})
+	}
+}
 
 func TestSelectedTestsRequireFreshNonemptyCompleteReportsUnderBothPolicies(t *testing.T) {
 	for _, enforce := range []string{"true", "false"} {
@@ -63,15 +90,19 @@ func TestSelectedTestsRequireFreshNonemptyCompleteReportsUnderBothPolicies(t *te
 		} {
 			t.Run(enforce+"/"+tc.name, func(t *testing.T) {
 				ctx := WithAdmin(t.Context(), enforcement.Admin{enforcement.ApplicationTests: enforce})
+
 				var receipt bytes.Buffer
+
 				err := SelectedTestRun(ctx, &receipt, io.Discard, tc.protocol, func(out, stderr io.Writer) error {
 					_, _ = io.WriteString(out, tc.out)
 					_, _ = io.WriteString(stderr, tc.stderr)
+
 					return tc.err
 				})
 				if (err == nil) != tc.allowed {
 					t.Fatalf("allowed=%t, err=%v, receipt=%s", tc.allowed, err, &receipt)
 				}
+
 				if tc.allowed && tc.err != nil && !strings.Contains(receipt.String(), "result=findings") {
 					t.Fatal("assertion findings hidden")
 				}
@@ -82,9 +113,12 @@ func TestSelectedTestsRequireFreshNonemptyCompleteReportsUnderBothPolicies(t *te
 
 func TestSelectedTestsCancellationIsNeverWaived(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
+
 	err := SelectedTestRun(ctx, io.Discard, io.Discard, enforcement.Cargo, func(out, _ io.Writer) error {
 		_, _ = io.WriteString(out, cargoFailed)
+
 		cancel()
+
 		return testExitError(101)
 	})
 	if !errors.Is(err, context.Canceled) {
@@ -107,9 +141,12 @@ func TestSelectedGoPolicyAlwaysBlocksFailuresAndRequiresEvidence(t *testing.T) {
 		} {
 			t.Run(enforce+"/"+tc.name, func(t *testing.T) {
 				ctx := WithAdmin(t.Context(), enforcement.Admin{enforcement.ApplicationTests: enforce})
+
 				var receipt bytes.Buffer
+
 				err := SelectedPolicyTestRun(ctx, &receipt, io.Discard, enforcement.GoJSON, func(out, _ io.Writer) error {
 					_, _ = io.WriteString(out, tc.report)
+
 					return tc.err
 				})
 				if (err == nil) != tc.allowed || strings.Contains(receipt.String(), "result=findings") || !strings.Contains(receipt.String(), "enforcement=true") {

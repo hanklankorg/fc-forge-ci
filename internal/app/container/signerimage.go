@@ -308,19 +308,23 @@ func CheckSignerImageBuilderIdentity(tool SignerImageTool, expected string) erro
 	if expected == "" {
 		return nil
 	}
+
 	identified, ok := tool.(interface {
 		Identity() (domaincontainer.BuilderIdentity, error)
 	})
 	if !ok {
 		return fmt.Errorf("planned builder identity cannot be checked: %w", errs.ErrValidation)
 	}
+
 	identity, err := identified.Identity()
 	if err != nil {
 		return err
 	}
+
 	if identity.MaterialID() != expected {
 		return fmt.Errorf("native builder material ID differs from planned builder-material-id: %w", errs.ErrValidation)
 	}
+
 	return nil
 }
 

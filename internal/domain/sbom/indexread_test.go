@@ -14,12 +14,14 @@ import (
 
 func TestReadPinnedIndexBOMInventories(t *testing.T) {
 	t.Parallel()
+
 	for _, defect := range []string{"", "malformed", "wrong index", "wrong repository", "missing components", "wrong hash algorithm", "wrong reference type", "unsafe URL", "missing inventory", "changed inventory"} {
 		t.Run(defect, func(t *testing.T) {
 			t.Parallel()
 			ref, raw, parts := indexBOMFixture(t)
 			body, err := sbom.ComposeIndexBOM(ref, raw, parts)
 			require.NoError(t, err)
+
 			switch defect {
 			case "malformed":
 				body = []byte("null")
@@ -36,21 +38,28 @@ func TestReadPinnedIndexBOMInventories(t *testing.T) {
 			case "unsafe URL":
 				body = []byte(strings.ReplaceAll(string(body), "https://downloads.example", "https://secret@downloads.example"))
 			}
+
 			calls := 0
+
 			err = sbom.ReadIndexBOMInventories(body, ref, func(url string) ([]byte, error) {
 				calls++
+
 				if defect == "missing inventory" {
 					return nil, errors.New("missing inventory")
 				}
+
 				for _, part := range parts {
 					if url == part.URL {
 						if defect == "changed inventory" {
 							return append(append([]byte{}, part.Document...), '\n'), nil
 						}
+
 						return part.Document, nil
 					}
 				}
+
 				t.Fatalf("unplanned inventory URL %s", url)
+
 				return nil, nil
 			})
 			if defect == "" {
@@ -58,6 +67,7 @@ func TestReadPinnedIndexBOMInventories(t *testing.T) {
 				require.Equal(t, 2, calls)
 			} else {
 				require.Error(t, err)
+
 				if defect != "missing inventory" && defect != "changed inventory" {
 					require.Zero(t, calls)
 				}
