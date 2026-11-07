@@ -5,9 +5,9 @@
 #
 # Builds linux/amd64, linux/arm64 and darwin/arm64 with goreleaser (cosign-signed, SBOMs,
 # SLSA build-provenance) ONCE and uploads the dist/ artifact for callers to
-# consume in the SAME run: the runtime-image build bakes the byte-identical
-# Linux binary for each architecture, and the rolling pre-release
-# publisher uploads the same tarballs. It deliberately does NOT publish
+# consume in the SAME run. The rolling pre-release publisher uploads these
+# stamped tarballs; runtime images instead consume the separately verified
+# canonical delivery CLIs built by engine-binary.sh. It deliberately does NOT publish
 # (--skip=publish); publishing is the caller's job. Tagged releases currently
 # rebuild in release-binary.yml pending the build-once cutover.
 #
@@ -140,6 +140,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_CURRENT_TAG: ${{ inputs.version-tag }}
+      - name: Build canonical delivery CLIs for runtime images
+        run: |
+          set -euo pipefail
+          mkdir -p engine-cli
+          for arch in amd64 arm64; do
+            bash scripts/ci/engine-binary.sh build "$arch" "$PWD/engine-cli/forge-ci-linux-$arch"
+            bash scripts/ci/engine-binary.sh verify "$arch" "engine-cli/forge-ci-linux-$arch"
+          done
+      - name: Upload canonical delivery CLIs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: engine-cli
+          path: engine-cli/
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact-retention-days }}
       - name: Verify payload and sign checksum manifest
         # GoReleaser intentionally produces unsigned archives. The GitHub
         # boundary owns keyless signing; the handoff must include this bundle.
