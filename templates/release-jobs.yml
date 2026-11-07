@@ -343,6 +343,12 @@ stages: [check, prepare, build, images, sign, publish]
   stage: check
   before_script: [readonly rc_job_role=registry-preflight, *forge-ci-release-start]
   needs: []
+  # Only container publication needs the publication-project credential.
+  # Export jobs produce files without it. These are protected typed inputs,
+  # not consumer variables that could disable a required preflight.
+  rules:
+    - if: '"$[[ inputs.release-images ]]" == "true"'
+    - if: '"$[[ inputs.base-images ]]" == "true"'
   environment:
     name: release/registry/preflight
     action: prepare
@@ -352,7 +358,11 @@ stages: [check, prepare, build, images, sign, publish]
   extends: .forge-ci-release
   stage: check
   before_script: [readonly rc_job_role=request, *forge-ci-release-start]
-  needs: ["Check: signing access", "Check: publishing access", "Check: registry access"]
+  needs:
+    - "Check: signing access"
+    - "Check: publishing access"
+    - job: "Check: registry access"
+      optional: true
   script:
     - rc_request_checkout
     - rc_check_release_images '$[[ inputs.release-images ]]' '$[[ inputs.image-builder ]]' '$[[ inputs.builder-job-image ]]' '$[[ inputs.artifacts-config ]]' '$[[ inputs.release-platforms ]]' '$[[ inputs.build-runner-tags-arm64 ]]'
