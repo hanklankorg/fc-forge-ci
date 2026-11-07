@@ -1147,13 +1147,18 @@ func requireGitLabReleaseBundles(t *testing.T, client *gitlabapi.Client, target 
 		return livetest.GitLabReleaseArchive(t, target, address, fmt.Sprintf("gitlab-release-%d-job-%d.zip", child, id))
 	}
 
+	retained, err := livetest.NewReleaseEvidence(target, repo, tag, requestSHA, release.AssetNames(), releaseEvidenceSecrets(keys))
+	if err != nil {
+		t.Fatal("retain release inventory: ", err)
+	}
 	evidence, err := livetest.VerifyGitLabReleaseEvidence(livetest.Context(t), livetest.Binary(t), archive(producerID), archive(signerID), release.AssetNames(), func(assetName string) ([]byte, error) {
 		limit := int64(maxReleaseFile)
 		if strings.HasSuffix(assetName, ".apk") {
 			limit = 256 << 20
 		}
 
-		return livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, tag, assetName), limit), nil
+		body := livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, tag, assetName), limit)
+		return body, retained.Retain(assetName, body)
 	}, func(blob, bundle []byte) error {
 		return livetest.VerifyBlob(t, target, keys.cosignPublicPath, blob, bundle)
 	})

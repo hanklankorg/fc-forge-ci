@@ -133,7 +133,7 @@ func TestForgejoMavenLibraryConsumer_Stable(t *testing.T) {
 
 	requireReleaseGit(t, target, repo, keys, main, requestTag, tag)
 	requireMavenLibraryFiles(t, target, repo, keys, tag, artifact)
-	requireSignedRelease(t, target, repo, keys, tag)
+	requireSignedRelease(t, target, repo, keys, tag, main)
 	t.Logf("real library stable signed file release: source %s at %s, engine %s, run %d; package registry, fresh Maven resolution and dev are outside this verdict", root, sourceCommit, scenario.layer.Commit, run.ID)
 }
 

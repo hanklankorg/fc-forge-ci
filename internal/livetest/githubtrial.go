@@ -954,16 +954,31 @@ func (trial *GitHubTrial) CheckRelease(repo string, tree GitHubConsumerTree, fin
 	}
 
 	assets := map[string]int64{}
+	names := make([]string, 0, len(release.Assets))
 	for _, asset := range release.Assets {
 		assets[asset.GetName()] = asset.GetID()
+		names = append(names, asset.GetName())
 	}
 
 	if len(assets) == 0 {
 		trial.tb.Fatalf("livetest: the release %s offers no assets", final)
 	}
 
-	bundles := trial.verifyBundles(repo, assets, trust)
-	signatures := trial.verifyGPGSignatures(repo, assets, key)
+	evidence, err := NewReleaseEvidence(Target{Forge: "github", Host: "github.com", Owner: trial.org, Token: trial.token}, repo, final, tree.Main, names,
+		map[string]string{"gpg": key.Private, "passphrase": key.Passphrase})
+	if err != nil {
+		trial.tb.Fatalf("retain GitHub release inventory: %v", err)
+	}
+	bundles := trial.verifyBundles(repo, assets, trust, evidence)
+	signatures := trial.verifyGPGSignatures(repo, assets, key, evidence)
+	if evidence.Enabled() {
+		dir := trial.tempDir("release-readback")
+		for name, id := range assets {
+			if !evidence.retained(name) {
+				trial.download(repo, id, filepath.Join(dir, name), evidence)
+			}
+		}
+	}
 
 	// Every subject carries its own verified signature: one signed file
 	// beside nine unsigned ones is not a signed release.
@@ -1071,7 +1086,7 @@ func (trial *GitHubTrial) checkReleaseCommit(repo string, tree GitHubConsumerTre
 
 // verifyBundles verifies each <subject>.bundle asset against its subject with
 // trust, and counts them.
-func (trial *GitHubTrial) verifyBundles(repo string, assets map[string]int64, trust CosignTrust) map[string]bool {
+func (trial *GitHubTrial) verifyBundles(repo string, assets map[string]int64, trust CosignTrust, evidence ...*ReleaseEvidence) map[string]bool {
 	trial.tb.Helper()
 
 	cosign := HostTool(trial.tb, "cosign")
@@ -1086,8 +1101,8 @@ func (trial *GitHubTrial) verifyBundles(repo string, assets map[string]int64, tr
 			continue
 		}
 
-		trial.download(repo, id, filepath.Join(dir, name))
-		trial.download(repo, subjectID, filepath.Join(dir, subject))
+		trial.download(repo, id, filepath.Join(dir, name), evidence...)
+		trial.download(repo, subjectID, filepath.Join(dir, subject), evidence...)
 		args := append(append([]string{"verify-blob", "--bundle", filepath.Join(dir, name)}, trust.verifyArgs()...), filepath.Join(dir, subject))
 		trial.run(dir, nil, cosign, args...)
 
@@ -1100,7 +1115,7 @@ func (trial *GitHubTrial) verifyBundles(repo string, assets map[string]int64, tr
 // verifyGPGSignatures verifies each <subject>.asc beside its subject and
 // requires the signature to be the trial key's own: gpg --verify alone also
 // accepts any other key in the keyring.
-func (trial *GitHubTrial) verifyGPGSignatures(repo string, assets map[string]int64, key TrialGPGKey) map[string]bool {
+func (trial *GitHubTrial) verifyGPGSignatures(repo string, assets map[string]int64, key TrialGPGKey, evidence ...*ReleaseEvidence) map[string]bool {
 	trial.tb.Helper()
 
 	dir := trial.tempDir("release-gpg")
@@ -1114,8 +1129,8 @@ func (trial *GitHubTrial) verifyGPGSignatures(repo string, assets map[string]int
 			continue
 		}
 
-		trial.download(repo, id, filepath.Join(dir, name))
-		trial.download(repo, subjectID, filepath.Join(dir, subject))
+		trial.download(repo, id, filepath.Join(dir, name), evidence...)
+		trial.download(repo, subjectID, filepath.Join(dir, subject), evidence...)
 		status := trial.run(dir, nil, "gpg", "--homedir", key.Home, "--batch", "--status-fd", "1",
 			"--verify", filepath.Join(dir, name), filepath.Join(dir, subject))
 
@@ -1219,7 +1234,7 @@ func (trial *GitHubTrial) removeConsumer(repo string, id int64) {
 	}
 }
 
-func (trial *GitHubTrial) download(repo string, id int64, path string) {
+func (trial *GitHubTrial) download(repo string, id int64, path string, evidence ...*ReleaseEvidence) {
 	body, location, err := trial.api.Repositories.DownloadReleaseAsset(trial.tb.Context(), trial.org, repo, id, &http.Client{Timeout: 5 * time.Minute})
 	if err != nil {
 		trial.tb.Fatalf("livetest: download release asset %d: %v", id, err)
@@ -1238,8 +1253,24 @@ func (trial *GitHubTrial) download(repo string, id int64, path string) {
 
 	defer func() { _ = file.Close() }()
 
-	if _, err = io.Copy(file, io.LimitReader(body, 512<<20)); err != nil {
+	size, err := io.Copy(file, io.LimitReader(body, (512<<20)+1))
+	if err != nil {
 		trial.tb.Fatalf("livetest: write %s: %v", path, err)
+	}
+	if size > 512<<20 {
+		trial.tb.Fatalf("livetest: release asset exceeds 512 MiB download limit")
+	}
+	if err := file.Close(); err != nil {
+		trial.tb.Fatalf("livetest: close release asset: %v", err)
+	}
+	if len(evidence) > 0 && evidence[0].Enabled() && !evidence[0].retained(filepath.Base(path)) {
+		payload, err := os.ReadFile(path) //nolint:gosec // own bounded download, closed above.
+		if err != nil {
+			trial.tb.Fatalf("livetest: read release evidence: %v", err)
+		}
+		if err := evidence[0].Retain(filepath.Base(path), payload); err != nil {
+			trial.tb.Fatalf("livetest: retain release evidence: %v", err)
+		}
 	}
 }
 

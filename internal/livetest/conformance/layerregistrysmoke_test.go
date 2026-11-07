@@ -159,7 +159,7 @@ func runLayerRegistrySignerSmoke(t *testing.T, private bool) {
 	scenario.requireStatus(t, run, jobSuccess)
 
 	requireReleaseGit(t, target, repo, keys, request, releaseRequestTag, releaseFinalTag)
-	requireSignedRelease(t, target, repo, keys, releaseFinalTag)
+	requireSignedRelease(t, target, repo, keys, releaseFinalTag, request)
 
 	digest, served := livetest.ImageDigest(t, target, repo, releaseFinalTag)
 	if !served {

@@ -294,7 +294,7 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 
 	if release {
 		requireReleaseGit(t, target, repo, keys, main, "release-request/v"+settings.Version, "v"+settings.Version)
-		requireSignedRelease(t, target, repo, keys, "v"+settings.Version)
+		requireSignedRelease(t, target, repo, keys, "v"+settings.Version, main)
 		requireExternalImages(t, external, keys, settings)
 
 		if settings.NextVersion != "" {
@@ -330,7 +330,7 @@ func runForgejoConsumerTrial(t *testing.T, root string, private bool) {
 			}
 
 			requireReleaseGit(t, target, repo, keys, parent, requestTag, finalTag)
-			requireSignedRelease(t, target, repo, keys, finalTag)
+			requireSignedRelease(t, target, repo, keys, finalTag, parent)
 
 			settings.Version = settings.NextVersion
 			requireExternalImages(t, external, keys, settings)
@@ -569,7 +569,7 @@ func trialReleaseFacts(t *testing.T, target livetest.Target, repo string, facts 
 // requireSignedRelease holds the repository to one release of the tag whose
 // Cosign bundles each sign a file the release offers and verify against the
 // trial's public key. Draft or published is the consumer's choice.
-func requireSignedRelease(t *testing.T, target livetest.Target, repo string, keys releaseKeys, tag string) {
+func requireSignedRelease(t *testing.T, target livetest.Target, repo string, keys releaseKeys, tag, source string) {
 	t.Helper()
 
 	var found []livetest.Release
@@ -595,8 +595,25 @@ func requireSignedRelease(t *testing.T, target livetest.Target, repo string, key
 	}
 
 	verified := 0
+	names := make([]string, 0, len(found[0].Assets))
+	for _, asset := range found[0].Assets {
+		names = append(names, asset.Name)
+	}
+	evidence, err := livetest.NewReleaseEvidence(target, repo, tag, source, names, releaseEvidenceSecrets(keys))
+	if err != nil {
+		t.Fatal("retain release inventory: ", err)
+	}
+	retained := map[string]bool{}
+	read := func(name string) []byte {
+		body := livetest.Download(t, target, assets[name], maxReleaseFile)
+		if err := evidence.Retain(name, body); err != nil {
+			t.Fatal("retain release payload: ", err)
+		}
+		retained[name] = true
+		return body
+	}
 
-	for name, address := range assets {
+	for name := range assets {
 		signed, isBundle := strings.CutSuffix(name, bundleSuffix)
 		if !isBundle {
 			continue
@@ -608,14 +625,21 @@ func requireSignedRelease(t *testing.T, target livetest.Target, repo string, key
 			continue
 		}
 
-		blob := livetest.Download(t, target, assets[signed], maxReleaseFile)
-		if err := livetest.VerifyBlob(t, target, keys.cosignPublicPath, blob, livetest.Download(t, target, address, maxReleaseFile)); err != nil {
+		blob := read(signed)
+		if err := livetest.VerifyBlob(t, target, keys.cosignPublicPath, blob, read(name)); err != nil {
 			t.Errorf("the bundle of %s does not verify against the trial's public key: %v", signed, err)
 
 			continue
 		}
 
 		verified++
+	}
+	if evidence.Enabled() {
+		for _, name := range names {
+			if !retained[name] {
+				read(name)
+			}
+		}
 	}
 
 	if verified == 0 {
@@ -626,4 +650,8 @@ func requireSignedRelease(t *testing.T, target livetest.Target, repo string, key
 	// trial deletes its repository afterwards, so it is measured here.
 	t.Logf("release %s: draft %t, %d files (%.1f MB), %d Cosign bundles verified with the trial's key",
 		tag, found[0].Draft, len(assets), float64(size)/1e6, verified)
+}
+
+func releaseEvidenceSecrets(keys releaseKeys) map[string]string {
+	return map[string]string{"ssh": keys.sshPrivate, "cosign": keys.cosignPrivate, "passphrase": keys.passphrase}
 }

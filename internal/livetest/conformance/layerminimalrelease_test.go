@@ -187,7 +187,7 @@ func runLayerMinimalRelease(t *testing.T, private bool, objectFormat string) {
 	scenario.requireBranches(t, map[string]string{layerMain: main})
 
 	signed := requireReleaseHandOff(t, scenario, run.ID)
-	requireReleaseAssets(t, scenario, keys, signed)
+	requireReleaseAssets(t, scenario, keys, request, signed)
 
 	// A log is the one place a key would surface, so every job's is read.
 	for _, job := range jobs {
@@ -455,7 +455,7 @@ func requireReleaseHandOff(t *testing.T, scenario layerScenario, runID int64) ma
 
 // requireReleaseAssets holds the published release to the signed hand-off and
 // checks each file for what it claims.
-func requireReleaseAssets(t *testing.T, scenario layerScenario, keys releaseKeys, signed map[string][]byte) {
+func requireReleaseAssets(t *testing.T, scenario layerScenario, keys releaseKeys, source string, signed map[string][]byte) {
 	t.Helper()
 
 	target, repo := scenario.target, scenario.repo
@@ -474,6 +474,14 @@ func requireReleaseAssets(t *testing.T, scenario layerScenario, keys releaseKeys
 	}
 
 	published := make(map[string][]byte, len(release.Assets))
+	names := make([]string, 0, len(release.Assets))
+	for _, asset := range release.Assets {
+		names = append(names, asset.Name)
+	}
+	evidence, err := livetest.NewReleaseEvidence(target, repo, releaseFinalTag, source, names, releaseEvidenceSecrets(keys))
+	if err != nil {
+		t.Fatal("retain release inventory: ", err)
+	}
 
 	for _, asset := range release.Assets {
 		if _, twice := published[asset.Name]; twice {
@@ -481,6 +489,9 @@ func requireReleaseAssets(t *testing.T, scenario layerScenario, keys releaseKeys
 		}
 
 		published[asset.Name] = livetest.Download(t, target, asset.URL, maxReleaseFile)
+		if err := evidence.Retain(asset.Name, published[asset.Name]); err != nil {
+			t.Fatal("retain release payload: ", err)
+		}
 	}
 
 	if got, want := sortedNames(published), sortedNames(namesOf(releaseAssets()...)); !slices.Equal(got, want) {

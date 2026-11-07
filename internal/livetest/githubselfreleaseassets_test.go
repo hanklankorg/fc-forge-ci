@@ -96,10 +96,10 @@ func TestGitHubSelfRelease_BinaryAssets(t *testing.T) {
 		t.Fatalf("real CLI binary publication ended %s: %s", run.GetConclusion(), run.GetHTMLURL())
 	}
 
-	selfReleaseVerifyUploadedAssets(t, trial, repo, tag, request)
+	selfReleaseVerifyUploadedAssets(t, trial, repo, tag, request, commit)
 }
 
-func selfReleaseVerifyUploadedAssets(t *testing.T, trial *GitHubTrial, repo, tag, request string) {
+func selfReleaseVerifyUploadedAssets(t *testing.T, trial *GitHubTrial, repo, tag, request, source string) {
 	t.Helper()
 
 	release, _, err := trial.api.Repositories.GetReleaseByTag(t.Context(), trial.org, repo, tag)
@@ -113,13 +113,21 @@ func selfReleaseVerifyUploadedAssets(t *testing.T, trial *GitHubTrial, repo, tag
 	}
 
 	trust := CosignTrust{identity: "^https://github\\.com/" + regexp.QuoteMeta(trial.org+"/"+repo) + "/\\.github/workflows/release-binary\\.yml@refs/tags/" + regexp.QuoteMeta(request) + "$"}
-	if !trial.verifyBundles(repo, assets, trust)["checksums.txt"] {
+	names := make([]string, 0, len(release.Assets))
+	for _, asset := range release.Assets {
+		names = append(names, asset.GetName())
+	}
+	evidence, err := NewReleaseEvidence(Target{Forge: "github", Host: "github.com", Owner: trial.org, Token: trial.token}, repo, tag, source, names)
+	if err != nil {
+		t.Fatal("retain GitHub self-release inventory: ", err)
+	}
+	if !trial.verifyBundles(repo, assets, trust, evidence)["checksums.txt"] {
 		t.Fatal("the uploaded checksum manifest has no verified signature")
 	}
 
 	dir := trial.tempDir("self-release-assets")
 	for _, name := range []string{"checksums.txt", "forge-ci.intoto.json", "forge-ci.intoto.jsonl"} {
-		trial.download(repo, assets[name], filepath.Join(dir, name))
+		trial.download(repo, assets[name], filepath.Join(dir, name), evidence)
 	}
 
 	trial.run(dir, nil, HostTool(t, "cosign"), append(append([]string{"verify-blob", "--bundle", "forge-ci.intoto.jsonl"}, trust.verifyArgs()...), "forge-ci.intoto.json")...)
@@ -142,7 +150,7 @@ func selfReleaseVerifyUploadedAssets(t *testing.T, trial *GitHubTrial, repo, tag
 
 		seen[subject.Name] = true
 		path := filepath.Join(dir, subject.Name)
-		trial.download(repo, assets[subject.Name], path)
+		trial.download(repo, assets[subject.Name], path, evidence)
 
 		file, err := os.Open(path)
 		if err != nil {
