@@ -31,6 +31,21 @@ func manifestGroup() *cli.Command {
 			manifestMergeCmd(),
 			manifestInspectCmd(),
 			manifestPushCmd(),
+			manifestTagCmd(),
+		},
+	}
+}
+
+func manifestTagCmd() *cli.Command {
+	return &cli.Command{
+		Name:  "tag",
+		Usage: "expose an immutable manifest digest at validated repository tags",
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: flagImageRef, Required: true, Sources: cli.EnvVars("IMAGE_REF"), Usage: "immutable image@sha256:digest reference"},
+			&cli.StringFlag{Name: "tags", Required: true, Sources: cli.EnvVars("TAGS"), Usage: "newline-separated fully qualified destination tags"},
+		},
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			return appcontainer.TagManifest(ctx, ociregistry.New(), cmd.String(flagImageRef), cmd.String("tags"))
 		},
 	}
 }

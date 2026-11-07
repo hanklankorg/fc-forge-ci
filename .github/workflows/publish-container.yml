@@ -1235,24 +1235,19 @@ jobs:
           REGISTRY_USER: ${{ inputs['registry-username'] || github.actor }}
           REGISTRY_PASSWORD: ${{ inputs['use-ci-token'] && secrets.GITHUB_TOKEN || secrets['registry-password'] }}
         run: forge-ci container login
-      - name: Create manifest list and push
+      - name: Publish candidate manifest list
         env:
           IMAGE_NAME: ${{ needs.prep.outputs.image-name }}
-          # On a promotable tag build, also push the immutable staging candidate
-          # tag — the promotion SOURCE the image ledger records and
-          # promote-stage.yml copies to :dev/:staging/:release. The tag is
-          # derived in Go (prep's staging-tag output) and is empty for a
-          # non-promotable ref, so an unusual tag skips promotion rather than
-          # failing this push; a blank line is dropped by `manifest merge`.
-          TAGS: |
-            ${{ needs.prep.outputs.tags }}
-            ${{ needs.prep.outputs['staging-tag'] }}
+          # This run-scoped transport tag is never a consumer-facing alias.
+          # All signing uses its immutable digest; final tags remain untouched
+          # if signing, key binding or attestation fails.
+          TAGS: ${{ needs.prep.outputs.image-name }}:forge-ci-candidate-${{ github.run_id }}-${{ github.run_attempt }}
           DIGESTS_DIR: /tmp/digests
         run: forge-ci container manifest merge
-      - name: Inspect manifest and emit outputs
-        id: outputs
+      - name: Inspect candidate manifest
+        id: candidate
         env:
-          TAGS: ${{ needs.prep.outputs.tags }}
+          IMAGE_REF: ${{ needs.prep.outputs.image-name }}:forge-ci-candidate-${{ github.run_id }}-${{ github.run_attempt }}
         run: forge-ci container manifest inspect
       # The runner image ships no cosign; sign and attest below both run it.
       - name: Install cosign
@@ -1301,7 +1296,7 @@ jobs:
           COSIGN_PASSWORD: ${{ inputs['sign-key'] == 'env://COSIGN_KEY' && secrets.RELEASE_COSIGN_PASSPHRASE || '' }}
         run: |
           forge-ci validate signing-privacy
-          forge-ci container sign "${{ steps.outputs.outputs.image-digest-ref }}"
+          forge-ci container sign "${{ steps.candidate.outputs.image-digest-ref }}"
       - name: Attest SLSA provenance (cosign)
         # Portable, SIGNED SLSA v1.0 provenance attached to the manifest-list
         # digest, which pins every per-arch child. The predicate is
@@ -1323,7 +1318,22 @@ jobs:
           SOURCE_DATE_EPOCH: ${{ needs.prep.outputs.source-date-epoch }}
         run: |
           forge-ci validate signing-privacy
-          forge-ci container attest --type slsaprovenance1 "${{ steps.outputs.outputs.image-digest-ref }}"
+          forge-ci container attest --type slsaprovenance1 "${{ steps.candidate.outputs.image-digest-ref }}"
+      - name: Expose final manifest aliases
+        # Default success gating is intentional: never run after a failed
+        # signature/attestation. Unsigned builds reach the same promotion step.
+        env:
+          IMAGE_REF: ${{ steps.candidate.outputs.image-digest-ref }}
+          TAGS: |
+            ${{ needs.prep.outputs.tags }}
+            ${{ needs.prep.outputs['staging-tag'] }}
+        run: forge-ci container manifest tag
+      - name: Emit immutable candidate outputs
+        id: outputs
+        env:
+          # Alias read-back above is a check, never a new source of identity.
+          IMAGE_REF: ${{ steps.candidate.outputs.image-digest-ref }}
+        run: forge-ci container manifest inspect
       # Record the build-once entry in the release-image ledger: the immutable
       # digest plus its final (:<version>) and staging-candidate tags. The typed
       # hand-off the promotion ladder (promote-stage.yml) consumes — it never
@@ -1338,8 +1348,8 @@ jobs:
         env:
           IMAGE_NAME: ${{ needs.prep.outputs.image-name }}
           RELEASE_TAG: ${{ inputs['release-tag'] }}
-          IMAGE_DIGEST_REF: ${{ steps.outputs.outputs.image-digest-ref }}
-          DIGEST: ${{ steps.outputs.outputs.digest }}
+          IMAGE_DIGEST_REF: ${{ steps.candidate.outputs.image-digest-ref }}
+          DIGEST: ${{ steps.candidate.outputs.digest }}
         run: |
           forge-ci container ledger add \
             --tag "$RELEASE_TAG" \
