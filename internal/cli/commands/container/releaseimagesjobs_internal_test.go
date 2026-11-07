@@ -48,6 +48,27 @@ func writeReleaseJobsArtifacts(t *testing.T) {
 	t.Setenv("IMAGE_PLAN_JSON", "")
 }
 
+func TestReleaseImagesPublishDerivesSourceProviderSBOMPrefixBeforeAdmission(t *testing.T) {
+	writeReleaseJobsArtifacts(t)
+	t.Setenv("FORGE_CI_PROVIDER", "gitlab")
+	require.NoError(t, releaseImagesPlanCmd().Run(t.Context(), releaseJobsPlanArgs("--output", "plan.json")))
+	for _, server := range []string{"https://gitlab.example", "http://gitlab.example"} {
+		err := releaseImagesPublishCmd().Run(t.Context(), []string{
+			"publish", "--plan", "plan.json", "--image-repository", "registry.example/group/app",
+			"--release-tag", "v1.2.3", "--release-sha", strings.Repeat("b", 40),
+			"--server-url", server, "--repository", "group/source", "--auth-file", "auth.json",
+			"--layouts-dir", "missing-native-layouts", "--output-dir", "never-published", "--prepublication-sboms",
+		})
+		require.Error(t, err)
+		if strings.HasPrefix(server, "https:") {
+			require.ErrorContains(t, err, "missing-native-layouts", "the inferred provider URL must pass URL admission before layout admission")
+		} else {
+			require.ErrorContains(t, err, "native SBOM URL must be public HTTPS")
+		}
+		require.NoDirExists(t, "never-published")
+	}
+}
+
 // The plan file is the job verbs' transport: what plan --output writes,
 // build and publish read back and admit against the same destination and tag.
 func TestReleaseImagesPlanOutput_RoundTripsThroughTheJobVerbs(t *testing.T) {

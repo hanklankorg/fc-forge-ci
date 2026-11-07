@@ -2127,7 +2127,7 @@ EXAMPLE:
 | `--layout-source` | native job artifact root as amd64=PATH or arm64=PATH (repeatable); admit/read without copying | string | `""` | n/a |
 | `--output-dir` | directory for release-images.json and the scan evidence; must not exist yet (required) | string | `""` | n/a |
 | `--prepublication-sboms` | retain release-image platform inventories and pin signer-ready index SBOM bytes | bool | `false` | n/a |
-| `--sbom-url-prefix` | public release download directory for inventory URLs; required with --prepublication-sboms | string | `""` | n/a |
+| `--sbom-url-prefix` | public release download directory for inventory URLs; defaults to the source forge's release downloads with --prepublication-sboms | string | `""` | n/a |
 
 #### `forge-ci container release-images rollback`
 
@@ -3770,6 +3770,9 @@ must exist, so a fresh write to another path uses --output.
 With --unsigned, preserve the producer's existing file set and add explicit
 --evidence-file paths before signing. Refuses existing signatures, provenance,
 duplicate paths and reclassification; does not read GoReleaser metadata.
+Optional --release-images-ledger requires the complete producer-pinned native
+final-image index/platform SBOM set; ordinary legacy/base evidence calls do not
+opt into this flat-dist contract.
 ```
 
 | Flag | Description | Type | Default | Env vars |
@@ -3780,6 +3783,7 @@ duplicate paths and reclassification; does not read GoReleaser metadata.
 | `--assets-json` | release files collect JSON to reuse instead of re-collecting ('-' for stdin) | string | `""` | n/a |
 | `--unsigned` | extend an existing unsigned manifest with evidence without rediscovering producer metadata | bool | `false` | n/a |
 | `--evidence-file` | additional file to publish and sign as evidence; requires --unsigned (repeatable) | string | `""` | n/a |
+| `--release-images-ledger` | require the exact pinned native final-image SBOM evidence from this ledger; requires --unsigned | string | `""` | n/a |
 
 #### `forge-ci release files validate`
 

@@ -413,6 +413,8 @@ rc_collect_release_images() {
 # its evidence to the build's dist in a hand-off of its own, digested again.
 rc_images_publish() {
 	local images="${RC_WORK}/images" auth_file="${RC_WORK}/registry-auth.json"
+	# The pinned job image must carry Syft. Never download a scanner here.
+	command -v syft >/dev/null || { echo 'ERROR: Images: publish requires Syft in job-image.' >&2; return 1; }
 	rc_release_checkout
 	rc_read_handoff "${CI_PROJECT_DIR}/_release-build" || return
 	# shellcheck source=scripts/bootstrap/install-trivy.sh
@@ -426,15 +428,31 @@ rc_images_publish() {
 		--server-url "${RC_SERVER_URL}" --repository "${CI_PROJECT_PATH}" \
 		--layout-source "amd64=${CI_PROJECT_DIR}/_release-images-amd64" \
 		--layout-source "arm64=${CI_PROJECT_DIR}/_release-images-arm64" \
-		--output-dir "${images}" --auth-file "${auth_file}"
+		--prepublication-sboms \
+		--output-dir "${images}" --auth-file "${auth_file}" || return
 	rm -f -- "${auth_file}"
 	rc_collect_release_images "${images}" || return
-	rc_require_regular_file "${DIST_DIR}/release-images.json" || return 1
+	rc_register_release_image_evidence "${images}" || return
 	rc_engine release prepare-dist --path "${DIST_DIR}" --prune-dirs false
 	local handoff="${CI_PROJECT_DIR}/_release-images"
 	rc_new_handoff "${handoff}" || return
 	cp -R -- "${DIST_DIR}" "${handoff}/dist"
 	rc_engine release dist-digest --dist-dir "${handoff}/dist" --manifest-root . >"${handoff}/digest"
+}
+
+# Enumerate only the trusted publisher's fresh output, never consumer dist.
+# Go admission requires the complete ledger-pinned index/platform set and checks
+# every byte pin before this manifest can reach dist-digest or the signer.
+rc_register_release_image_evidence() {
+	local images=$1 file
+	local -a evidence=()
+	rc_require_regular_file "${DIST_DIR:?}/release-images.json" || return
+	for file in "${images}"/image-sbom-*.cyclonedx.json "${images}"/sbom-*.json; do
+		[ -e "${file}" ] || continue
+		evidence+=(--evidence-file "${DIST_DIR:?}/${file##*/}")
+	done
+	rc_engine release files manifest --unsigned --manifest "${RELEASE_FILES_MANIFEST:?}" \
+		--dist-dir "${DIST_DIR}" --release-images-ledger "${DIST_DIR}/release-images.json" "${evidence[@]}"
 }
 
 rc_read_handoff() {

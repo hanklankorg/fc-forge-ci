@@ -106,6 +106,9 @@ type WriteReleaseFileManifestInput struct {
 	AssetsJSONFile string
 	Unsigned       bool
 	EvidenceFiles  []string
+	// ReleaseImagesLedger opts into the native final-image evidence contract.
+	// Ordinary evidence extension, including legacy/base ledgers, is unchanged.
+	ReleaseImagesLedger string
 }
 
 // ImportGoReleaserFileManifestInput selects additional evidence to sign alongside
@@ -170,6 +173,11 @@ func WriteReleaseFileManifest(in WriteReleaseFileManifestInput) (*FileManifest, 
 		if err := validateUnsignedReleaseFiles(ctx, manifest); err != nil {
 			return nil, err
 		}
+		if in.ReleaseImagesLedger != "" {
+			if err := validateReleaseImageEvidence(ctx, in.ReleaseImagesLedger, in.EvidenceFiles); err != nil {
+				return nil, err
+			}
+		}
 
 		collector := &releaseFileCollector{}
 		for _, entry := range manifest.Assets {
@@ -193,7 +201,7 @@ func WriteReleaseFileManifest(in WriteReleaseFileManifestInput) (*FileManifest, 
 		return writeReleaseFileManifest(ctx, manifest, output)
 	}
 
-	if len(in.EvidenceFiles) != 0 {
+	if len(in.EvidenceFiles) != 0 || in.ReleaseImagesLedger != "" {
 		return nil, fmt.Errorf("adding evidence requires --unsigned before signing: %w", errs.ErrUsage)
 	}
 

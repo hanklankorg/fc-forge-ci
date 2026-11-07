@@ -363,9 +363,10 @@ func (p *Provider) uploadAndLinkReleaseAsset(ctx context.Context, apiBase, encod
 }
 
 type gitlabReleaseLink struct {
-	ID   int    `json:"id,omitempty"`
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	ID              int    `json:"id,omitempty"`
+	Name            string `json:"name"`
+	URL             string `json:"url"`
+	DirectAssetPath string `json:"direct_asset_path,omitempty"`
 }
 
 // listReleaseLinks pages through a release's asset links. GitLab paginates the
@@ -474,7 +475,7 @@ func (p *Provider) linkReleaseAsset(ctx context.Context, apiBase, encodedProject
 		return err
 	}
 
-	linkPayload, err := json.Marshal(gitlabReleaseLink{Name: name, URL: assetURL})
+	linkPayload, err := json.Marshal(gitlabReleaseLink{Name: name, URL: assetURL, DirectAssetPath: "/" + name})
 	if err != nil {
 		return fmt.Errorf("gitlab marshal release asset link %q: %w", name, err)
 	}

@@ -765,9 +765,18 @@ staging digests needed by active releases and recovery. Release-asset retention
 does not prune these tags. Do not give consumer build jobs publication credentials
 or treat a destination publication ledger as authority to delete source tags.
 
-The CLI's prepared-input, builder-identity and opt-in prepublication SBOM features
-do not enable a product-specific native lifecycle in this component. Its current
-image jobs do not supply a prepared-input directory or enable those SBOM options.
+Ordinary release-image publication retains the original platform inventories and
+pins index SBOMs before signing. The image publishing job requires Syft in the
+pinned `job-image` (for example the full runtime image); it does not download it.
+The exact ledger-pinned index and platform documents are added to the unsigned
+release manifest before the handoff digest, signed as evidence, and published with
+their bundles. Their URLs name this source project's public release downloads,
+not the separate container publication project.
+
+The CLI's prepared-input and builder-identity features do not enable a
+product-specific native lifecycle in this component. Its current image jobs do
+not supply a prepared-input directory; the full Nano GitLab lifecycle remains
+unsupported.
 In particular, final-image CLI support is not native base-plan support: unsupported
 base plans remain refused until their complete verified handoff is implemented.
 
@@ -786,7 +795,7 @@ labels: |
 `Check: release request` refuses a label that names one of the standard
 eight, which describe where the image came from, a key that is not a
 lowercase dotted name, a key named twice, and `labels` without
-`release-images`. Their SBOMs are generated when they are signed. Build secrets, binary extraction
+`release-images`. Their pinned SBOM bytes are reused unchanged when signed. Build secrets, binary extraction
 and base images are not carried out by the image jobs; a binary extraction
 is the export jobs' work.
 

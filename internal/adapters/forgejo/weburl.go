@@ -5,8 +5,14 @@ package forgejo
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
+
+// ReleaseDownloadURLPrefix implements provider.WebURLBuilder.
+func (p *Provider) ReleaseDownloadURLPrefix(server, repo, version string) string {
+	return fmt.Sprintf("%s/%s/releases/download/%s", strings.TrimRight(server, "/"), repo, url.PathEscape(version))
+}
 
 // ReleaseWebURL implements provider.WebURLBuilder. Release pages share GitHub's
 // shape under Gitea routing.

@@ -3,7 +3,17 @@
 
 package gitlab
 
-import "fmt"
+import (
+	"fmt"
+	"net/url"
+	"strings"
+)
+
+// ReleaseDownloadURLPrefix implements provider.WebURLBuilder. Assets linked
+// with direct_asset_path resolve below the source project's release page.
+func (p *Provider) ReleaseDownloadURLPrefix(server, repo, version string) string {
+	return p.ReleaseWebURL(strings.TrimRight(server, "/"), repo, url.PathEscape(version)) + "/downloads"
+}
 
 // ReleaseWebURL implements provider.WebURLBuilder. GitLab routes project pages
 // under "/-/" to keep them clear of the group/project namespace.

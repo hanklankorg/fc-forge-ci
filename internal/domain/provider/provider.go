@@ -279,6 +279,8 @@ type WebURLBuilder interface {
 	// ReleaseWebURL links to the page for one release. server is the forge
 	// root without a trailing slash; repo is the canonical "owner/name".
 	ReleaseWebURL(server, repo, version string) string
+	// ReleaseDownloadURLPrefix is the public directory for named release assets.
+	ReleaseDownloadURLPrefix(server, repo, version string) string
 
 	// PackagesWebURL links to the packages page for a repository.
 	PackagesWebURL(server, repo string) string
