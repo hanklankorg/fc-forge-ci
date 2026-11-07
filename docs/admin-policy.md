@@ -293,6 +293,28 @@ review must still establish the honesty and adequacy of the tests themselves.
 This bounded extension does not migrate consumer fixtures or add GitLab/Forgejo
 selection inputs; their existing command owners can use the CLI contract.
 
+### Reusing selected tests in check jobs
+
+Check jobs can invoke the same native test owners without metadata resolution,
+dependency fetching, SBOM generation, compilation of release artifacts or signing:
+
+```sh
+forge-ci build go test --working-dir . \
+  --test-selection-json '{"packages":["./test/policy"],"gate":"policy"}'
+forge-ci build cargo test --working-dir . \
+  --test-selection-json '{"runs":[{"kind":"package-test","package":"app","name":"guard","gate":"policy"}]}'
+```
+
+These commands require an explicit, nonempty selection; they never fall back to
+workspace-wide test discovery. They reuse the release commands' fixed native
+arguments, fresh reports and policy classification. Selection coverage still
+requires review by the owner of the check job.
+
+The selectors are Go/Cargo adapters, not a universal test schema. Shared policy,
+handoff and publication mechanisms remain ecosystem-neutral. The existing
+`policy tests --protocol … -- <native command>` interface continues to support
+Go JSON, Cargo, Maven, Gradle, Node and XCTest application-test protocols.
+
 ## The receipt
 
 ### Live harness administrator inputs
