@@ -758,6 +758,19 @@ the build and signing, as the Forgejo
 4. `Sign: files and images` reads that hand-off, and only it, and imports the
    staging images into the publication project as before.
 
+Publication cleanup covers candidate tags in the independent publication
+project, not the source project's `staging-<final tag>` tags. Administrators must
+configure separate, bounded source-project registry retention, preserving the
+staging digests needed by active releases and recovery. Release-asset retention
+does not prune these tags. Do not give consumer build jobs publication credentials
+or treat a destination publication ledger as authority to delete source tags.
+
+The CLI's prepared-input, builder-identity and opt-in prepublication SBOM features
+do not enable a product-specific native lifecycle in this component. Its current
+image jobs do not supply a prepared-input directory or enable those SBOM options.
+In particular, final-image CLI support is not native base-plan support: unsupported
+base plans remain refused until their complete verified handoff is implemented.
+
 The build itself pushes no image: a `dist/release-images.json` from the
 `build` commands stops its hand-off. The images carry the source, revision,
 title, version, url, documentation, ref.name and created labels, and after
@@ -943,7 +956,7 @@ The child runs these jobs, in five stages that read the same on every forge
 
 | Job | Image | Does |
 |---|---|---|
-| `Check: signing access`, `Check: publishing access`, `Check: registry access` | signer | The toolchain check, the Cosign key against the trusted public key, and the release and registry tokens, before anything else. |
+| `Check: signing access`, `Check: publishing access`, `Check: registry access` | signer | The toolchain check, the Cosign key against the trusted public key, and the release and registry tokens, before anything else. Registry access is scheduled only when the protected `release-images` or `base-images` input is true; archive/export-only releases need no publication-registry token. |
 | `Check: release request` | job | On the restricted runner, validates the signed request and that it is the head of the release branch; executes no consumer commands. |
 | `Check: consumer checks` | job | After authorization, freshly checks out and revalidates the immutable request, then runs `checks` on `checks-runner-tags` (untagged by default). |
 | `Prepare: changelog` | job | Renders the changelog and commit message. Consumer configuration runs only here and in `Prepare: version`. |

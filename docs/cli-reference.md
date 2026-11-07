@@ -186,7 +186,7 @@ run the full Cargo release build (metadata, fetch, test, SBOM, compile, status)
 
 ```
 Runs the whole Cargo build sequence in one step: resolve metadata, fetch
-    deps, run mandatory all-target tests under the admin enforcement policy, generate the Build SBOM with cargo-cyclonedx
+    deps, run mandatory native tests under the admin enforcement policy, generate the Build SBOM with cargo-cyclonedx
    (unless --no-build-sbom), and cross-compile per platform into dist/. The
    forge job wraps this with checkout + artifact upload only.
 
@@ -204,6 +204,7 @@ EXAMPLE:
 | `--commit` | prepared release commit exposed as FORGE_CI_COMMIT during compilation | string | `""` | `$CI_COMMIT`, `$CI_COMMIT_SHA`, `$COMMIT_SHA`, `$FORGEJO_SHA`, `$GITHUB_SHA` |
 | `--platforms` | comma/space/newline-separated GOOS/GOARCH targets to cross-compile (each must have a Rust target triple mapping) | string | `"linux/amd64"` | `$PLATFORMS` |
 | `--skip-tests` | legacy opt-out; true is refused: admin policy controls enforcement, tests still run | bool | `false` | `$SKIP_TESTS` |
+| `--test-selection-json` | administrator-owned individual Cargo bin/test executables with explicit application/policy gate (policy always blocks) | string | `""` | n/a |
 | `--build-sbom` | generate the cargo-cyclonedx Build SBOM (default true) | bool | `true` | `$ENABLE_BUILD_SBOM` |
 
 ### `forge-ci build go`
@@ -272,6 +273,7 @@ EXAMPLE:
 | `--ldflags` | extra -ldflags appended after the version-injection block | string | `""` | `$LD_FLAGS` |
 | `--main-package` | main package import path relative to --working-dir | string | `"."` | `$MAIN_PACKAGE` |
 | `--skip-tests` | legacy opt-out; true is refused: admin policy controls enforcement, tests still run | bool | `false` | `$SKIP_TESTS` |
+| `--test-selection-json` | administrator-owned native Go test selection (packages, optional run, required application/policy gate); always uncached with race detection; policy always blocks | string | `""` | n/a |
 | `--build-sbom` | generate the CycloneDX Build SBOM (default true) | bool | `true` | `$ENABLE_BUILD_SBOM` |
 
 ### `forge-ci build gradle`
@@ -2967,6 +2969,16 @@ EXAMPLE:
 | `--publish-npm` | include the npm dev-publish step in the plan | bool | `true` | `$PUBLISH_NPM` |
 | `--publish-maven-snapshots` | opt into Maven-format snapshot publication for Maven, Gradle JVM and Android libraries | bool | `false` | `$PUBLISH_MAVEN_SNAPSHOTS` |
 | `--use-ci-token` | use the CI platform token in place of an explicit registry password | bool | `true` | `$USE_CI_TOKEN` |
+
+### `forge-ci plan validate-test-selections`
+
+validate complete administrator-owned Go/Cargo mappings against the release build-stage plan before fanout
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--build-stage-plan-json` | Sets build stage plan json. (required) | string | `""` | n/a |
+| `--go-test-selections-json` | Sets go test selections json. | string | `""` | n/a |
+| `--cargo-test-selections-json` | Sets cargo test selections json. | string | `""` | n/a |
 
 ### `forge-ci plan write`
 
