@@ -20,7 +20,7 @@ func TestReleaseArchiveComparison(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, scenario := range []string{"equal", "different", "missing", "missing-both", "wrong-target", "empty", "zero-byte"} {
+	for _, scenario := range []string{"equal", "different", "missing", "missing-both", "wrong-target", "excluded-target", "empty", "zero-byte"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
 
@@ -30,7 +30,13 @@ func TestReleaseArchiveComparison(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				for _, target := range []string{"linux_amd64", "linux_arm64", "darwin_amd64", "darwin_arm64"} {
+				if scenario == "excluded-target" {
+					if err := os.WriteFile(filepath.Join(dir, "forge-ci_1.2.3_darwin_amd64.tar.gz"), []byte("excluded payload"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+
+				for _, target := range []string{"linux_amd64", "linux_arm64", "darwin_arm64"} {
 					if scenario == "empty" || (target == "linux_amd64" && (scenario == "missing-both" || (scenario == "missing" && dir == second))) {
 						continue
 					}
@@ -64,7 +70,7 @@ func TestReleaseArchiveComparison(t *testing.T) {
 
 			output, err := cmd.CombinedOutput()
 			if scenario == "equal" {
-				if err != nil || !strings.Contains(string(output), "4 release files are byte-identical") {
+				if err != nil || !strings.Contains(string(output), "3 release files are byte-identical") {
 					t.Fatalf("comparison failed: %v\n%s", err, output)
 				}
 			} else if err == nil || (!strings.Contains(string(output), "expected") && !strings.Contains(string(output), "different") && !strings.Contains(string(output), "empty")) {

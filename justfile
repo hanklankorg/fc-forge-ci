@@ -582,15 +582,16 @@ build: (_job "build" ("target=host architecture + configured Go OS; output=" + b
         -o {{ bin }}/{{ executable }} ./cmd/{{ executable }}
     printf "Built %s/%s (%s/%s)\n" "{{ bin }}" "{{ executable }}" "$GOOS" "$GOARCH"
 
-# Linux and darwin, amd64 and arm64, into bin/ (release-shape sanity check).
+# Linux amd64/arm64 and darwin arm64 into bin/ (release-shape sanity check).
 [doc('Build every released binary')]
 [group('build')]
-build-all: (_job "build-all" ("targets=linux,darwin x amd64,arm64; output=" + bin))
+build-all: (_job "build-all" ("targets=linux/amd64,linux/arm64,darwin/arm64; output=" + bin))
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p {{ bin }}
     for goos in linux darwin; do
         for goarch in amd64 arm64; do
+            [[ "$goos/$goarch" == darwin/amd64 ]] && continue
             out="{{ bin }}/{{ executable }}-${goos}-${goarch}"
             printf 'Build target: %s/%s | output=%s\n' "$goos" "$goarch" "$out" >&2
             CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \

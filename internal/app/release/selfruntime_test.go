@@ -47,6 +47,8 @@ func TestPublishSelfRuntimeCLI_SelectsExactAssetsAndForcesPrereleasePolicy(t *te
 	writeSelfRuntimeAssets(t, "cli-dist", "")
 	mustWrite(t, "cli-dist/metadata.json", "internal\n")
 	mustWrite(t, "cli-dist/unrelated.tar.gz", "internal\n")
+	mustWrite(t, "cli-dist/forge-ci_0.90.0-pre_darwin_amd64.tar.gz", "excluded\n")
+	mustWrite(t, "cli-dist/forge-ci_0.90.0-pre_darwin_amd64.tar.gz.cdx.sbom.json", "excluded\n")
 
 	publisher := &fakeSelfRuntimePublisher{}
 	sha := strings.Repeat("a", 40)
@@ -96,8 +98,6 @@ func TestPublishSelfRuntimeCLI_SelectsExactAssetsAndForcesPrereleasePolicy(t *te
 		"checksums.txt.bundle",
 		"forge-ci.intoto.json",
 		"forge-ci.intoto.jsonl",
-		"forge-ci_0.90.0-pre_darwin_amd64.tar.gz",
-		"forge-ci_0.90.0-pre_darwin_amd64.tar.gz.cdx.sbom.json",
 		"forge-ci_0.90.0-pre_darwin_arm64.tar.gz",
 		"forge-ci_0.90.0-pre_darwin_arm64.tar.gz.cdx.sbom.json",
 		"forge-ci_0.90.0-pre_linux_amd64.tar.gz",
@@ -109,7 +109,7 @@ func TestPublishSelfRuntimeCLI_SelectsExactAssetsAndForcesPrereleasePolicy(t *te
 		t.Fatalf("selected assets =\n%v\nwant\n%v", basenames, want)
 	}
 
-	if !strings.Contains(out.String(), "12 assets") {
+	if !strings.Contains(out.String(), "10 assets") {
 		t.Fatalf("output = %q", out.String())
 	}
 }
@@ -202,13 +202,11 @@ func writeSelfRuntimeAssets(t *testing.T, dir, omit string) {
 
 	version := strings.TrimPrefix(domainrelease.SelfRuntimeChannelTag, "v")
 
-	names := make([]string, 0, 12)
+	names := make([]string, 0, 10)
 
-	for _, goos := range []string{"linux", "darwin"} {
-		for _, arch := range []string{"amd64", "arm64"} {
-			archive := "forge-ci_" + version + "_" + goos + "_" + arch + ".tar.gz"
-			names = append(names, archive, archive+".cdx.sbom.json")
-		}
+	for _, target := range []string{"linux_amd64", "linux_arm64", "darwin_arm64"} {
+		archive := "forge-ci_" + version + "_" + target + ".tar.gz"
+		names = append(names, archive, archive+".cdx.sbom.json")
 	}
 
 	names = append(names, "checksums.txt", "checksums.txt.bundle", "forge-ci.intoto.json", "forge-ci.intoto.jsonl")

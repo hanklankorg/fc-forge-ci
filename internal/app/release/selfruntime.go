@@ -95,13 +95,11 @@ func selfRuntimeCLIAssets(dir, version string) ([]string, error) {
 		return nil, fmt.Errorf("self-runtime CLI assets directory must be a real directory, not a file or symlink: %s: %w", dir, errs.ErrValidation)
 	}
 
-	names := make([]string, 0, 12)
+	names := make([]string, 0, 10)
 
-	for _, goos := range []string{"linux", "darwin"} {
-		for _, arch := range []string{"amd64", "arm64"} {
-			archive := fmt.Sprintf("forge-ci_%s_%s_%s.tar.gz", version, goos, arch)
-			names = append(names, archive, archive+".cdx.sbom.json")
-		}
+	for _, target := range []string{"linux_amd64", "linux_arm64", "darwin_arm64"} {
+		archive := fmt.Sprintf("forge-ci_%s_%s.tar.gz", version, target)
+		names = append(names, archive, archive+".cdx.sbom.json")
 	}
 
 	names = append(names,

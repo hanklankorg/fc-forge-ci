@@ -11,7 +11,7 @@
 # produces the multi-arch binary tarballs and uploads them to the
 # already-existing release.
 #
-# Builds linux/darwin × amd64/arm64 archives via goreleaser and
+# Builds linux/amd64, linux/arm64 and darwin/arm64 archives via goreleaser and
 # uploads them as a GitHub release with checksums.txt plus a Sigstore
 # v3 bundle (checksums.txt.bundle). The bundle is produced by cosign
 # keyless signing — no long-lived key — and is verified by
@@ -21,7 +21,7 @@
 # payload timestamps. Byte identity also requires equal toolchain, version and
 # resolved build inputs; newly signed bundles are separate evidence.
 # A separate final-tag rebuild supplies the reference. The signing wrapper must
-# match all four actual release archives against it before signing and upload.
+# match all three actual release archives against it before signing and upload.
 name: Release binary
 # workflow_call keeps the chain independent of the repository's default branch
 # (workflow_run only fires from it), so a fork can release from any branch.

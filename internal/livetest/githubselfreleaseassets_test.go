@@ -130,8 +130,8 @@ func selfReleaseVerifyUploadedAssets(t *testing.T, trial *GitHubTrial, repo, tag
 	}
 
 	subjects, err := provenance.ParseChecksums(strings.NewReader(string(manifest)))
-	if err != nil || len(subjects) != 8 {
-		t.Fatalf("signed manifest must cover four archives and four SBOMs: %v", err)
+	if err != nil || len(subjects) != 6 {
+		t.Fatalf("signed manifest must cover three archives and three SBOMs: %v", err)
 	}
 
 	seen := map[string]bool{}
@@ -158,17 +158,15 @@ func selfReleaseVerifyUploadedAssets(t *testing.T, trial *GitHubTrial, repo, tag
 		}
 	}
 
-	t.Logf("real self-release binary assets verified: %d uploaded files, 8 payload checksums, checksum and provenance signatures", len(assets))
+	t.Logf("real self-release binary assets verified: %d uploaded files, 6 payload checksums, checksum and provenance signatures", len(assets))
 }
 
 func selfReleaseAssetInventory(assets []*github.ReleaseAsset, version string) (map[string]int64, error) {
 	want := map[string]bool{"checksums.txt": true, "checksums.txt.bundle": true, "forge-ci.intoto.json": true, "forge-ci.intoto.jsonl": true}
 
-	for _, goos := range []string{"linux", "darwin"} {
-		for _, arch := range []string{"amd64", "arm64"} {
-			name := "forge-ci_" + version + "_" + goos + "_" + arch + ".tar.gz"
-			want[name], want[name+".cdx.sbom.json"] = true, true
-		}
+	for _, target := range []string{"linux_amd64", "linux_arm64", "darwin_arm64"} {
+		name := "forge-ci_" + version + "_" + target + ".tar.gz"
+		want[name], want[name+".cdx.sbom.json"] = true, true
 	}
 
 	if len(assets) != len(want) {
@@ -196,10 +194,10 @@ func TestSelfReleaseAssetInventory(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			names := make([]string, 0, 12)
+			names := make([]string, 0, 10)
 			names = append(names, "checksums.txt", "checksums.txt.bundle", "forge-ci.intoto.json", "forge-ci.intoto.jsonl")
 
-			for _, target := range []string{"linux_amd64", "linux_arm64", "darwin_amd64", "darwin_arm64"} {
+			for _, target := range []string{"linux_amd64", "linux_arm64", "darwin_arm64"} {
 				archive := "forge-ci_0.0.1_" + target + ".tar.gz"
 				names = append(names, archive, archive+".cdx.sbom.json")
 			}

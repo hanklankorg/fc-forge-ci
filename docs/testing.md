@@ -1391,9 +1391,9 @@ green workflow with skipped binary publication. Exact-ID scratch cleanup is
 required. This scheduling projection does not claim to build real binaries.
 The same recipe also runs the actual candidate `release-binary.yml` in a separate
 disposable repository, with an initially empty release and test-owned request/final
-tags. It requires exactly 12 nonempty uploaded assets: four platform archives,
-four SBOMs, checksums and their bundle, and provenance and its bundle. It downloads
-all eight payloads, matches the signed checksums, and verifies both signatures
+tags. It requires exactly 10 nonempty uploaded assets: three platform archives,
+three SBOMs, checksums and their bundle, and provenance and its bundle. It downloads
+all six payloads, matches the signed checksums, and verifies both signatures
 against the exact workflow/request-tag identity. GitHub-generated source archive
 links are not uploaded assets and do not count. Native execution of cross-built
 macOS/arm64 archives is not claimed. Scheduling and binary publication run

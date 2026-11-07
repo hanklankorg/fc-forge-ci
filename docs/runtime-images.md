@@ -362,8 +362,10 @@ a runtime image bundles many differently-licensed tools.
 
 ## CLI binary channels
 
-Within a runtime-image workflow run, `build-cli.yml` builds the linux/darwin ×
-amd64/arm64 archives and hands them to later jobs as `cli-dist`. Each image job
+Within a runtime-image workflow run, `build-cli.yml` builds the linux/amd64,
+linux/arm64 and darwin/arm64 archives and hands them to later jobs as `cli-dist`.
+The forge-ci CLI does not distribute darwin/amd64; reusable Go/Rust builders
+retain their own platform support. Each image job
 bakes the matching Linux architecture's binary and compares its bytes with that
 same-run payload. The rolling CLI publisher uploads those archives after image
 manifest publication succeeds. Stable release archives are built separately by

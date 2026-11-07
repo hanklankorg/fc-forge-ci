@@ -3,7 +3,7 @@
 #
 # goreleaser config for forge-ci.
 #
-# Produces linux/darwin × amd64/arm64 archives plus a checksums file.
+# Produces linux/amd64, linux/arm64 and darwin/arm64 archives plus checksums.
 # The release workflows install syft for per-archive SBOMs and use cosign with
 # the runner's OIDC identity for keyless signing of the checksum manifest.
 
@@ -23,6 +23,9 @@ builds:
       - CGO_ENABLED=0
     goos: [linux, darwin]
     goarch: [amd64, arm64]
+    ignore:
+      - goos: darwin
+        goarch: amd64
     flags:
       - -trimpath
       - -buildvcs=false
@@ -102,7 +105,7 @@ sboms:
 #
 # The source-built forge-ci CLI routes signing through its cosign adapter,
 # including the bounded retry for transient Sigstore failures.
-# The signing wrapper first compares all four actual release archives against
+# The signing wrapper first compares all three actual release archives against
 # the independently rebuilt final-tag reference and checks the checksum manifest.
 # Requires:
 #   - FORGE_CI_RELEASE_REFERENCE: separate unsigned final-tag rebuild directory

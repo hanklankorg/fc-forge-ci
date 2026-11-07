@@ -3,7 +3,7 @@
 #
 # build-cli — build source for runtime images and the rolling CLI pre-release.
 #
-# Builds linux/darwin × amd64/arm64 with goreleaser (cosign-signed, SBOMs,
+# Builds linux/amd64, linux/arm64 and darwin/arm64 with goreleaser (cosign-signed, SBOMs,
 # SLSA build-provenance) ONCE and uploads the dist/ artifact for callers to
 # consume in the SAME run: the runtime-image build bakes the byte-identical
 # Linux binary for each architecture, and the rolling pre-release

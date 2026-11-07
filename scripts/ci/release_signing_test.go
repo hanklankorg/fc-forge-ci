@@ -17,6 +17,45 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestOwnCLIReleaseTargets(t *testing.T) {
+	t.Parallel()
+
+	body, err := os.ReadFile("../../.goreleaser.yml")
+	require.NoError(t, err)
+
+	type target struct {
+		GOOS   string `yaml:"goos"`
+		GOARCH string `yaml:"goarch"`
+	}
+
+	var config struct {
+		Builds []struct {
+			ID     string   `yaml:"id"`
+			GOOS   []string `yaml:"goos"`
+			GOARCH []string `yaml:"goarch"`
+			Ignore []target `yaml:"ignore"`
+		} `yaml:"builds"`
+	}
+	require.NoError(t, yaml.Unmarshal(body, &config))
+	require.Len(t, config.Builds, 1)
+	build := config.Builds[0]
+	require.Equal(t, "forge-ci", build.ID)
+	require.Equal(t, []target{{GOOS: "darwin", GOARCH: "amd64"}}, build.Ignore)
+
+	var targets []string
+	for _, goos := range build.GOOS {
+		for _, goarch := range build.GOARCH {
+			if goos == build.Ignore[0].GOOS && goarch == build.Ignore[0].GOARCH {
+				continue
+			}
+
+			targets = append(targets, goos+"/"+goarch)
+		}
+	}
+
+	require.ElementsMatch(t, []string{"linux/amd64", "linux/arm64", "darwin/arm64"}, targets)
+}
+
 // The signer is an inert stub. No product entry point, OIDC or network runs.
 func TestReleaseSigningRequiresMatchingRebuild(t *testing.T) {
 	t.Parallel()
@@ -38,7 +77,7 @@ func TestReleaseSigningRequiresMatchingRebuild(t *testing.T) {
 
 			var manifest strings.Builder
 
-			for _, target := range []string{"linux_amd64", "linux_arm64", "darwin_amd64", "darwin_arm64"} {
+			for _, target := range []string{"linux_amd64", "linux_arm64", "darwin_arm64"} {
 				name := "forge-ci_1.2.3_" + target + ".tar.gz"
 				payload := []byte("fixture " + target)
 				require.NoError(t, os.WriteFile(filepath.Join(first, name), payload, 0o600))
@@ -235,7 +274,7 @@ set -euo pipefail
 [[ $PWD != "$SOURCE_CHECKOUT" && $GOCACHE == */reference-cache && ! -e $GOCACHE ]]
 [[ $(git rev-parse HEAD) == $(git rev-parse 'refs/tags/v1.2.3^{commit}') ]]
 mkdir dist
-for target in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
+for target in linux_amd64 linux_arm64 darwin_arm64; do
   printf 'fixture\n' >"dist/forge-ci_1.2.3_${target}.tar.gz"
 done
 `
@@ -254,7 +293,7 @@ done
 
 			files, readErr := os.ReadDir(output)
 			require.NoError(t, readErr)
-			require.Len(t, files, 4)
+			require.Len(t, files, 3)
 		} else {
 			require.Error(t, runErr, "%s", out)
 			require.NoDirExists(t, output)

@@ -8,7 +8,6 @@ set -euo pipefail
 expected=(
 	'forge-ci_*_linux_amd64.tar.gz'
 	'forge-ci_*_linux_arm64.tar.gz'
-	'forge-ci_*_darwin_amd64.tar.gz'
 	'forge-ci_*_darwin_arm64.tar.gz'
 )
 

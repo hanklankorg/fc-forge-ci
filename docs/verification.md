@@ -1105,7 +1105,7 @@ reproducibility evidence.
 Run `just verify-reproducible` from a clean committed checkout with the pinned
 Go and GoReleaser tools already on PATH and modules already cached. It builds
 committed HEAD twice as unsigned snapshots in temporary clones with separate
-Go build caches, then compares all four Linux/macOS amd64/arm64 tarballs.
+Go build caches, then compares all three linux/amd64, linux/arm64 and darwin/arm64 tarballs.
 The caller's `dist/` is untouched. Missing artifacts, wrong targets and differing
 bytes fail; failures retain both clones and print their location for diffoscope.
 Successful temporary builds are removed. The command prints the source and tool
@@ -1136,7 +1136,7 @@ modules with downloads disabled. This is a release-version build, not a snapshot
 
 After the publishing build creates its archives, SBOMs and checksum manifest,
 GoReleaser invokes `scripts/ci/sign-reproducible-release.sh`. The wrapper requires
-`FORGE_CI_RELEASE_REFERENCE`, compares all four nonempty release tarballs against
+`FORGE_CI_RELEASE_REFERENCE`, compares all three nonempty release tarballs against
 that separate reference, and verifies the generated manifest against the files
 on disk before calling the existing checksum-only signer. Missing, mismatched
 or incomplete archives stop signing and upload. Every expected archive must have
