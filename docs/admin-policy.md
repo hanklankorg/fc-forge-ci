@@ -346,8 +346,17 @@ prints the check class, actual findings, whether enforcement is enabled and
 where that came from:
 
 ```text
-Enforcement policy default-sha256:<digest>: lint result=findings count=3 enforcement=false source=flag
+Enforcement policy default-sha256:<digest>: lint result=findings count=3 enforcement=false source=flag blocking-count=3
 ```
+
+`count` is the total observed findings; `blocking-count` is the subset eligible
+for the gate. `result=clean` means no observed findings, not merely no blocking
+ones. Container scans retain their severity and fixability rules: two unfixed
+HIGH findings at a CRITICAL threshold produce `result=findings count=2` and
+`blocking-count=0`, even with enforcement enabled. Only eligible findings can
+block when enforcement is enabled; report-only mode still reports that subset.
+Other gates using a single count treat all their findings as eligible. Raw JSON
+and its derived SARIF/GitLab reports retain the scan findings independently.
 
 `flag` records that the value was given on the engine's command line, by
 whatever wrote it; that the writer was the administrator's entry point is the

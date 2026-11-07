@@ -191,26 +191,32 @@ func (policy Policy) Enforces(check Check) (bool, error) {
 
 // Decision describes findings separately from whether they block progression.
 type Decision struct {
-	Check        Check  `json:"check"`
-	Findings     int    `json:"findings"`
-	Enforced     bool   `json:"enforced"`
-	Source       Source `json:"source"`
-	PolicySHA256 string `json:"policy-sha256"`
+	Check         Check  `json:"check"`
+	Findings      int    `json:"findings"`
+	Enforced      bool   `json:"enforced"`
+	Source        Source `json:"source"`
+	PolicySHA256  string `json:"policy-sha256"`
+	BlockingCount int    `json:"blocking-count"`
 }
 
 // Decide evaluates a policy value. Production gates obtain it from Current
 // with the administrator's settings applied, never from consumer state.
 func (policy Policy) Decide(check Check, count int) (Decision, error) {
+	return policy.DecideCounts(check, count, count)
+}
+
+// DecideCounts separates observed findings from the subset eligible to block.
+func (policy Policy) DecideCounts(check Check, total, eligible int) (Decision, error) {
 	enforced, err := policy.Enforces(check)
 	if err != nil {
 		return Decision{}, err
 	}
 
-	if count < 0 {
-		return Decision{}, fmt.Errorf("findings count must not be negative: %w", errs.ErrUsage)
+	if total < 0 || eligible < 0 || eligible > total {
+		return Decision{}, fmt.Errorf("findings counts must satisfy 0 <= eligible <= total: %w", errs.ErrUsage)
 	}
 
-	return Decision{Check: check, Findings: count, Enforced: enforced, Source: policy.Source(check), PolicySHA256: Digest()}, nil
+	return Decision{Check: check, Findings: total, Enforced: enforced, Source: policy.Source(check), PolicySHA256: Digest(), BlockingCount: eligible}, nil
 }
 
 // withSetting returns policy with one setting replaced.

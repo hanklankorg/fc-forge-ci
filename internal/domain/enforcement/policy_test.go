@@ -18,7 +18,7 @@ func TestPolicySettingsAreIndependent(t *testing.T) {
 		policy := Policy{EnforceLint: bits&1 != 0, EnforceVulnerabilities: bits&2 != 0, EnforceApplicationTests: bits&4 != 0, EnforceReproducibleBuilds: bits&8 != 0}
 		for index, check := range []Check{Lint, Vulnerabilities, ApplicationTests, ReproducibleBuilds} {
 			decision, err := policy.Decide(check, 2)
-			if err != nil || decision.Findings != 2 || decision.Enforced != (bits&(1<<index) != 0) {
+			if err != nil || decision.Findings != 2 || decision.BlockingCount != 2 || decision.Enforced != (bits&(1<<index) != 0) {
 				t.Fatalf("settings=%d check=%s: %+v %v", bits, check, decision, err)
 			}
 		}
@@ -30,6 +30,18 @@ func TestPolicySettingsAreIndependent(t *testing.T) {
 
 	if _, err := (Policy{}).Decide(Lint, -1); !errors.Is(err, errs.ErrUsage) {
 		t.Fatalf("negative count: %v", err)
+	}
+}
+
+func TestDecideCountsValidatesEligibleSubset(t *testing.T) {
+	for _, counts := range [][2]int{{-1, 0}, {1, -1}, {1, 2}} {
+		if _, err := (Policy{}).DecideCounts(Vulnerabilities, counts[0], counts[1]); !errors.Is(err, errs.ErrUsage) {
+			t.Fatalf("counts %v: %v", counts, err)
+		}
+	}
+	decision, err := (Policy{EnforceVulnerabilities: true}).DecideCounts(Vulnerabilities, 2, 0)
+	if err != nil || decision.Findings != 2 || decision.BlockingCount != 0 || !decision.Enforced {
+		t.Fatalf("observed nonblocking findings: %+v, %v", decision, err)
 	}
 }
 

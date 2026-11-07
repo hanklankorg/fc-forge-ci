@@ -5,6 +5,7 @@ package livetest
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -119,6 +120,18 @@ FORGE_CI_LIVE_PACKAGE_END /src/internal/livetest/conformance
 `
 
 const liveVerdictPolicy = "abababababababababababababababababababababababababababababababab"
+
+func TestReadLiveRun_ObservedFindingsReceipt(t *testing.T) {
+	t.Parallel()
+	for _, enforced := range []bool{false, true} {
+		line := fmt.Sprintf("Enforcement policy default-sha256:%s: vulnerabilities result=findings count=2 enforcement=%t source=flag blocking-count=0\n", liveVerdictPolicy, enforced)
+		verdict, err := ReadLiveRun(strings.NewReader(line), 0)
+		want := []LiveAdminPolicyDecision{{PolicySHA256: liveVerdictPolicy, Check: "vulnerabilities", Result: "findings", Enforcement: enforced}}
+		if err != nil || !reflect.DeepEqual(verdict.AdminPolicy, want) {
+			t.Fatalf("receipt not retained: %+v, %v", verdict.AdminPolicy, err)
+		}
+	}
+}
 
 func TestReadLiveRun_WritesTheVerdictFromTheRetainedLog(t *testing.T) {
 	t.Parallel()
