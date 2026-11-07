@@ -141,6 +141,79 @@ func TestReleaseEvidenceExistingEnvironment(t *testing.T) {
 	}
 }
 
+func TestReleaseEvidenceCaptureReadback(t *testing.T) {
+	for _, defect := range []string{"", "download", "budget", "secret", "disabled"} {
+		t.Run(defect, func(t *testing.T) {
+			t.Setenv("FORGE_CI_LIVE_SNAPSHOT_EVIDENCE_DIR", t.TempDir())
+
+			if defect == "disabled" {
+				t.Setenv("FORGE_CI_LIVE_SNAPSHOT_EVIDENCE_DIR", "")
+				t.Setenv("FORGE_CI_LIVE_SNAPSHOT_EVIDENCE", "")
+			}
+
+			evidence, err := NewReleaseEvidence(Target{Token: "inert-private-token"}, "repo", "v1", "request", []string{"a", "b"})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if defect == "budget" {
+				evidence.remaining = 2
+			}
+
+			calls := 0
+
+			readback, err := evidence.CaptureReadback(func(name string) ([]byte, error) {
+				calls++
+
+				if name == "b" {
+					switch defect {
+					case "download":
+						return nil, os.ErrNotExist
+					case "budget":
+						return []byte("too large"), nil
+					case "secret":
+						return []byte("inert-private-token"), nil
+					}
+				}
+
+				return []byte(name), nil
+			})
+			if defect == "download" || defect == "budget" || defect == "secret" {
+				if err == nil || evidence.receipt.Complete || !evidence.retained("a") || evidence.retained("b") {
+					t.Fatalf("failed capture lost partial inventory or claimed completion: %v", err)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if defect == "disabled" && calls != 0 {
+				t.Fatal("disabled capture fetched assets eagerly")
+			}
+
+			for _, name := range []string{"a", "b"} {
+				body, err := readback(name)
+				if err != nil || string(body) != name {
+					t.Fatalf("readback %s: %q, %v", name, body, err)
+				}
+			}
+
+			if calls != 2 {
+				t.Fatalf("expected one provider fetch per asset, got %d", calls)
+			}
+
+			if defect != "disabled" {
+				if _, err := readback("unlisted"); err == nil {
+					t.Fatal("read retained unlisted asset")
+				}
+			}
+		})
+	}
+}
+
 func TestReleaseEvidenceRejectsNamesLimitsAndSecrets(t *testing.T) {
 	t.Setenv("FORGE_CI_LIVE_SNAPSHOT_EVIDENCE_DIR", t.TempDir())
 	for _, names := range [][]string{{"../escape"}, {"a/b"}, {`a\b`}, {"."}, {""}, {"a\x00b"}, {"a\nb"}, {"a", "a"}, make([]string, 4097)} {

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -112,6 +113,44 @@ func (e *ReleaseEvidence) Retain(name string, body []byte) error {
 // Enabled lets owners avoid additional representative payload reads when
 // retention has not been requested.
 func (e *ReleaseEvidence) Enabled() bool { return e.root != "" }
+
+// CaptureReadback saves the bounded public inventory before independent
+// validation can fail. Verification reuses these exact bytes without another
+// provider fetch. A complete capture is observation evidence, not acceptance.
+// With retention disabled, preserve the caller's ordinary on-demand reader.
+func (e *ReleaseEvidence) CaptureReadback(download func(string) ([]byte, error)) (func(string) ([]byte, error), error) {
+	if !e.Enabled() {
+		return download, nil
+	}
+
+	for _, asset := range e.receipt.Assets {
+		body, err := download(asset.Name)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := e.Retain(asset.Name, body); err != nil {
+			return nil, err
+		}
+	}
+
+	return e.readRetained, nil
+}
+
+func (e *ReleaseEvidence) readRetained(name string) ([]byte, error) {
+	index := slices.IndexFunc(e.receipt.Assets, func(a releaseEvidenceAsset) bool { return a.Name == name && a.File != "" })
+	if index < 0 {
+		return nil, fmt.Errorf("release asset has no retained readback: %w", errReleaseEvidence)
+	}
+
+	root, err := os.OpenRoot(e.root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+
+	return root.ReadFile(e.receipt.Assets[index].File)
+}
 
 func (e *ReleaseEvidence) retained(name string) bool {
 	return slices.ContainsFunc(e.receipt.Assets, func(a releaseEvidenceAsset) bool { return a.Name == name && a.File != "" })

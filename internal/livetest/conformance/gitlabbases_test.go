@@ -62,7 +62,7 @@ func requireGitLabBaseReuse(t *testing.T, client *gitlabapi.Client, target livet
 	child := requireGitLabReleaseChild(t, ctx, client, livetest.RepoSlug(target, repo), run)
 	requireReleaseGit(t, target, repo, keys, request, requestTag, finalTag)
 
-	verified := requireGitLabReleaseBundles(t, client, target, repo, child, run.SHA, keys, finalTag)
+	verified := requireGitLabReleaseBundles(t, client, target, repo, child, run.SHA, keys, finalTag, false)
 	if actual, exists := livetest.ImageDigest(t, target, publication+"/bases", baseTag); !exists || actual != digest {
 		t.Fatal("warm release changed the immutable base digest")
 	}
