@@ -98,14 +98,35 @@ func releaseImagesBuildPreparedCmd() *cli.Command {
 				return err
 			}
 
-			loader, ok := builder.(*buildah.Adapter)
-			if len(build.RegistryInputs) != 0 && !ok {
-				return fmt.Errorf("prepared private parents require Buildah: %w", errs.ErrUsage)
+			if err := validateReleaseImageBuilder(builder, build, true); err != nil {
+				return err
 			}
-
-			_, err = appcontainer.StageReleaseBuildWithInputs(ctx, signerImageTool{builder}, loader, ociregistry.NewAnonymous(), os.Stderr, releaseImageBuildInput(cmd, build), build.RegistryInputs, cmd.String("inputs-dir"))
-
-			return err
+			return stagePreparedReleaseImageBuild(ctx, cmd, builder, build, cmd.String("inputs-dir"))
 		},
 	}
+}
+
+// Both job verbs use the same selected-builder policy. The native batch calls
+// this for its whole share before executing any build; the app rechecks identity
+// at the actual build/cache-import boundary.
+func validateReleaseImageBuilder(builder imageBuilder, build pipeline.ReleaseImageBuild, prepared bool) error {
+	if err := appcontainer.CheckSignerImageBuilderIdentity(signerImageTool{builder}, build.BuilderMaterialID); err != nil {
+		return err
+	}
+	if len(build.RegistryInputs) == 0 {
+		return nil
+	}
+	if !prepared {
+		return fmt.Errorf("release image %s requires secret-free fetched parents: pass --inputs-dir: %w", build.Name, errs.ErrUsage)
+	}
+	if _, ok := builder.(*buildah.Adapter); !ok {
+		return fmt.Errorf("prepared private parents require Buildah: %w", errs.ErrUsage)
+	}
+	return nil
+}
+
+func stagePreparedReleaseImageBuild(ctx context.Context, cmd *cli.Command, builder imageBuilder, build pipeline.ReleaseImageBuild, directory string) error {
+	loader, _ := builder.(*buildah.Adapter)
+	_, err := appcontainer.StageReleaseBuildWithInputs(ctx, signerImageTool{builder}, loader, ociregistry.NewAnonymous(), os.Stderr, releaseImageBuildInput(cmd, build), build.RegistryInputs, directory)
+	return err
 }

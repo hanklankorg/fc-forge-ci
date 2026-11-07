@@ -82,6 +82,9 @@ type SignerImageBuildArchInput struct {
 	MetadataDir      string
 	RetryAttempts    int
 	RetryDelay       time.Duration
+	// BuilderMaterialID, when supplied, must match the executable actually used,
+	// including when a prepared or registry cache would avoid the build.
+	BuilderMaterialID string
 }
 
 // SignerImageAssembleInput drives multi-arch manifest assembly.
@@ -227,6 +230,9 @@ func StageSignerImageArch(ctx context.Context, tool SignerImageTool, inspector L
 }
 
 func buildSignerImageArch(ctx context.Context, tool SignerImageTool, inspector LayoutInspector, out io.Writer, in SignerImageBuildArchInput) (*SignerImageArchMetadata, error) {
+	if err := CheckSignerImageBuilderIdentity(tool, in.BuilderMaterialID); err != nil {
+		return nil, err
+	}
 	// Staging writes no registry, so a build that pulls only public bases
 	// needs no credentials; a push does.
 	derived, err := deriveSignerImageArch(in, inspector == nil)
@@ -294,6 +300,28 @@ func buildSignerImageArch(ctx context.Context, tool SignerImageTool, inspector L
 	_, _ = fmt.Fprintf(out, "Image architecture prepared: arch=%s digest=%s\n", in.Arch, digest)
 
 	return meta, nil
+}
+
+// CheckSignerImageBuilderIdentity binds resolved plans to the selected native
+// executable without running it. Legacy plans do not require an identity probe.
+func CheckSignerImageBuilderIdentity(tool SignerImageTool, expected string) error {
+	if expected == "" {
+		return nil
+	}
+	identified, ok := tool.(interface {
+		Identity() (domaincontainer.BuilderIdentity, error)
+	})
+	if !ok {
+		return fmt.Errorf("planned builder identity cannot be checked: %w", errs.ErrValidation)
+	}
+	identity, err := identified.Identity()
+	if err != nil {
+		return err
+	}
+	if identity.MaterialID() != expected {
+		return fmt.Errorf("native builder material ID differs from planned builder-material-id: %w", errs.ErrValidation)
+	}
+	return nil
 }
 
 func stageSignerArchitecture(ctx context.Context, tool SignerImageTool, inspector LayoutInspector, out io.Writer, in SignerImageBuildArchInput, derived signerImageArchDerived) (string, error) {
