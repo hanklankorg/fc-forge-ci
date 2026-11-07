@@ -5,6 +5,7 @@ package build
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/cli/cienv"
 	"github.com/diggsweden/forge-ci/internal/cli/deps"
 	"github.com/diggsweden/forge-ci/internal/domain/build"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
 
 func goCmd() *cli.Command {
@@ -23,8 +25,29 @@ func goCmd() *cli.Command {
 		Usage: "Go build helpers",
 		Commands: []*cli.Command{
 			goRunCmd(),
+			goTestCmd(),
 			goMetadataCmd(),
 			goDownloadCmd(),
+		},
+	}
+}
+
+func goTestCmd() *cli.Command {
+	return &cli.Command{
+		Name: "test", Usage: "run explicitly selected native Go tests without a release build",
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Usage: usageGoModDirectory},
+			&cli.StringFlag{Name: flagBuildTags, Usage: "comma-separated build tags passed to the selected tests"},
+			&cli.StringFlag{Name: "test-selection-json", Required: true, Usage: "explicit packages, optional run filter and required application/policy gate; always uncached with race detection"},
+		},
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			selection := cmd.String("test-selection-json")
+			if selection == "" {
+				return fmt.Errorf("--test-selection-json must not be empty: %w", errs.ErrUsage)
+			}
+			return appbuild.GoTest(ctx, gotool.Go{}, cmd.Writer, cmd.ErrWriter, appbuild.GoTestInput{
+				Dir: cmd.String(flagWorkingDir), BuildTags: cmd.String(flagBuildTags), SelectionJSON: selection,
+			})
 		},
 	}
 }

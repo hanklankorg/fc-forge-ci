@@ -5,6 +5,7 @@ package build
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/cli/cienv"
 	"github.com/diggsweden/forge-ci/internal/cli/deps"
 	"github.com/diggsweden/forge-ci/internal/domain/build"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
 
 func cargoCmd() *cli.Command {
@@ -23,7 +25,27 @@ func cargoCmd() *cli.Command {
 		Usage: "Cargo build helpers (artifact-first Rust projects)",
 		Commands: []*cli.Command{
 			cargoRunCmd(),
+			cargoTestCmd(),
 			cargoFetchCmd(),
+		},
+	}
+}
+
+func cargoTestCmd() *cli.Command {
+	return &cli.Command{
+		Name: "test", Usage: "run explicitly selected native Cargo executables without a release build",
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Usage: usageCargoDirectory},
+			&cli.StringFlag{Name: "test-selection-json", Required: true, Usage: "individual Cargo bin/test executables with required application/policy gates; no all-targets fallback"},
+		},
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			selection := cmd.String("test-selection-json")
+			if selection == "" {
+				return fmt.Errorf("--test-selection-json must not be empty: %w", errs.ErrUsage)
+			}
+			return appbuild.CargoTest(ctx, cargo.New(), cmd.Writer, cmd.ErrWriter, appbuild.CargoTestInput{
+				Dir: cmd.String(flagWorkingDir), SelectionJSON: selection,
+			})
 		},
 	}
 }

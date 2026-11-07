@@ -207,6 +207,15 @@ EXAMPLE:
 | `--test-selection-json` | administrator-owned individual Cargo bin/test executables with explicit application/policy gate (policy always blocks) | string | `""` | n/a |
 | `--build-sbom` | generate the cargo-cyclonedx Build SBOM (default true) | bool | `true` | `$ENABLE_BUILD_SBOM` |
 
+#### `forge-ci build cargo test`
+
+run explicitly selected native Cargo executables without a release build
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--working-dir` | directory containing the Cargo.toml file | string | `"."` | n/a |
+| `--test-selection-json` | individual Cargo bin/test executables with required application/policy gates; no all-targets fallback (required) | string | `""` | n/a |
+
 ### `forge-ci build go`
 
 Go build helpers
@@ -275,6 +284,16 @@ EXAMPLE:
 | `--skip-tests` | legacy opt-out; true is refused: admin policy controls enforcement, tests still run | bool | `false` | `$SKIP_TESTS` |
 | `--test-selection-json` | administrator-owned native Go test selection (packages, optional run, required application/policy gate); always uncached with race detection; policy always blocks | string | `""` | n/a |
 | `--build-sbom` | generate the CycloneDX Build SBOM (default true) | bool | `true` | `$ENABLE_BUILD_SBOM` |
+
+#### `forge-ci build go test`
+
+run explicitly selected native Go tests without a release build
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--working-dir` | directory containing the go.mod file | string | `"."` | n/a |
+| `--build-tags` | comma-separated build tags passed to the selected tests | string | `""` | n/a |
+| `--test-selection-json` | explicit packages, optional run filter and required application/policy gate; always uncached with race detection (required) | string | `""` | n/a |
 
 ### `forge-ci build gradle`
 
