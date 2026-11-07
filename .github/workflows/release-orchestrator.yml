@@ -47,6 +47,16 @@ name: Orchestrate Release
 on:
   workflow_call: # yamllint disable-line rule:truthy
     inputs:
+      go-test-selections-json:
+        description: "Administrator-owned artifact-name to native Go test selection mapping. Set only in a protected administrator entry point, not consumer artifacts or dispatch inputs."
+        type: string
+        required: false
+        default: ""
+      cargo-test-selections-json:
+        description: "Administrator-owned artifact-name to finite Cargo test selection mapping. Set only in a protected administrator entry point, not consumer artifacts or dispatch inputs."
+        type: string
+        required: false
+        default: ""
       enforce-application-tests:
         description: "Enforcement setting: false reports recognized test assertion failures without failing; the tests still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
         type: boolean
@@ -568,6 +578,8 @@ jobs:
       XCCONFIG_BASE64: ${{ secrets.XCCONFIG_BASE64 }}
     uses: ./.github/workflows/release-build-stage.yml
     with:
+      go-test-selections-json: ${{ inputs['go-test-selections-json'] }}
+      cargo-test-selections-json: ${{ inputs['cargo-test-selections-json'] }}
       enforce-application-tests: ${{ inputs['enforce-application-tests'] }}
       branch: ${{ needs.execute-prepare-stage.outputs.release-sha }}
       release-tag: ${{ needs.parse-config.outputs.release-tag }}

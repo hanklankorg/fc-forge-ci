@@ -60,8 +60,9 @@ type GoMetadataInput struct {
 
 // GoTestInput drives GoTest.
 type GoTestInput struct {
-	Dir       string
-	BuildTags string
+	Dir           string
+	BuildTags     string
+	SelectionJSON string
 }
 
 // GoBuildSBOMInput drives GoBuildSBOM.
@@ -100,6 +101,27 @@ func GoDownloadWithRetry(ctx context.Context, tool GoTool, w, stderr io.Writer, 
 
 // GoTest runs `go test ./...` with optional build tags.
 func GoTest(ctx context.Context, tool GoTool, out, stderr io.Writer, in GoTestInput) error {
+	if in.SelectionJSON != "" {
+		selection, err := domainbuild.ParseGoTestSelection(in.SelectionJSON)
+		if err != nil {
+			return err
+		}
+		args := []string{testCommand, "-json", "-count=1", "-race", "-buildvcs=false"}
+		if strings.TrimSpace(in.BuildTags) != "" {
+			args = append(args, "-tags", strings.TrimSpace(in.BuildTags))
+		}
+		if selection.Run != "" {
+			args = append(args, "-run", selection.Run)
+		}
+		args = append(args, selection.Packages...)
+		run := appenforcement.SelectedTestRun
+		if selection.Gate == domainbuild.PolicyTestGate {
+			run = appenforcement.SelectedPolicyTestRun
+		}
+		return run(ctx, out, stderr, enforcement.GoJSON, func(stdout, stderr io.Writer) error {
+			return tool.Run(ctx, GoRunInput{Dir: defaultGoDir(in.Dir), Args: args, Stdout: stdout, Stderr: stderr})
+		})
+	}
 	args := []string{testCommand}
 
 	policy, err := appenforcement.Resolve(ctx)

@@ -11,6 +11,7 @@ import (
 
 	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
 	appsummary "github.com/diggsweden/forge-ci/internal/app/summary"
+	domainbuild "github.com/diggsweden/forge-ci/internal/domain/build"
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
@@ -21,18 +22,19 @@ import (
 type GoReleaseBuildInput struct {
 	ReleaseBuildOptions
 
-	BinaryName  string
-	Version     string
-	RefName     string
-	Commit      string
-	Platforms   string
-	BuildTags   string
-	LDFlags     string
-	MainPackage string
+	BinaryName        string
+	Version           string
+	RefName           string
+	Commit            string
+	Platforms         string
+	BuildTags         string
+	LDFlags           string
+	MainPackage       string
+	TestSelectionJSON string
 }
 
 // GoReleaseBuild runs the whole Go release build as one step: resolve metadata, download
-// dependencies, test (unless skipped), generate the Build SBOM (unless
+// dependencies, run mandatory tests, generate the Build SBOM (unless
 // disabled), cross-compile per platform, and write the build summary.
 //
 // It is the binary-owned build *sequence* (Design Rule 1): the forge job wraps
@@ -44,6 +46,11 @@ type GoReleaseBuildInput struct {
 func GoReleaseBuild(ctx context.Context, summarySink ci.SummarySink, goTool GoTool, sbomTool CycloneDXGoModTool, out, stderr io.Writer, in GoReleaseBuildInput) error {
 	if err := appenforcement.RequireTests(ctx, in.SkipTests); err != nil {
 		return err
+	}
+	if in.TestSelectionJSON != "" {
+		if _, err := domainbuild.ParseGoTestSelection(in.TestSelectionJSON); err != nil {
+			return err
+		}
 	}
 
 	meta, err := resolveGoMetadata(GoMetadataInput{
@@ -63,7 +70,7 @@ func GoReleaseBuild(ctx context.Context, summarySink ci.SummarySink, goTool GoTo
 		return fmt.Errorf("download dependencies: %w", err)
 	}
 
-	if err := GoTest(ctx, goTool, out, stderr, GoTestInput{Dir: in.Dir, BuildTags: in.BuildTags}); err != nil {
+	if err := GoTest(ctx, goTool, out, stderr, GoTestInput{Dir: in.Dir, BuildTags: in.BuildTags, SelectionJSON: in.TestSelectionJSON}); err != nil {
 		return fmt.Errorf("go test: %w", err)
 	}
 

@@ -88,6 +88,11 @@
         "required": true,
         "type": "string"
       },
+      "cargo-test-selections-json": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
       "changelog-creator": {
         "required": false,
         "type": "string",
@@ -134,6 +139,11 @@
         "default": ""
       },
       "forge-ci-binary-ref": {
+        "required": false,
+        "type": "string",
+        "default": ""
+      },
+      "go-test-selections-json": {
         "required": false,
         "type": "string",
         "default": ""

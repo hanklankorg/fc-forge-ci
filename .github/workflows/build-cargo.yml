@@ -13,6 +13,11 @@ name: Build Cargo
 on:
   workflow_call: # yamllint disable-line rule:truthy
     inputs:
+      test-selection-json:
+        description: "Administrator-owned individual Cargo executables, each with application/policy gate. Policy failures always block. Empty retains the legacy all-targets default: unsafe for hosted exclusions. Never source from consumer artifacts or dispatch inputs. Each run requires fresh native evidence."
+        type: string
+        required: false
+        default: ""
       enforce-application-tests:
         description: "Enforcement setting: false reports recognized test assertion failures without failing; the tests still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
         type: boolean
@@ -144,6 +149,7 @@ jobs:
         # working-directory as well would apply the directory twice.
         env:
           ADMIN_APPLICATION_TESTS: ${{ inputs['enforce-application-tests'] }}
+          ADMIN_TEST_SELECTION_JSON: ${{ inputs['test-selection-json'] }}
           WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
           ARTIFACT_NAME: ${{ inputs['artifact-name'] }}
           BINARY_NAME: ${{ inputs['binary-name'] }}
@@ -154,7 +160,7 @@ jobs:
           PLATFORMS: ${{ inputs.platforms }}
           SKIP_TESTS: ${{ inputs['skip-tests'] }}
           ENABLE_BUILD_SBOM: ${{ inputs['enable-build-sbom'] }}
-        run: forge-ci build cargo run --enforce-application-tests="$ADMIN_APPLICATION_TESTS"
+        run: forge-ci build cargo run --enforce-application-tests="$ADMIN_APPLICATION_TESTS" --test-selection-json="$ADMIN_TEST_SELECTION_JSON"
       - name: Upload Cargo artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
