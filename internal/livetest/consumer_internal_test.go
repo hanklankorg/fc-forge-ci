@@ -198,6 +198,10 @@ func TestReadConsumerPin_RefusesAConsumerItCannotStandInFor(t *testing.T) {
 		"two commits":        {"a.yml": use + strings.Repeat("1", 40) + "\n", "b.yml": use + strings.Repeat("2", 40) + "\n"},
 		"two repositories": {"ci.yml": use + strings.Repeat("1", 40) + "\n" +
 			"      - uses: https://forge.example/other/forge-ci/.forgejo/actions/build-go@" + strings.Repeat("1", 40) + "\n"},
+		"cross-interface repositories": {"ci.yml": use + strings.Repeat("1", 40) + "\n" +
+			"    uses: other/forge-ci/.forgejo/workflows/check.yml@" + strings.Repeat("1", 40) + "\n"},
+		"cross-interface draft repositories": {"ci.yml": use + "PIN_FORGE_CI_SHA\n" +
+			"    uses: other/forge-ci/.forgejo/workflows/check.yml@PIN_FORGE_CI_SHA\n"},
 		"two binaries": {"ci.yml": use + strings.Repeat("1", 40) + "\n        with:\n          expected-sha256: " + strings.Repeat("a", 64) +
 			"\n" + use + strings.Repeat("1", 40) + "\n        with:\n          expected-sha256: " + strings.Repeat("b", 64) + "\n"},
 	} {

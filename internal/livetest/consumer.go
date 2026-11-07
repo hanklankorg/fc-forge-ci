@@ -311,6 +311,18 @@ type ConsumerPin struct {
 	BinarySHA256 string
 }
 
+// repository is the shared owner/name identity of admitted layer references.
+func (pin ConsumerPin) repository() string {
+	if pin.Workflows != "" {
+		return strings.TrimSuffix(pin.Workflows, "/"+consumerWorkflows+"/")
+	}
+	if actionURL, err := url.Parse(pin.Actions); err == nil {
+		return strings.TrimSuffix(strings.TrimPrefix(actionURL.Path, "/"), "/"+layerDir+"/actions/")
+	}
+
+	return ""
+}
+
 var (
 	consumerActionUse   = regexp.MustCompile(`uses:[ \t]*['"]?(https://[^/\s'"]+/[^/\s]+/[^/\s]+/\.forgejo/actions/)[^@\s'"]+@([0-9a-f]{64}|[0-9a-f]{40}|PIN_FORGE_CI_SHA)\b`)
 	consumerWorkflowUse = regexp.MustCompile(`uses:[ \t]*['"]?([^/\s'"]+/[^/\s]+/\.forgejo/workflows/)[^@\s'"]+@([0-9a-f]{64}|[0-9a-f]{40}|PIN_FORGE_CI_SHA)\b`)
@@ -365,6 +377,9 @@ func ReadConsumerPin(workflows map[string]string) (ConsumerPin, error) {
 
 	if conflict != nil {
 		return ConsumerPin{}, conflict
+	}
+	if pin.Actions != "" && pin.Workflows != "" && (ConsumerPin{Actions: pin.Actions}).repository() != pin.repository() {
+		return ConsumerPin{}, fmt.Errorf("the consumer's actions and workflows name different layer repositories: %w", errs.ErrValidation)
 	}
 
 	if pin.Commit == "" {
@@ -540,12 +555,7 @@ var consumerPinSubject = regexp.MustCompile(`(?m)(^|[ \t])--single-pin-subject(?
 // renderText binds the selected layer's validation subject, not bare repository
 // names: documentation and checks of other subjects must keep their identity.
 func (plan *ConsumerPlan) renderText(text string) string {
-	subject := strings.TrimSuffix(plan.Pin.Workflows, "/"+consumerWorkflows+"/")
-	if subject == "" && plan.Pin.Actions != "" {
-		if actionURL, err := url.Parse(plan.Pin.Actions); err == nil {
-			subject = strings.TrimSuffix(strings.TrimPrefix(actionURL.Path, "/"), "/"+layerDir+"/actions/")
-		}
-	}
+	subject := plan.Pin.repository()
 	if subject != "" && plan.repository != "" {
 		text = consumerPinSubject.ReplaceAllStringFunc(text, func(written string) string {
 			match := consumerPinSubject.FindStringSubmatch(written)
