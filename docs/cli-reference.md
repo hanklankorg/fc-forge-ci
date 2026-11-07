@@ -910,6 +910,7 @@ EXAMPLE:
 | `--repository` | owner/repo used to derive the expected source and base-image repository | string | `""` | `$REPOSITORY`, `$CI_REPO`, `$CI_PROJECT_PATH`, `$FORGEJO_REPOSITORY`, `$FORGEJO_REPO`, `$GITHUB_REPOSITORY` |
 | `--repository-suffix` | optional suffix appended to the repository package name, e.g. -base | string | `""` | `$REPOSITORY_SUFFIX` |
 | `--expected-repository` | exact base-image repository allowed for tags/refs (default: host/lower(owner/repo)<suffix>); the registry login goes to its host | string | `""` | `$EXPECTED_REPOSITORY`, `$BASE_IMAGES_EXPECTED_REPOSITORY` |
+| `--evidence-root` | verified canonical workspace root for producer-pinned SBOMs; ledger and provenance paths remain unchanged (no SBOM generation) | string | `""` | n/a |
 | `--registry` | the forge's own registry host, when it is not the host of --server-url (GitLab's $CI_REGISTRY); the login goes to the image repository's host, and a repository on any other host has its tags deleted through that registry | string | `""` | `$CONTAINER_REGISTRY` |
 | `--ledger` | base-image ledger JSON file: a bare array of image_kind=base entries ("-" reads stdin) (required) | string | `""` | `$BASE_IMAGES_LEDGER` |
 | `--workflow` | calling workflow filename/path, relative with no '..' step or control character; recorded as externalParameters.workflow, which base-image verification matches against --expected-workflow | string | `""` | n/a |
@@ -944,16 +945,6 @@ validate existing immutable final base-image tags and report missing flavors
 | `--base-input-id` | optional single sha256 base input ID expected for every flavor | string | `""` | `$BASE_INPUT_ID` |
 | `--base-inputs-json` | JSON array mapping flavors to sha256 base input IDs and optional parent_base {ref,input_id} expectations | string | `"[]"` | `$BASE_INPUTS_JSON` |
 | `--flavors-file` | newline-delimited flavor list in the consumer checkout (required: the engine does not assume a repository layout) | string | `""` | `$FLAVORS_FILE` |
-
-For validation, a per-flavor entry may include `"parent_base":{"ref":"registry.example/team/parent@sha256:<64 hex>","input_id":"<64 hex>"}`.
-The parent ref must be digest-pinned and its input ID must be SHA-256 hex; both
-are matched exactly in the same verified SLSA statement as the child's own source,
-workflow, flavor and `base_input_id`. Omitting `parent_base` supplies no parent
-expectation; it is not proof of no parent. The consumer owns graph ordering and
-must verify the parent separately through this same command before passing its
-verified projection for the child. The parent may belong to another repository.
-This does not change the child's own `base_input_id`, recursively verify parents,
-or add parent fields to outputs.
 
 ### `forge-ci container build`
 
@@ -1421,6 +1412,7 @@ ledger promote operation.
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
+| `--evidence-root` | verified canonical workspace root for producer-pinned SBOMs; ledger and provenance paths remain unchanged (no SBOM generation) | string | `""` | n/a |
 | `--ledger` | ledger JSON file (a bare array; created if absent on add) | string | `"dist/release-images.json"` | `$RELEASE_IMAGES_PATH` |
 | `--tag` | release tag that final_tag (and candidate_tag) must be scoped to | string | `""` | `$TAG_NAME`, `$RELEASE_TAG`, `$REF_NAME`, `$CI_REF_NAME`, `$FORGEJO_REF_NAME`, `$GITHUB_REF_NAME` |
 | `--auth-file` | registry auth file for resolving each image before signing | string | `""` | `$FORGE_CI_REGISTRY_AUTH_FILE` |
@@ -2196,6 +2188,7 @@ sign and attest release images from the confined release-image ledger
 | `--registry-password-file` | file containing the registry password/token ("-" reads stdin); defaults to $REGISTRY_TOKEN then $REGISTRY_PASSWORD. The password never appears in argv. | string | `""` | n/a |
 | `--expected-image-repository` | optional exact image repository allowed for ledger refs/tags at the signer/publisher boundary | string | `""` | `$LEDGER_EXPECTED_IMAGE_REPOSITORY` |
 | `--allow-missing-ledger` | accept a release without images: when the default ledger <dist-dir>/release-images.json does not exist, say so and exit 0 before any credential read or registry login. The dist directory must exist, a ledger that exists is held to every rule, and a ledger named with --ledger must exist | bool | `false` | n/a |
+| `--evidence-root` | verified canonical workspace root for producer-pinned SBOMs; ledger and provenance paths remain unchanged (no SBOM generation) | string | `""` | n/a |
 | `--provenance-envelope` | in-toto statement JSON; defaults to <dist-dir>/slsa-provenance.intoto.json | string | `""` | `$SLSA_PROVENANCE_ENVELOPE` |
 | `--recursive` | pass --recursive to cosign sign for manifest-list children | bool | `false` | `$LEDGER_SIGN_RECURSIVE` |
 | `--expected-base-repository` | exact base image repository allowed for ledger base_ref values (default: <expected-image-repository>-base) | string | `""` | `$LEDGER_SIGN_EXPECTED_BASE_REPOSITORY` |
@@ -3655,6 +3648,7 @@ EXAMPLE:
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
+| `--canonical-payload` | admit a workspace containing dist/ and optional premade-sboms/; use the stable '.' manifest prefix | bool | `false` | n/a |
 | `--dist-dir` | directory whose release hand-off digest is printed | string | `"dist"` | n/a |
 | `--manifest-root` | path prefix written into the sha256sum manifest (defaults to --dist-dir) | string | `""` | n/a |
 
@@ -4256,6 +4250,7 @@ EXAMPLE:
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
+| `--canonical-payload` | admit and verify the entire dist/ plus premade-sboms/ workspace; fixes manifest prefix to '.' | bool | `false` | n/a |
 | `--dist-dir` | directory to verify | string | `"dist"` | n/a |
 | `--expected-digest` | expected dist digest (from the build job) | string | `""` | `$EXPECTED_DIGEST`, `$DIST_DIGEST` |
 | `--digest-file` | regular producer digest recording; exclusive with --expected-digest | string | `""` | n/a |

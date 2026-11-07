@@ -366,6 +366,17 @@ rebuild. Use the same authenticated path in early discovery and final-parent
 checks. Reuse still requires the exact source, workflow, flavor, input ID and
 trusted signing key; auth changes do not relax those checks.
 
+For validation, a per-flavor `--base-inputs-json` entry may include
+`"parent_base":{"ref":"registry.example/team/parent@sha256:<64 hex>","input_id":"<64 hex>"}`.
+The parent ref must be digest-pinned and its input ID must be SHA-256 hex; both
+are matched exactly in the same verified SLSA statement as the child's own source,
+workflow, flavor and `base_input_id`. Omitting `parent_base` supplies no parent
+expectation; it is not proof of no parent. The consumer owns graph ordering and
+must verify the parent separately through this same command before passing its
+verified projection for the child. The parent may belong to another repository.
+This does not change the child's own `base_input_id`, recursively verify parents,
+or add parent fields to outputs.
+
 `registry-login` and `release-images.yml` name the registry user by one rule:
 the user given (`username`, `registry-user` or the `RELEASE_REGISTRY_USER`
 variable), else the repository's owner on this forge's own registry, whom its
