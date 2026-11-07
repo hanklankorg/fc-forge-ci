@@ -33,6 +33,7 @@ This is the reusable-workflow signer boundary; promotion remains a separate
 ledger promote operation.`,
 		Flags: append(
 			[]cli.Flag{
+				ledgerEvidenceRootFlag(),
 				ledgerPathFlag(),
 				releaseTagFlag(),
 				ledgerAuthFileFlag("registry auth file for resolving each image before signing"),
@@ -72,6 +73,7 @@ ledger promote operation.`,
 				cosign.ForKeyRef(cmd.String("key"), "DOCKER_CONFIG"),
 				ledgerRegistry(cmd),
 				appcontainer.SignLedgerImagesInput{
+					EvidenceRoot:            cmd.String("evidence-root"),
 					Entries:                 entries,
 					ReleaseTag:              cmd.String(flagTag),
 					PredicatePath:           predicatePath,
@@ -89,6 +91,10 @@ ledger promote operation.`,
 				})
 		},
 	}
+}
+
+func ledgerEvidenceRootFlag() cli.Flag {
+	return &cli.StringFlag{Name: "evidence-root", Usage: "verified canonical workspace root for producer-pinned SBOMs; ledger and provenance paths remain unchanged (no SBOM generation)"}
 }
 
 // runLedgerSign is the shared sign body for `ledger sign` and

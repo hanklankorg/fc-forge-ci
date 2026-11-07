@@ -40,6 +40,10 @@ type ledgerImageSigner interface {
 // CycloneDX SBOM, enrich the release SLSA predicate with per-image fields, and
 // attest that predicate.
 type SignLedgerImagesInput struct {
+	// EvidenceRoot resolves canonical, producer-pinned SBOM paths in a verified
+	// workspace without changing ledger/provenance paths or the process cwd.
+	// Empty retains legacy workspace-relative generation and signing behavior.
+	EvidenceRoot          string
 	Entries               []imageledger.Entry
 	ReleaseTag            string
 	PredicatePath         string
@@ -63,6 +67,7 @@ type SignLedgerImagesInput struct {
 }
 
 type ledgerSignConstraints struct {
+	evidenceRoot            string
 	expectedImageRepository string
 	expectedBaseRepository  string
 	sbomPathPattern         string
@@ -194,7 +199,7 @@ type ledgerSignRun struct {
 	predicateDir  string
 }
 
-type ledgerSigningPlan struct{ imageRef, predicatePath string }
+type ledgerSigningPlan struct{ imageRef, predicatePath, sbomPath string }
 
 // prepareEntry resolves and prepares every local input without publication.
 func (run ledgerSignRun) prepareEntry(ctx context.Context, idx int, entry imageledger.Entry) (ledgerSigningPlan, error) {
@@ -212,7 +217,7 @@ func (run ledgerSignRun) prepareEntry(ctx context.Context, idx int, entry imagel
 	// changes the registry and may append a permanent transparency-log entry.
 	// The SBOM's JSON and pin, and reserved provenance keys, can all be checked
 	// beforehand. Generating an unpinned SBOM is a local preparation write.
-	if err = ensureImageSBOM(ctx, run.sbom, run.stderr, imageRef, entry); err != nil {
+	if err = ensureImageSBOMAt(ctx, run.sbom, run.stderr, imageRef, entry, run.in.EvidenceRoot); err != nil {
 		return ledgerSigningPlan{}, err
 	}
 
@@ -221,7 +226,7 @@ func (run ledgerSignRun) prepareEntry(ctx context.Context, idx int, entry imagel
 		return ledgerSigningPlan{}, err
 	}
 
-	return ledgerSigningPlan{imageRef: imageRef, predicatePath: predicatePath}, nil
+	return ledgerSigningPlan{imageRef: imageRef, predicatePath: predicatePath, sbomPath: ledgerSBOMLocation(run.in.EvidenceRoot, entry.SBOM)}, nil
 }
 
 // signEntry consumes only a prepared plan; later entries cannot fail preflight
@@ -246,7 +251,7 @@ func (run ledgerSignRun) signEntry(ctx context.Context, entry imageledger.Entry,
 		Image:           imageRef,
 		Method:          run.in.Method,
 		PredicateType:   domaincontainer.PredicateTypeCycloneDX,
-		PredicatePath:   entry.SBOM,
+		PredicatePath:   plan.sbomPath,
 		KeyRef:          run.in.KeyRef,
 		OIDCIssuer:      run.in.OIDCIssuer,
 		FulcioURL:       run.in.FulcioURL,
@@ -311,6 +316,7 @@ func readLedgerSignBasePredicate(in SignLedgerImagesInput) ([]byte, error) {
 
 func ledgerSignConstraintsFromInput(in SignLedgerImagesInput) (ledgerSignConstraints, error) {
 	constraints := ledgerSignConstraints{
+		evidenceRoot:            in.EvidenceRoot,
 		expectedImageRepository: in.ExpectedImageRepository,
 		expectedBaseRepository:  in.ExpectedBaseRepository,
 		sbomPathPattern:         in.SBOMPathPattern,
@@ -345,7 +351,11 @@ func validateLedgerSignEntry(entry imageledger.Entry, releaseTag string, constra
 		return fmt.Errorf("imageledger: sbom is required for signing: %w", errs.ErrValidation)
 	}
 
-	if err := validateLedgerSBOMPath(entry.SBOM, true); err != nil {
+	if constraints.evidenceRoot != "" && entry.SBOMSHA256 == "" {
+		return fmt.Errorf("verified evidence root requires producer-pinned SBOMs: %w", errs.ErrValidation)
+	}
+
+	if err := validateLedgerSBOMPathAt(constraints.evidenceRoot, entry.SBOM, true); err != nil {
 		return err
 	}
 
@@ -356,10 +366,24 @@ func validateLedgerSignEntry(entry imageledger.Entry, releaseTag string, constra
 	return validateLedgerSignBase(entry, constraints)
 }
 
-func validateLedgerSBOMPath(path string, allowMissing bool) error {
+func ledgerSBOMLocation(root, path string) string {
+	if root == "" {
+		return path
+	}
+
+	return filepath.Join(root, path)
+}
+
+func validateLedgerSBOMPathAt(evidenceRoot, path string, allowMissing bool) error {
 	if !pathsafe.Relative(path) {
 		return fmt.Errorf("ledger SBOM must stay within the workspace: %w", errs.ErrValidation)
 	}
+
+	if evidenceRoot != "" && !domainrelease.CanonicalPayloadPath(path) {
+		return fmt.Errorf("verified SBOM must have a canonical evidence path: %w", errs.ErrValidation)
+	}
+
+	path = ledgerSBOMLocation(evidenceRoot, path)
 
 	root, err := pathsafe.OpenRoot(filepath.Dir(path))
 	if allowMissing && errors.Is(err, os.ErrNotExist) {
@@ -502,17 +526,21 @@ func resolveLedgerSignRef(ctx context.Context, resolver imageDigestResolver, ent
 // Both must contain a JSON object before signing begins; validation does not
 // rewrite the bytes supplied for attestation.
 func ensureImageSBOM(ctx context.Context, sbom ImageEvidenceSyft, stderr io.Writer, imageRef string, entry imageledger.Entry) error {
+	return ensureImageSBOMAt(ctx, sbom, stderr, imageRef, entry, "")
+}
+
+func ensureImageSBOMAt(ctx context.Context, sbom ImageEvidenceSyft, stderr io.Writer, imageRef string, entry imageledger.Entry, evidenceRoot string) error {
 	if entry.SBOMSHA256 == "" {
 		if err := generateImageSBOM(ctx, sbom, stderr, imageRef, entry.SBOM); err != nil {
 			return err
 		}
 	}
 
-	if err := validateLedgerSBOMPath(entry.SBOM, false); err != nil {
+	if err := validateLedgerSBOMPathAt(evidenceRoot, entry.SBOM, false); err != nil {
 		return err
 	}
 
-	root, err := pathsafe.OpenRoot(filepath.Dir(entry.SBOM))
+	root, err := pathsafe.OpenRoot(filepath.Dir(ledgerSBOMLocation(evidenceRoot, entry.SBOM)))
 	if err != nil {
 		return err
 	}

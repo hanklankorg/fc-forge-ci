@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"regexp"
 	"strings"
@@ -44,6 +45,10 @@ func ReadDistDigestFile(path string) (string, error) {
 // them into a new destination. Source mutation can never bypass the digest by
 // occurring between a separate validation and copy. Existing targets are refused.
 func StageVerifiedDist(ctx context.Context, source, destination, expected, manifestRoot string) error {
+	return stageVerifiedDist(ctx, source, destination, expected, manifestRoot, domainrelease.WalkSafe)
+}
+
+func stageVerifiedDist(ctx context.Context, source, destination, expected, manifestRoot string, admit func(fs.FS) error) error {
 	if expected == "" || source == "" || destination == "" {
 		return fmt.Errorf("source, destination and expected digest required: %w", errs.ErrUsage)
 	}
@@ -67,11 +72,11 @@ func StageVerifiedDist(ctx context.Context, source, destination, expected, manif
 		}
 	}()
 
-	if err := gatherExportTrees(ctx, GatherExportsInput{Sources: []string{source}, Destination: destination, Enabled: true}, stage.Root()); err != nil {
+	if err := gatherExportTreesAdmitted(ctx, GatherExportsInput{Sources: []string{source}, Destination: destination, Enabled: true}, stage.Root(), admit); err != nil {
 		return err
 	}
 
-	if err := domainrelease.WalkSafe(stage.Root().FS()); err != nil {
+	if err := admit(stage.Root().FS()); err != nil {
 		return err
 	}
 
