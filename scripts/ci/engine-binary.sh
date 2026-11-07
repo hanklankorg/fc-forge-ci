@@ -80,7 +80,9 @@ go_env() {
 		"GOARCH=${arch}"
 	)
 	local name
-	for name in GOPATH GOMODCACHE GOCACHE; do
+	# Scratch placement and compiler parallelism do not change build inputs.
+	# Preserve caller resource limits even in this otherwise closed environment.
+	for name in GOPATH GOMODCACHE GOCACHE TMPDIR GOMAXPROCS; do
 		[[ -z "${!name:-}" ]] || environment+=("${name}=${!name}")
 	done
 	env -i "${environment[@]}" "$@"
