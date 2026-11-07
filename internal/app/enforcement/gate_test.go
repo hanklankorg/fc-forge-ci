@@ -258,7 +258,7 @@ func TestFlagReachesTheGateAndItsReceipt(t *testing.T) {
 		t.Fatalf("admin report-only lint still blocked: %v", err)
 	}
 
-	if !strings.Contains(out.String(), "lint result=findings count=3 enforcement=false source=flag\n") {
+	if !strings.Contains(out.String(), "lint result=findings count=3 enforcement=false source=flag blocking-count=3\n") {
 		t.Fatalf("receipt does not show the admin input:\n%s", out.String())
 	}
 
@@ -268,7 +268,7 @@ func TestFlagReachesTheGateAndItsReceipt(t *testing.T) {
 		t.Fatalf("an unset setting lost its report-only default: %v", err)
 	}
 
-	if !strings.Contains(out.String(), "vulnerabilities result=findings count=1 enforcement=false source=embedded-default\n") {
+	if !strings.Contains(out.String(), "vulnerabilities result=findings count=1 enforcement=false source=embedded-default blocking-count=1\n") {
 		t.Fatalf("receipt does not show the default:\n%s", out.String())
 	}
 
@@ -278,6 +278,17 @@ func TestFlagReachesTheGateAndItsReceipt(t *testing.T) {
 
 	if got := AdminArgs(t.Context()); len(got) != 0 {
 		t.Fatalf("no admin input rendered as %v", got)
+	}
+}
+
+func TestFindingsCountsWriteErrorsRemainBlocking(t *testing.T) {
+	for _, enforced := range []string{"false", "true"} {
+		ctx := WithAdmin(t.Context(), enforcement.Admin{enforcement.Vulnerabilities: enforced})
+		for _, eligible := range []int{0, 1} {
+			if err := FindingsCounts(ctx, failedWriter{}, enforcement.Vulnerabilities, 2, eligible); !errors.Is(err, io.ErrClosedPipe) {
+				t.Fatalf("enforced=%s eligible=%d: %v", enforced, eligible, err)
+			}
+		}
 	}
 }
 
