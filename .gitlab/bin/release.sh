@@ -456,11 +456,25 @@ rc_register_release_image_evidence() {
 }
 
 rc_read_handoff() {
-	local directory=$1
+	local directory=$1 mode=${2:-dist}
 	# Conditional callers disable errexit. Return explicitly before exposing paths.
+	case "${mode}" in
+	canonical-payload)
+		# Explicit unsigned root-base transport only. No production job selects
+		# this mode; signed/publication handoffs retain their separate contract.
+		rc_engine release validate-dist --dist-dir "${directory}/payload" --digest-file "${directory}/digest" \
+			--canonical-payload --stage-dir verified-payload || return
+		export DIST_DIR=verified-payload/dist RELEASE_FILES_MANIFEST=verified-payload/dist/release-files.json
+		export RC_EVIDENCE_ROOT=verified-payload
+		return
+		;;
+	dist) ;;
+	*) echo "ERROR: unsupported handoff mode '${mode}'." >&2; return 1 ;;
+	esac
 	rc_engine release validate-dist --dist-dir "${directory}/dist" --digest-file "${directory}/digest" \
 		--manifest-root . --stage-dir dist || return
 	export DIST_DIR=dist RELEASE_FILES_MANIFEST=dist/release-files.json
+	unset RC_EVIDENCE_ROOT
 }
 
 rc_public_key() {

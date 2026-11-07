@@ -42,6 +42,11 @@ const (
 )
 
 func releaseImagesBuildCmd() *cli.Command {
+	return nativeImagesBuildCmd(readReleaseImagesPlanFile)
+}
+
+// Both native boundaries share build execution, but retain distinct admission.
+func nativeImagesBuildCmd(readPlan func(*cli.Command) (pipeline.ReleaseImagesPlan, error)) *cli.Command {
 	return &cli.Command{
 		Name:  subCmdBuild,
 		Usage: "build every planned release image of one architecture to staged layouts, with no registry write",
@@ -64,7 +69,7 @@ EXAMPLE:
 			&cli.StringFlag{Name: "inputs-dir", Usage: "secret-free prepared inputs root, with a <name>-arch-<arch> fetch-build-inputs directory for every build"},
 		), imageBuilderFlags()...),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			plan, err := readReleaseImagesPlanFile(cmd)
+			plan, err := readPlan(cmd)
 			if err != nil {
 				return err
 			}
@@ -281,6 +286,11 @@ func writeReleaseImagesPlanFile(path string, plan pipeline.ReleaseImagesPlan, ru
 		return err
 	}
 
+	return writeNativeImagesPlanFile(path, plan, runnerArchs)
+}
+
+// Admission is boundary-specific; runner coverage and transport stay shared.
+func writeNativeImagesPlanFile(path string, plan pipeline.ReleaseImagesPlan, runnerArchs string) error {
 	if runnerArchs != "" {
 		available := strings.FieldsFunc(runnerArchs, func(r rune) bool { return r == ',' || r == '\n' || r == ' ' })
 		for _, build := range plan.Builds {

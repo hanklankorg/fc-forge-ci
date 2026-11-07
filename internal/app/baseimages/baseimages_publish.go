@@ -45,7 +45,7 @@ type PublishRootBaseInput struct {
 // dist/base-images.json ledger. As in the existing base lifecycle, the pinned
 // base SBOM is the first selected platform inventory, not an aggregate index BOM.
 //
-// This application primitive does not enable native BASE entry points. Parents,
+// The narrow root-base CLI boundary uses this primitive. Parents,
 // mixed/multiple images and architecture caches are deliberately unsupported.
 // The caller must transport/digest this payload and independently admit it before
 // using the existing trusted import, sign and promote use cases.
@@ -142,6 +142,10 @@ func admitRootBasePublication(in PublishRootBaseInput) (pipeline.ReleaseImage, i
 
 	var entry imageledger.Entry
 
+	if len(in.Plan.Images) != 1 || in.Plan.Images[0].ImageKind != string(imageledger.ImageKindBase) {
+		return image, entry, fmt.Errorf("root base publication requires exactly one base image: %w", errs.ErrInvalidConfig)
+	}
+
 	body, err := json.Marshal(in.Plan)
 	if err != nil {
 		return image, entry, err
@@ -152,12 +156,8 @@ func admitRootBasePublication(in PublishRootBaseInput) (pipeline.ReleaseImage, i
 		return image, entry, err
 	}
 
-	if len(plan.Images) != 1 {
-		return image, entry, fmt.Errorf("root base publication requires exactly one image: %w", errs.ErrInvalidConfig)
-	}
-
 	image = plan.Images[0]
-	if image.ImageKind != string(imageledger.ImageKindBase) || image.BaseRef != "" || image.MovingTagName != "" || image.CacheTagPrefix != "" {
+	if image.BaseRef != "" || image.MovingTagName != "" || image.CacheTagPrefix != "" {
 		return image, entry, fmt.Errorf("root base publication requires a base without parent, moving tag or cache: %w", errs.ErrInvalidConfig)
 	}
 
@@ -184,6 +184,14 @@ func admitRootBasePublication(in PublishRootBaseInput) (pipeline.ReleaseImage, i
 	}
 
 	return image, entry, nil
+}
+
+// ValidateRootBasePlan admits the deliberately limited cold, single-root native
+// boundary before scheduling or building. Consumer graphs and IDs remain opaque.
+func ValidateRootBasePlan(plan pipeline.ReleaseImagesPlan, repository string) error {
+	_, _, err := admitRootBasePublication(PublishRootBaseInput{Plan: plan, ExpectedRepository: repository})
+
+	return err
 }
 
 // Resolve existing directory aliases before creating anything. A publisher must
