@@ -138,6 +138,27 @@ jobs:
           key: cargo-build-${{ runner.os }}-${{ hashFiles(format('{0}/Cargo.lock', inputs['working-directory'])) }}
           restore-keys: |
             cargo-build-${{ runner.os }}-
+      - name: Checkout selected-test engine checksum policy
+        if: ${{ inputs['test-selection-json'] != '' }}
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+          path: .forge-ci-contract-engine
+          sparse-checkout: .engine
+          persist-credentials: false
+      - name: Verify the native test engine collaborator
+        if: ${{ inputs['test-selection-json'] != '' }}
+        id: contract-engine
+        shell: bash
+        env:
+          FORGE_CI_BIN: /usr/local/bin/forge-ci
+          SIGNER_STRICT: "1"
+        run: |
+          set -euo pipefail
+          source .forge-ci-contract-engine/.engine/bin/lib-forge-ci.sh
+          verify_forge_ci
+          printf 'binary-path=%s\n' "$HELPERS_ENGINE_VERIFIED" >>"$GITHUB_OUTPUT"
       - name: Build Cargo project
         # One step owns the whole build sequence (metadata → fetch → test → SBOM
         # → compile → status); the binary threads metadata internally and the
@@ -150,6 +171,7 @@ jobs:
         env:
           ADMIN_APPLICATION_TESTS: ${{ inputs['enforce-application-tests'] }}
           ADMIN_TEST_SELECTION_JSON: ${{ inputs['test-selection-json'] }}
+          FORGE_CI_CONTRACT_BIN: ${{ steps.contract-engine.outputs.binary-path }}
           WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
           ARTIFACT_NAME: ${{ inputs['artifact-name'] }}
           BINARY_NAME: ${{ inputs['binary-name'] }}

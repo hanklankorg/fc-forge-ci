@@ -27,7 +27,7 @@ const nanoSelection = `{"runs":[
  {"kind":"package-bin","package":"nanolinter-ci","name":"nanolinter-ci","gate":"policy"},
  {"kind":"package-test","package":"nanolinter-ci","name":"basegraph_provenance","gate":"policy"},
  {"kind":"package-test","package":"nanolinter-ci","name":"go_parity","gate":"policy"},
- {"kind":"package-test","package":"nanolinter-ci","name":"imageplan_contract","gate":"policy"},
+ {"kind":"package-test","package":"nanolinter-ci","name":"imageplan_contract","gate":"policy","ignored":true},
  {"kind":"package-test","package":"nanolinter-ci","name":"release_plan","gate":"policy"},
  {"kind":"package-test","package":"nanolinter","name":"architecture_guards","gate":"policy"},
  {"kind":"package-test","package":"nanolinter","name":"configuration_doc_schema","gate":"policy"},
@@ -59,7 +59,12 @@ func TestNanoSelectionNeverExpandsToAllTargets(t *testing.T) {
 	)
 
 	for _, target := range []string{"basegraph_provenance", "go_parity", "imageplan_contract", "release_plan"} {
-		want = append(want, []string{"test", "--locked", "--package", "nanolinter-ci", "--test", target})
+		args := []string{"test", "--locked", "--package", "nanolinter-ci", "--test", target}
+		if target == "imageplan_contract" {
+			args = append(args, "--", "--ignored")
+		}
+
+		want = append(want, args)
 	}
 
 	for _, guard := range []string{"architecture_guards", "configuration_doc_schema", "dependency_guards", "docs_workflow_guards", "workflow_policy"} {

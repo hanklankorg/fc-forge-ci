@@ -251,6 +251,13 @@ administrator owns this classification; there are no product-name rules.
 
 Each entry runs a separate `cargo test --locked --package NAME --bin NAME` or
 `--test NAME` invocation and requires exactly one completed libtest summary.
+An optional boolean `ignored: true` selects that executable's opt-in tests with
+`-- --ignored`; omitted or false retains libtest's defaults. Null, strings and
+arbitrary extra arguments are refused. The invocation must still execute at least
+one test and produce fresh, complete evidence. This does not waive policy failures.
+The GitHub selected-Cargo job exposes `FORGE_CI_CONTRACT_BIN` for engine contract
+tests only after verifying the runtime CLI against the resolved engine checkout's
+recorded native checksum. Runtime/source mismatches fail before the tests run.
 Grouped `workspace-bins`, `package-bins`, `package-tests` and `all-targets`
 selections are refused: a single assertion summary from an early failed
 executable cannot stand in for later unrun executables. Under report-only
@@ -265,7 +272,7 @@ For example, an explicitly enumerated Nano hosted selection is expressible as:
   {"kind":"package-bin","package":"nanolinter-ci","name":"nanolinter-ci","gate":"policy"},
   {"kind":"package-test","package":"nanolinter-ci","name":"basegraph_provenance","gate":"policy"},
   {"kind":"package-test","package":"nanolinter-ci","name":"go_parity","gate":"policy"},
-  {"kind":"package-test","package":"nanolinter-ci","name":"imageplan_contract","gate":"policy"},
+  {"kind":"package-test","package":"nanolinter-ci","name":"imageplan_contract","gate":"policy","ignored":true},
   {"kind":"package-test","package":"nanolinter-ci","name":"release_plan","gate":"policy"},
   {"kind":"package-test","package":"nanolinter","name":"architecture_guards","gate":"policy"},
   {"kind":"package-test","package":"nanolinter","name":"configuration_doc_schema","gate":"policy"},
