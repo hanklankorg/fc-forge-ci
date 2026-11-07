@@ -64,6 +64,8 @@ type GitHubTrial struct {
 	// files are trial-made files PushConsumer commits beside the rendered
 	// workflows, by repository path: WithFile.
 	files map[string]string
+	// secrets keeps scenario-owned values available for native log redaction.
+	secrets map[string]map[string]string
 }
 
 // OpenGitHubTrial loads Forge Lab's hosted context and authorizes exactly the
@@ -551,6 +553,14 @@ func (trial *GitHubTrial) SetSecret(repo, name, value string) {
 	if err != nil {
 		trial.tb.Fatalf("livetest: set secret %s on %s: %s", name, repo, strings.ReplaceAll(err.Error(), value, "[redacted]"))
 	}
+
+	if trial.secrets == nil {
+		trial.secrets = map[string]map[string]string{}
+	}
+	if trial.secrets[repo] == nil {
+		trial.secrets[repo] = map[string]string{}
+	}
+	trial.secrets[repo][name] = value
 }
 
 // Token is the context's management/Packages token, not a release credential.
@@ -645,19 +655,51 @@ func (trial *GitHubTrial) ReportRun(repo string, run *github.WorkflowRun) {
 
 		location, _, logErr := trial.api.Actions.GetWorkflowJobLogs(ctx, trial.org, repo, job.GetID(), 0)
 		if logErr != nil {
-			trial.tb.Logf("    (no log: %v)", logErr)
+			if snapshotEvidenceRoot() != "" {
+				trial.tb.Errorf("livetest: job %d log URL unavailable; no full evidence retained", job.GetID())
+			}
+			trial.tb.Logf("    (no log: %s)", redactJobLog(Target{Token: trial.token, CredentialUsername: "x-access-token"}, logErr.Error(), trial.secrets[repo]))
 			trial.reportJobAnnotations(ctx, repo, job)
 
 			continue
 		}
 
-		excerpt := failureOf(ctx, location.String(), 40)
+		excerpt := trial.failureEvidence(ctx, repo, run, job, location.String())
 		trial.tb.Logf("    log at the failure:\n%s", excerpt)
 
 		if strings.HasPrefix(excerpt, "could not fetch the job log") {
 			trial.reportJobAnnotations(ctx, repo, job)
 		}
 	}
+}
+
+// Retain before ReportRun returns to the verdict and disposable cleanup. Reuse
+// the snapshot destination, bounds and redactor rather than a second archive.
+func (trial *GitHubTrial) failureEvidence(ctx context.Context, repo string, run *github.WorkflowRun, job *github.WorkflowJob, location string) string {
+	if snapshotEvidenceRoot() == "" {
+		return failureOf(ctx, location, 40)
+	}
+
+	reader, err := openGitHubJobLog(ctx, location)
+	if err != nil {
+		trial.tb.Errorf("livetest: job %d log unavailable; no full evidence retained", job.GetID())
+
+		return err.Error()
+	}
+	defer func() { _ = reader.Close() }()
+
+	body, err := io.ReadAll(io.LimitReader(reader, maxJobLog+1))
+	if err != nil || len(body) > maxJobLog {
+		trial.tb.Errorf("livetest: job %d log unreadable or exceeds evidence limit; no full evidence retained", job.GetID())
+
+		return "could not fetch the job log within the evidence limit"
+	}
+
+	target := Target{Forge: "github", Host: "github.com", Owner: trial.org, Token: trial.token, CredentialUsername: "x-access-token"}
+	log := redactJobLog(target, string(body), trial.secrets[repo])
+	retainJobLogText(trial.tb, target, trial.org+"/"+repo, RunJob{RunID: run.GetID(), ID: job.GetID(), Attempt: int64(max(1, run.GetRunAttempt()))}, log, trial.secrets[repo])
+
+	return readFailureExcerpt(strings.NewReader(log), 40)
 }
 
 // Jobs rejected before a runner starts may have no log archive. GitHub records
@@ -715,24 +757,34 @@ func (trial *GitHubTrial) reportAnnotationFailure(repo string, job *github.Workf
 // failureOf fetches a pre-signed log URL without the token and returns the
 // lines that explain the failure.
 func failureOf(ctx context.Context, location string, lines int) string {
+	reader, err := openGitHubJobLog(ctx, location)
+	if err != nil {
+		return err.Error()
+	}
+	defer func() { _ = reader.Close() }()
+
+	return readFailureExcerpt(reader, lines)
+}
+
+func openGitHubJobLog(ctx context.Context, location string) (io.ReadCloser, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil) //nolint:gosec // G704: pre-signed URL comes from the authenticated GitHub job-log API, not repository content.
 	if err != nil {
-		return "could not prepare the job log request"
+		return nil, errors.New("could not prepare the job log request")
 	}
 
 	response, err := (&http.Client{Timeout: time.Minute}).Do(request) //nolint:gosec // G704: fetch the GitHub-issued pre-signed log URL without an API token.
 	if err != nil {
 		// The URL is pre-signed; transport errors can include its credentials.
-		return "could not fetch the job log"
+		return nil, errors.New("could not fetch the job log")
 	}
-
-	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
-		return fmt.Sprintf("could not fetch the job log: HTTP %d", response.StatusCode)
+		_ = response.Body.Close()
+
+		return nil, fmt.Errorf("could not fetch the job log: HTTP %d", response.StatusCode)
 	}
 
-	return readFailureExcerpt(response.Body, lines)
+	return response.Body, nil
 }
 
 func readFailureExcerpt(reader io.Reader, lines int) string {
