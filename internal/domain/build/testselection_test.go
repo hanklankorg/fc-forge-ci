@@ -5,6 +5,7 @@ package build
 
 import (
 	"errors"
+	"reflect"
 	"regexp/syntax"
 	"testing"
 
@@ -28,6 +29,48 @@ func TestSelectionDiagnosticsKeepTextAndUsageIdentity(t *testing.T) {
 		if errors.As(err, &syntaxError) || errors.Is(err, errInvalidSelectionMember) || errors.Is(err, errNullSelectionValue) {
 			t.Fatalf("selection exposed an internal parsing identity: %v", err)
 		}
+	}
+}
+
+func TestCargoIgnoredSelectionIsTypedAndKeepsDefaultArgv(t *testing.T) {
+	for _, kind := range []string{"package-bin", "package-test"} {
+		for _, field := range []string{"", `,"ignored":false`, `,"ignored":true`} {
+			body := `{"runs":[{"kind":"` + kind + `","package":"app","name":"contract","gate":"policy"` + field + `}]}`
+
+			selection, err := ParseCargoTestSelection(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			flag := "--test"
+			if kind == "package-bin" {
+				flag = "--bin"
+			}
+
+			want := []string{"test", "--locked", "--package", "app", flag, "contract"}
+			if field == `,"ignored":true` {
+				want = append(want, "--", "--ignored")
+			}
+
+			if got := selection.Runs[0].Args(); !reflect.DeepEqual(got, want) {
+				t.Fatalf("%s: argv %v, want %v", body, got, want)
+			}
+		}
+	}
+
+	for _, field := range []string{`"ignored":null`, `"ignored":"true"`, `"ignored":1`, `"ignored":[]`, `"ignored":true,"ignored":false`, `"ignored":true,"Ignored":false`, `"args":["--ignored"]`} {
+		body := `{"runs":[{"kind":"package-test","package":"app","name":"contract","gate":"policy",` + field + `}]}`
+		if _, err := ParseCargoTestSelection(body); !errors.Is(err, errs.ErrUsage) {
+			t.Fatalf("accepted untyped/ambiguous ignored selection %s: %v", body, err)
+		}
+	}
+
+	if _, err := ParseGoTestSelection(`{"packages":["./..."],"gate":"policy","ignored":true}`); !errors.Is(err, errs.ErrUsage) {
+		t.Fatalf("Cargo selector leaked into Go: %v", err)
+	}
+
+	if _, err := ParseCargoTestSelection(`{"runs":[{"kind":"package-test","package":"app","name":"contract","gate":"policy"},{"kind":"package-test","package":"app","name":"contract","gate":"policy","ignored":true}]}`); !errors.Is(err, errs.ErrUsage) {
+		t.Fatalf("ignored mode bypassed duplicate executable refusal: %v", err)
 	}
 }
 

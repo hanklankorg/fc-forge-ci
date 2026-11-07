@@ -37,6 +37,8 @@ type CargoTestTarget struct {
 	Package string   `json:"package"`
 	Name    string   `json:"name"`
 	Gate    TestGate `json:"gate"`
+	// Ignored explicitly selects libtest's ignored tests instead of its defaults.
+	Ignored bool `json:"ignored,omitempty"`
 }
 
 // TestGate is owned by the administrator's selection, not the product name.
@@ -197,8 +199,14 @@ func (target CargoTestTarget) Args() []string {
 	args = append(args, "--package", target.Package)
 	switch target.Kind {
 	case "package-bin":
-		return append(args, "--bin", target.Name)
+		args = append(args, "--bin", target.Name)
 	default:
-		return append(args, "--test", target.Name)
+		args = append(args, "--test", target.Name)
 	}
+
+	if target.Ignored {
+		args = append(args, "--", "--ignored")
+	}
+
+	return args
 }
