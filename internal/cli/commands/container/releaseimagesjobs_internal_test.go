@@ -52,6 +52,7 @@ func TestReleaseImagesPublishDerivesSourceProviderSBOMPrefixBeforeAdmission(t *t
 	writeReleaseJobsArtifacts(t)
 	t.Setenv("FORGE_CI_PROVIDER", "gitlab")
 	require.NoError(t, releaseImagesPlanCmd().Run(t.Context(), releaseJobsPlanArgs("--output", "plan.json")))
+
 	for _, server := range []string{"https://gitlab.example", "http://gitlab.example"} {
 		err := releaseImagesPublishCmd().Run(t.Context(), []string{
 			"publish", "--plan", "plan.json", "--image-repository", "registry.example/group/app",
@@ -60,11 +61,13 @@ func TestReleaseImagesPublishDerivesSourceProviderSBOMPrefixBeforeAdmission(t *t
 			"--layouts-dir", "missing-native-layouts", "--output-dir", "never-published", "--prepublication-sboms",
 		})
 		require.Error(t, err)
+
 		if strings.HasPrefix(server, "https:") {
 			require.ErrorContains(t, err, "missing-native-layouts", "the inferred provider URL must pass URL admission before layout admission")
 		} else {
 			require.ErrorContains(t, err, "native SBOM URL must be public HTTPS")
 		}
+
 		require.NoDirExists(t, "never-published")
 	}
 }
@@ -123,13 +126,16 @@ func TestReleaseImagesResolvedNativePlansPreserveIdentityAndBasePolicy(t *testin
 	tool := signerImageTool{&kaniko.Adapter{Executor: executable}}
 	identity, err := tool.Identity()
 	require.NoError(t, err)
+
 	for _, base := range []bool{true, false} {
 		var plan pipeline.ReleaseImagesPlan
 		// Start with the same artifacts planner used by ordinary native jobs.
 		require.NoError(t, releaseImagesPlanCmd().Run(t.Context(), releaseJobsPlanArgs("--output", "ordinary.json")))
+
 		body, err := os.ReadFile("ordinary.json")
 		require.NoError(t, err)
 		require.NoError(t, json.Unmarshal(body, &plan))
+
 		if base {
 			image := &plan.Images[0]
 			image.ImageKind, image.Role, image.Flavor = "base", "base", "core"
@@ -139,6 +145,7 @@ func TestReleaseImagesResolvedNativePlansPreserveIdentityAndBasePolicy(t *testin
 			image.Revision = image.BaseInputID
 			image.RequiredLabels = "org.example.base-input-id=" + image.BaseInputID
 			image.CacheTagPrefix = "cache-" + image.FinalTagName
+
 			for i := range plan.Builds {
 				build := &plan.Builds[i]
 				build.FinalTagName, build.CandidateTag, build.Revision = image.FinalTagName, image.CandidateTag, image.Revision
@@ -147,9 +154,11 @@ func TestReleaseImagesResolvedNativePlansPreserveIdentityAndBasePolicy(t *testin
 				build.CacheTag = image.CacheTagPrefix + "-" + build.Arch
 			}
 		}
+
 		for i := range plan.Builds {
 			plan.Builds[i].BuilderMaterialID = identity.MaterialID()
 		}
+
 		if base {
 			require.ErrorIs(t, writeReleaseImagesPlanFile("refused-base.json", plan, "amd64,arm64"), errs.ErrInvalidConfig)
 			require.NoFileExists(t, "refused-base.json")
@@ -161,6 +170,7 @@ func TestReleaseImagesResolvedNativePlansPreserveIdentityAndBasePolicy(t *testin
 		} else {
 			require.NoError(t, writeReleaseImagesPlanFile("resolved.json", plan, "amd64,arm64"))
 		}
+
 		body, err = os.ReadFile("resolved.json")
 		require.NoError(t, err)
 		admitted, err := pipeline.ReadImageBuildPlan(string(body), "registry.example/group/app", "v1.2.3")
@@ -168,16 +178,19 @@ func TestReleaseImagesResolvedNativePlansPreserveIdentityAndBasePolicy(t *testin
 		require.Equal(t, plan, admitted)
 		input := releaseImageBuildInputFor(t, admitted.Builds[0])
 		require.Equal(t, identity.MaterialID(), input.BuilderMaterialID)
+
 		if base {
 			require.Equal(t, admitted.Images[0].Revision, input.SourceSHA)
 			require.Equal(t, admitted.Builds[0].CacheTag, input.CacheTag)
 			require.Equal(t, []string{admitted.Images[0].RequiredLabels}, input.CacheLabels)
 			require.Contains(t, input.Labels, admitted.Images[0].RequiredLabels)
 		}
+
 		require.NoError(t, appcontainer.CheckSignerImageBuilderIdentity(tool, input.BuilderMaterialID))
 		// Hash the real adapter executable again: no build/probe may run.
 		require.NoError(t, os.WriteFile(executable, []byte("#!/bin/sh\nexit 98\n"), 0o700))
 		require.ErrorIs(t, appcontainer.CheckSignerImageBuilderIdentity(tool, input.BuilderMaterialID), errs.ErrValidation)
+
 		err = releaseImagesBuildCmd().Run(t.Context(), []string{
 			"build", "--plan", "resolved.json", "--arch", runtime.GOARCH,
 			"--image-repository", "registry.example/group/app", "--release-tag", "v1.2.3",
@@ -192,7 +205,9 @@ func TestReleaseImagesResolvedNativePlansPreserveIdentityAndBasePolicy(t *testin
 			require.ErrorIs(t, err, errs.ErrValidation)
 			require.ErrorContains(t, err, "native builder material ID differs")
 		}
+
 		require.NoDirExists(t, "never-staged")
+
 		buildJSON, err := json.Marshal(admitted.Builds[0])
 		require.NoError(t, err)
 		err = releaseImagesBuildPreparedCmd().Run(t.Context(), []string{

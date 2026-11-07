@@ -76,6 +76,7 @@ EXAMPLE:
 
 			arch := cmd.String(flagArch)
 			builds := releaseImageBuildsOf(plan, arch)
+
 			if root := cmd.String("inputs-dir"); root != "" && !filepath.IsLocal(root) {
 				return fmt.Errorf("inputs-dir must be a safe relative directory: %w", errs.ErrUsage)
 			}
@@ -91,8 +92,10 @@ EXAMPLE:
 					if err := stagePreparedReleaseImageBuild(ctx, cmd, builder, build, filepath.Join(cmd.String("inputs-dir"), build.Name+"-arch-"+build.Arch)); err != nil {
 						return fmt.Errorf("release image %s (%s): %w", build.Name, build.Arch, err)
 					}
+
 					continue
 				}
+
 				if _, err := appcontainer.StageSignerImageArch(ctx, signerImageTool{builder}, ociregistry.NewAnonymous(), os.Stderr, releaseImageBuildInput(cmd, build)); err != nil {
 					return fmt.Errorf("release image %s (%s): %w", build.Name, build.Arch, err)
 				}
@@ -210,12 +213,14 @@ EXAMPLE:
 
 			return deps.FromCmd(ctx, cmd, func(dep *deps.Deps) error {
 				scanner := trivy.New()
+
 				prefix := cmd.String("sbom-url-prefix")
 				if cmd.Bool("prepublication-sboms") && prefix == "" {
 					urls := dep.WebURLBuilder()
 					if urls == nil {
 						return fmt.Errorf("prepublication SBOMs require a source forge or explicit sbom-url-prefix: %w", errs.ErrUsage)
 					}
+
 					prefix = urls.ReleaseDownloadURLPrefix(cmd.String(flagServerURL), cmd.String(flagRepository), cmd.String(flagReleaseTag))
 				}
 
@@ -275,6 +280,7 @@ func writeReleaseImagesPlanFile(path string, plan pipeline.ReleaseImagesPlan, ru
 	if err := appcontainer.ValidateNativeReleaseImagesPlan(plan); err != nil {
 		return err
 	}
+
 	if runnerArchs != "" {
 		available := strings.FieldsFunc(runnerArchs, func(r rune) bool { return r == ',' || r == '\n' || r == ' ' })
 		for _, build := range plan.Builds {

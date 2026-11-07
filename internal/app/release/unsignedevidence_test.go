@@ -18,21 +18,26 @@ func TestUnsignedEvidenceDoesNotImposeNativeImageContractOnExistingLedgers(t *te
 		t.Run(string(kind), func(t *testing.T) {
 			t.Chdir(t.TempDir())
 			writeUnsignedReleaseFilesFixture(t)
+
 			_, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{})
 			require.NoError(t, err)
+
 			digest := "sha256:" + strings.Repeat("a", 64)
+
 			entry := imageledger.Entry{ImageKind: kind, Role: "app", Ref: "registry.example/org/app@" + digest, Digest: digest, FinalTag: "registry.example/org/app:v1.2.3", SBOM: "dist/image-sbom-app.cyclonedx.json"}
 			if kind == imageledger.ImageKindBase {
 				entry.Flavor, entry.BaseInputID = "core", strings.Repeat("b", 64)
 				entry.FinalTag = "registry.example/org/app:" + entry.BaseInputID + "-core"
 				entry.SBOM = "premade-sboms/base-sbom-core.cyclonedx.json"
 			}
+
 			body, err := imageledger.Marshal([]imageledger.Entry{entry})
 			require.NoError(t, err)
 			_, err = imageledger.Parse(body)
 			require.NoError(t, err, "the compatibility case must carry a valid ledger")
 			require.NoError(t, os.WriteFile("dist/release-images.json", body, 0o600))
 			writeReleaseFilesTestFile(t, "dist/plan.json", "legacy evidence\n")
+
 			_, err = apprelease.WriteReleaseFileManifest(apprelease.WriteReleaseFileManifestInput{Unsigned: true, EvidenceFiles: []string{"dist/plan.json"}})
 			require.NoError(t, err, "legacy and base workflows do not opt into the native flat-dist SBOM contract")
 		})

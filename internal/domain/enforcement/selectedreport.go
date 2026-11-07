@@ -30,10 +30,16 @@ var selectedCargoSummary = regexp.MustCompile(`^test result: (ok|FAILED)\. ([0-9
 var selectedCargoRunning = regexp.MustCompile(`^running ([0-9]+) tests?$`)
 var selectedCargoFailure = regexp.MustCompile("^error: test failed, to rerun pass `[^`]+`$")
 
+const (
+	selectedGoPass = "pass"
+	selectedGoSkip = "skip"
+)
+
 // NewSelectedReport supports only engine-owned Go and Cargo selections.
 func NewSelectedReport(protocol TestProtocol) *SelectedReport {
 	report := &SelectedReport{protocol: protocol, packages: map[string]bool{}, activeTests: map[string]bool{}, failedPackages: map[string]bool{}, running: -1}
 	report.output = &TestOutput{classifier: report}
+
 	return report
 }
 
@@ -46,17 +52,21 @@ func (report *SelectedReport) Valid(success bool) bool {
 	if report.output.Overlong() || report.rejected || report.tests == 0 || report.running != -1 || len(report.activeTests) != 0 {
 		return false
 	}
+
 	for _, completed := range report.packages {
 		if !completed {
 			return false
 		}
 	}
+
 	if report.protocol == Cargo && report.cargoFailureTerminal != (report.failures > 0) {
 		return false
 	}
+
 	if report.protocol == Cargo && report.cargoSummaries != 1 {
 		return false
 	}
+
 	return success == (report.failures == 0)
 }
 
@@ -78,56 +88,87 @@ func (report *SelectedReport) goLine(stream testStream, line string) {
 		if strings.TrimSpace(line) != "" && !strings.HasPrefix(line, "go: downloading ") {
 			report.rejected = true
 		}
+
 		return
 	}
-	var event struct{ Action, Package, Test, Output string }
+
+	var event struct {
+		Action  string `json:"Action"`
+		Package string `json:"Package"`
+		Test    string `json:"Test"`
+		Output  string `json:"Output"`
+	}
 	if json.Unmarshal([]byte(line), &event) != nil || event.Package == "" || crashed(event.Output) || event.Action == "build-fail" {
 		report.rejected = true
+
 		return
 	}
+
 	switch event.Action {
-	case "start", "run", "pause", "cont", "pass", "bench", "fail", "output", "skip":
+	case "start", "run", "pause", "cont", selectedGoPass, "bench", failedStatus, "output", selectedGoSkip:
 	default:
 		report.rejected = true
 	}
-	if event.Action == "start" && event.Test == "" {
-		if _, exists := report.packages[event.Package]; exists {
+
+	report.goPackageEvent(event.Package, event.Test, event.Action)
+}
+
+func (report *SelectedReport) goPackageEvent(packageName, testName, action string) {
+	if action == "start" && testName == "" {
+		if _, exists := report.packages[packageName]; exists {
 			report.rejected = true
 		}
-		report.packages[event.Package] = false
+
+		report.packages[packageName] = false
+
 		return
 	}
-	if completed, exists := report.packages[event.Package]; !exists || completed {
+
+	if completed, exists := report.packages[packageName]; !exists || completed {
 		report.rejected = true
 	}
-	if event.Test == "" {
-		if (event.Action == "pass" || event.Action == "skip") && report.failedPackages[event.Package] {
+
+	if testName == "" {
+		if (action == selectedGoPass || action == selectedGoSkip) && report.failedPackages[packageName] {
 			report.rejected = true
 		}
-		if event.Action == "pass" || event.Action == "fail" || event.Action == "skip" {
-			report.packages[event.Package] = true
+
+		if action == selectedGoPass || action == failedStatus || action == selectedGoSkip {
+			report.packages[packageName] = true
 		}
-		if event.Action == "fail" {
+
+		if action == failedStatus {
 			report.failures++
 		}
+
 		return
 	}
-	key := event.Package + "\x00" + event.Test
-	if event.Action == "run" {
+
+	report.goTestEvent(packageName, testName, action)
+}
+
+func (report *SelectedReport) goTestEvent(packageName, testName, action string) {
+	key := packageName + "\x00" + testName
+	if action == "run" {
 		if report.activeTests[key] {
 			report.rejected = true
 		}
+
 		report.activeTests[key] = true
 	}
-	if event.Action == "fail" {
-		report.failedPackages[event.Package] = true
+
+	if action == failedStatus {
+		report.failedPackages[packageName] = true
 	}
-	if event.Action == "pass" || event.Action == "fail" || event.Action == "skip" {
+
+	if action == selectedGoPass || action == failedStatus || action == selectedGoSkip {
 		if !report.activeTests[key] {
 			report.rejected = true
 		}
+
 		delete(report.activeTests, key)
-		if event.Action != "skip" {
+
+		if action != selectedGoSkip {
 			report.tests++
 		}
 	}
@@ -135,35 +176,48 @@ func (report *SelectedReport) goLine(stream testStream, line string) {
 
 func (report *SelectedReport) cargoLine(stream testStream, line string) {
 	trimmed := strings.TrimSpace(line)
+
 	failureTerminal := stream == stderrStream && selectedCargoFailure.MatchString(trimmed)
 	if stream == stderrStream && trimmed != "" {
 		if report.cargoFailureTerminal {
 			report.rejected = true
 		}
+
 		if failureTerminal {
 			report.cargoFailureTerminal = true
 		}
 	}
+
 	if strings.Contains(line, "could not compile") || strings.Contains(line, "failed to run custom build command") ||
 		strings.Contains(line, "process didn't exit successfully") ||
 		strings.Contains(line, "error:") && !failureTerminal {
 		report.rejected = true
 	}
+
 	if stream != stdoutStream {
 		return
 	}
+
+	report.cargoHarnessLine(line)
+}
+
+func (report *SelectedReport) cargoHarnessLine(line string) {
 	if match := selectedCargoRunning.FindStringSubmatch(line); match != nil {
 		if report.running != -1 {
 			report.rejected = true
 		}
+
 		report.running = number(match[1])
 	}
+
 	if match := selectedCargoSummary.FindStringSubmatch(line); match != nil {
 		report.cargoSummaries++
+
 		passed, failed, ignored, measured := number(match[2]), number(match[3]), number(match[4]), number(match[5])
 		if report.running != passed+failed+ignored+measured || (match[1] == "ok") != (failed == 0) {
 			report.rejected = true
 		}
+
 		report.running = -1
 		report.tests += passed + failed
 		report.failures += failed

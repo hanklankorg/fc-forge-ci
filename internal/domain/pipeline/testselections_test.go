@@ -71,11 +71,14 @@ func TestReleaseSelectionMapsValidateSelectedArtifactCoherence(t *testing.T) {
 	} {
 		plan := nativeSelectionPlan()
 		mutate(&plan)
+
 		if _, _, err := ReleaseTestSelections(plan, goTestMap, cargoTestMap); err == nil {
 			t.Fatalf("incoherent artifact plan accepted: %+v", plan)
 		}
 	}
+
 	plan := nativeSelectionPlan()
+
 	plan.Targets.Cargo = TargetPlan[PlannedArtifact]{}
 	if _, _, err := ReleaseTestSelections(plan, goTestMap, cargoTestMap); err == nil {
 		t.Fatal("unselected artifact key accepted")
@@ -86,12 +89,14 @@ func TestReleaseSelectionMapsPreserveLegacyEmptyAndValidateExplicitMaps(t *testi
 	if _, _, err := ReleaseTestSelections(ReleaseBuildStagePlan{Version: ReleasePlanVersion, Stage: "build"}, "{}", "{}"); err != nil {
 		t.Fatalf("empty maps without native artifacts rejected: %v", err)
 	}
+
 	for _, empty := range []string{"", "  "} {
 		goSelections, cargoSelections, err := ReleaseTestSelections(nativeSelectionPlan(), empty, empty)
 		if err != nil || len(goSelections) != 0 || len(cargoSelections) != 0 {
 			t.Fatalf("legacy empty behavior changed: %v", err)
 		}
 	}
+
 	goSelections, cargoSelections, err := ReleaseTestSelections(nativeSelectionPlan(), goTestMap, cargoTestMap)
 	if err != nil || len(goSelections) != 2 || len(cargoSelections) != 1 {
 		t.Fatalf("valid exhaustive maps rejected: %v", err)

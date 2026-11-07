@@ -18,6 +18,7 @@ func TestNativeImageEvidenceWiredBeforeDigest(t *testing.T) {
 	root := reporoot.Path(t)
 	body, err := os.ReadFile(filepath.Join(root, ".gitlab/bin/release.sh"))
 	require.NoError(t, err)
+
 	text := string(body)
 	start := strings.Index(text, "rc_images_publish() {")
 	end := strings.Index(text[start:], "\n}\n")

@@ -18,6 +18,7 @@ import (
 // does not expose the original ExitCode: it must never qualify for a waiver.
 func SelectedTestRun(ctx context.Context, out, stderr io.Writer, protocol enforcement.TestProtocol, run func(io.Writer, io.Writer) error) error {
 	_, err := TestRun(ctx, out, stderr, protocol, selectedNativeRun(protocol, run))
+
 	return err
 }
 
@@ -27,25 +28,33 @@ func SelectedPolicyTestRun(ctx context.Context, out, stderr io.Writer, protocol 
 	if _, err := Resolve(ctx); err != nil {
 		return err
 	}
+
 	err := selectedNativeRun(protocol, run)(out, stderr)
 	if ctx.Err() != nil {
 		return errors.Join(err, ctx.Err())
 	}
+
 	result := "pass"
 	if err != nil {
 		result = "failure"
 	}
+
 	_, receiptErr := fmt.Fprintf(out, "Selected policy tests: result=%s enforcement=true\n", result)
+
 	return errors.Join(err, receiptErr)
 }
 
 func selectedNativeRun(protocol enforcement.TestProtocol, run func(io.Writer, io.Writer) error) func(io.Writer, io.Writer) error {
 	return func(stdout, stderr io.Writer) error {
 		report := enforcement.NewSelectedReport(protocol)
+
 		err := run(io.MultiWriter(stdout, report.Output().Stdout()), io.MultiWriter(stderr, report.Output().Stderr()))
 		if !report.Valid(err == nil) {
-			return fmt.Errorf("selected tests require a complete nonempty native report (command error: %v): %w", err, errs.ErrValidation)
+			// Keep the command's text, not its ExitCode identity: malformed
+			// evidence must never become eligible for a test-failure waiver.
+			return fmt.Errorf("selected tests require a complete nonempty native report (command error: %s): %w", fmt.Sprint(err), errs.ErrValidation)
 		}
+
 		return err
 	}
 }

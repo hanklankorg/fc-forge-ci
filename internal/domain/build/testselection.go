@@ -5,6 +5,7 @@ package build
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -30,6 +31,7 @@ type CargoTestSelection struct {
 	Runs []CargoTestTarget `json:"runs"`
 }
 
+// CargoTestTarget identifies one native executable and its enforcement class.
 type CargoTestTarget struct {
 	Kind    string   `json:"kind"`
 	Package string   `json:"package"`
@@ -41,6 +43,7 @@ type CargoTestTarget struct {
 // Policy checks always block; only application assertions can be report-only.
 type TestGate string
 
+// Native test gates distinguish waivable application assertions from policy.
 const (
 	ApplicationTestGate TestGate = "application"
 	PolicyTestGate      TestGate = "policy"
@@ -48,18 +51,27 @@ const (
 
 func decodeTestSelection(body string, target any) error {
 	if err := uniqueSelectionMembers(json.NewDecoder(strings.NewReader(body))); err != nil {
-		return fmt.Errorf("test selection: %v: %w", err, errs.ErrUsage)
+		return fmt.Errorf("test selection: %s: %w", err.Error(), errs.ErrUsage)
 	}
+
 	decoder := json.NewDecoder(strings.NewReader(body))
 	decoder.DisallowUnknownFields()
+
 	if err := decoder.Decode(target); err != nil {
-		return fmt.Errorf("test selection: %v: %w", err, errs.ErrUsage)
+		return fmt.Errorf("test selection: %s: %w", err.Error(), errs.ErrUsage)
 	}
+
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		return fmt.Errorf("test selection requires one JSON object: %w", errs.ErrUsage)
 	}
+
 	return nil
 }
+
+var (
+	errInvalidSelectionMember = errors.New("duplicate or invalid member")
+	errNullSelectionValue     = errors.New("null is not a typed selection value")
+)
 
 // Selection JSON must not silently overwrite a gate or executable identity.
 func uniqueSelectionMembers(decoder *json.Decoder) error {
@@ -67,29 +79,36 @@ func uniqueSelectionMembers(decoder *json.Decoder) error {
 	if err != nil {
 		return err
 	}
+
 	switch token {
 	case json.Delim('{'):
 		var seen []string
+
 		for decoder.More() {
 			key, err := decoder.Token()
 			if err != nil {
 				return err
 			}
+
 			name, ok := key.(string)
 			if !ok {
-				return fmt.Errorf("duplicate or invalid member %q", key)
+				return fmt.Errorf("%w %q", errInvalidSelectionMember, key)
 			}
+
 			for _, previous := range seen {
 				// Match encoding/json's Unicode folding, including long s.
 				if strings.EqualFold(previous, name) {
-					return fmt.Errorf("duplicate or invalid member %q", key)
+					return fmt.Errorf("%w %q", errInvalidSelectionMember, key)
 				}
 			}
+
 			seen = append(seen, name)
+
 			if err := uniqueSelectionMembers(decoder); err != nil {
 				return err
 			}
 		}
+
 		_, err = decoder.Token()
 	case json.Delim('['):
 		for decoder.More() {
@@ -97,10 +116,12 @@ func uniqueSelectionMembers(decoder *json.Decoder) error {
 				return err
 			}
 		}
+
 		_, err = decoder.Token()
 	case nil:
-		return fmt.Errorf("null is not a typed selection value")
+		return errNullSelectionValue
 	}
+
 	return err
 }
 
@@ -111,20 +132,25 @@ func ParseGoTestSelection(body string) (GoTestSelection, error) {
 	if err := decodeTestSelection(body, &selection); err != nil {
 		return selection, err
 	}
+
 	if len(selection.Packages) == 0 {
 		return selection, fmt.Errorf("test selection requires packages: %w", errs.ErrUsage)
 	}
+
 	if selection.Gate != ApplicationTestGate && selection.Gate != PolicyTestGate {
 		return selection, fmt.Errorf("test selection requires application or policy gate: %w", errs.ErrUsage)
 	}
+
 	for _, pkg := range selection.Packages {
 		if pkg != "." && !strings.HasPrefix(pkg, "./") || strings.ContainsAny(pkg, "\t\r\n \\@") || strings.Contains("/"+pkg+"/", "/../") || path.Clean(pkg) == ".." {
 			return selection, fmt.Errorf("invalid workspace test package %q: %w", pkg, errs.ErrUsage)
 		}
 	}
+
 	if _, err := regexp.Compile(selection.Run); err != nil {
-		return selection, fmt.Errorf("invalid test regexp: %v: %w", err, errs.ErrUsage)
+		return selection, fmt.Errorf("invalid test regexp: %s: %w", err.Error(), errs.ErrUsage)
 	}
+
 	return selection, nil
 }
 
@@ -138,10 +164,13 @@ func ParseCargoTestSelection(body string) (CargoTestSelection, error) {
 	if err := decodeTestSelection(body, &selection); err != nil {
 		return selection, err
 	}
+
 	if len(selection.Runs) == 0 {
 		return selection, fmt.Errorf("test selection requires runs: %w", errs.ErrUsage)
 	}
+
 	seen := map[string]bool{}
+
 	for _, run := range selection.Runs {
 		valid := (run.Kind == "package-bin" || run.Kind == "package-test") &&
 			cargoTestName.MatchString(run.Package) && cargoTestName.MatchString(run.Name) &&
@@ -149,18 +178,22 @@ func ParseCargoTestSelection(body string) (CargoTestSelection, error) {
 		if !valid {
 			return selection, fmt.Errorf("invalid Cargo test target %+v: %w", run, errs.ErrUsage)
 		}
+
 		key := run.Package + "/" + run.Kind + "/" + run.Name
 		if seen[key] {
 			return selection, fmt.Errorf("duplicate Cargo test executable %q: %w", key, errs.ErrUsage)
 		}
+
 		seen[key] = true
 	}
+
 	return selection, nil
 }
 
 // Args is fixed native argv, never interpreted by a shell.
 func (target CargoTestTarget) Args() []string {
 	args := []string{"test", "--locked"}
+
 	args = append(args, "--package", target.Package)
 	switch target.Kind {
 	case "package-bin":

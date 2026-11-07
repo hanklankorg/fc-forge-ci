@@ -47,6 +47,7 @@ func GoReleaseBuild(ctx context.Context, summarySink ci.SummarySink, goTool GoTo
 	if err := appenforcement.RequireTests(ctx, in.SkipTests); err != nil {
 		return err
 	}
+
 	if in.TestSelectionJSON != "" {
 		if _, err := domainbuild.ParseGoTestSelection(in.TestSelectionJSON); err != nil {
 			return err

@@ -123,9 +123,11 @@ const liveVerdictPolicy = "ababababababababababababababababababababababababababa
 
 func TestReadLiveRun_ObservedFindingsReceipt(t *testing.T) {
 	t.Parallel()
+
 	for _, enforced := range []bool{false, true} {
 		line := fmt.Sprintf("Enforcement policy default-sha256:%s: vulnerabilities result=findings count=2 enforcement=%t source=flag blocking-count=0\n", liveVerdictPolicy, enforced)
 		verdict, err := ReadLiveRun(strings.NewReader(line), 0)
+
 		want := []LiveAdminPolicyDecision{{PolicySHA256: liveVerdictPolicy, Check: "vulnerabilities", Result: "findings", Enforcement: enforced}}
 		if err != nil || !reflect.DeepEqual(verdict.AdminPolicy, want) {
 			t.Fatalf("receipt not retained: %+v, %v", verdict.AdminPolicy, err)

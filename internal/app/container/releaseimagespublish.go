@@ -68,6 +68,7 @@ func PublishReleaseImages(ctx context.Context, registry StagedSignerRegistry, su
 	if err := validateReleaseImagePublication(in); err != nil {
 		return err
 	}
+
 	if _, err := os.Lstat(in.OutputDir); err == nil {
 		return fmt.Errorf("release-images publish: %s already exists: %w", in.OutputDir, errs.ErrUsage)
 	}
@@ -105,6 +106,7 @@ func PublishReleaseImages(ctx context.Context, registry StagedSignerRegistry, su
 		if err != nil {
 			return err
 		}
+
 		admitted, err := AdmitStagedSignerImage(ctx, registry, out, input)
 		if err != nil {
 			return fmt.Errorf("release image %s: %w", image.Name, err)
@@ -113,33 +115,9 @@ func PublishReleaseImages(ctx context.Context, registry StagedSignerRegistry, su
 		staged = append(staged, admitted)
 	}
 
-	ledger, err := imageledger.Marshal(nil)
+	ledger, err := publishReleaseImagesLedger(ctx, registry, summary, out, in, staged)
 	if err != nil {
 		return err
-	}
-
-	for index, image := range in.Plan.Images {
-		meta, err := staged[index].Publish(ctx, registry, nil, summary, out)
-		if err != nil {
-			return fmt.Errorf("release image %s: %w", image.Name, err)
-		}
-
-		entry := releaseImageLedgerEntry(in, image, meta.Digest)
-		if in.PrepublicationSBOMs {
-			file, err := releaseImageSBOMFile(in, image)
-			if err != nil {
-				return err
-			}
-			body, readErr := cliio.ReadRegularFile(file)
-			if readErr != nil {
-				return readErr
-			}
-			entry.SBOMSHA256 = fmt.Sprintf("%x", sha256.Sum256(body))
-		}
-		ledger, err = AppendLedgerEntry(ledger, entry)
-		if err != nil {
-			return fmt.Errorf("release image %s: %w", image.Name, err)
-		}
 	}
 
 	path := filepath.Join(in.OutputDir, ReleaseImagesLedgerName)
@@ -152,10 +130,49 @@ func PublishReleaseImages(ctx context.Context, registry StagedSignerRegistry, su
 	return nil
 }
 
+// Publish only after all images have been admitted, collecting the served
+// digests and optional producer-pinned SBOM bytes into the same ledger.
+func publishReleaseImagesLedger(ctx context.Context, registry StagedSignerRegistry, summary ci.SummarySink, out io.Writer, in PublishReleaseImagesInput, staged []*StagedSignerImage) ([]byte, error) {
+	ledger, err := imageledger.Marshal(nil)
+	if err != nil {
+		return nil, err
+	}
+
+	for index, image := range in.Plan.Images {
+		meta, err := staged[index].Publish(ctx, registry, nil, summary, out)
+		if err != nil {
+			return nil, fmt.Errorf("release image %s: %w", image.Name, err)
+		}
+
+		entry := releaseImageLedgerEntry(in, image, meta.Digest)
+		if in.PrepublicationSBOMs {
+			file, err := releaseImageSBOMFile(in, image)
+			if err != nil {
+				return nil, err
+			}
+
+			body, readErr := cliio.ReadRegularFile(file)
+			if readErr != nil {
+				return nil, readErr
+			}
+
+			entry.SBOMSHA256 = fmt.Sprintf("%x", sha256.Sum256(body))
+		}
+
+		ledger, err = AppendLedgerEntry(ledger, entry)
+		if err != nil {
+			return nil, fmt.Errorf("release image %s: %w", image.Name, err)
+		}
+	}
+
+	return ledger, nil
+}
+
 // releaseImageAssembleInput is the staged-layout publication of one planned
 // image, its scans and gate run before any upload.
 func releaseImageAssembleInput(out io.Writer, in PublishReleaseImagesInput, image pipeline.ReleaseImage, work string) (SignerImageAssembleInput, error) {
 	revision := cmp.Or(image.Revision, in.ReleaseSHA)
+
 	evidence := &StagedLayoutEvidence{
 		Trivy: in.Trivy, Syft: in.Syft, Stderr: out,
 		TrivyOutputTemplate: filepath.Join(in.OutputDir, "trivy-results-"+image.Name+"-{arch}.json"), Gate: in.Gate,
@@ -165,6 +182,7 @@ func releaseImageAssembleInput(out io.Writer, in PublishReleaseImagesInput, imag
 		if err != nil {
 			return SignerImageAssembleInput{}, err
 		}
+
 		id := cmp.Or(image.Flavor, image.Role, image.Name)
 		evidence.SBOMOutputTemplate = filepath.Join(in.OutputDir, "sbom-"+id+"-{arch}.json")
 		evidence.IndexSBOMOutput = file
@@ -196,6 +214,7 @@ func releaseImageSBOMFile(in PublishReleaseImagesInput, image pipeline.ReleaseIm
 	if err != nil {
 		return "", err
 	}
+
 	return filepath.Join(in.OutputDir, mapping.outputSBOM), nil
 }
 
@@ -208,6 +227,7 @@ func ValidateNativeReleaseImagesPlan(plan pipeline.ReleaseImagesPlan) error {
 			return fmt.Errorf("release image %s: native jobs do not support the base ledger and canonical premade-sboms handoff; use the base-images lifecycle: %w", image.Name, errs.ErrInvalidConfig)
 		}
 	}
+
 	return nil
 }
 
@@ -217,6 +237,7 @@ func validateReleaseImagePublication(in PublishReleaseImagesInput) error {
 	if err := ValidateNativeReleaseImagesPlan(in.Plan); err != nil {
 		return err
 	}
+
 	if in.PrepublicationSBOMs {
 		if err := domainsbom.ValidatePublicBOMURL(in.SBOMURLPrefix); err != nil {
 			return err
@@ -224,30 +245,26 @@ func validateReleaseImagePublication(in PublishReleaseImagesInput) error {
 	} else if in.SBOMURLPrefix != "" {
 		return fmt.Errorf("sbom-url-prefix requires prepublication-sboms: %w", errs.ErrUsage)
 	}
+
 	seen := map[string]bool{}
+
 	ledger, err := imageledger.Marshal(nil)
 	if err != nil {
 		return err
 	}
+
 	for _, image := range in.Plan.Images {
-		if image.CandidateTag != "staging-"+image.FinalTagName {
-			return fmt.Errorf("release image candidate tag must match its ledger destination: %w", errs.ErrInvalidConfig)
-		}
-		if err := validateSignerMetadataName(image.Name); err != nil {
+		if err := validateReleaseImagePublicationMetadata(image); err != nil {
 			return err
 		}
-		if len(nonEmptyLines(image.Archs)) == 0 {
-			return fmt.Errorf("release image requires architectures: %w", errs.ErrValidation)
-		}
-		if _, err := signerManifestArchs(nonEmptyLines(image.Archs)); err != nil {
-			return err
-		}
+
 		entry := releaseImageLedgerEntry(in, image, "sha256:"+strings.Repeat("0", 64))
 		// Duplicate placeholder digests are legitimate for different roles.
 		ledger, err = AppendLedgerEntry(ledger, entry)
 		if err != nil {
 			return err
 		}
+
 		if in.PrepublicationSBOMs {
 			mapping, err := mapReleaseImageEvidence(image)
 			if err != nil {
@@ -258,14 +275,35 @@ func validateReleaseImagePublication(in PublishReleaseImagesInput) error {
 			if mapping.ledger != "dist/"+ReleaseImagesLedgerName || mapping.signerSBOM != "dist/"+mapping.outputSBOM {
 				return fmt.Errorf("release image SBOM has no canonical dist handoff mapping: %w", errs.ErrInvalidConfig)
 			}
+
 			file := filepath.Join(in.OutputDir, mapping.outputSBOM)
 			if seen[file] {
 				return fmt.Errorf("release image SBOM output collision: %w", errs.ErrUsage)
 			}
+
 			seen[file] = true
 		}
 	}
+
 	return nil
+}
+
+func validateReleaseImagePublicationMetadata(image pipeline.ReleaseImage) error {
+	if image.CandidateTag != "staging-"+image.FinalTagName {
+		return fmt.Errorf("release image candidate tag must match its ledger destination: %w", errs.ErrInvalidConfig)
+	}
+
+	if err := validateSignerMetadataName(image.Name); err != nil {
+		return err
+	}
+
+	if len(nonEmptyLines(image.Archs)) == 0 {
+		return fmt.Errorf("release image requires architectures: %w", errs.ErrValidation)
+	}
+
+	_, err := signerManifestArchs(nonEmptyLines(image.Archs))
+
+	return err
 }
 
 // releaseImageLedgerEntry records one pushed image. The publication caller

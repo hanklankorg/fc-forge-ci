@@ -101,6 +101,7 @@ func releaseImagesBuildPreparedCmd() *cli.Command {
 			if err := validateReleaseImageBuilder(builder, build, true); err != nil {
 				return err
 			}
+
 			return stagePreparedReleaseImageBuild(ctx, cmd, builder, build, cmd.String("inputs-dir"))
 		},
 	}
@@ -113,20 +114,25 @@ func validateReleaseImageBuilder(builder imageBuilder, build pipeline.ReleaseIma
 	if err := appcontainer.CheckSignerImageBuilderIdentity(signerImageTool{builder}, build.BuilderMaterialID); err != nil {
 		return err
 	}
+
 	if len(build.RegistryInputs) == 0 {
 		return nil
 	}
+
 	if !prepared {
 		return fmt.Errorf("release image %s requires secret-free fetched parents: pass --inputs-dir: %w", build.Name, errs.ErrUsage)
 	}
+
 	if _, ok := builder.(*buildah.Adapter); !ok {
 		return fmt.Errorf("prepared private parents require Buildah: %w", errs.ErrUsage)
 	}
+
 	return nil
 }
 
 func stagePreparedReleaseImageBuild(ctx context.Context, cmd *cli.Command, builder imageBuilder, build pipeline.ReleaseImageBuild, directory string) error {
 	loader, _ := builder.(*buildah.Adapter)
 	_, err := appcontainer.StageReleaseBuildWithInputs(ctx, signerImageTool{builder}, loader, ociregistry.NewAnonymous(), os.Stderr, releaseImageBuildInput(cmd, build), build.RegistryInputs, directory)
+
 	return err
 }

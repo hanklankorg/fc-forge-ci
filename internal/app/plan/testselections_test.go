@@ -28,6 +28,7 @@ func TestValidateReleaseSelectionsRejectsAmbiguousPlanBeforeOutputs(t *testing.T
 
 func TestValidateReleaseSelectionsEmitsNothingOnLateMapFailure(t *testing.T) {
 	sink := fakeoutputsink.New(t)
+
 	err := appplan.ValidateReleaseTestSelections(t.Context(), sink, selectionBuildPlan, `{"cli":{"packages":["./..."],"gate":"policy"}}`, `{"rust":false}`)
 	if err == nil || len(sink.Order()) != 0 {
 		t.Fatalf("late failure emitted a usable partial mapping: %v %+v", err, sink.Order())
@@ -39,6 +40,7 @@ func TestValidateReleaseSelectionsCanonicalizesLegacyEmptyMaps(t *testing.T) {
 	if err := appplan.ValidateReleaseTestSelections(t.Context(), sink, selectionBuildPlan, "  ", ""); err != nil {
 		t.Fatal(err)
 	}
+
 	for _, key := range []string{"go-test-selections-json", "cargo-test-selections-json"} {
 		if sink.Single(key) != "{}" {
 			t.Fatalf("legacy mapping not canonical: %q", sink.Single(key))

@@ -24,6 +24,7 @@ import (
 // The builder is inert, but identity uses the real adapter's executable hash.
 type identifiedStagingTool struct {
 	*stagingSignerTool
+
 	executable string
 }
 
@@ -109,8 +110,10 @@ func TestPreparedReleaseBuildRunsOfflineForColdAndWarmCaches(t *testing.T) {
 			tool := identifiedStagingTool{stagingSignerTool: &stagingSignerTool{t: t}, executable: executable}
 			identity, err := tool.Identity()
 			require.NoError(t, err)
+
 			input.BuilderMaterialID = identity.MaterialID()
 			loader := &registryInputFixture{}
+
 			require.NoError(t, os.WriteFile(executable, []byte("#!/bin/sh\nexit 98\n"), 0o700))
 			_, err = appcontainer.StageReleaseBuildWithInputs(t.Context(), tool, loader, ociregistry.NewAnonymous(), io.Discard, input, parents, "inputs")
 			require.ErrorIs(t, err, errs.ErrValidation)

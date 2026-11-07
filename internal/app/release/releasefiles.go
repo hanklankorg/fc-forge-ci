@@ -157,48 +157,7 @@ func WriteReleaseFileManifest(in WriteReleaseFileManifestInput) (*FileManifest, 
 	}
 
 	if in.Unsigned {
-		if in.AssetsJSONFile != "" {
-			return nil, fmt.Errorf("unsigned evidence extension requires an existing manifest, not assets-json: %w", errs.ErrUsage)
-		}
-
-		manifest, err := readReleaseFileManifest(ctx.manifestFile)
-		if err != nil {
-			return nil, err
-		}
-
-		if err := validateReleaseFileManifest(ctx, manifest); err != nil {
-			return nil, err
-		}
-
-		if err := validateUnsignedReleaseFiles(ctx, manifest); err != nil {
-			return nil, err
-		}
-		if in.ReleaseImagesLedger != "" {
-			if err := validateReleaseImageEvidence(ctx, in.ReleaseImagesLedger, in.EvidenceFiles); err != nil {
-				return nil, err
-			}
-		}
-
-		collector := &releaseFileCollector{}
-		for _, entry := range manifest.Assets {
-			if err := collector.add(ctx, entry.Path, entry.Source); err != nil {
-				return nil, err
-			}
-		}
-
-		evidence, err := addEvidenceEntries(ctx, collector, in.EvidenceFiles)
-		if err != nil {
-			return nil, err
-		}
-
-		manifest.Assets = collector.entries
-
-		manifest.Evidence = append(manifest.Evidence, evidence...)
-		if err := validateUnsignedReleaseFiles(ctx, manifest); err != nil {
-			return nil, err
-		}
-
-		return writeReleaseFileManifest(ctx, manifest, output)
+		return extendUnsignedReleaseFileManifest(ctx, in, output)
 	}
 
 	if len(in.EvidenceFiles) != 0 || in.ReleaseImagesLedger != "" {
@@ -207,6 +166,53 @@ func WriteReleaseFileManifest(in WriteReleaseFileManifestInput) (*FileManifest, 
 
 	manifest, err := prepareReleaseFileManifest(ctx, in.AssetsJSONFile)
 	if err != nil {
+		return nil, err
+	}
+
+	return writeReleaseFileManifest(ctx, manifest, output)
+}
+
+// Extend only an admitted unsigned manifest, before any signature is created.
+func extendUnsignedReleaseFileManifest(ctx releaseFilesCtx, in WriteReleaseFileManifestInput, output string) (*FileManifest, error) {
+	if in.AssetsJSONFile != "" {
+		return nil, fmt.Errorf("unsigned evidence extension requires an existing manifest, not assets-json: %w", errs.ErrUsage)
+	}
+
+	manifest, err := readReleaseFileManifest(ctx.manifestFile)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := validateReleaseFileManifest(ctx, manifest); err != nil {
+		return nil, err
+	}
+
+	if err := validateUnsignedReleaseFiles(ctx, manifest); err != nil {
+		return nil, err
+	}
+
+	if in.ReleaseImagesLedger != "" {
+		if err := validateReleaseImageEvidence(ctx, in.ReleaseImagesLedger, in.EvidenceFiles); err != nil {
+			return nil, err
+		}
+	}
+
+	collector := &releaseFileCollector{}
+	for _, entry := range manifest.Assets {
+		if err := collector.add(ctx, entry.Path, entry.Source); err != nil {
+			return nil, err
+		}
+	}
+
+	evidence, err := addEvidenceEntries(ctx, collector, in.EvidenceFiles)
+	if err != nil {
+		return nil, err
+	}
+
+	manifest.Assets = collector.entries
+
+	manifest.Evidence = append(manifest.Evidence, evidence...)
+	if err := validateUnsignedReleaseFiles(ctx, manifest); err != nil {
 		return nil, err
 	}
 

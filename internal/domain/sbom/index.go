@@ -15,6 +15,8 @@ import (
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
 
+const cycloneDXFormat = "CycloneDX"
+
 // IndexBOMPart binds an unchanged native CycloneDX document to its platform,
 // immutable image and caller-owned public release URL. SHA256 is producer-owned.
 type IndexBOMPart struct {
@@ -88,7 +90,7 @@ func ComposeIndexBOM(indexRef string, indexManifest []byte, parts []IndexBOMPart
 	}
 
 	document := map[string]any{
-		"bomFormat": "CycloneDX", "specVersion": "1.6", "version": 1,
+		"bomFormat": cycloneDXFormat, "specVersion": "1.6", "version": 1,
 		"metadata":   map[string]any{"component": indexBOMComponent{Type: "container", Name: repository, Ref: indexRef}},
 		"components": components,
 	}
@@ -135,7 +137,7 @@ func validateIndexBOMPart(repository string, part IndexBOMPart) error {
 		Spec   string `json:"specVersion"`
 	}
 
-	if err := json.Unmarshal(part.Document, &header); err != nil || header.Format != "CycloneDX" || header.Spec == "" {
+	if err := json.Unmarshal(part.Document, &header); err != nil || header.Format != cycloneDXFormat || header.Spec == "" {
 		return fmt.Errorf("native SBOM must be a CycloneDX JSON document: %w", errs.ErrMalformedInput)
 	}
 

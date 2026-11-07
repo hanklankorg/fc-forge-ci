@@ -7,6 +7,7 @@ package conformance_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -923,16 +924,20 @@ func configureGitLabReleaseVariables(t *testing.T, target livetest.Target, clien
 // amd64 image/export jobs inherit build-runner-tags; Kaniko stays untagged.
 func gitLabReleaseRunnerRoles(buildTags, checksTags []string, builder string, images, exports bool) map[string][]string {
 	expected := map[string][]string{"Build: release files": buildTags, "Check: consumer checks": checksTags}
+
 	builderTags := []string{}
 	if builder == livetest.ImageBuilderBuildah {
 		builderTags = buildTags
 	}
+
 	if images {
 		expected["Images: build amd64"] = builderTags
 	}
+
 	if exports {
 		expected["Build: export amd64"] = builderTags
 	}
+
 	return expected
 }
 
@@ -953,6 +958,7 @@ func requireGitLabReleaseRunnerRouting(t *testing.T, ctx context.Context, client
 			t.Logf("release routing: job %q tags=%v runner=%d (%s)", job.Name, job.TagList, job.Runner.ID, job.Runner.Description)
 		}
 	}
+
 	if err := validateGitLabReleaseRunnerRouting(jobs, expected); err != nil {
 		t.Fatal(err)
 	}
@@ -978,7 +984,7 @@ func validateGitLabReleaseRunnerRouting(jobs []*gitlabapi.Job, expected map[stri
 	}
 
 	if len(seen) != len(expected) {
-		return fmt.Errorf("release is missing successful jobs for the requested runner roles")
+		return errors.New("release is missing successful jobs for the requested runner roles")
 	}
 
 	for _, job := range jobs {
@@ -986,6 +992,7 @@ func validateGitLabReleaseRunnerRouting(jobs []*gitlabapi.Job, expected map[stri
 			return fmt.Errorf("untagged job %q ran on a tagged capability runner %d", job.Name, job.Runner.ID)
 		}
 	}
+
 	return nil
 }
 

@@ -106,22 +106,28 @@ func GoTest(ctx context.Context, tool GoTool, out, stderr io.Writer, in GoTestIn
 		if err != nil {
 			return err
 		}
+
 		args := []string{testCommand, "-json", "-count=1", "-race", "-buildvcs=false"}
 		if strings.TrimSpace(in.BuildTags) != "" {
 			args = append(args, "-tags", strings.TrimSpace(in.BuildTags))
 		}
+
 		if selection.Run != "" {
 			args = append(args, "-run", selection.Run)
 		}
+
 		args = append(args, selection.Packages...)
+
 		run := appenforcement.SelectedTestRun
 		if selection.Gate == domainbuild.PolicyTestGate {
 			run = appenforcement.SelectedPolicyTestRun
 		}
+
 		return run(ctx, out, stderr, enforcement.GoJSON, func(stdout, stderr io.Writer) error {
 			return tool.Run(ctx, GoRunInput{Dir: defaultGoDir(in.Dir), Args: args, Stdout: stdout, Stderr: stderr})
 		})
 	}
+
 	args := []string{testCommand}
 
 	policy, err := appenforcement.Resolve(ctx)

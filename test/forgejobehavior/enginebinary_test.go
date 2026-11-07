@@ -152,16 +152,20 @@ func TestEngineBuildPreservesResourceControlsNotAmbientBuildFlags(t *testing.T) 
 	root := reporoot.Path(t)
 	scratch := t.TempDir()
 	compiler := filepath.Join(scratch, "go")
+
 	body := "#!/usr/bin/env bash\nset -eu\nif [ \"$1\" = env ]; then\n  printf '%s\\n' '" + pinnedToolchain(t, root) + "'\nelse\n  printf '%s|%s|%s|%s\\n' \"${TMPDIR-}\" \"${GOMAXPROCS-}\" \"${GOFLAGS-}\" \"${GOPROXY-}\"\nfi\n"
 	if err := os.WriteFile(compiler, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
+
 	command := exec.CommandContext(t.Context(), "bash", filepath.Join(root, binaryScript), "build", "amd64", filepath.Join(scratch, "binary"))
 	command.Env = append(os.Environ(), "GO="+compiler, "TMPDIR="+scratch, "GOMAXPROCS=2", "GOFLAGS=-mod=mod", "GOPROXY=https://invalid.example")
+
 	out, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("resource-control build: %v\n%s", err, out)
 	}
+
 	if want := scratch + "|2||off\n"; string(out) != want {
 		t.Fatalf("build environment: got %q, want %q", out, want)
 	}
