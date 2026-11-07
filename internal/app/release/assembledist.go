@@ -91,7 +91,15 @@ func AssembleDist(ctx context.Context, dl provider.RunArtifactDownloader, worksp
 		return AssembleDistResult{}, err
 	}
 
+	if err := ctx.Err(); err != nil {
+		return AssembleDistResult{}, err
+	}
+
 	if err := mergeReleaseImageLedgers(stderr, in.LedgerFiles, releaseImagesPath, in.LedgerExpectedCount); err != nil {
+		return AssembleDistResult{}, err
+	}
+
+	if err := ctx.Err(); err != nil {
 		return AssembleDistResult{}, err
 	}
 
@@ -100,8 +108,16 @@ func AssembleDist(ctx context.Context, dl provider.RunArtifactDownloader, worksp
 		return AssembleDistResult{}, err
 	}
 
+	if err := ctx.Err(); err != nil {
+		return AssembleDistResult{}, err
+	}
+
 	digest, err := DistDigest(digestDir)
 	if err != nil {
+		return AssembleDistResult{}, err
+	}
+
+	if err := ctx.Err(); err != nil {
 		return AssembleDistResult{}, err
 	}
 
@@ -217,6 +233,14 @@ func downloadAssembleArtifact(ctx context.Context, dl provider.RunArtifactDownlo
 		RunID:      runID,
 		Repository: repository,
 	})
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+
 	if err == nil {
 		if stderr != nil {
 			_, _ = fmt.Fprintf(stderr, "Downloaded %s -> %s\n", name, dir)
