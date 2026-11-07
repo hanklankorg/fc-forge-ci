@@ -207,6 +207,57 @@ func TestReadConsumerPin_RefusesAConsumerItCannotStandInFor(t *testing.T) {
 	}
 }
 
+func TestPlanConsumer_BindsOnlyTheSelectedLayerSubject(t *testing.T) {
+	t.Parallel()
+
+	const subject = "itiquette/forge-ci"
+	for _, reference := range []string{
+		"https://forge.example/" + subject + "/.forgejo/actions/setup-forge-ci@",
+		subject + "/.forgejo/workflows/check.yml@",
+	} {
+		t.Run(reference, func(t *testing.T) {
+			t.Parallel()
+
+			layer := sampleLayer()
+			workflow := "jobs:\n  check:\n    uses: " + reference + consumerPinned + "\n"
+			for _, argument := range []string{subject, "'" + subject + "'", `"` + subject + `"`} {
+				for _, separator := range []string{" ", "\t", "="} {
+					workflow += "# forge-ci validate isolation --single-pin-subject" + separator + argument + "\n"
+				}
+			}
+			unchanged := "# " + subject + " is the upstream repository.\n" +
+				"# forge-ci validate isolation --single-pin-subject other/engine\n" +
+				"# forge-ci validate isolation --single-pin-subject " + subject + "-extra\n" +
+				"# forge-ci validate isolation --single-pin-subject " + subject + "/nested\n" +
+				"# forge-ci validate isolation --single-pin-subject prefix/" + subject + "\n" +
+				"# forge-ci validate isolation --single-pin-subject '${SUBJECT}'\n"
+			workflow += unchanged
+			workflows := map[string]string{"ci.yml": workflow}
+			plan, err := layer.PlanConsumer(workflows, ConsumerFacts{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := strings.ReplaceAll(workflow[:len(workflow)-len(unchanged)], subject, layer.Repository) + unchanged
+			want = strings.ReplaceAll(want, consumerPinned, layer.Commit)
+			if strings.HasPrefix(reference, "https://") {
+				want = strings.ReplaceAll(want, "https://forge.example/", layer.ServerURL+"/")
+			}
+			if got := plan.Render(workflow); got != want {
+				t.Fatalf("selected workflow subject binding:\ngot:\n%s\nwant:\n%s", got, want)
+			}
+			// The GitLab gate is rendered as another tracked file, not one of
+			// the native workflows used to discover the selected layer.
+			gate := "forge-ci validate isolation --single-pin-subject " + subject + "\n" + unchanged
+			if got, want := plan.Render(gate), "forge-ci validate isolation --single-pin-subject "+layer.Repository+"\n"+unchanged; got != want {
+				t.Fatalf("gate subject binding: got %q, want %q", got, want)
+			}
+			if workflows["ci.yml"] != workflow {
+				t.Fatal("planning changed the source workflow")
+			}
+		})
+	}
+}
+
 // TestPlanConsumer_RendersARealRelease plans the Go CLI's release as the
 // trial does, and holds the rendering to what a job would fetch and read.
 func TestPlanConsumer_RendersARealRelease(t *testing.T) {

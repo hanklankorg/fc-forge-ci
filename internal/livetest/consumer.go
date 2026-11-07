@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -413,6 +414,7 @@ type ConsumerPlan struct {
 	Variables      map[string]string
 	Secrets        map[string]string
 	workflowInputs map[string]string
+	repository     string
 }
 
 // MergeConsumerVariables binds the trial's runtime values without overwriting
@@ -456,6 +458,7 @@ func (layer Layer) PlanConsumer(workflows map[string]string, facts ConsumerFacts
 
 	plan := ConsumerPlan{Pin: pin, Replace: layer.inPlaceOf(pin), Variables: map[string]string{}, Secrets: map[string]string{}}
 	plan.workflowInputs = map[string]string{}
+	plan.repository = layer.Repository
 
 	for _, name := range sortedKeys(workflows) {
 		migrated, migrationErr := migratePublicationRepository(workflows[name])
@@ -484,7 +487,7 @@ func (layer Layer) PlanConsumer(workflows map[string]string, facts ConsumerFacts
 
 	renderedWorkflows := make(map[string]string, len(workflows))
 	for _, name := range sortedKeys(workflows) {
-		rendered := strings.NewReplacer(plan.Replace...).Replace(plan.workflowInputs[workflows[name]])
+		rendered := plan.renderText(plan.workflowInputs[workflows[name]])
 
 		rendered, err = layer.renderAdmin(rendered)
 		if err != nil {
@@ -527,6 +530,31 @@ func (layer Layer) inPlaceOf(pin ConsumerPin) []string {
 func (plan *ConsumerPlan) Render(text string) string {
 	if rendered, found := plan.workflowInputs[text]; found {
 		return rendered
+	}
+
+	return plan.renderText(text)
+}
+
+var consumerPinSubject = regexp.MustCompile(`(?m)(^|[ \t])--single-pin-subject(?:[ \t]+|=)('[^'\r\n]*'|"[^"\r\n]*"|[^ \t\r\n'";|&<>]+)`)
+
+// renderText binds the selected layer's validation subject, not bare repository
+// names: documentation and checks of other subjects must keep their identity.
+func (plan *ConsumerPlan) renderText(text string) string {
+	subject := strings.TrimSuffix(plan.Pin.Workflows, "/"+consumerWorkflows+"/")
+	if subject == "" && plan.Pin.Actions != "" {
+		if actionURL, err := url.Parse(plan.Pin.Actions); err == nil {
+			subject = strings.TrimSuffix(strings.TrimPrefix(actionURL.Path, "/"), "/"+layerDir+"/actions/")
+		}
+	}
+	if subject != "" && plan.repository != "" {
+		text = consumerPinSubject.ReplaceAllStringFunc(text, func(written string) string {
+			match := consumerPinSubject.FindStringSubmatch(written)
+			if unquoted(match[2]) != subject {
+				return written
+			}
+
+			return strings.TrimSuffix(written, match[2]) + strings.Replace(match[2], subject, plan.repository, 1)
+		})
 	}
 
 	return strings.NewReplacer(plan.Replace...).Replace(text)

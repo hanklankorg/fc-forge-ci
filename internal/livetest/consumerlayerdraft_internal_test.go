@@ -29,7 +29,11 @@ func TestConsumerDraftLayerBindsPolicyAndGateOnlyInPrivateIndex(t *testing.T) {
 			}
 			writeLayerFile(t, root, consumerWorkflows+"/ci.yml", workflow)
 			writeLayerFile(t, root, "policy/pin.sh", "pin="+pin+"\n")
-			writeLayerFile(t, root, GitLabGateFile, "include:\n  - component: $CI_SERVER_FQDN/example/engine/check@"+pin+"\n")
+			gate := "include:\n  - component: $CI_SERVER_FQDN/example/engine/check@" + pin + "\n" +
+				"script:\n  - forge-ci validate isolation --single-pin-subject owner/forge-ci\n" +
+				"  - forge-ci validate isolation --single-pin-subject unrelated/engine\n" +
+				"# Upstream: owner/forge-ci\n"
+			writeLayerFile(t, root, GitLabGateFile, gate)
 			if scenario == "mixed" {
 				writeLayerFile(t, root, consumerWorkflows+"/other.yml", strings.ReplaceAll(workflow, pin, consumerPinned))
 			}
@@ -72,6 +76,13 @@ func TestConsumerDraftLayerBindsPolicyAndGateOnlyInPrivateIndex(t *testing.T) {
 				original := mustLayerGit(t, git, root, "show", "HEAD:"+path)
 				if !strings.Contains(original, pin) {
 					t.Fatalf("original source changed at %s", path)
+				}
+				if path == GitLabGateFile {
+					want := strings.ReplaceAll(gate, pin, layer.Commit)
+					want = strings.Replace(want, "--single-pin-subject owner/forge-ci", "--single-pin-subject "+layer.Repository, 1)
+					if staged != strings.TrimSpace(want) || original != strings.TrimSpace(gate) {
+						t.Fatalf("gate subject binding or source preservation failed: staged=%q source=%q", staged, original)
+					}
 				}
 			}
 			if status := mustLayerGit(t, git, root, "status", "--porcelain"); status != "" {
