@@ -1558,6 +1558,15 @@ checked against the exported OCI index. Push retries reuse that same index.
 | `--retry-attempts` | push and registry digest read attempts | int | `3` | `$MANIFEST_PUSH_RETRY_ATTEMPTS` |
 | `--retry-delay-seconds` | base delay between retry attempts | int | `15` | `$MANIFEST_PUSH_RETRY_DELAY_SECONDS` |
 
+#### `forge-ci container manifest tag`
+
+expose an immutable manifest digest at validated repository tags
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--image-ref` | immutable image@sha256:digest reference (required) | string | `""` | `$IMAGE_REF` |
+| `--tags` | newline-separated fully qualified destination tags (required) | string | `""` | `$TAGS` |
+
 ### `forge-ci container materialize-build-secrets`
 
 unpack FORGE_CI_BUILD_SECRETS_JSON into mode-0600 tmpfiles and emit secret-mounts
@@ -3528,7 +3537,7 @@ EXAMPLE:
 |------|-------------|------|---------|----------|
 | `--repository` | "owner/repo" whose releases to trim (required) | string | `""` | `$REPOSITORY`, `$CI_REPO`, `$CI_PROJECT_PATH`, `$FORGEJO_REPOSITORY`, `$FORGEJO_REPO`, `$GITHUB_REPOSITORY` |
 | `--keep` | how many of the newest published releases keep every file (required) | int | `0` | `$RELEASE_ASSET_RETENTION` |
-| `--keep-files` | regular expression of the file names older releases keep | string | `"(?i)(checksums\\.txt\|sha256sums)\|\\.(bundle\|sig\|asc\|pem\|intoto\\.jsonl?)$\|\\.(sbom\|cyclonedx\|spdx)\\.json$"` | `$RELEASE_ASSET_RETENTION_KEEP_FILES` |
+| `--keep-files` | regular expression of the file names older releases keep | string | `"(?i)(checksums\\.txt\|sha256sums)\|\\.(bundle\|sig\|asc\|pem\|intoto\\.jsonl?)$\|\\.(sbom\|cyclonedx\|spdx)\\.json$\|^(sbom-[a-z0-9][a-z0-9._-]*\|release-plan)\\.json$"` | `$RELEASE_ASSET_RETENTION_KEEP_FILES` |
 | `--max-delete` | refuse a pass that would delete more files than this (0 disables the bound) | int | `200` | `$RELEASE_ASSET_RETENTION_MAX_DELETE` |
 | `--dry-run` | report what would be deleted without deleting it | bool | `true` | `$RELEASE_ASSET_RETENTION_DRY_RUN` |
 
@@ -4153,6 +4162,14 @@ EXAMPLE:
 | `--author-email` | write user.email | string | `""` | `$COMMIT_AUTHOR_EMAIL` |
 | `--git-commit-sign` | additionally write commit.gpgsign=true | bool | `false` | `$GIT_COMMIT_GPGSIGN` |
 | `--git-config-global` | use --global on the git config writes (env $FORGE_CI_GIT_CONFIG_GLOBAL — NOT git's reserved $GIT_CONFIG_GLOBAL, which is a path) | bool | `false` | `$FORGE_CI_GIT_CONFIG_GLOBAL` |
+
+### `forge-ci release validate-assembly`
+
+validate unsigned assembly inputs, checksum membership and asset bytes before loading signing keys
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--assembly` | unsigned release assembly manifest path | string | `".forge-ci/release-assembly.json"` | `$RELEASE_ASSEMBLY` |
 
 ### `forge-ci release validate-changelog`
 
