@@ -366,6 +366,7 @@ type StagedSignerImage struct {
 	in      SignerImageAssembleInput
 	derived signerImageManifestDerived
 	inputs  []LayoutRecordInput
+	digests map[string]string // independently retained before scan/gate callbacks
 }
 
 // AdmitStagedSignerImage reads and checks every staged architecture of one
@@ -386,8 +387,10 @@ func AdmitStagedSignerImage(ctx context.Context, registry StagedSignerRegistry, 
 		return nil, err
 	}
 	// Establish source/platform/content binding before policy callbacks inspect
-	// inputs. PublishImageLayouts rechecks the same bytes after the callbacks.
-	if _, err := verifyImageLayouts(ctx, registry, inputs); err != nil {
+	// inputs. Retain these digests independently of mutable layout records so
+	// publication can require the content that actually passed the callbacks.
+	digests, err := verifyImageLayouts(ctx, registry, inputs)
+	if err != nil {
 		return nil, err
 	}
 
@@ -401,7 +404,7 @@ func AdmitStagedSignerImage(ctx context.Context, registry StagedSignerRegistry, 
 		}
 	}
 
-	return &StagedSignerImage{in: in, derived: derived, inputs: inputs}, nil
+	return &StagedSignerImage{in: in, derived: derived, inputs: inputs, digests: digests}, nil
 }
 
 // Publish uploads the admitted layouts, assembles their index and writes
@@ -409,7 +412,11 @@ func AdmitStagedSignerImage(ctx context.Context, registry StagedSignerRegistry, 
 func (s *StagedSignerImage) Publish(ctx context.Context, registry StagedSignerRegistry, sink ci.OutputSink, summary ci.SummarySink, out io.Writer) (*SignerImageMetadata, error) {
 	in := s.in
 
-	if _, uploadErr := PublishImageLayouts(ctx, registry, out, s.inputs, in.RetryAttempts, in.RetryDelay); uploadErr != nil {
+	if err := s.verifyLayouts(ctx, registry); err != nil {
+		return nil, err
+	}
+
+	if _, uploadErr := publishVerifiedImageLayouts(ctx, registry, out, s.inputs, s.digests, in.RetryAttempts, in.RetryDelay); uploadErr != nil {
 		return nil, uploadErr
 	}
 
@@ -429,6 +436,23 @@ func (s *StagedSignerImage) Publish(ctx context.Context, registry StagedSignerRe
 	}
 
 	return meta, nil
+}
+
+// Recheck every platform against its admission pin before the first upload.
+// Rewriting both a layout and its record must not replace scanned content.
+func (s *StagedSignerImage) verifyLayouts(ctx context.Context, inspector LayoutInspector) error {
+	current, err := verifyImageLayouts(ctx, inspector, s.inputs)
+	if err != nil {
+		return err
+	}
+
+	for platform, digest := range s.digests {
+		if current[platform] != digest {
+			return fmt.Errorf("staged %s layout digest changed after admission: expected %s, got %s: %w", platform, digest, current[platform], errs.ErrValidation)
+		}
+	}
+
+	return nil
 }
 
 func stagedSignerInputs(ctx context.Context, registry LayoutInspector, in SignerImageAssembleInput, derived signerImageManifestDerived) ([]LayoutRecordInput, error) {

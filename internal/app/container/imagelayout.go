@@ -83,6 +83,13 @@ func PublishImageLayouts(ctx context.Context, registry LayoutRegistry, out io.Wr
 		return nil, err
 	}
 
+	return publishVerifiedImageLayouts(ctx, registry, out, inputs, digests, attempts, delay)
+}
+
+// Callers establish the complete content binding before entering the upload
+// loop. Staged publication supplies the digests retained before its callbacks,
+// never replacement digests read from mutable build records after scanning.
+func publishVerifiedImageLayouts(ctx context.Context, registry LayoutRegistry, out io.Writer, inputs []LayoutRecordInput, digests map[string]string, attempts int, delay time.Duration) (map[string]string, error) {
 	for _, in := range inputs {
 		digest := digests[in.Platform]
 
