@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -146,6 +147,184 @@ func TestGitHubConsumerPreservesTrackedIgnoredSource(t *testing.T) {
 
 	if got := trial.git(dir, "ls-tree", "-r", "--name-only", "HEAD"); strings.Contains(got, "secret.local") {
 		t.Fatal("uncommitted ignored file entered the consumer snapshot")
+	}
+}
+
+// These are the native release wrapper and policy coordinates from Gommitlint's
+// migration draft. The hosted fixture must not leave their immutable-pin guard
+// checking a different identity than the native workflows it reads.
+func TestGitHubConsumerBindsNativeDraftPolicyInputs(t *testing.T) {
+	t.Parallel()
+
+	const marker = "PIN_FORGE_CI_SHA"
+	const native = `jobs:
+  token-preflight:
+    steps:
+      - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/verify-forgejo-token@PIN_FORGE_CI_SHA
+  prepare:
+    uses: itiquette/forge-ci/.forgejo/workflows/prepare-release.yml@PIN_FORGE_CI_SHA
+    with:
+      forge-ci-repository: itiquette/forge-ci
+`
+	const policy = `package policy_test
+const (
+  forgeCIPin = "PIN_FORGE_CI_SHA"
+  layerSetupAction = "https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA"
+  layerPrepareWorkflow = "itiquette/forge-ci/.forgejo/workflows/prepare-release.yml@PIN_FORGE_CI_SHA"
+)
+`
+	for _, format := range []string{"sha1", "sha256"} {
+		t.Run(format, func(t *testing.T) {
+			t.Parallel()
+			trial := &GitHubTrial{tb: t}
+			root := t.TempDir()
+			trial.git(root, "init", "--quiet", "--object-format="+format, "--initial-branch=main", ".")
+			files := map[string]string{
+				".forgejo/workflows/release.yml":             native,
+				"test/policy/workflow_policy_test.go":        policy,
+				"test/live/github/workflows/pullrequest.yml": fixturePullRequest,
+			}
+			for path, text := range files {
+				writeLayerFile(t, root, path, text)
+			}
+			trial.git(root, "add", "--all")
+			trial.commit(root, consumerBaseMessage, "")
+			head := trial.git(root, "rev-parse", "HEAD")
+			dir, _ := trial.stageConsumer(root, "test/live/github", trialEngine, nil)
+
+			immutable := regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
+			if immutable.MatchString(marker) || !immutable.MatchString(trialEngine.Commit) {
+				t.Fatal("production pin grammar must reject the draft and admit the frozen commit")
+			}
+			for path, original := range files {
+				got := trial.git(dir, "show", "HEAD:"+path)
+				want := original
+				if !strings.HasPrefix(path, "test/live/") {
+					want = strings.NewReplacer(
+						"https://codefloe.com/itiquette/forge-ci/.forgejo/actions/", "https://github.com/"+trialEngine.Owner+"/"+trialEngine.Repository+"/.forgejo/actions/",
+						"itiquette/forge-ci/.forgejo/workflows/", trialEngine.Owner+"/"+trialEngine.Repository+"/.forgejo/workflows/",
+						marker, trialEngine.Commit,
+						"forge-ci-repository: itiquette/forge-ci", "forge-ci-repository: "+trialEngine.Owner+"/"+trialEngine.Repository,
+					).Replace(original)
+				}
+				if got != want {
+					t.Errorf("private %s = %q, want %q", path, got, want)
+				}
+				if got := trial.git(root, "show", "HEAD:"+path); got != original {
+					t.Errorf("source blob changed: %s", path)
+				}
+			}
+			if got := trial.git(dir, "show", "HEAD:.github/workflows/pullrequest.yml"); !strings.Contains(got, trialEngine.Owner+"/"+trialEngine.Repository+"/.github/workflows/pullrequest-orchestrator.yml@"+trialEngine.Commit) {
+				t.Fatalf("GitHub fixture not rendered against the same frozen engine: %s", got)
+			}
+			if trial.git(root, "rev-parse", "HEAD") != head || trial.git(root, "status", "--porcelain") != "" {
+				t.Fatal("source HEAD or working tree changed")
+			}
+		})
+	}
+}
+
+func TestGitHubConsumerNativeChecksumPolicy(t *testing.T) {
+	t.Parallel()
+
+	const nativeDigest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const engineDigest = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	const independentDigest = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	for _, recorded := range []bool{false, true} {
+		name := "preserved-source-checksum-is-not-engine-proof"
+		if recorded {
+			name = "checksum-from-frozen-engine-tree"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			trial := &GitHubTrial{tb: t}
+			engine := trialEngine
+			wantDigest := nativeDigest
+			if recorded {
+				engineRoot := t.TempDir()
+				trial.git(engineRoot, "init", "--quiet", "--object-format=sha1", "--initial-branch=main", ".")
+				for path, text := range map[string]string{
+					layerChecksum: engineDigest + "  bin/forge-ci\n",
+					".forgejo/actions/setup-forge-ci/action.yml":     "name: Fixture setup\n",
+					".github/workflows/pullrequest-orchestrator.yml": "name: Fixture orchestrator\n",
+				} {
+					writeLayerFile(t, engineRoot, path, text)
+				}
+				trial.git(engineRoot, "add", "--all")
+				trial.commit(engineRoot, consumerBaseMessage, "")
+				engine.Commit = strings.TrimSpace(trial.git(engineRoot, "rev-parse", "HEAD"))
+				var err error
+				engine.admin, err = newWorkflowAdmin(t.Context(), engineRoot, engine.Commit, func(string) string { return "" })
+				if err != nil {
+					t.Fatal(err)
+				}
+				// The reader must use the frozen commit, not the current worktree.
+				writeLayerFile(t, engineRoot, layerChecksum, independentDigest+"  bin/forge-ci\n")
+				wantDigest = engineDigest
+			}
+			root := t.TempDir()
+			trial.git(root, "init", "--quiet", "--object-format=sha256", "--initial-branch=main", ".")
+			native := "jobs:\n  check:\n    steps:\n      - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA\n        with:\n          expected-sha256: " + nativeDigest + "\n"
+			policy := "package policy_test\nconst forgeCIBinarySHA256 = \"" + nativeDigest + "\"\nconst independentSHA256 = \"" + independentDigest + "\"\n"
+			files := map[string]string{
+				".forgejo/workflows/pullrequest.yml":         native,
+				"test/policy/workflow_policy_test.go":        policy,
+				"test/live/github/workflows/pullrequest.yml": fixturePullRequest,
+			}
+			for path, text := range files {
+				writeLayerFile(t, root, path, text)
+			}
+			trial.git(root, "add", "--all")
+			trial.commit(root, consumerBaseMessage, "")
+			dir, _ := trial.stageConsumer(root, "test/live/github", engine, nil)
+			got := trial.git(dir, "show", "HEAD:.forgejo/workflows/pullrequest.yml")
+			if !strings.Contains(got, "expected-sha256: "+wantDigest) || !strings.Contains(got, "https://github.com/"+engine.Owner+"/"+engine.Repository+"/.forgejo/actions/setup-forge-ci@"+engine.Commit) {
+				t.Fatalf("native checksum or frozen identity lost: %s", got)
+			}
+			got = trial.git(dir, "show", "HEAD:test/policy/workflow_policy_test.go")
+			if got != strings.ReplaceAll(policy, nativeDigest, wantDigest) {
+				t.Fatalf("checksum policy constant or independent digest changed incorrectly: %s", got)
+			}
+			for path, original := range files {
+				if trial.git(root, "show", "HEAD:"+path) != original {
+					t.Fatalf("source changed: %s", path)
+				}
+			}
+			if trial.git(root, "status", "--porcelain") != "" {
+				t.Fatal("source working tree changed")
+			}
+		})
+	}
+}
+
+func TestGitHubNativePolicyChecksumRequiresFrozenRecordedData(t *testing.T) {
+	t.Parallel()
+	trial := &GitHubTrial{tb: t}
+	root := t.TempDir()
+	trial.git(root, "init", "--quiet", "--initial-branch=main", ".")
+	writeLayerFile(t, root, ".forgejo/workflows/pullrequest.yml", "jobs:\n  check:\n    steps:\n      - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA\n        with:\n          expected-sha256: "+strings.Repeat("a", 64)+"\n")
+	trial.git(root, "add", "--all")
+	trial.commit(root, consumerBaseMessage, "")
+	consumer, err := openConsumer(t.Context(), githubStageGit(), root, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, admin := range map[string]*workflowAdmin{
+		"wrong commit":     {commit: strings.Repeat("e", 40)},
+		"missing reader":   {commit: trialEngine.Commit},
+		"missing checksum": {commit: trialEngine.Commit, read: func(string) ([]byte, error) { return nil, os.ErrNotExist }},
+		"empty checksum":   {commit: trialEngine.Commit, read: func(string) ([]byte, error) { return nil, nil }},
+		"wrong binary": {commit: trialEngine.Commit, read: func(string) ([]byte, error) {
+			return []byte(strings.Repeat("b", 64) + "  unrelated-binary\n"), nil
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			engine := trialEngine
+			engine.admin = admin
+			if _, err := githubNativePolicyLayer(t.Context(), consumer, engine); err == nil {
+				t.Fatal("unavailable or mismatched recorded checksum was accepted")
+			}
+		})
 	}
 }
 

@@ -328,6 +328,23 @@ func (trial *GitHubTrial) stageConsumer(root, fixtures string, engine GitHubEngi
 		trial.tb.Fatalf("livetest: stage consumer: %v", err)
 	}
 
+	// Bind native draft policy inputs in the imported SHA-1 tree, never the
+	// source checkout. These coordinates identify the frozen engine for source
+	// assertions; GitHub executes the fixture workflows, not Forgejo actions.
+	staged.git.env = append(slices.Clone(staged.git.env),
+		"GIT_AUTHOR_NAME="+consumerAuthor, "GIT_AUTHOR_EMAIL="+requestSigner,
+		"GIT_COMMITTER_NAME="+consumerAuthor, "GIT_COMMITTER_EMAIL="+requestSigner,
+		"GIT_AUTHOR_DATE=2000-01-01T00:00:00Z", "GIT_COMMITTER_DATE=2000-01-01T00:00:00Z")
+	staged.Commit, err = staged.commit(trial.tb.Context(), consumerBaseMessage)
+	if err != nil {
+		trial.tb.Fatalf("livetest: snapshot imported consumer: %v", err)
+	}
+	nativeLayer, err := githubNativePolicyLayer(trial.tb.Context(), staged, engine)
+	if err != nil {
+		trial.tb.Fatalf("livetest: native policy checksum: %v", err)
+	}
+	staged = staged.WithDraftLayer(trial.tb, nativeLayer)
+
 	prefix := filepath.ToSlash(filepath.Join(fixtures, "workflows")) + "/"
 
 	listed, err := git.output(trial.tb.Context(), source.stage, nil, "ls-tree", "-rz", "--name-only", source.Commit, "--", prefix)
@@ -360,6 +377,68 @@ func (trial *GitHubTrial) stageConsumer(root, fixtures string, engine GitHubEngi
 	workflows := filepath.Join(dir, ".github", "workflows")
 
 	return dir, workflows
+}
+
+// githubNativePolicyLayer selects checksum data for native source assertions.
+// A pinned engine reader supplies its recorded CLI digest, not publication
+// authentication. Without that reader, preserve the native policy's checksum;
+// it is NOT evidence that the selected engine's binary matches it. GitHub runs
+// only the separately rendered fixture workflows, never these native calls.
+func githubNativePolicyLayer(ctx context.Context, consumer Consumer, engine GitHubEngine) (Layer, error) { //nolint:funcorder // keep native staging policy beside stageConsumer.
+	layer := Layer{ServerURL: "https://github.com", Repository: engine.Owner + "/" + engine.Repository,
+		Commit: engine.Commit, admin: engine.admin}
+	listed, err := consumer.git.output(ctx, consumer.stage, nil, "ls-tree", "-z", "--name-only", consumer.Commit, consumerWorkflows+"/")
+	if err != nil {
+		return Layer{}, err
+	}
+	hasWorkflow := false
+	for path := range strings.SplitSeq(string(listed), "\x00") {
+		if ext := filepath.Ext(path); ext == ".yml" || ext == ".yaml" {
+			hasWorkflow = true
+			break
+		}
+	}
+	if !hasWorkflow {
+		return layer, nil
+	}
+	workflows, err := consumer.workflows(ctx)
+	if err != nil {
+		return Layer{}, err
+	}
+	draft := false
+	for _, workflow := range workflows {
+		draft = draft || strings.Contains(workflow, "@PIN_FORGE_CI_SHA")
+	}
+	if !draft {
+		return layer, nil
+	}
+	pin, err := ReadConsumerPin(workflows)
+	if err != nil {
+		return Layer{}, err
+	}
+	if pin.Commit != "PIN_FORGE_CI_SHA" {
+		return layer, nil
+	}
+	// Do not give PlanConsumer an empty replacement for a native digest. The
+	// preserved value is source policy data, not a selected-engine trust fact.
+	layer.BinarySHA256 = pin.BinarySHA256
+	if pin.BinarySHA256 == "" || engine.admin == nil {
+		return layer, nil
+	}
+	if engine.admin.commit != engine.Commit || engine.admin.read == nil {
+		return Layer{}, fmt.Errorf("checksum reader does not identify the frozen engine commit")
+	}
+	line, err := engine.admin.read(layerChecksum)
+	if err != nil {
+		return Layer{}, fmt.Errorf("read frozen engine checksum: %w", err)
+	}
+	digest, name, found := strings.Cut(strings.TrimSuffix(string(line), "\n"), "  ")
+	if decoded, decodeErr := hex.DecodeString(digest); !found || name != "bin/forge-ci" || decodeErr != nil || len(decoded) != sha256.Size {
+		return Layer{}, fmt.Errorf("%s is not one `<sha256>  bin/forge-ci` line", layerChecksum)
+	}
+	layer.BinarySHA256 = digest
+
+	return layer, nil
 }
 
 // stageFixtureWorkflows renders each top-level fixture workflow under prefix
