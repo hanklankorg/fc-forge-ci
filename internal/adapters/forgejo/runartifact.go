@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -19,6 +20,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/diggsweden/forge-ci/internal/adapters/httpretry"
 	domainartifact "github.com/diggsweden/forge-ci/internal/domain/artifact"
@@ -896,12 +898,20 @@ func (p *Provider) finalizeArtifact(ctx context.Context, creds runtimeUploadCred
 	patchURL := fmt.Sprintf("%s/_apis/pipelines/workflows/%s/artifacts?artifactName=%s&api-version=%s",
 		creds.url, creds.runID, url.QueryEscape(name), runArtifactAPIVersion)
 
+	started := time.Now()
+	// Never log the runtime URL, token, headers or response body. The byte count
+	// describes the uploaded artifact, not the small finalization request.
+	slog.DebugContext(ctx, "Finalizing Forgejo artifact", "method", http.MethodPatch, "artifact_bytes", total)
 	resp, err := p.runtimeSend(ctx, http.MethodPatch, patchURL, creds.token, "application/json", bytes.NewReader(body), int64(len(body)), nil)
+
+	elapsed := time.Since(started).Round(time.Millisecond)
 	if err != nil {
-		return fmt.Errorf("finalize artifact %q: %w", name, err)
+		return fmt.Errorf("finalize artifact %q (PATCH, %d bytes, elapsed %s; server outcome unknown, not retried): %w", name, total, elapsed, err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
+
+	slog.DebugContext(ctx, "Forgejo artifact finalization response", "status", resp.StatusCode, "elapsed", elapsed, "artifact_bytes", total)
 
 	if !is2xx(resp.StatusCode) {
 		return fmt.Errorf("finalize artifact %q: HTTP %d%s: %w", name, resp.StatusCode, uploadRefusalHint(resp.StatusCode), classifyStatus(resp.StatusCode))

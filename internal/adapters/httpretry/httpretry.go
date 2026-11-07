@@ -284,11 +284,6 @@ func longWaitError(req *http.Request, resp *http.Response, wait, limit time.Dura
 		req.Method, req.URL.Host, resp.StatusCode, wait.Truncate(time.Second), limit, retrySentinel(resp.StatusCode))
 }
 
-type transportError struct{ cause error }
-
-func (e transportError) Error() string { return "HTTP transport failed" }
-func (e transportError) Unwrap() error { return e.cause }
-
 // SafeError omits request and cause text from the rendered diagnostic while
 // preserving the cause for errors.Is/errors.As classification. Apply it after
 // http.Client.Do when a URL is sensitive: the client adds a URL-bearing error
