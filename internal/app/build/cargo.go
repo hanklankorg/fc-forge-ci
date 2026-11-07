@@ -50,7 +50,8 @@ type CargoMetadataInput struct {
 
 // CargoTestInput drives CargoTest.
 type CargoTestInput struct {
-	Dir string
+	Dir           string
+	SelectionJSON string
 }
 
 // CargoBuildBinariesInput drives CargoBuildBinaries.
@@ -102,6 +103,24 @@ func CargoFetchWithRetry(ctx context.Context, tool CargoTool, w, stderr io.Write
 // remain caller-owned in pull-request quality flows; this is the release
 // build's mandatory pre-compile gate. Administrator policy rejects --skip-tests.
 func CargoTest(ctx context.Context, tool CargoTool, w, stderr io.Writer, in CargoTestInput) error {
+	if in.SelectionJSON != "" {
+		selection, err := domainbuild.ParseCargoTestSelection(in.SelectionJSON)
+		if err != nil {
+			return err
+		}
+		for _, target := range selection.Runs {
+			gate := appenforcement.SelectedTestRun
+			if target.Gate == domainbuild.PolicyTestGate {
+				gate = appenforcement.SelectedPolicyTestRun
+			}
+			if err := gate(ctx, w, stderr, enforcement.Cargo, func(stdout, stderr io.Writer) error {
+				return tool.Run(ctx, CargoRunInput{Dir: defaultCargoDir(in.Dir), Args: target.Args(), Stdout: stdout, Stderr: stderr})
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	_, err := appenforcement.TestRun(ctx, w, stderr, enforcement.Cargo, func(stdout, stderr io.Writer) error {
 		return tool.Run(ctx, CargoRunInput{
 			Dir:    defaultCargoDir(in.Dir),

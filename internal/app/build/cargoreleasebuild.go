@@ -11,6 +11,7 @@ import (
 
 	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
 	appsummary "github.com/diggsweden/forge-ci/internal/app/summary"
+	domainbuild "github.com/diggsweden/forge-ci/internal/domain/build"
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
 )
 
@@ -19,11 +20,12 @@ import (
 type CargoReleaseBuildInput struct {
 	ReleaseBuildOptions
 
-	BinaryName string
-	Version    string
-	RefName    string
-	Commit     string
-	Platforms  string
+	BinaryName        string
+	Version           string
+	RefName           string
+	Commit            string
+	Platforms         string
+	TestSelectionJSON string
 }
 
 // CargoBuildSBOM generates a Build-layer SBOM with cargo-cyclonedx from the
@@ -50,6 +52,11 @@ func CargoReleaseBuild(ctx context.Context, summarySink ci.SummarySink, tool Car
 	if err := appenforcement.RequireTests(ctx, in.SkipTests); err != nil {
 		return err
 	}
+	if in.TestSelectionJSON != "" {
+		if _, err := domainbuild.ParseCargoTestSelection(in.TestSelectionJSON); err != nil {
+			return err
+		}
+	}
 
 	meta, err := resolveCargoMetadata(ctx, tool, CargoMetadataInput{
 		Dir:          in.Dir,
@@ -68,7 +75,7 @@ func CargoReleaseBuild(ctx context.Context, summarySink ci.SummarySink, tool Car
 		return fmt.Errorf("cargo fetch: %w", err)
 	}
 
-	if err := CargoTest(ctx, tool, out, stderr, CargoTestInput{Dir: in.Dir}); err != nil {
+	if err := CargoTest(ctx, tool, out, stderr, CargoTestInput{Dir: in.Dir, SelectionJSON: in.TestSelectionJSON}); err != nil {
 		return fmt.Errorf("cargo test: %w", err)
 	}
 

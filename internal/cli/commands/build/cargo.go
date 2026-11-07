@@ -50,7 +50,7 @@ func cargoRunCmd() *cli.Command {
 		Name:  subCmdRun,
 		Usage: "run the full Cargo release build (metadata, fetch, test, SBOM, compile, status)",
 		Description: `Runs the whole Cargo build sequence in one step: resolve metadata, fetch
-    deps, run mandatory all-target tests under the admin enforcement policy, generate the Build SBOM with cargo-cyclonedx
+    deps, run mandatory native tests under the admin enforcement policy, generate the Build SBOM with cargo-cyclonedx
    (unless --no-build-sbom), and cross-compile per platform into dist/. The
    forge job wraps this with checkout + artifact upload only.
 
@@ -65,20 +65,22 @@ EXAMPLE:
 			&cli.StringFlag{Name: "commit", Sources: cienv.Commit(), Usage: "prepared release commit exposed as FORGE_CI_COMMIT during compilation"},
 			&cli.StringFlag{Name: flagPlatforms, Value: build.DefaultPlatform, Sources: cli.EnvVars("PLATFORMS"), Usage: "comma/space/newline-separated GOOS/GOARCH targets to cross-compile (each must have a Rust target triple mapping)"},
 			&cli.BoolFlag{Name: flagSkipTests, Sources: cli.EnvVars("SKIP_TESTS"), Usage: usageSkipTestTask},
+			&cli.StringFlag{Name: "test-selection-json", Usage: "administrator-owned individual Cargo bin/test executables with explicit application/policy gate (policy always blocks)"},
 			&cli.BoolFlag{Name: flagBuildSBOM, Value: true, Sources: cli.EnvVars("ENABLE_BUILD_SBOM"), Usage: "generate the cargo-cyclonedx Build SBOM (default true)"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error {
 				return appbuild.CargoReleaseBuild(ctx, d.SummarySink, cargo.New(), os.Stderr, os.Stderr, appbuild.CargoReleaseBuildInput{
-					Dir:             cmd.String(flagWorkingDir),
-					ArtifactName:    cmd.String(flagArtifactName),
-					SkipTests:       cmd.Bool(flagSkipTests),
-					EnableBuildSBOM: cmd.Bool(flagBuildSBOM),
-					BinaryName:      cmd.String(flagBinaryName),
-					Version:         cmd.String(flagVersion),
-					RefName:         cmd.String(flagRefName),
-					Commit:          cmd.String("commit"),
-					Platforms:       cmd.String(flagPlatforms),
+					Dir:               cmd.String(flagWorkingDir),
+					ArtifactName:      cmd.String(flagArtifactName),
+					SkipTests:         cmd.Bool(flagSkipTests),
+					TestSelectionJSON: cmd.String("test-selection-json"),
+					EnableBuildSBOM:   cmd.Bool(flagBuildSBOM),
+					BinaryName:        cmd.String(flagBinaryName),
+					Version:           cmd.String(flagVersion),
+					RefName:           cmd.String(flagRefName),
+					Commit:            cmd.String("commit"),
+					Platforms:         cmd.String(flagPlatforms),
 				})
 			})
 		},

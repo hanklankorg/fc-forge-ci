@@ -200,6 +200,99 @@ digests together. A malformed embedded policy fails gates closed; omitted
 keys default to `false`; unknown keys, duplicate keys and non-boolean values
 are refused.
 
+## Safe native release-test selections (Go/Cargo, GitHub)
+
+Release tests remain mandatory; `skip-tests: true` is refused even when an
+administrator supplies a selection or uses report-only enforcement. Do not fix
+a hosted exclusion by merely deleting that flag: the legacy Cargo default is
+`cargo test --locked --all-targets`, which can cross a product's hosted boundary.
+
+The existing Go/Cargo release commands accept `--test-selection-json`. The
+GitHub build leaves accept `test-selection-json`; the release orchestrator and
+build stage accept `go-test-selections-json` / `cargo-test-selections-json`, JSON
+objects keyed by artifact name. These inputs belong in the **administrator's
+protected entry point**, under the same ownership requirements as enforcement.
+They are not read from artifacts.yml, environment defaults, consumer scripts or
+dispatch parameters. The engine cannot authenticate who wrote a command line.
+Review the required workflow and its pins, not merely the status-check name.
+
+Only omitted/blank whole selections retain legacy behavior for compatibility.
+An explicitly supplied `{}` is refused when that ecosystem has native artifacts.
+Every supplied map must contain exactly the selected build
+artifact names for that ecosystem. `plan validate-test-selections` validates the
+whole object in Go before any build matrix leaf can run: arrays, scalars, null,
+duplicate/extra/missing keys, wrong artifact types and null/false/empty entries
+are refused. Only validated, canonical maps reach the leaves. A leaf's empty
+default likewise retains legacy behavior. These defaults are **not suitable for
+a product with hosted exclusions**. Omission is never Nano-safe: migration to an
+explicit reviewed map is mandatory before its skip flag is removed. This does
+not remove the existing omitted generic legacy path.
+
+Go selection example (the administrator must review its package coverage):
+
+```json
+{"packages":["./internal/...","./cmd/..."],"run":"TestSafe","gate":"policy"}
+```
+
+`run` is optional, but explicit null is invalid. A Go selection requires a typed
+`application` or `policy` gate for its single invocation, with no implicit default
+(the same classification rule as Cargo). Mixed Gommi application/policy suites
+must use `policy` for the whole invocation; application report-only enforcement
+cannot waive their policy failures. Selected Go tests always use `-json -count=1 -race
+-buildvcs=false`; existing build tags are retained. Packages must be
+workspace-relative, not flags or external paths. There is no extra-arguments or
+shell-command escape hatch. A regexp that executes no tests fails closed.
+
+Cargo has only two target kinds: `package-bin` and `package-test`. Every entry
+requires a package, one exact executable name, and a typed gate: `application`
+or `policy`. **Policy checks always block**, independently of application-test
+enforcement. Only application assertions can become report-only findings. The
+administrator owns this classification; there are no product-name rules.
+
+Each entry runs a separate `cargo test --locked --package NAME --bin NAME` or
+`--test NAME` invocation and requires exactly one completed libtest summary.
+Grouped `workspace-bins`, `package-bins`, `package-tests` and `all-targets`
+selections are refused: a single assertion summary from an early failed
+executable cannot stand in for later unrun executables. Under report-only
+application enforcement, later entries still run and each needs its own fresh
+report before progression is permitted. A blocking failure can stop the build.
+
+For example, an explicitly enumerated Nano hosted selection is expressible as:
+
+```json
+{"runs":[
+  {"kind":"package-bin","package":"nanolinter","name":"nanolinter","gate":"application"},
+  {"kind":"package-bin","package":"nanolinter-ci","name":"nanolinter-ci","gate":"policy"},
+  {"kind":"package-test","package":"nanolinter-ci","name":"basegraph_provenance","gate":"policy"},
+  {"kind":"package-test","package":"nanolinter-ci","name":"go_parity","gate":"policy"},
+  {"kind":"package-test","package":"nanolinter-ci","name":"imageplan_contract","gate":"policy"},
+  {"kind":"package-test","package":"nanolinter-ci","name":"release_plan","gate":"policy"},
+  {"kind":"package-test","package":"nanolinter","name":"architecture_guards","gate":"policy"},
+  {"kind":"package-test","package":"nanolinter","name":"configuration_doc_schema","gate":"policy"},
+  {"kind":"package-test","package":"nanolinter","name":"dependency_guards","gate":"policy"},
+  {"kind":"package-test","package":"nanolinter","name":"docs_workflow_guards","gate":"policy"},
+  {"kind":"package-test","package":"nanolinter","name":"workflow_policy","gate":"policy"}
+]}
+```
+
+This is a reviewed enumeration, not dynamic workspace discovery: administrators
+must update it when approved executables change. Product PR graphs remain
+product-owned; this selection does not replace them. Review the enumeration and
+gate classification against the frozen product source before removing the
+obsolete skip flag in a separate consumer migration.
+
+Each selected invocation gets a new bounded native-output wrapper and must
+report at least one executed (not merely ignored/skipped) test and complete
+native termination, including on exit zero. No checkout report file is trusted.
+Missing, malformed, truncated, zero-test and infrastructure reports block under
+both enforcement settings. Valid **application** assertion failures still go
+through the existing enforcement policy; report-only findings stay visible.
+Policy assertion failures never receive that waiver. These are
+native Go JSON / Rust libtest protocols, not arbitrary custom harnesses. Source
+review must still establish the honesty and adequacy of the tests themselves.
+This bounded extension does not migrate consumer fixtures or add GitLab/Forgejo
+selection inputs; their existing command owners can use the CLI contract.
+
 ## The receipt
 
 ### Live harness administrator inputs

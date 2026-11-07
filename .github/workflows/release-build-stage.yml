@@ -5,6 +5,16 @@ name: Release Build Stage
 on:
   workflow_call: # yamllint disable-line rule:truthy
     inputs:
+      go-test-selections-json:
+        description: "Administrator-owned JSON object mapping artifact names to native Go selections. Do not derive from the consumer build plan. See docs/admin-policy.md."
+        type: string
+        required: false
+        default: ""
+      cargo-test-selections-json:
+        description: "Administrator-owned JSON object mapping artifact names to finite native Cargo selections. Do not derive from the consumer build plan. See docs/admin-policy.md."
+        type: string
+        required: false
+        default: ""
       enforce-application-tests:
         description: "Enforcement setting: false reports recognized test assertion failures without failing; the tests still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
         type: boolean
@@ -112,8 +122,30 @@ jobs:
     uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
     with:
       forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
-  maven:
+  validate-test-selections:
     needs: [resolve-bootstrap]
+    runs-on: ubuntu-26.04
+    container:
+      image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
+    permissions:
+      contents: read
+    outputs:
+      go-test-selections-json: ${{ steps.validate.outputs.go-test-selections-json }}
+      cargo-test-selections-json: ${{ steps.validate.outputs.cargo-test-selections-json }}
+    steps:
+      - name: Validate whole administrator selections before build fanout
+        id: validate
+        env:
+          BUILD_STAGE_PLAN_JSON: ${{ inputs['build-stage-plan-json'] }}
+          ADMIN_GO_SELECTIONS_JSON: ${{ inputs['go-test-selections-json'] }}
+          ADMIN_CARGO_SELECTIONS_JSON: ${{ inputs['cargo-test-selections-json'] }}
+        run: >-
+          forge-ci plan validate-test-selections
+          --build-stage-plan-json="$BUILD_STAGE_PLAN_JSON"
+          --go-test-selections-json="$ADMIN_GO_SELECTIONS_JSON"
+          --cargo-test-selections-json="$ADMIN_CARGO_SELECTIONS_JSON"
+  maven:
+    needs: [resolve-bootstrap, validate-test-selections]
     name: "Build: ${{ matrix.artifact.name }} (Maven)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.maven.runs }}
     strategy:
@@ -138,7 +170,7 @@ jobs:
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
       runtime-image: ${{ inputs['runtime-image-java'] || needs.resolve-bootstrap.outputs['runtime-image-java'] }}
   npm:
-    needs: [resolve-bootstrap]
+    needs: [resolve-bootstrap, validate-test-selections]
     name: "Build: ${{ matrix.artifact.name }} (npm)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.npm.runs }}
     strategy:
@@ -163,7 +195,7 @@ jobs:
       node-version: ${{ matrix.artifact.npm.node_version || '' }}
       expect-version: ${{ inputs['release-tag'] }}
   gradle:
-    needs: [resolve-bootstrap]
+    needs: [resolve-bootstrap, validate-test-selections]
     name: "Build: ${{ matrix.artifact.name }} (Gradle)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.gradle.runs }}
     strategy:
@@ -189,7 +221,7 @@ jobs:
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
       runtime-image: ${{ inputs['runtime-image-java'] || needs.resolve-bootstrap.outputs['runtime-image-java'] }}
   go:
-    needs: [resolve-bootstrap]
+    needs: [resolve-bootstrap, validate-test-selections]
     name: "Build: ${{ matrix.artifact.name }} (Go)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.go.runs }}
     strategy:
@@ -201,6 +233,7 @@ jobs:
     # build-go uses only auto-provided GITHUB_TOKEN.
     uses: ./.github/workflows/build-go.yml
     with:
+      test-selection-json: ${{ needs.validate-test-selections.outputs.go-test-selections-json != '{}' && toJson(fromJson(needs.validate-test-selections.outputs.go-test-selections-json)[matrix.artifact.name]) || '' }}
       enforce-application-tests: ${{ inputs['enforce-application-tests'] }}
       forge-ci-binary-ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
       working-directory: ${{ matrix.artifact.working_directory }}
@@ -218,7 +251,7 @@ jobs:
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
       runtime-image: ${{ inputs['runtime-image-go'] || needs.resolve-bootstrap.outputs['runtime-image-go'] }}
   cargo:
-    needs: [resolve-bootstrap]
+    needs: [resolve-bootstrap, validate-test-selections]
     name: "Build: ${{ matrix.artifact.name }} (Cargo)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.cargo.runs }}
     strategy:
@@ -230,6 +263,7 @@ jobs:
     # build-cargo uses only auto-provided GITHUB_TOKEN.
     uses: ./.github/workflows/build-cargo.yml
     with:
+      test-selection-json: ${{ needs.validate-test-selections.outputs.cargo-test-selections-json != '{}' && toJson(fromJson(needs.validate-test-selections.outputs.cargo-test-selections-json)[matrix.artifact.name]) || '' }}
       enforce-application-tests: ${{ inputs['enforce-application-tests'] }}
       forge-ci-binary-ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
       working-directory: ${{ matrix.artifact.working_directory }}
@@ -244,7 +278,7 @@ jobs:
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
       runtime-image: ${{ inputs['runtime-image-rust'] || needs.resolve-bootstrap.outputs['runtime-image-rust'] }}
   gradle-android:
-    needs: [resolve-bootstrap]
+    needs: [resolve-bootstrap, validate-test-selections]
     name: "Build: ${{ matrix.artifact.name }} (Android)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.gradle_android.runs }}
     strategy:
@@ -284,7 +318,7 @@ jobs:
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
       runtime-image: ${{ inputs['runtime-image-android'] || needs.resolve-bootstrap.outputs['runtime-image-android'] }}
   xcode-ios:
-    needs: [resolve-bootstrap]
+    needs: [resolve-bootstrap, validate-test-selections]
     name: "Build: ${{ matrix.artifact.name }} (Xcode)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.xcode_ios.runs }}
     strategy:
@@ -324,8 +358,8 @@ jobs:
   # build jobs by design. Artifact-first cargo + go run here.
   summarize-build-stage:
     name: Summary
-    needs: [resolve-bootstrap, maven, npm, gradle, go, cargo, gradle-android, xcode-ios]
-    if: always() && needs.resolve-bootstrap.result == 'success'
+    needs: [resolve-bootstrap, validate-test-selections, maven, npm, gradle, go, cargo, gradle-android, xcode-ios]
+    if: always() && needs.resolve-bootstrap.result == 'success' && needs.validate-test-selections.result == 'success'
     runs-on: ubuntu-26.04
     container:
       image: ${{ inputs['runtime-image'] || needs.resolve-bootstrap.outputs['runtime-image'] }}
