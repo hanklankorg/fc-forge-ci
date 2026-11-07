@@ -133,6 +133,15 @@ func PublishReleaseImages(ctx context.Context, registry StagedSignerRegistry, su
 // Publish only after all images have been admitted, collecting the served
 // digests and optional producer-pinned SBOM bytes into the same ledger.
 func publishReleaseImagesLedger(ctx context.Context, registry StagedSignerRegistry, summary ci.SummarySink, out io.Writer, in PublishReleaseImagesInput, staged []*StagedSignerImage) ([]byte, error) {
+	// A later image's callbacks may have replaced any earlier or later layout
+	// together with its record. Check the entire plan against the pre-callback
+	// pins before publishing even its first image.
+	for _, image := range staged {
+		if err := image.verifyLayouts(ctx, registry); err != nil {
+			return nil, err
+		}
+	}
+
 	ledger, err := imageledger.Marshal(nil)
 	if err != nil {
 		return nil, err
