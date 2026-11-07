@@ -621,9 +621,8 @@ func runGitLabReleaseScenario(t *testing.T, consumerRoot string, scenario gitlab
 		logGitLabReleaseInventory(t, ctx, client, project, child)
 	}
 
-	if len(buildRunnerTags) != 0 || len(checksRunnerTags) != 0 {
-		requireGitLabReleaseRunnerRouting(t, ctx, client, project, child, buildRunnerTags, checksRunnerTags)
-	}
+	requireGitLabReleaseRunnerRouting(t, ctx, client, project, child,
+		gitLabReleaseRunnerRoles(buildRunnerTags, checksRunnerTags, imageBuilder, releaseImages, len(exportCommand) != 0))
 
 	requireReleaseGit(t, target, repo, keys, request, requestTag, finalTag)
 	verified := requireGitLabReleaseBundles(t, client, target, repo, child, run.SHA, keys, finalTag)
@@ -918,7 +917,24 @@ func configureGitLabReleaseVariables(t *testing.T, target livetest.Target, clien
 	}
 }
 
-func requireGitLabReleaseRunnerRouting(t *testing.T, ctx context.Context, client *gitlabapi.Client, project string, child int64, buildTags, checksTags []string) {
+// These roles mirror the protected inputs of release-jobs.yml. Only Buildah's
+// amd64 image/export jobs inherit build-runner-tags; Kaniko stays untagged.
+func gitLabReleaseRunnerRoles(buildTags, checksTags []string, builder string, images, exports bool) map[string][]string {
+	expected := map[string][]string{"Build: release files": buildTags, "Check: consumer checks": checksTags}
+	builderTags := []string{}
+	if builder == livetest.ImageBuilderBuildah {
+		builderTags = buildTags
+	}
+	if images {
+		expected["Images: build amd64"] = builderTags
+	}
+	if exports {
+		expected["Build: export amd64"] = builderTags
+	}
+	return expected
+}
+
+func requireGitLabReleaseRunnerRouting(t *testing.T, ctx context.Context, client *gitlabapi.Client, project string, child int64, expected map[string][]string) {
 	t.Helper()
 
 	jobs, response, err := client.Jobs.ListPipelineJobs(project, child, &gitlabapi.ListJobsOptions{PerPage: 100}, gitlabapi.WithContext(ctx))
@@ -930,18 +946,24 @@ func requireGitLabReleaseRunnerRouting(t *testing.T, ctx context.Context, client
 		t.Fatal("release runner routing requires a complete job listing")
 	}
 
-	expected := map[string][]string{"Build: release files": buildTags, "Check: consumer checks": checksTags}
-	seen := map[string]bool{}
-	capableRunners := map[int64]bool{}
-
 	for _, job := range jobs {
 		if job.Runner.ID != 0 {
 			t.Logf("release routing: job %q tags=%v runner=%d (%s)", job.Name, job.TagList, job.Runner.ID, job.Runner.Description)
 		}
+	}
+	if err := validateGitLabReleaseRunnerRouting(jobs, expected); err != nil {
+		t.Fatal(err)
+	}
+}
 
+func validateGitLabReleaseRunnerRouting(jobs []*gitlabapi.Job, expected map[string][]string) error {
+	seen := map[string]bool{}
+	capableRunners := map[int64]bool{}
+
+	for _, job := range jobs {
 		if tags, routed := expected[job.Name]; routed {
 			if !slices.Equal(job.TagList, tags) || job.Runner.ID == 0 || job.Status != "success" {
-				t.Fatalf("job %q did not succeed with the requested tags %v", job.Name, tags)
+				return fmt.Errorf("job %q did not succeed with the requested tags %v", job.Name, tags)
 			}
 
 			seen[job.Name] = true
@@ -949,19 +971,20 @@ func requireGitLabReleaseRunnerRouting(t *testing.T, ctx context.Context, client
 				capableRunners[job.Runner.ID] = true
 			}
 		} else if len(job.TagList) != 0 {
-			t.Fatalf("unrelated job %q inherited runner tags %v", job.Name, job.TagList)
+			return fmt.Errorf("unrelated job %q inherited runner tags %v", job.Name, job.TagList)
 		}
 	}
 
 	if len(seen) != len(expected) {
-		t.Fatal("release has no successful build and consumer checks jobs")
+		return fmt.Errorf("release is missing successful jobs for the requested runner roles")
 	}
 
 	for _, job := range jobs {
 		if len(expected[job.Name]) == 0 && capableRunners[job.Runner.ID] {
-			t.Fatalf("untagged job %q ran on a tagged capability runner %d", job.Name, job.Runner.ID)
+			return fmt.Errorf("untagged job %q ran on a tagged capability runner %d", job.Name, job.Runner.ID)
 		}
 	}
+	return nil
 }
 
 func logGitLabReleaseInventory(t *testing.T, ctx context.Context, client *gitlabapi.Client, project string, child int64) {
