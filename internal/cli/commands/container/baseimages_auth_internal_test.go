@@ -35,6 +35,7 @@ func TestPrivateBaseValidationReuseAndRefusals(t *testing.T) {
 		"verified", "bad-credentials", "forbidden", "missing-auth",
 		"signature", "cyclonedx", "slsaprovenance1", "malformed",
 		"source", "workflow", "flavor", "base_input_id",
+		"parent-verified", "parent-wrong", "parent-missing",
 	} {
 		t.Run(mode, func(t *testing.T) { testPrivateBaseValidation(t, mode) })
 	}
@@ -131,6 +132,10 @@ cat %q
 		"--expected-repository", repo, "--expected-source", "https://source.example/owner/app", "--expected-workflow", "base.yml",
 		"--base-input-id", input, "--flavors-file", "flavors", "--cosign-public-key-path", "key.pub",
 		"--cosign-public-key-sha256", fmt.Sprintf("%x", sha256.Sum256(key)), "--auth-file", authFile}
+	if strings.HasPrefix(mode, "parent-") {
+		args = append(args, "--base-inputs-json", fmt.Sprintf(`[{"flavor":"rust","base_input_id":%q,"parent_base":{"ref":%q,"input_id":%q}}]`, input,
+			"other.example/shared/parent@sha256:"+strings.Repeat("b", 64), strings.Repeat("c", 64)))
+	}
 
 	for range 2 {
 		command := &cli.Command{
@@ -143,7 +148,7 @@ cat %q
 		command.Writer, command.ErrWriter = &out, &out
 
 		err := command.Run(t.Context(), args)
-		if mode == "verified" {
+		if mode == "verified" || mode == "parent-verified" {
 			require.NoError(t, err)
 
 			var outputs struct {
@@ -190,9 +195,18 @@ cat %q
 func privateBaseEnvelope(t *testing.T, mode, input string) []byte {
 	t.Helper()
 
-	params := map[string]string{"source": "git+https://source.example/owner/app", "workflow": "base.yml", "flavor": "rust", "base_input_id": input}
+	params := map[string]any{"source": "git+https://source.example/owner/app", "workflow": "base.yml", "flavor": "rust", "base_input_id": input}
 	if _, exists := params[mode]; exists {
 		params[mode] = "wrong-lineage"
+	}
+
+	if mode == "parent-verified" || mode == "parent-wrong" {
+		id := strings.Repeat("c", 64)
+		if mode == "parent-wrong" {
+			id = strings.Repeat("d", 64)
+		}
+
+		params["parent_base"] = map[string]any{"ref": "other.example/shared/parent@sha256:" + strings.Repeat("b", 64), "input_id": id}
 	}
 
 	statement, err := json.Marshal(map[string]any{

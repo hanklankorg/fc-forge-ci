@@ -942,8 +942,18 @@ validate existing immutable final base-image tags and report missing flavors
 | `--cosign-public-key-sha256` | expected sha256 digest of the trusted Cosign public key | string | `""` | `$COSIGN_PUBLIC_KEY_SHA256` |
 | `--auth-file` | explicit registry auth file for digest, signature and attestation reads; omitted uses isolated anonymous access | string | `""` | `$FORGE_CI_REGISTRY_AUTH_FILE` |
 | `--base-input-id` | optional single sha256 base input ID expected for every flavor | string | `""` | `$BASE_INPUT_ID` |
-| `--base-inputs-json` | JSON array mapping flavors to sha256 base input IDs | string | `"[]"` | `$BASE_INPUTS_JSON` |
+| `--base-inputs-json` | JSON array mapping flavors to sha256 base input IDs and optional parent_base {ref,input_id} expectations | string | `"[]"` | `$BASE_INPUTS_JSON` |
 | `--flavors-file` | newline-delimited flavor list in the consumer checkout (required: the engine does not assume a repository layout) | string | `""` | `$FLAVORS_FILE` |
+
+For validation, a per-flavor entry may include `"parent_base":{"ref":"registry.example/team/parent@sha256:<64 hex>","input_id":"<64 hex>"}`.
+The parent ref must be digest-pinned and its input ID must be SHA-256 hex; both
+are matched exactly in the same verified SLSA statement as the child's own source,
+workflow, flavor and `base_input_id`. Omitting `parent_base` supplies no parent
+expectation; it is not proof of no parent. The consumer owns graph ordering and
+must verify the parent separately through this same command before passing its
+verified projection for the child. The parent may belong to another repository.
+This does not change the child's own `base_input_id`, recursively verify parents,
+or add parent fields to outputs.
 
 ### `forge-ci container build`
 

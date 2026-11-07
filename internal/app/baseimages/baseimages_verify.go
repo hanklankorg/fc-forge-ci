@@ -34,7 +34,7 @@ func VerifyExistingBaseImages(ctx context.Context, resolver baseImageRegistry, v
 		return BaseImageVerifyExistingResult{}, err
 	}
 
-	baseInputs, err := baseInputIDByFlavor(in.BaseInputs)
+	baseInputs, err := baseInputByFlavor(in.BaseInputs)
 	if err != nil {
 		return BaseImageVerifyExistingResult{}, err
 	}
@@ -97,7 +97,7 @@ func VerifyExistingBaseImages(ctx context.Context, resolver baseImageRegistry, v
 	}
 	// Finish resolution before any evidence check or success diagnostic.
 	for _, image := range existing {
-		if verifyErr := verifyOneExistingBaseImage(ctx, verifier, &progress, in, image); verifyErr != nil {
+		if verifyErr := verifyOneExistingBaseImage(ctx, verifier, &progress, in, image, baseInputs[image.Flavor].ParentBase); verifyErr != nil {
 			return BaseImageVerifyExistingResult{}, verifyErr
 		}
 	}
@@ -143,12 +143,12 @@ func validateVerifyExistingBaseInput(resolver baseImageRegistry, verifier imageE
 
 // existingBaseInputID picks the per-flavor base input ID, falling back to the
 // shared one, and validates both the flavor and the ID.
-func existingBaseInputID(baseInputs map[string]string, flavor, fallback string) (string, error) {
+func existingBaseInputID(baseInputs map[string]BaseInput, flavor, fallback string) (string, error) {
 	if !baseImageFlavorRE.MatchString(flavor) {
 		return "", fmt.Errorf("base images verify: invalid flavor name: %s: %w", flavor, errs.ErrValidation)
 	}
 
-	baseInputID := baseInputs[flavor]
+	baseInputID := baseInputs[flavor].BaseInputID
 	if baseInputID == "" {
 		baseInputID = fallback
 	}
@@ -161,9 +161,10 @@ func existingBaseInputID(baseInputs map[string]string, flavor, fallback string) 
 }
 
 // verifyOneExistingBaseImage verifies evidence after all tag lookups succeeded.
-func verifyOneExistingBaseImage(ctx context.Context, verifier imageEvidenceVerifier, out io.Writer, in BaseImageVerifyExistingInput, image verifiedBaseImage) error {
+func verifyOneExistingBaseImage(ctx context.Context, verifier imageEvidenceVerifier, out io.Writer, in BaseImageVerifyExistingInput, image verifiedBaseImage, parent *BaseImageParent) error {
 	if err := verifyBaseImageEvidence(ctx, verifier, out, image.Ref, in.CosignPublicKey, baseImageLineageExpectation{
 		Source: in.ExpectedSource, Workflow: in.ExpectedWorkflow, Flavor: image.Flavor, BaseInputID: image.BaseInputID,
+		ParentBase: parent,
 	}, 1); err != nil {
 		return fmt.Errorf("base images verify: final base tag exists but does not have the expected signature and attestation: %s: %w", image.Tag, err)
 	}
@@ -173,8 +174,8 @@ func verifyOneExistingBaseImage(ctx context.Context, verifier imageEvidenceVerif
 	return nil
 }
 
-func baseInputIDByFlavor(inputs []BaseInput) (map[string]string, error) {
-	byFlavor := make(map[string]string, len(inputs))
+func baseInputByFlavor(inputs []BaseInput) (map[string]BaseInput, error) {
+	byFlavor := make(map[string]BaseInput, len(inputs))
 	for idx, input := range inputs {
 		if !baseImageFlavorRE.MatchString(input.Flavor) || !domaincontainer.ValidSHA256Hex(input.BaseInputID) {
 			return nil, fmt.Errorf("base images verify: base-inputs-json entry %d must include flavor and sha256 base_input_id: %w", idx, errs.ErrValidation)
@@ -184,7 +185,13 @@ func baseInputIDByFlavor(inputs []BaseInput) (map[string]string, error) {
 			return nil, fmt.Errorf("base images verify: duplicate base-input flavor at entry %d: %w", idx, errs.ErrValidation)
 		}
 
-		byFlavor[input.Flavor] = input.BaseInputID
+		if parent := input.ParentBase; parent != nil {
+			if !domaincontainer.ValidDigestPinnedRef(parent.Ref) || !domaincontainer.ValidSHA256Hex(parent.InputID) {
+				return nil, fmt.Errorf("base images verify: base-inputs-json entry %d parent_base must include digest-pinned ref and sha256 input_id: %w", idx, errs.ErrValidation)
+			}
+		}
+
+		byFlavor[input.Flavor] = input
 	}
 
 	return byFlavor, nil

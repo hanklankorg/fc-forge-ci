@@ -28,6 +28,8 @@ type baseImageLineageExpectation struct {
 	Workflow    string
 	Flavor      string
 	BaseInputID string
+	// Nil means no parent expectation, not proof that the image has no parent.
+	ParentBase *BaseImageParent
 }
 
 func verifyBaseImageEvidence(ctx context.Context, verifier imageEvidenceVerifier, out io.Writer, ref, publicKey string, expected baseImageLineageExpectation, attempts int) error {
@@ -195,6 +197,22 @@ func baseLineageMismatch(statement map[string]any, expected baseImageLineageExpe
 	} {
 		if got := provenance.StatementString(params, field.key); got != field.want {
 			return fmt.Sprintf("the attestation says %s %q, expected %q", field.key, got, field.want)
+		}
+	}
+
+	if expected.ParentBase != nil {
+		parent, ok := provenance.NestedMap(params, "parent_base")
+		if !ok {
+			return "the attestation carries no parent_base object"
+		}
+
+		for _, field := range []struct{ key, want string }{
+			{"ref", expected.ParentBase.Ref},
+			{"input_id", expected.ParentBase.InputID},
+		} {
+			if got := provenance.StatementString(parent, field.key); got != field.want {
+				return fmt.Sprintf("the attestation says parent_base.%s %q, expected %q", field.key, got, field.want)
+			}
 		}
 	}
 

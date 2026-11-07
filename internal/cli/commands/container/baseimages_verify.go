@@ -27,7 +27,7 @@ func baseImagesVerifyCmd() *cli.Command {
 		Flags: append(baseImagesCommonFlags(),
 			regflags.AuthFile(regflags.AuthFileOpts{Usage: "explicit registry auth file for digest, signature and attestation reads; omitted uses isolated anonymous access"}),
 			&cli.StringFlag{Name: flagBaseInputID, Sources: cli.EnvVars("BASE_INPUT_ID"), Usage: "optional single sha256 base input ID expected for every flavor"},
-			&cli.StringFlag{Name: flagBaseInputsJSON, Value: "[]", Sources: cli.EnvVars("BASE_INPUTS_JSON"), Usage: "JSON array mapping flavors to sha256 base input IDs"},
+			&cli.StringFlag{Name: flagBaseInputsJSON, Value: "[]", Sources: cli.EnvVars("BASE_INPUTS_JSON"), Usage: "JSON array mapping flavors to sha256 base input IDs and optional parent_base {ref,input_id} expectations"},
 			&cli.StringFlag{Name: "flavors-file", Sources: cli.EnvVars("FLAVORS_FILE"), Usage: "newline-delimited flavor list in the consumer checkout (required: the engine does not assume a repository layout)"},
 		),
 		Action: func(ctx context.Context, cmd *cli.Command) error {

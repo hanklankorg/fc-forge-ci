@@ -5,8 +5,10 @@ package container_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -21,6 +23,65 @@ import (
 	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
 	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 )
+
+func TestSignLedgerImages_BaseOwnIDAndParentExtrasRoundTrip(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	const repo = "forge.example/acme/child-base"
+
+	ownID := strings.Repeat("a", 64)
+	parent := map[string]any{"ref": "other.example/shared/parent@sha256:" + strings.Repeat("b", 64), "input_id": strings.Repeat("c", 64)}
+
+	sbom := []byte(`{"bomFormat":"CycloneDX"}`)
+	if err := os.WriteFile("sbom.cyclonedx.json", sbom, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	entry := imageledger.Entry{
+		ImageKind: imageledger.ImageKindBase, Role: "base", Flavor: "child",
+		Ref: repo + "@" + ledgerSignDigest, Digest: ledgerSignDigest,
+		FinalTag: repo + ":" + ownID + "-child", CandidateTag: repo + ":staging-" + ownID + "-child",
+		SBOM: "sbom.cyclonedx.json", SBOMSHA256: fmt.Sprintf("%x", sha256.Sum256(sbom)),
+		BaseInputID: ownID, Provenance: map[string]any{"parent_base": parent, "build_group": "core"},
+	}
+
+	body, err := json.Marshal([]imageledger.Entry{entry})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := imageledger.Parse(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(entries[0].Provenance, entry.Provenance) || entries[0].BaseInputID != ownID {
+		t.Fatal("ledger round trip changed own identity or parent extras")
+	}
+
+	signer := &recordingImageSigner{}
+
+	err = appcontainer.SignLedgerImages(t.Context(), signer, &fakeLedgerSyft{}, fakeLedgerResolver{entry.CandidateTag: entry.Digest}, io.Discard, io.Discard, appcontainer.SignLedgerImagesInput{
+		Entries: entries, PredicatePath: writeBasePredicate(t), Method: domainrelease.SignMethodKMS, KeyRef: "env://COSIGN_KEY", ExpectedImageRepository: repo,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(signer.attests) != 2 {
+		t.Fatalf("attestations = %d", len(signer.attests))
+	}
+
+	var predicate map[string]any
+	if err := json.Unmarshal(signer.attests[1].predicate, &predicate); err != nil {
+		t.Fatal(err)
+	}
+
+	ext := asMap(t, asMap(t, predicate["buildDefinition"], "buildDefinition")["externalParameters"], "externalParameters")
+	if ext["base_input_id"] != ownID || !reflect.DeepEqual(ext["parent_base"], parent) || ext["build_group"] != "core" {
+		t.Fatalf("signed lineage lost own identity or extras: %#v", ext)
+	}
+}
 
 // twoLedgerEntries returns two entries that differ in every field a request
 // or predicate carries: image, digest, tags, SBOM, base image and base input.
