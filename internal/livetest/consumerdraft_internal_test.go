@@ -37,6 +37,20 @@ func TestConsumerDraftRendersCoordinatesAndPolicyBeforeServing(t *testing.T) {
 	}
 }
 
+func TestConsumerDraftAcceptsUniformPinAcrossWorkflows(t *testing.T) {
+	t.Parallel()
+
+	const marker = "PIN_FORGE_CI_SHA"
+
+	pin, err := ReadConsumerPin(map[string]string{
+		"pullrequest.yml": "uses: https://forge.example/owner/engine/.forgejo/actions/setup-forge-ci@" + marker + "\n",
+		"release.yml":     "uses: owner/engine/.forgejo/workflows/sign-and-publish-release.yml@" + marker + "\n",
+	})
+	if err != nil || pin.Commit != marker {
+		t.Fatalf("uniform draft pin = %+v, %v", pin, err)
+	}
+}
+
 func TestConsumerDraftRejectsMixedPinsAndUnknownMarkers(t *testing.T) {
 	t.Parallel()
 
