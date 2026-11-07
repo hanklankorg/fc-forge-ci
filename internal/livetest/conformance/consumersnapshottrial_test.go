@@ -86,6 +86,7 @@ func TestForgejoLayer_ConsumerSnapshotTrial(t *testing.T) {
 				livetest.SetRepoSecret(t, target, repo, name, value)
 			}
 
+			packages := livetest.OwnerPackages(t, target)
 			head := consumer.PushChange(t, repo, "snapshot-trial", main)
 			t.Logf("snapshot consumer=%s source=%s main=%s branch=%s layer=%s", root, consumer.Commit, main, head, layer.Commit)
 			run := livetest.WaitForConsumerRun(t, target, repo, workflow, "push", "")
@@ -99,6 +100,7 @@ func TestForgejoLayer_ConsumerSnapshotTrial(t *testing.T) {
 
 			scenario.requireBranches(t, map[string]string{"main": main, "snapshot-trial": head})
 			scenario.requireNone(t, "/tags", "/releases", "/keys")
+			scenario.requireSamePackages(t, packages)
 
 			if count := livetest.RepoCount(t, target, repo, "/actions/secrets"); count != len(dependencySecrets) {
 				t.Errorf("snapshot left %d secrets, want only %d supplied dependency credentials", count, len(dependencySecrets))

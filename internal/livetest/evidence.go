@@ -71,14 +71,14 @@ func writeSnapshotEvidence(root, name string, body []byte) error {
 // caller tears down its repository. It returns the same redacted console tail
 // as JobLogTail. Pass all scenario-owned secret sets, in addition to the target
 // credential. Retention is opt-in through the existing snapshot evidence envs;
-// failures are reported without replacing the workflow's verdict.
+// failures mark acceptance incomplete without replacing the workflow's verdict.
 func RetainJobLog(tb TB, target Target, repo string, job RunJob, secrets ...map[string]string) string {
 	tb.Helper()
 
 	log, err := jobLog(tb, target, repo, job)
 	if err != nil {
 		// The error names the redacted endpoint and the status, never a body.
-		tb.Logf("livetest: job %d log unavailable; no full evidence retained: %v", job.ID, err)
+		tb.Errorf("livetest: job %d log unavailable; no full evidence retained: %v", job.ID, err)
 
 		return ""
 	}
@@ -164,7 +164,7 @@ func retainGitLabJobLog(ctx context.Context, tb TB, client *gitlabapi.Client, ta
 
 	trace, _, err := client.Jobs.GetTraceFile(RepoSlug(target, repo), job.ID, gitlabapi.WithContext(ctx))
 	if err != nil {
-		tb.Logf("livetest: job %d log unavailable; no full evidence retained", job.ID)
+		tb.Errorf("livetest: job %d log unavailable; no full evidence retained", job.ID)
 
 		return
 	}

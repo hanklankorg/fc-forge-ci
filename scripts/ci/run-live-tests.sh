@@ -105,6 +105,9 @@ find "$log_root" -mindepth 1 -maxdepth 1 -type d -name '20??????T??????Z-*' -mti
 run_dir="$log_root/$(date -u +%Y%m%dT%H%M%SZ)-$$"
 install -d -m 0700 -- "$run_dir"
 log="$run_dir/live-run.log"
+# Full redacted job logs must survive scratch-repository cleanup too. Honor
+# both evidence overrides, including the legacy name, before the durable default.
+export FORGE_CI_LIVE_SNAPSHOT_EVIDENCE_DIR="${FORGE_CI_LIVE_SNAPSHOT_EVIDENCE_DIR:-${FORGE_CI_LIVE_SNAPSHOT_EVIDENCE:-$run_dir/job-logs}}"
 
 # The runner binaries are built for the architecture the lab's runners
 # execute, as the contract states it; nothing here runs under emulation.
