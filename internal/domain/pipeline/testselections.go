@@ -55,11 +55,11 @@ func ReleaseTestSelections(plan ReleaseBuildStagePlan, goJSON, cargoJSON string)
 	}
 	goSelections, err := releaseSelectionMap(goJSON, plan.Targets.Go, build.ParseGoTestSelection)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Go test selections: %w", err)
+		return nil, nil, fmt.Errorf("validate Go test selections: %w", err)
 	}
 	cargoSelections, err := releaseSelectionMap(cargoJSON, plan.Targets.Cargo, build.ParseCargoTestSelection)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Cargo test selections: %w", err)
+		return nil, nil, fmt.Errorf("validate Cargo test selections: %w", err)
 	}
 	return goSelections, cargoSelections, nil
 }
