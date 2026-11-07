@@ -10,10 +10,12 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -46,6 +48,8 @@ const (
 	githubEngineWorkflow = "self-runtime-container.yml"
 	githubTrialAuthor    = "Forge Lab Trial"
 	githubTrialEmail     = "forge-lab-trial@hosted.invalid"
+	maxFailureLogBytes   = 32 << 20
+	goTestFailAction     = "fail"
 )
 
 var (
@@ -660,13 +664,22 @@ func (trial *GitHubTrial) ReportRun(repo string, run *github.WorkflowRun) {
 			continue
 		}
 
-		location, _, logErr := trial.api.Actions.GetWorkflowJobLogs(ctx, trial.org, repo, job.GetID(), 0)
+		location, logResponse, logErr := trial.api.Actions.GetWorkflowJobLogs(ctx, trial.org, repo, job.GetID(), 0)
 		if logErr != nil {
-			if snapshotEvidenceRoot() != "" {
-				trial.tb.Errorf("livetest: job %d log URL unavailable; no full evidence retained", job.GetID())
+			status, class := 0, githubJobLogErrorClass(logErr)
+			if logResponse != nil {
+				status, class = logResponse.StatusCode, "http-status"
+				if status == http.StatusFound {
+					class = "redirect-location"
+				}
 			}
 
-			trial.tb.Logf("    (no log: %s)", redactJobLog(Target{Token: trial.token, CredentialUsername: "x-access-token"}, logErr.Error(), trial.secrets[repo]))
+			if snapshotEvidenceRoot() != "" {
+				trial.tb.Errorf("livetest: job %d log URL unavailable; no full evidence retained (status=%d class=%s observed_bytes=0)", job.GetID(), status, class)
+			}
+
+			// SDK redirect-location parse errors may contain the entire signed URL.
+			trial.tb.Logf("    (no log: status=%d class=%s)", status, class)
 			trial.reportJobAnnotations(ctx, repo, job)
 
 			continue
@@ -675,7 +688,7 @@ func (trial *GitHubTrial) ReportRun(repo string, run *github.WorkflowRun) {
 		excerpt := trial.failureEvidence(ctx, repo, run, job, location.String())
 		trial.tb.Logf("    log at the failure:\n%s", excerpt)
 
-		if strings.HasPrefix(excerpt, "could not fetch the job log") {
+		if strings.HasPrefix(excerpt, "could not fetch the job log") || strings.Contains(excerpt, "[job log evidence incomplete:") {
 			trial.reportJobAnnotations(ctx, repo, job)
 		}
 	}
@@ -754,28 +767,46 @@ func openGitHubJobLog(ctx context.Context, location string) (io.ReadCloser, erro
 	response, err := (&http.Client{Timeout: time.Minute}).Do(request) //nolint:gosec // G704: fetch the GitHub-issued pre-signed log URL without an API token.
 	if err != nil {
 		// The URL is pre-signed; transport errors can include its credentials.
-		return nil, errGitHubJobLogFetch
+		return nil, fmt.Errorf("%w: class=%s", errGitHubJobLogFetch, githubJobLogErrorClass(err))
 	}
 
 	if response.StatusCode != http.StatusOK {
 		_ = response.Body.Close()
 
-		return nil, fmt.Errorf("%w: HTTP %d", errGitHubJobLogFetch, response.StatusCode)
+		return nil, fmt.Errorf("%w: HTTP %d class=http-status", errGitHubJobLogFetch, response.StatusCode)
 	}
 
 	return response.Body, nil
 }
 
+// Classify without formatting transport errors, which may contain signed URLs.
+func githubJobLogErrorClass(err error) string {
+	var networkError net.Error
+
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "context-canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline"
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		return "unexpected-eof"
+	case errors.As(err, &networkError) && networkError.Timeout():
+		return "timeout"
+	default:
+		return "io-or-transport"
+	}
+}
+
 func readFailureExcerpt(reader io.Reader, lines int) string {
 	var all []string
 
-	const maxLogBytes = 32 << 20
-
-	limited := &io.LimitedReader{R: reader, N: maxLogBytes}
+	limited := &io.LimitedReader{R: reader, N: maxFailureLogBytes}
 	scanner := bufio.NewScanner(limited)
 	// Progress output can put well over Scanner's default 64 KiB on one line.
 	// Keep reading to the actual error, within the existing total log budget.
-	scanner.Buffer(make([]byte, 64<<10), maxLogBytes)
+	// Leave one byte of scanner space to confirm EOF after an exact-budget
+	// final record without a newline; the reader still bounds content at 32 MiB.
+	scanner.Buffer(make([]byte, 64<<10), maxFailureLogBytes+1)
 
 	for scanner.Scan() {
 		all = append(all, scanner.Text())
@@ -792,14 +823,22 @@ func readFailureExcerpt(reader io.Reader, lines int) string {
 	if scanner.Err() != nil {
 		excerpt = append(excerpt, "[job log incomplete: could not read the remaining data]")
 	} else if limited.N == 0 {
-		excerpt = append(excerpt, "[job log may be truncated at the 32 MiB read limit]")
+		// A full budget is not proof of truncation. Probe one byte without
+		// including it in the excerpt or exposing an underlying read error.
+		var probe [1]byte
+
+		if count, err := io.ReadFull(reader, probe[:]); count != 0 {
+			excerpt = append(excerpt, "[job log may be truncated at the 32 MiB read limit]")
+		} else if !errors.Is(err, io.EOF) {
+			excerpt = append(excerpt, "[job log incomplete: could not read the remaining data]")
+		}
 	}
 
 	return strings.Join(excerpt, "\n")
 }
 
-// FailureExcerpt picks the lines of a job log that explain its failure: those
-// up to and including the first ##[error] annotation. A job's last lines are
+// FailureExcerpt picks the lines up to the first native Go test failure or
+// ##[error] annotation. A job's last lines are
 // its post-run cleanup, Harden Runner's agent log among them, which once hid
 // the error of a failed publication entirely. Without an annotation it falls
 // back to the end of the log.
@@ -811,7 +850,7 @@ func FailureExcerpt(log []string, lines int) []string {
 	end := len(log)
 
 	for index, line := range log {
-		if strings.Contains(line, "##[error]") {
+		if strings.Contains(line, "##[error]") || goTestFailureLine(line) {
 			end = index + 1
 
 			break
@@ -819,6 +858,22 @@ func FailureExcerpt(log []string, lines int) []string {
 	}
 
 	return log[max(0, end-lines):end]
+}
+
+// Native go test JSON is often followed by many successful packages before the
+// runner emits its final annotation. Keep the first failing test's context.
+func goTestFailureLine(line string) bool {
+	start := strings.IndexByte(line, '{')
+	if start < 0 || !strings.Contains(line[start:], `"fail"`) {
+		return false
+	}
+
+	var event struct {
+		Action  string `json:"Action"`
+		Package string `json:"Package"`
+	}
+
+	return json.Unmarshal([]byte(line[start:]), &event) == nil && event.Action == goTestFailAction && event.Package != ""
 }
 
 // CosignTrust is what a trial's Cosign signatures verify against: the engine's
@@ -1059,21 +1114,44 @@ func (trial *GitHubTrial) failureEvidence(ctx context.Context, repo string, run 
 
 	reader, err := openGitHubJobLog(ctx, location)
 	if err != nil {
-		trial.tb.Errorf("livetest: job %d log unavailable; no full evidence retained", job.GetID())
+		trial.tb.Errorf("livetest: job %d log unavailable: %s observed_bytes=0 retention_limit_bytes=%d diagnostic_limit_bytes=%d; no full evidence retained",
+			job.GetID(), err.Error(), maxJobLog, maxFailureLogBytes)
 
 		return err.Error()
 	}
 	defer func() { _ = reader.Close() }()
 
-	body, err := io.ReadAll(io.LimitReader(reader, maxJobLog+1))
-	if err != nil || len(body) > maxJobLog {
-		trial.tb.Errorf("livetest: job %d log unreadable or exceeds evidence limit; no full evidence retained", job.GetID())
-
-		return "could not fetch the job log within the evidence limit"
-	}
-
+	// The existing diagnostic budget is independent of the smaller raw-log
+	// retention budget. One extra byte distinguishes exact-bound EOF from
+	// truncation; it is counted but never included in the diagnostic content.
+	body, err := io.ReadAll(io.LimitReader(reader, maxFailureLogBytes+1))
+	observed := len(body)
+	overDiagnosticLimit := observed > maxFailureLogBytes
+	body = body[:min(observed, maxFailureLogBytes)]
 	target := Target{Forge: "github", Host: "github.com", Owner: trial.org, Token: trial.token, CredentialUsername: "x-access-token"}
 	log := redactJobLog(target, string(body), trial.secrets[repo])
+
+	if err != nil || len(body) > maxJobLog {
+		class := "retention-limit"
+		if err != nil {
+			class = githubJobLogErrorClass(err)
+		} else if overDiagnosticLimit {
+			class = "diagnostic-limit"
+		}
+
+		trial.tb.Errorf("livetest: job %d log HTTP 200 class=%s observed_bytes=%d retention_limit_bytes=%d diagnostic_limit_bytes=%d; no full evidence retained",
+			job.GetID(), class, observed, maxJobLog, maxFailureLogBytes)
+
+		if err != nil || overDiagnosticLimit {
+			// Never print a final partial line: it may end halfway through a
+			// credential, which cannot be matched by the whole-value redactor.
+			log = log[:strings.LastIndexByte(log, '\n')+1]
+		}
+
+		return readFailureExcerpt(strings.NewReader(log), 40) +
+			fmt.Sprintf("\n[job log evidence incomplete: class=%s observed_bytes=%d diagnostic_limit_bytes=%d; no full evidence retained]", class, observed, maxFailureLogBytes)
+	}
+
 	retainJobLogText(trial.tb, target, trial.org+"/"+repo, RunJob{RunID: run.GetID(), ID: job.GetID(), Attempt: int64(max(1, run.GetRunAttempt()))}, log, trial.secrets[repo])
 
 	return readFailureExcerpt(strings.NewReader(log), 40)
