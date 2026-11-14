@@ -603,7 +603,11 @@ for them; every `pullrequest.yml` in the examples, such as
   job image has no `nanolinter`; it does not download one. The `commits`
   check, in every example plan, validates the pull request's commit messages
   with gommitlint against the base branch, which is why `checkout-consumer`
-  takes `fetch-base`; every flavour image carries gommitlint.
+  takes `fetch-base`; every flavour image carries gommitlint. On a pull
+  request the dependency advisories are judged against `origin/<base branch>`,
+  which `fetch-base` also fetches, so only the ones the pull request
+  introduces count; the job's nanolinter must know `--baseline-ref`. See
+  [Advisories a pull request introduces](verification.md#advisories-a-pull-request-introduces).
   [Lint Workflows](components.md#lint-workflows) shows the same
   choice on each forge.
 - **`check-l3-isolation`**: the release-isolation gate over the consumer's

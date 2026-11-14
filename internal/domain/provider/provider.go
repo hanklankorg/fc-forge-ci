@@ -383,6 +383,9 @@ type EventContext struct {
 	ShortSHA string // 7-char short SHA
 	Branch   string // best-effort branch name (PR head branch on PR refs)
 	PRNumber string // empty when not a PR
+	// BaseBranch is the branch a pull or merge request targets; empty on
+	// every other event.
+	BaseBranch string
 	// EventName is the workflow trigger in the canonical vocabulary (the
 	// GitHub-Actions spellings: "push", "pull_request",
 	// "workflow_dispatch", "schedule", …). Adapters normalize their

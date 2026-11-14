@@ -43,9 +43,11 @@ func (p *Provider) ResolveContext(_ context.Context) (*provider.EventContext, er
 		// A tag or any other ref names no branch.
 	}
 
-	prNumber := ""
+	prNumber, baseBranch := "", ""
 
 	if refType == provider.RefTypePR {
+		baseBranch = get("BASE_REF")
+
 		if m := pullRefPattern.FindStringSubmatch(get("REF")); len(m) == 2 {
 			prNumber = m[1]
 		}
@@ -63,16 +65,17 @@ func (p *Provider) ResolveContext(_ context.Context) (*provider.EventContext, er
 	}
 
 	return &provider.EventContext{
-		ForgeAPI:  provider.ForgeForgejo,
-		RefName:   refName,
-		RefType:   refType,
-		SHA:       sha,
-		ShortSHA:  provider.ShortSHA(sha),
-		Branch:    branch,
-		PRNumber:  prNumber,
-		EventName: get("EVENT_NAME"),
-		Repo:      repo,
-		RepoURL:   repoURL,
+		ForgeAPI:   provider.ForgeForgejo,
+		RefName:    refName,
+		RefType:    refType,
+		SHA:        sha,
+		ShortSHA:   provider.ShortSHA(sha),
+		Branch:     branch,
+		PRNumber:   prNumber,
+		BaseBranch: baseBranch,
+		EventName:  get("EVENT_NAME"),
+		Repo:       repo,
+		RepoURL:    repoURL,
 	}, nil
 }
 

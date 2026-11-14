@@ -96,7 +96,7 @@ func TestCheckoutJourney_OrderedFailuresAndRetainedDestination(t *testing.T) {
 				if extras != "minimal" {
 					want = append(want, checkoutEvent{method: "probe-branch", args: []string{"origin", "base"}, credential: cred})
 					if extras == "base-present" {
-						want = append(want, checkoutEvent{method: "fetch", args: []string{remote, "0", "+refs/heads/base:refs/heads/base"}, credential: cred})
+						want = append(want, checkoutEvent{method: "fetch", args: []string{remote, "0", "+refs/heads/base:refs/heads/base", "+refs/heads/base:refs/remotes/origin/base"}, credential: cred})
 					}
 
 					want = append(want, checkoutEvent{method: "tags", args: []string{remote}, credential: cred})

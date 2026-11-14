@@ -37,9 +37,11 @@ func (p *Provider) ResolveContext(_ context.Context) (*provider.EventContext, er
 		// A tag or any other ref names no branch.
 	}
 
-	prNumber := ""
+	prNumber, baseBranch := "", ""
 
 	if refType == provider.RefTypePR {
+		baseBranch = get("GITHUB_BASE_REF")
+
 		if m := pullRefPattern.FindStringSubmatch(get("GITHUB_REF")); len(m) == 2 {
 			prNumber = m[1]
 		}
@@ -58,16 +60,17 @@ func (p *Provider) ResolveContext(_ context.Context) (*provider.EventContext, er
 	}
 
 	return &provider.EventContext{
-		ForgeAPI:  provider.ForgeGitHub,
-		RefName:   refName,
-		RefType:   refType,
-		SHA:       sha,
-		ShortSHA:  provider.ShortSHA(sha),
-		Branch:    branch,
-		PRNumber:  prNumber,
-		EventName: get("GITHUB_EVENT_NAME"),
-		Repo:      repo,
-		RepoURL:   repoURL,
+		ForgeAPI:   provider.ForgeGitHub,
+		RefName:    refName,
+		RefType:    refType,
+		SHA:        sha,
+		ShortSHA:   provider.ShortSHA(sha),
+		Branch:     branch,
+		PRNumber:   prNumber,
+		BaseBranch: baseBranch,
+		EventName:  get("GITHUB_EVENT_NAME"),
+		Repo:       repo,
+		RepoURL:    repoURL,
 	}, nil
 }
 

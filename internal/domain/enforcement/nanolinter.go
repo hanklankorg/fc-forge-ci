@@ -19,7 +19,11 @@ const (
 )
 
 type nanoResult struct {
-	Properties struct {
+	// BaselineState is the SARIF 2.1.0 result property. Nanolinter sets it
+	// for a pull request's dependency advisories: "unchanged" when the merge
+	// base already had the finding, "new" when the request introduces it.
+	BaselineState string `json:"baselineState"`
+	Properties    struct {
 		Source          string `json:"source"`
 		CheckID         string `json:"check_id"`
 		Class           string `json:"class"`
@@ -227,6 +231,12 @@ func (result nanoResult) findings() (int, int) {
 	// administrator's to enforce and is counted either way.
 	if result.Properties.Source == nanoCurated && result.Properties.Policy == "warn" {
 		lint = false
+	}
+
+	// An advisory the merge base already had is not what the pull request
+	// introduces. It stays in the security SARIF.
+	if result.BaselineState == "unchanged" {
+		vulnerabilities = false
 	}
 
 	return count(lint), count(vulnerabilities)

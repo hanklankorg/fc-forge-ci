@@ -260,7 +260,11 @@ runs one general lint engine, chosen with `lint-engine`:
   the `commits` check of the example plans; every flavour image carries
   gommitlint. The job runs on the runner and starts the image with
   `docker run` as the runner's unprivileged user, with no capabilities and the
-  checkout mounted at `/workspace`; a self-hosted runner needs Docker.
+  checkout mounted at `/workspace`; a self-hosted runner needs Docker. On a
+  pull request the dependency advisories are judged against
+  `origin/<base branch>`, so only the ones the pull request introduces count;
+  the image must be a nanolinter that knows `--baseline-ref`. See
+  [Advisories a pull request introduces](verification.md#advisories-a-pull-request-introduces).
 - **MegaLinter**: `lint-megalinter.yml` runs a caller-selected, digest-pinned
   image against `.mega-linter.yml`. There is no default image.
 - **none**: no general engine.

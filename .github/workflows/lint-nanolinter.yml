@@ -166,7 +166,8 @@ jobs:
         with:
           tool-profile: host # Docker and the consumer checkout in scope: root-owned system tools only.
       - name: Checkout repository
-        # Full history and the base branch, for nanolinter's git-based checks.
+        # Full history and every branch as origin/<branch>, for nanolinter's
+        # git-based checks and the pull-request baseline below.
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CHECKOUT_PATH: src
@@ -194,6 +195,11 @@ jobs:
         # tool manager expects it, on a private empty tmpfs; the container has
         # no capabilities and cannot gain privileges. The token stays out of
         # the container; the run context nanolinter reads is passed by name.
+        #
+        # On a pull request forge-ci policy nanolinter appends --baseline-ref
+        # origin/<base branch> to the command below: the dependency-advisory
+        # checks then count what the pull request introduces. The engine
+        # decides that, as on the other forges; the image must know the flag.
         env:
           REQUIRED_LINTS: ${{ inputs['required-lints'] }}
           DISABLE_CHECKS: ${{ inputs['disable-checks'] }}

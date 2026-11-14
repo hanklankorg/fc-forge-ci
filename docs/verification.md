@@ -80,6 +80,40 @@ floor, and reports the findings of a check the plan lists under
 request. Dependency advisories are not the plan's to demote: they follow
 `enforce-vulnerabilities`.
 
+#### Advisories a pull request introduces
+
+On a pull or merge request the gate judges the dependency-advisory checks
+(`osv`, `trivy-fs`, `go-vulncheck` and `rust-audit`) by what the request
+introduces. `forge-ci policy nanolinter` adds
+`--baseline-ref origin/<target branch>` to `nanolinter verify` on all three
+forges. Nanolinter then also scans the merge base of the request and its
+target branch, and marks each advisory in the SARIF with the SARIF
+`baselineState`: `unchanged` when the merge base has the same advisory on
+the same package and version, `new` otherwise.
+
+- An `unchanged` advisory is not counted as a vulnerability finding and does
+  not fail the pull request, whatever `enforce-vulnerabilities` says. It is
+  still listed in the check's output and it stays in the security SARIF.
+- A `new` advisory is counted as before. Adding a vulnerable dependency, or
+  moving one to another vulnerable version, is a new advisory.
+- Lint findings, secrets and SAST are counted as before.
+
+A push to the default branch, a release and a snapshot pass no baseline and
+report every advisory, so an advisory published against a dependency already
+on the default branch is reported there.
+
+Two requirements follow, and neither has a fallback:
+
+- The nanolinter the job runs must know `--baseline-ref`: the image named by
+  `nanolinter-image` on GitHub and GitLab, the job's own nanolinter on
+  Forgejo. An older nanolinter refuses the unknown flag and the job fails as
+  a lint run that could not complete. forge-ci does not probe the version.
+- The checkout must hold `origin/<target branch>` and the history back to
+  the merge base. The GitHub workflow and the GitLab component fetch them
+  themselves. On Forgejo, `checkout-consumer` with
+  `fetch-base: ${{ forgejo.base_ref }}` does; a checkout of your own needs
+  the full history and that remote-tracking ref.
+
 Your project needs a `nanolinter.toml` verify plan; the flavour image provides
 the tools, so no `just`/`justfile` is required. (A local `.mise.toml` + `just`
 recipe is optional, for running the same checks on a developer's machine.) The

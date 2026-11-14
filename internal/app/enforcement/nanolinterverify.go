@@ -6,6 +6,9 @@ package enforcement
 import (
 	"context"
 	"io"
+	"slices"
+
+	"github.com/diggsweden/forge-ci/internal/domain/provider"
 )
 
 // NanolinterVerifyInput describes the standard PR lint invocation without
@@ -15,6 +18,32 @@ type NanolinterVerifyInput struct {
 	DisableChecks string
 	Offline       bool
 	SARIFFile     string
+	// BaselineRef is the git revision of a pull request's target branch, from
+	// PullRequestBaseline; empty on every other event.
+	BaselineRef string
+}
+
+// PullRequestBaseline returns the revision the dependency-advisory checks of
+// a pull request are compared against, origin/<target branch>, and "" on
+// every other event: a push, a release or a snapshot reports everything. The
+// provider names a base branch for a pull or merge request only.
+func PullRequestBaseline(event *provider.EventContext) string {
+	if event == nil || event.BaseBranch == "" {
+		return ""
+	}
+
+	return "origin/" + event.BaseBranch
+}
+
+// WithBaseline appends --baseline-ref to a nanolinter verify command, which
+// may be wrapped in a container runtime: the flag is among the last arguments
+// either way. An empty ref leaves the command as it is.
+func WithBaseline(args []string, ref string) []string {
+	if ref == "" || len(args) == 0 {
+		return args
+	}
+
+	return append(slices.Clone(args), "--baseline-ref", ref)
 }
 
 // NanolinterVerify constructs the fixed verify/SARIF command and delegates to
@@ -36,5 +65,5 @@ func NanolinterVerify(ctx context.Context, runner LintRunner, out, stderr io.Wri
 
 	args = append(args, "--report", "sarif", "--out", "-")
 
-	return Nanolinter(ctx, runner, out, stderr, args, in.SARIFFile)
+	return Nanolinter(ctx, runner, out, stderr, WithBaseline(args, in.BaselineRef), in.SARIFFile)
 }

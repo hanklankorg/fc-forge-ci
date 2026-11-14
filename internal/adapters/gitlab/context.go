@@ -77,16 +77,17 @@ func (p *Provider) ResolveContext(_ context.Context) (*provider.EventContext, er
 	}
 
 	return &provider.EventContext{
-		ForgeAPI:  provider.ForgeGitLab,
-		RefName:   get("CI_COMMIT_REF_NAME"),
-		RefType:   refType,
-		SHA:       sha,
-		ShortSHA:  short,
-		Branch:    branch,
-		PRNumber:  prNumber,
-		EventName: eventName,
-		Repo:      get("CI_PROJECT_PATH"),
-		RepoURL:   get("CI_PROJECT_URL"),
+		ForgeAPI:   provider.ForgeGitLab,
+		RefName:    get("CI_COMMIT_REF_NAME"),
+		RefType:    refType,
+		SHA:        sha,
+		ShortSHA:   short,
+		Branch:     branch,
+		PRNumber:   prNumber,
+		BaseBranch: get("CI_MERGE_REQUEST_TARGET_BRANCH_NAME"),
+		EventName:  eventName,
+		Repo:       get("CI_PROJECT_PATH"),
+		RepoURL:    get("CI_PROJECT_URL"),
 	}, nil
 }
 

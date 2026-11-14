@@ -3645,6 +3645,13 @@ administrator check policy: inspect it and run gates under it
 
 run full Nanolinter SARIF and independently gate lint and vulnerability findings
 
+```
+On a pull or merge request the command adds --baseline-ref origin/<target
+branch> to nanolinter verify, so the dependency-advisory checks count what
+the request introduces. The checkout must hold that ref and the history back
+to the merge base, and the nanolinter must know the flag.
+```
+
 **Usage:** `forge-ci policy nanolinter [typed verify flags] or -- <nanolinter verify --report sarif --out - command>`
 
 | Flag | Description | Type | Default | Env vars |

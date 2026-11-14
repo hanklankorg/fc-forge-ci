@@ -100,6 +100,19 @@ func TestLintNanolinter(t *testing.T) {
 			[]string{"LINT_REQUIRED_LINTS=secrets", "LINT_DISABLE_CHECKS=osv,trivy-fs", "LINT_OFFLINE=true"},
 			[]string{"verify", "--require", "secrets", "--disable-check", "osv,trivy-fs", "--offline", "--report", "sarif", "--out", "-"},
 		},
+		// A pull request is judged against its target branch; a push reports
+		// everything, whatever base variable its environment carries. Both
+		// carry the markers a Forgejo runner sets.
+		{
+			"a pull request",
+			[]string{"LINT_REQUIRED_LINTS=secrets", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false", "GITHUB_ACTIONS=true", "FORGEJO_ACTIONS=true", "FORGEJO_EVENT_NAME=pull_request", "FORGEJO_BASE_REF=main"},
+			[]string{"verify", "--require", "secrets", "--report", "sarif", "--out", "-", "--baseline-ref", "origin/main"},
+		},
+		{
+			"a push",
+			[]string{"LINT_REQUIRED_LINTS=secrets", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false", "GITHUB_ACTIONS=true", "FORGEJO_ACTIONS=true", "FORGEJO_EVENT_NAME=push", "FORGEJO_BASE_REF=main", "FORGEJO_REF_TYPE=branch"},
+			[]string{"verify", "--require", "secrets", "--report", "sarif", "--out", "-"},
+		},
 		{
 			"no floor",
 			[]string{"LINT_REQUIRED_LINTS=", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false"},

@@ -197,7 +197,9 @@ func configureSparse(ctx context.Context, git CheckoutGit, in CheckoutInput) err
 }
 
 // An absent optional base branch is harmless; lookup or fetch failures are not
-// evidence of absence. Supplemental fetches always request full history.
+// evidence of absence. Supplemental fetches always request full history. The
+// base branch is fetched as the local branch and as origin/<branch>, the name
+// a full checkout gives it and the pull-request lint gate compares against.
 func fetchExtras(ctx context.Context, git CheckoutGit, remoteURL string, in CheckoutInput) error {
 	if in.FetchBase != "" {
 		_, exists, err := git.RemoteBranchCommit(ctx, "origin", in.FetchBase, in.Token)
@@ -206,7 +208,10 @@ func fetchExtras(ctx context.Context, git CheckoutGit, remoteURL string, in Chec
 		}
 
 		if exists {
-			if err := git.Fetch(ctx, remoteURL, []string{"+refs/heads/" + in.FetchBase + ":refs/heads/" + in.FetchBase}, in.Token, 0); err != nil {
+			if err := git.Fetch(ctx, remoteURL, []string{
+				"+refs/heads/" + in.FetchBase + ":refs/heads/" + in.FetchBase,
+				"+refs/heads/" + in.FetchBase + ":refs/remotes/origin/" + in.FetchBase,
+			}, in.Token, 0); err != nil {
 				return fmt.Errorf("fetch base branch: %w", err)
 			}
 		}

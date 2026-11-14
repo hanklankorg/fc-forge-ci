@@ -79,6 +79,37 @@ func TestContainerfileWarningsRunOnEveryForge(t *testing.T) {
 	}
 }
 
+// The engine adds --baseline-ref origin/<target branch> to nanolinter verify
+// on a pull request. The lint job's checkout must hold that ref, and the
+// forge file must leave the flag to the engine.
+func TestLintCheckoutHoldsThePullRequestBaseline(t *testing.T) {
+	t.Parallel()
+
+	read := func(file string) string {
+		body, err := os.ReadFile(filepath.Join(reporoot.Path(t), filepath.FromSlash(file)))
+		require.NoError(t, err)
+
+		return string(body)
+	}
+
+	github := read(".github/workflows/lint-nanolinter.yml")
+	require.Equal(t, "true", workflowStepEnv(t, "lint-nanolinter.yml", "nanolinter-lint", "Checkout repository")["CHECKOUT_FETCH_ALL_REFS"])
+	require.Contains(t, github, `"$NANOLINTER_IMAGE" verify "$@" --report sarif --out - || rc=$?`+"\n")
+
+	gitlab := read("templates/nanolinter.yml")
+	require.Contains(t, gitlab, `"+refs/heads/${target}:refs/remotes/origin/${target}"`)
+	require.Contains(t, gitlab, `GIT_DEPTH: "0"`)
+
+	for file, body := range map[string]string{
+		".github/workflows/lint-nanolinter.yml":       github,
+		"templates/nanolinter.yml":                    gitlab,
+		".forgejo/actions/lint-nanolinter/action.yml": read(".forgejo/actions/lint-nanolinter/action.yml"),
+	} {
+		require.NotContains(t, body, "--baseline-ref \"", file)
+		require.NotContains(t, body, "--baseline-ref $", file)
+	}
+}
+
 func workflowStepEnv(t *testing.T, workflowName, jobName, stepName string) map[string]string {
 	t.Helper()
 

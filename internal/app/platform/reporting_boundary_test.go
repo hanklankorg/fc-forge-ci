@@ -198,7 +198,7 @@ func TestFetchBaseBoundary_AbsenceErrorsAndForwarding(t *testing.T) {
 			}
 
 			if state == "present" {
-				want := checkoutEvent{method: "fetch", args: []string{"https://forge.example/owner/repo.git", "0", "+refs/heads/main:refs/heads/main"}, credential: cred}
+				want := checkoutEvent{method: "fetch", args: []string{"https://forge.example/owner/repo.git", "0", "+refs/heads/main:refs/heads/main", "+refs/heads/main:refs/remotes/origin/main"}, credential: cred}
 				if !reflect.DeepEqual(git.events[6], want) {
 					t.Fatalf("base fetch=%+v", git.events[6])
 				}

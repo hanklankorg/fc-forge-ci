@@ -368,6 +368,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [Verify the forge-ci CLI before you install it](docs/verification.md#verify-the-forge-ci-cli-before-you-install-it)
   shows the commands. The rolling pre-release is published with the same
   names, the bundle before the checksums file.
+- **BREAKING**: On a pull or merge request the nanolinter gate judges
+  dependency advisories by what the request introduces. `forge-ci policy
+  nanolinter` adds `--baseline-ref origin/<target branch>` to `nanolinter
+  verify` on GitHub, Forgejo and GitLab, and an advisory that nanolinter
+  marks `baselineState: unchanged`, the same advisory on the same package
+  and version on the merge base, is not counted as a vulnerability
+  finding. It is still listed and stays in the security SARIF. Pushes to
+  the default branch, releases and snapshots pass no baseline and report
+  everything. The nanolinter the job runs must know `--baseline-ref`: an
+  older image fails the pull request's lint job on the unknown flag, and
+  there is no version probe and no fallback. The checkout must hold
+  `origin/<target branch>` and the history back to the merge base;
+  `platform checkout --fetch-base` now also fetches the base branch as
+  `origin/<branch>`. See
+  [Advisories a pull request introduces](docs/verification.md#advisories-a-pull-request-introduces).
 - An Android artifact that sets no `sboms` gets the SBOM layers there are
   for it: `build,analyzed-container` for an application, `build` for a
   library as before. The default was `all`, which asks for an

@@ -71,6 +71,30 @@ func TestNanolinterReportOnlyChecksAreNoLintFindings(t *testing.T) {
 	}
 }
 
+// On a pull request nanolinter marks each dependency advisory with the SARIF
+// baselineState. One the merge base already had is not a vulnerability
+// finding of the request; it is still listed in the security SARIF.
+func TestNanolinterUnchangedAdvisoriesAreNoVulnerabilityFindings(t *testing.T) {
+	t.Parallel()
+
+	report, err := ParseNanolinter([]byte(`{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"nanolinter"}},"results":[
+{"ruleId":"CVE-OLD","baselineState":"unchanged","properties":{"source":"curated","check_id":"osv","class":"security","status":"fail"}},
+{"ruleId":"CVE-NEW","baselineState":"new","properties":{"source":"curated","check_id":"osv","class":"security","status":"fail"}},
+{"ruleId":"CVE-UNMARKED","properties":{"source":"curated","check_id":"trivy-fs","class":"security","status":"fail"}},
+{"ruleId":"secret","baselineState":"unchanged","properties":{"source":"curated","check_id":"secrets","class":"security","status":"fail"}}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if report.LintFindings != 1 || report.VulnerabilityFindings != 2 {
+		t.Fatalf("lint = %d, vulnerabilities = %d, want 1 and 2", report.LintFindings, report.VulnerabilityFindings)
+	}
+
+	if !strings.Contains(string(report.SecuritySARIF), `"ruleId": "CVE-OLD"`) {
+		t.Fatal("an unchanged advisory must stay in the security SARIF")
+	}
+}
+
 func TestNanolinterUnknownSecurityClassIsNeverLintOnly(t *testing.T) {
 	report, err := ParseNanolinter([]byte(`{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"nanolinter"}},"results":[{"ruleId":"future","properties":{"source":"curated","check_id":"future-scanner","class":"security","status":"fail"}}]}]}`))
 	if err != nil || report.LintFindings != 1 || report.VulnerabilityFindings != 1 {

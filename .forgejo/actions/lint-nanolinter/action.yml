@@ -4,7 +4,7 @@
 
 name: 'Lint with nanolinter'
 description: >-
-  The pull-request lint gate: run the repository's nanolinter plan with a mandated floor of checks that its nanolinter.toml cannot switch off. The step runs the nanolinter the job already has, so run the job in a nanolinter image, or on a runner that provides the pinned nanolinter and its tools. It needs no secret. The admin policy is applied by the forge-ci engine this action pins: it is downloaded from the forge's package registry and checksum-verified, unless the job already holds that verified build or FORGE_CI_BIN names one (checksum-verified too). A blocking finding fails the step.
+  The pull-request lint gate: run the repository's nanolinter plan with a mandated floor of checks that its nanolinter.toml cannot switch off. The step runs the nanolinter the job already has, so run the job in a nanolinter image, or on a runner that provides the pinned nanolinter and its tools. It needs no secret. The admin policy is applied by the forge-ci engine this action pins: it is downloaded from the forge's package registry and checksum-verified, unless the job already holds that verified build or FORGE_CI_BIN names one (checksum-verified too). A blocking finding fails the step. On a pull request the dependency advisories are judged against origin/<base branch>: check out with fetch-base set to the base branch, and use a nanolinter that knows --baseline-ref.
 inputs:
   required-lints:
     description: >-

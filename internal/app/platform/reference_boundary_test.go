@@ -287,7 +287,7 @@ func TestCheckoutBoundary_BaseFetchAndWorkspaceLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := checkoutEvent{method: "fetch", args: []string{"https://forge.example/owner/repo.git", "0", "+refs/heads/main:refs/heads/main"}, credential: in.Token}
+	want := checkoutEvent{method: "fetch", args: []string{"https://forge.example/owner/repo.git", "0", "+refs/heads/main:refs/heads/main", "+refs/heads/main:refs/remotes/origin/main"}, credential: in.Token}
 	if len(git.events) != 7 || !reflect.DeepEqual(git.events[5], want) {
 		t.Fatal("base branch fetch lost source, credential, depth or refspec")
 	}

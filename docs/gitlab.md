@@ -438,7 +438,11 @@ same choice reads on GitHub and Forgejo:
   `required-lints` as a floor the project cannot lower. Pin the image by digest.
   In a merge-request pipeline it checks out the whole history (`GIT_DEPTH: 0`)
   and fetches the target branch as `origin/<target>`, with the job token, so
-  secret scanning and commit checks see what the merge request adds.
+  secret scanning and commit checks see what the merge request adds. The
+  dependency advisories are judged against that branch too, so only the ones
+  the merge request introduces count; the image must be a nanolinter that
+  knows `--baseline-ref`. See
+  [Advisories a pull request introduces](verification.md#advisories-a-pull-request-introduces).
 - **`megalinter`** runs MegaLinter against `.mega-linter.yml`. Its image is
   required and must be pinned by `@sha256:`; a tag is refused before the job is
   created, since the job container receives the checkout, CI variables and the
