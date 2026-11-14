@@ -266,7 +266,7 @@ jobs:
     uses: ./.github/workflows/publish-apple-appstore.yml
     with:
       ipa-artifact-name: ${{ matrix.artifact.name }}
-      enabled: ${{ matrix.artifact.xcode_ios.enable_code_signing != false }}
+      enabled: ${{ format('{0}', matrix.artifact.xcode_ios.enable_code_signing) != 'false' }}
       branch: ${{ inputs.branch }}
       submit-for-review: ${{ matrix.artifact.xcode_ios.submit_for_review || false }}
       skip-validation: ${{ matrix.artifact.xcode_ios.skip_validation || false }}

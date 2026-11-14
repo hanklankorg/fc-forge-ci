@@ -574,6 +574,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from `[policy] block`). It counted every failed check, so a plan could
   not demote one. The floor of `required-lints` blocks as before, and
   dependency advisories follow `enforce-vulnerabilities` as before.
+- A GitHub release or snapshot of an Android application whose declaration
+  does not set `include-aab` builds and uploads the AAB again. The build
+  stage compared the unset value with `false`, which GitHub's expressions
+  treat as equal, so the AAB was left out and the release then failed for
+  want of it. The same comparison turned Xcode code signing off for a
+  declaration that does not set `enable-code-signing`; both now default to
+  true as documented.
 - Security: the engine and the Go runtime image build on Go 1.27.4,
   which fixes GO-2026-6859, an HTTP/1 server crash from a
   `MaxBytesReader` header race in `net/http` that govulncheck reports as
