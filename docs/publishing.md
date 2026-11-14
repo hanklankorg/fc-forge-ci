@@ -418,9 +418,13 @@ publication without a signed release request.
 The publish child pipelines GitLab generates from a plan cannot hand over the
 exported publications; wire the components by hand as above.
 
-On Forgejo, compose the same CLI steps in your own trusted jobs:
-`build gradle export-publications`, then the chosen publisher. The uploader
-takes the Maven endpoint from the forge; no GitHub URL is built in.
+On Forgejo, run `build gradle export-publications` in your build job and hand
+the exported directory to the `publish-forge-packages` action with
+`project-type: gradle`, in a job after the release is published; see
+[Forgejo](forgejo.md#maven-npm-and-gradle-packages-in-the-owners-registry).
+Maven Central has no Forgejo action: compose `publish maven-central` in your
+own trusted job. The uploader takes the Maven endpoint from the forge; no
+GitHub URL is built in.
 
 ### Central lifecycle and recovery
 

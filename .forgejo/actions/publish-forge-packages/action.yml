@@ -1,0 +1,124 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: 'Publish to the forge package registry'
+description: >-
+  The publish step of a consumer's own job for a project that lists forge-packages under publish-to: one `forge-ci publish forge-packages deploy`, the command GitHub's publish-maven-github workflow and GitLab's publish-forge-packages component run. It publishes a Maven project, the packed npm tarball or exported Gradle Maven publications to the package registry of the repository's owner on this Forgejo. The job brings the toolchain, a JDK and Maven or Node (see setup-toolchain, or a job image), and runs after the release is signed and published. The step holds one credential, the token it is given, and refuses a pull-request run.
+inputs:
+  project-type:
+    description: "Package type: maven, npm, gradle or gradle-android (exported Maven publications)."
+    required: false
+    default: 'maven'
+  working-directory:
+    description: Directory containing the pom.xml (maven), the packed *.tgz (npm), the Maven build hand-off (from-build) or the exported Gradle publications, relative to the workspace.
+    required: false
+    default: '.'
+  artifact-name:
+    description: Name of a current-run artifact to download into working-directory before publishing, such as the hand-off the release signed. Empty publishes what the job already holds there.
+    required: false
+    default: ''
+  version:
+    description: Expected immutable version of a prebuilt Maven library or of exported Gradle publications, with or without a leading v.
+    required: false
+    default: ''
+  npm-tag:
+    description: "Required for npm: release-{version} or release-<packed-version>. No latest, next or movable channel tags."
+    required: false
+    default: ''
+  snapshot:
+    description: "'true' publishes only Maven-format snapshots; not applicable to npm."
+    required: false
+    default: 'false'
+  from-build:
+    description: "'true' publishes the Maven library POM, main, sources and Javadoc bytes in working-directory without rebuilding (maven only)."
+    required: false
+    default: 'false'
+  profile:
+    description: Optional Maven profile owning publication attachments (maven only).
+    required: false
+    default: ''
+  cli-opts:
+    description: Extra args forwarded to mvn (maven only).
+    required: false
+    default: '--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always -Dgpg.skip=true'
+  token:
+    description: Token that may write packages of the repository's owner (write:package), such as RELEASE_REGISTRY_TOKEN. It reaches the engine in its environment and never a process argument.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Publish to the forge package registry
+      shell: bash
+      env:
+        PUBLISH_PROJECT_TYPE: ${{ inputs.project-type }}
+        PUBLISH_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        PUBLISH_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        PUBLISH_VERSION: ${{ inputs.version }}
+        PUBLISH_NPM_TAG: ${{ inputs.npm-tag }}
+        PUBLISH_SNAPSHOT: ${{ inputs.snapshot }}
+        PUBLISH_FROM_BUILD: ${{ inputs.from-build }}
+        PUBLISH_PROFILE: ${{ inputs.profile }}
+        PUBLISH_CLI_OPTS: ${{ inputs.cli-opts }}
+        PUBLISH_TOKEN_INPUT: ${{ inputs.token }}
+        PUBLISH_SERVER: ${{ github.server_url }}
+        PUBLISH_REPOSITORY: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        # The token leaves the environment before any command runs, and is
+        # given to the deploy alone. The unset leaves the engine no other
+        # variable to take a token from.
+        package_token="${PUBLISH_TOKEN_INPUT:?token is required}"
+        unset PUBLISH_TOKEN_INPUT FORGEJO_TOKEN GITEA_TOKEN GITHUB_TOKEN RELEASE_TOKEN \
+          REGISTRY_PASSWORD REGISTRY_TOKEN REGISTRY_USER NPM_TOKEN NODE_AUTH_TOKEN
+        # shellcheck source=.engine/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../../.engine/bin/lib-forge-ci.sh"
+        if [ -z "${FORGE_CI_BIN:-}" ]; then fetch_forge_ci; fi
+        SIGNER_STRICT=1 verify_forge_ci
+        project_type=${PUBLISH_PROJECT_TYPE:?project-type is required}
+        directory=${PUBLISH_WORKING_DIRECTORY:?working-directory is required}
+        snapshot=${PUBLISH_SNAPSHOT:?snapshot is required}
+        from_build=${PUBLISH_FROM_BUILD:?from-build is required}
+        case "${project_type}" in
+          maven | gradle | gradle-android) ;;
+          npm)
+            if [ "${snapshot}" = true ]; then
+              printf 'snapshot is a Maven-format option, not an npm channel\n' >&2
+              exit 78
+            fi
+            ;;
+          *) printf 'project-type must be maven, npm, gradle or gradle-android\n' >&2; exit 78 ;;
+        esac
+        # A publisher never runs for a pull request: the token is in scope.
+        FORGE_CI_PROVIDER=forgejo run_forge_ci validate event-context
+        if [ "${project_type}" = npm ]; then
+          NPM_TAG="${PUBLISH_NPM_TAG}" run_forge_ci publish npm validate-tag
+        fi
+        if [ -n "${PUBLISH_ARTIFACT_NAME}" ]; then
+          FORGE_CI_PROVIDER=forgejo run_forge_ci artifact download \
+            --name "${PUBLISH_ARTIFACT_NAME}" --dir "${directory}"
+        fi
+        workspace=$PWD
+        deploy=(publish forge-packages deploy --project-type "${project_type}" --snapshot="${snapshot}")
+        case "${project_type}" in
+          npm) deploy+=(--working-dir "${directory}" --npm-tag "${PUBLISH_NPM_TAG}") ;;
+          gradle | gradle-android) deploy+=(--working-dir "${directory}" --version "${PUBLISH_VERSION}") ;;
+          maven)
+            if [ "${from_build}" = true ]; then
+              deploy+=(--from-build --working-dir "${directory}" --version "${PUBLISH_VERSION}")
+            else
+              # mvn deploy runs in the project's directory.
+              cd -- "${directory}"
+              deploy+=(--cli-opts "${PUBLISH_CLI_OPTS}" --profile "${PUBLISH_PROFILE}")
+            fi
+            ;;
+        esac
+        FORGEJO_TOKEN="${package_token}" \
+          FORGEJO_SERVER_URL="${PUBLISH_SERVER:?}" \
+          FORGEJO_REPOSITORY="${PUBLISH_REPOSITORY:?}" \
+          FORGE_CI_PROVIDER=forgejo \
+          run_forge_ci "${deploy[@]}"
+        cd -- "${workspace}"
+        FORGE_CI_PROVIDER=forgejo run_forge_ci report publish forge-packages \
+          --repository "${PUBLISH_REPOSITORY}" --package-type "${project_type}"

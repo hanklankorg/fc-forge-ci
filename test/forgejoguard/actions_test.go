@@ -118,6 +118,77 @@ func TestBuildAndCheckActionsReceiveNoCredential(t *testing.T) {
 	}
 }
 
+// publish-forge-packages is the one consumer-job action that takes a
+// credential. It takes exactly one, the package token; its step binds
+// nothing but inputs and the run's server and repository; and its script
+// takes the token out of the environment first, refuses a pull-request run
+// before anything is downloaded or published, and gives the token to the
+// deploy alone.
+func TestPublishForgePackagesActionGivesItsTokenToTheDeployAlone(t *testing.T) {
+	t.Parallel()
+
+	const path = ".forgejo/actions/publish-forge-packages/action.yml"
+
+	document := loadDocument(t, path)
+
+	var credentials []string
+
+	for _, input := range mappingEntries(mappingValue(document, "inputs")) {
+		name := strings.ToLower(scalarString(input.Key))
+		if strings.Contains(name, "token") || strings.Contains(name, "password") || strings.Contains(name, "key") {
+			credentials = append(credentials, name)
+		}
+	}
+
+	if !slices.Equal(credentials, []string{"token"}) {
+		t.Errorf("%s takes the credential inputs %v, want token alone", path, credentials)
+	}
+
+	steps := actionSteps(t, path)
+	if len(steps) != 1 {
+		t.Fatalf("%s has %d steps, want the one publish step", path, len(steps))
+	}
+
+	for _, entry := range mappingEntries(mappingValue(steps[0], "env")) {
+		value := scalarString(entry.Value)
+		if !strings.HasPrefix(value, "${{ inputs.") && value != "${{ github.server_url }}" && value != "${{ github.repository }}" {
+			t.Errorf("%s binds %s to %s, which is neither an input nor the run's server or repository", path, scalarString(entry.Key), value)
+		}
+	}
+
+	script := scalarString(mappingValue(steps[0], "run"))
+
+	// The order of the script: token out of the environment, the engine,
+	// the pull-request refusal, the download, the deploy.
+	order := []string{
+		"unset PUBLISH_TOKEN_INPUT",
+		"lib-forge-ci.sh",
+		"run_forge_ci validate event-context",
+		"run_forge_ci artifact download",
+		`run_forge_ci "${deploy[@]}"`,
+	}
+
+	at := -1
+
+	for _, marker := range order {
+		next := strings.Index(script, marker)
+		if next <= at {
+			t.Fatalf("%s: %q is missing or does not follow the step before it", path, marker)
+		}
+
+		at = next
+	}
+
+	// The token is named twice: where it is read and where the deploy gets it.
+	if got := strings.Count(script, "package_token"); got != 2 {
+		t.Errorf("%s names the token %d times, want its assignment and the deploy", path, got)
+	}
+
+	if !strings.Contains(script, `FORGEJO_TOKEN="${package_token}"`) {
+		t.Errorf("%s does not give the token to the deploy as FORGEJO_TOKEN", path)
+	}
+}
+
 // The pull-request examples are what a consumer copies for the event that
 // runs unreviewed code: each reads no secret anywhere, names no image of its
 // own (the job image is the consumer's variable), and its jobs are the lint

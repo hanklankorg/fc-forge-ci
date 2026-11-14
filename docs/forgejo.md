@@ -336,6 +336,7 @@ alone. Each `action.yml` documents its own inputs and outputs.
 | `build-goreleaser` | The build step of a GoReleaser release: packages the prepared release unsigned and imports its manifest. See [Unsigned GoReleaser handoff](#unsigned-goreleaser-handoff). |
 | `build-maven` | The build step of a Maven consumer's job: tests, the jar and the Build SBOM, as GitHub's `build-maven` workflow builds them, after checking that the POM declares the release version. |
 | `guard-release-tag`, `render-changelog`, `prepare-release` | The steps `prepare-release.yml` is made of, with rendering and signing in separate jobs. Call the workflow; see [The prepare job](#the-prepare-job). |
+| `publish-forge-packages` | The publish step of a consumer's own job after the release is signed and published: a Maven project, the packed npm tarball or exported Gradle publications to the owner's package registry. See [Maven, npm and Gradle packages in the owner's registry](#maven-npm-and-gradle-packages-in-the-owners-registry). |
 | `upload-dist`, `assemble-release-dist` | Hand `dist/` to the signer with its digest, from one producer or several. |
 | `registry-login`, `setup-buildah`, `record-release-image` | Registry login, Buildah preparation and ledger recording for a custom image job that builds with `forge-ci container build-push-oci-image`, Buildah only. That command scans as it publishes, so it needs `--scan-output-template` and Trivy on the runner. |
 | `setup-image-builder` | Prepares Buildah, or checks the kaniko job image, before `multiarch-image build-arch` or `container build`; the job's `container:` is `CI_IMAGE_BUILDER_JOB_IMAGE`, empty for Buildah. |
@@ -1128,6 +1129,58 @@ The packages of one release go in manifest order, after every one of them
 was found publishable; a failure partway leaves the earlier ones published,
 and the rerun leaves them as they are.
 
+### Maven, npm and Gradle packages in the owner's registry
+
+A project that lists `forge-packages` under `publish-to` publishes its
+package with the `publish-forge-packages` action, in a job of your own that
+needs `sign-and-publish`. The action runs
+`forge-ci publish forge-packages deploy`, the command GitHub's
+`publish-maven-github` workflow and GitLab's `publish-forge-packages`
+component run, and its inputs carry the same names as theirs. The package
+goes to the registry of the repository's owner on this Forgejo:
+`<server>/api/packages/<owner>/maven` or `…/npm/`.
+
+```yaml
+  publish-package:
+    name: "Publish: package"
+    needs: [prepare, build, sign-and-publish]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    steps:
+      # Node and npm for the publish, as the build job installs them.
+      - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-toolchain@PIN_FORGE_CI_SHA
+      - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/publish-forge-packages@PIN_FORGE_CI_SHA
+        with:
+          project-type: npm
+          artifact-name: build-dist
+          working-directory: dist
+          npm-tag: release-{version}
+          token: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+```
+
+| `project-type` | Publishes | From |
+|---|---|---|
+| `npm` | the one `*.tgz` in `working-directory`, under `npm-tag`, with lifecycle scripts off | the hand-off the release signed: `artifact-name` is the build job's artifact |
+| `maven` with `from-build: 'true'` | the library's POM, jar, sources and Javadoc bytes, without running Maven | the build hand-off in `working-directory` |
+| `maven` | `mvn deploy` in `working-directory`, with `cli-opts` and `profile` | the checked-out project; this form runs the project's build with the token in reach |
+| `gradle`, `gradle-android` | the exported Maven publications in `working-directory`, at `version` | `forge-ci build gradle export-publications` in the build job |
+
+- The job runs on `runs-on`, the ordinary runner, and brings the toolchain:
+  a JDK and Maven, or Node. It holds no signing key.
+- `token` is a token that may write packages of the owner
+  (`write:package`), such as `RELEASE_REGISTRY_TOKEN`. The automatic job
+  token cannot write packages. The action gives the token to the deploy
+  alone and refuses to run for a pull request.
+- Forgejo takes an npm package only under the owner's scope, `@<owner>/…`.
+- A registry takes a version once. A rerun finds the npm package an earlier
+  run published under the release's tag and leaves it when its content is
+  the tarball's; the same version with other content fails the job.
+- `snapshot: 'true'` publishes Maven-format snapshots only, as on the other
+  forges; npm has no snapshot mode.
+
+The layer plans no job from `publish-to`: the job is yours, as the build
+job is. [Publishing](publishing.md) describes the targets, which are the
+same on every forge.
+
 ### Old releases' files
 
 Each release adds its archives, binaries and packages, and a forge's storage
@@ -1777,9 +1830,10 @@ Not in the layer:
 - Builds other than Go, Cargo and Maven: no Gradle, npm or Xcode action. A
   Gradle consumer's build job runs `forge-ci build gradle run` itself, as
   [examples/gradle-app/forgejo/](../examples/gradle-app/forgejo/) does.
-- Publication to the forge's package registry, other than
-  [distro packages](#distro-packages-in-the-owners-registries): no npm or
-  Maven publisher workflow.
+- A publish job planned from `publish-to`: the
+  [`publish-forge-packages` action](#maven-npm-and-gradle-packages-in-the-owners-registry)
+  is a step of a job you write. Maven Central, Google Play and App Store
+  publication have no action.
 - Planning the release build from `artifacts.yml`: the build job is yours.
   The layer reads the file for the version bump, signing, release images and
   snapshots.

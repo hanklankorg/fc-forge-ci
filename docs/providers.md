@@ -241,7 +241,7 @@ them differ too. The [GitHub](github.md), [GitLab](gitlab.md) and
 | Public transparency log | `sign.transparency`, `public` by default (keyless signing needs the log; `none` only with a key) | `transparency-log` input, `none` by default | `transparency-log` input, `none` by default |
 | Image promotion | `:dev` → `:staging` → release, gated by Environments | final tags in a separate publication project | final tags (`promote` job) |
 | Snapshot flow | `snapshot-images.yml`; `release-snapshot-orchestrator.yml` for npm | `snapshot-images` component | `snapshot-images.yml` |
-| Forge package registry | Maven/npm registry workflows | `publish-forge-packages` | `forge-ci publish forge-packages` in your own job |
+| Forge package registry | Maven/npm registry workflows | `publish-forge-packages` | the `publish-forge-packages` action in your own job |
 | Distro packages (`.deb`, `.rpm`, `.apk`) in a registry | refused: GitHub Packages has no such registry | refused: no RPM or Alpine registry, and the Debian registry is off by default | `distro-packages`, published by the `packages` job |
 | Base-image lifecycle | CLI commands in your own workflow | `release` with `base-stages` and `base-plan`: the policy builds, signs and promotes each stage | release-image and base verify/promote workflows plus `prune-base-images`; the build graph remains caller policy |
 

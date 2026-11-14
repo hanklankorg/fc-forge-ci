@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The Forgejo layer has the `publish-forge-packages` action: the publish
+  step of a consumer's own job for a project that lists `forge-packages`
+  under `publish-to`. It runs `forge-ci publish forge-packages deploy`, as
+  GitHub's `publish-maven-github` workflow and GitLab's
+  `publish-forge-packages` component do, with the same input names, and
+  publishes a Maven project, the packed npm tarball or exported Gradle
+  publications to the package registry of the repository's owner. It takes
+  the package token as an input, gives it to the deploy alone and refuses a
+  pull-request run. See
+  `docs/forgejo.md#maven-npm-and-gradle-packages-in-the-owners-registry`.
 - The GitHub release and snapshot orchestrators take
   `enforce-signer-runs-on-darwin-arm64`, an administrator setting: a JSON array of the
   runner labels the signed Xcode build may run on. The default `[]` lets

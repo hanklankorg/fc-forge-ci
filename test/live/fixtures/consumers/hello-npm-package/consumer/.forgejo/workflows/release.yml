@@ -150,6 +150,40 @@ jobs:
       RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
 
+  # Ours: the packed package of the signed release to the owner's package
+  # registry, as publish-to: [forge-packages] declares. It runs after the
+  # release is published, holds the package token and no signing key, and
+  # npm publishes the hand-off's bytes with lifecycle scripts off.
+  publish-package:
+    name: "Publish: package"
+    needs: [prepare, build, sign-and-publish]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 15
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+
+      - name: Checkout prepared release
+        env:
+          CHECKOUT_REF: ${{ needs.prepare.outputs.release-sha }}
+        run: forge-ci platform checkout
+
+      - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-toolchain@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+        with:
+          cache-key-suffix: release-publish
+          install-dev-tools: false
+          cache: 'false'
+          mise-locked: true
+
+      - name: Publish to the package registry
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/publish-forge-packages@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+        with:
+          project-type: npm
+          artifact-name: build-dist
+          working-directory: dist
+          npm-tag: release-{version}
+          token: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+
   # ===========================================================================
   # JOB: summary — the release overview; Forgejo 17 shows it above the logs,
   # older Forgejo prints it in this job's log.
@@ -157,7 +191,7 @@ jobs:
   summary:
     name: Summary
     if: ${{ always() && startsWith(forgejo.ref, 'refs/tags/') }}
-    needs: [prepare, build, sign-and-publish]
+    needs: [prepare, build, sign-and-publish, publish-package]
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 5
     steps:
@@ -173,8 +207,10 @@ jobs:
           PREPARE_RESULT: ${{ needs.prepare.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           PUBLISH_RESULT: ${{ needs.sign-and-publish.result }}
+          PACKAGE_RESULT: ${{ needs.publish-package.result }}
         run: |
           forge-ci report release \
             --job "Prepare=${PREPARE_RESULT}" \
             --job "Build: release files=${BUILD_RESULT}" \
-            --job "Sign and publish=${PUBLISH_RESULT}"
+            --job "Sign and publish=${PUBLISH_RESULT}" \
+            --job "Publish: package=${PACKAGE_RESULT}"
