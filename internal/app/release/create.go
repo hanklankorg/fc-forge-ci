@@ -159,8 +159,8 @@ func collectCreateAssetsFromAssembly(path string) ([]string, error) {
 		}
 	}
 
-	if asm.SBOMZipFile != "" {
-		if err := addWithSidecars(asm.SBOMZipFile, len(asm.SBOMs) > 0); err != nil {
+	if asm.SBOMBundleFile != "" {
+		if err := addWithSidecars(asm.SBOMBundleFile, len(asm.SBOMs) > 0); err != nil {
 			return nil, err
 		}
 	}

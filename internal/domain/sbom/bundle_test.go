@@ -11,7 +11,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/domain/sbom"
 )
 
-func TestZipName_CanonicalShape(t *testing.T) {
+func TestBundleName_CanonicalShape(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -20,15 +20,15 @@ func TestZipName_CanonicalShape(t *testing.T) {
 		version string
 		want    string
 	}{
-		{"simple", "my-app", "1.2.3", "my-app-1.2.3-sboms.zip"},
-		{"scoped_npm", "@org/pkg", "0.1.0", "org-pkg-0.1.0-sboms.zip"},
-		{"prerelease_with_v_prefix", "lib", "v2.0.0-rc.1", "lib-v2.0.0-rc.1-sboms.zip"},
-		{"empty_version_keeps_separator", "x", "", "x--sboms.zip"},
+		{"simple", "my-app", "1.2.3", "my-app-1.2.3-sboms.tar.gz"},
+		{"scoped_npm", "@org/pkg", "0.1.0", "org-pkg-0.1.0-sboms.tar.gz"},
+		{"prerelease_with_v_prefix", "lib", "v2.0.0-rc.1", "lib-v2.0.0-rc.1-sboms.tar.gz"},
+		{"empty_version_keeps_separator", "x", "", "x--sboms.tar.gz"},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, testCase.want, sbom.ZipName(testCase.project, testCase.version))
+			require.Equal(t, testCase.want, sbom.BundleName(testCase.project, testCase.version))
 		})
 	}
 }

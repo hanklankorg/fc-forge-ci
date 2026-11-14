@@ -27,7 +27,7 @@ import (
 // SBOM layer set. It HARVESTS the language-native build BOM (e.g. the
 // cyclonedx-gomod `bom.json` your build step emits) and SYFT-SCANS built
 // artifacts/containers, then normalises everything into the canonical
-// per-layer filenames (optionally bundling them into a release zip).
+// per-layer filenames (optionally bundling them into a release tar.gz).
 //
 // It runs AFTER the build: the build layer copies a pre-produced BOM rather
 // than generating one, because the language's own dependency tooling resolves
@@ -55,8 +55,8 @@ EXAMPLES:
        --layers=build,analyzed-container \
        --container-image=ghcr.io/examplescope/myapp:v1.2.3
 
-   # Bundle the assembled layers into a release-attached zip
-   forge-ci sbom assemble --project-type=maven --create-zip`,
+   # Bundle the assembled layers into a release-attached tar.gz
+   forge-ci sbom assemble --project-type=maven --create-bundle`,
 		Flags: append([]cli.Flag{
 			&cli.StringFlag{Name: "project-type", Value: string(projecttype.Auto), Usage: "ecosystem driving the syft scan (auto/maven/gradle/npm/go/cargo/…)"},
 			&cli.StringFlag{Name: "layers", Value: "all", Usage: "comma/space/newline-separated CISA layers to assemble: all | build | analyzed-artifact | analyzed-container (\"all\" = every layer)"},
@@ -64,7 +64,7 @@ EXAMPLES:
 			&cli.StringFlag{Name: "name", Usage: "project slug used as the SBOM filename prefix"},
 			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Usage: "directory syft scans"},
 			&cli.StringFlag{Name: "container-image", Usage: "container image to analyze (required for the analyzed-container layer)"},
-			&cli.BoolFlag{Name: "create-zip", Usage: "additionally bundle the layers into a release-attached zip"},
+			&cli.BoolFlag{Name: "create-bundle", Usage: "additionally bundle the layers into a release-attached tar.gz"},
 			// Plan mode (per-artifact matrix; was `sbom generate artifacts`).
 			&cli.StringFlag{Name: "plan", Sources: cli.EnvVars("CONFIG_PLAN_JSON"), Usage: "typed config-plan JSON: assemble one layer set per artifact in the plan (from \"config parse-artifacts\")"},
 			&cli.StringFlag{Name: "acquisition-dir", Sources: cli.EnvVars("ACQUISITION_DIR"), Usage: "plan mode: use only this fresh producer tree for build BOMs, artifact scans, and generated outputs; requires --version"},
@@ -139,7 +139,7 @@ func runAssembleMode(ctx context.Context, cmd *cli.Command) error {
 			Name:           cmd.String("name"),
 			WorkingDir:     cmd.String(flagWorkingDir),
 			ContainerImage: cmd.String("container-image"),
-			CreateZip:      cmd.Bool("create-zip"),
+			CreateBundle:   cmd.Bool("create-bundle"),
 		})
 	}
 }

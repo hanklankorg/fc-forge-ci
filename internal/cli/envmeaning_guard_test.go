@@ -209,6 +209,6 @@ func sharedEnvSpellings() map[string]sharedEnvSpelling {
 		"SBOMS": {Canonical: "sboms", Why: "the configured SBOM layer list",
 			Sites: []string{"forge-ci config expand-sboms --value"}},
 		"SIGN_ARTIFACTS": {Canonical: "sign-artifacts", Why: "whether release artifacts are signed",
-			Sites: []string{"forge-ci release sbom-zip --sign"}},
+			Sites: []string{"forge-ci release sbom-bundle --sign"}},
 	}
 }

@@ -12,9 +12,9 @@ import (
 	domainversion "github.com/diggsweden/forge-ci/internal/domain/version"
 )
 
-// ZipName returns the canonical SBOM zip filename, e.g.
+// BundleName returns the canonical SBOM bundle filename, e.g.
 //
-//	ZipName("my-app", "1.2.3") = "my-app-1.2.3-sboms.zip"
-func ZipName(projectName, version string) string {
-	return fmt.Sprintf("%s-%s-sboms.zip", domainversion.SanitizePathToken(projectName), domainversion.SanitizePathToken(version))
+//	BundleName("my-app", "1.2.3") = "my-app-1.2.3-sboms.tar.gz"
+func BundleName(projectName, version string) string {
+	return fmt.Sprintf("%s-%s-sboms.tar.gz", domainversion.SanitizePathToken(projectName), domainversion.SanitizePathToken(version))
 }

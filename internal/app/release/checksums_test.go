@@ -361,7 +361,7 @@ func TestChecksums_ManifestOrderIsDeterministic(t *testing.T) {
 // files. Hard links and absolute spellings still name the same input.
 func TestChecksums_AssemblyRefusesOutputOverlappingInputs(t *testing.T) {
 	for _, output := range []string{
-		"release-files/app.jar", "release-files/app-sbom.json", "release-files/sboms.zip", "assembly.json",
+		"release-files/app.jar", "release-files/app-sbom.json", "release-files/sboms.tar.gz", "assembly.json",
 		"absolute asset", "hard-linked asset", "assembly default",
 	} {
 		t.Run(output, func(t *testing.T) {
@@ -369,14 +369,14 @@ func TestChecksums_AssemblyRefusesOutputOverlappingInputs(t *testing.T) {
 			fsys.Chdir()
 			fsys.WriteFile("release-files/app.jar", []byte("artifact"))
 			fsys.WriteFile("release-files/app-sbom.json", []byte("SBOM"))
-			fsys.WriteFile("release-files/sboms.zip", []byte("ZIP"))
+			fsys.WriteFile("release-files/sboms.tar.gz", []byte("BUNDLE"))
 
 			assembly := domainrelease.Assembly{
-				Version:      domainrelease.AssemblyVersion,
-				Assets:       []domainrelease.AssemblyFile{{Path: "release-files/app.jar", Name: "app.jar"}},
-				SBOMs:        []domainrelease.AssemblyFile{{Path: "release-files/app-sbom.json", Name: "app-sbom.json"}},
-				ChecksumFile: "release-files/checksums.sha256",
-				SBOMZipFile:  "release-files/sboms.zip",
+				Version:        domainrelease.AssemblyVersion,
+				Assets:         []domainrelease.AssemblyFile{{Path: "release-files/app.jar", Name: "app.jar"}},
+				SBOMs:          []domainrelease.AssemblyFile{{Path: "release-files/app-sbom.json", Name: "app-sbom.json"}},
+				ChecksumFile:   "release-files/checksums.sha256",
+				SBOMBundleFile: "release-files/sboms.tar.gz",
 			}
 
 			switch output {
@@ -395,7 +395,7 @@ func TestChecksums_AssemblyRefusesOutputOverlappingInputs(t *testing.T) {
 
 			before := map[string]string{}
 
-			for _, path := range []string{"assembly.json", "release-files/app.jar", "release-files/app-sbom.json", "release-files/sboms.zip"} {
+			for _, path := range []string{"assembly.json", "release-files/app.jar", "release-files/app-sbom.json", "release-files/sboms.tar.gz"} {
 				before[path] = string(fsys.ReadFile(path))
 			}
 

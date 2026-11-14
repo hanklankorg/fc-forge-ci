@@ -165,7 +165,7 @@ func TestGitHubReleaseProfile_Inputs(t *testing.T) {
 }
 
 func TestReleaseSBOMBundleGap(t *testing.T) {
-	with := map[string]int64{"my-cli-linux-amd64": 1, "app-0.1.0-sboms.zip": 2, "app-0.1.0-sboms.zip.bundle": 3}
+	with := map[string]int64{"my-cli-linux-amd64": 1, "app-0.1.0-sboms.tar.gz": 2, "app-0.1.0-sboms.tar.gz.bundle": 3}
 	without := map[string]int64{"my-cli-linux-amd64": 1, "checksums.sha256": 2}
 
 	for name, tc := range map[string]struct {
@@ -175,7 +175,7 @@ func TestReleaseSBOMBundleGap(t *testing.T) {
 	}{
 		"offered and present":  {sbomBundleOffered, with, false},
 		"offered but absent":   {sbomBundleOffered, without, true},
-		"offered twice":        {sbomBundleOffered, map[string]int64{"a-1-sboms.zip": 1, "b-1-sboms.zip": 2}, true},
+		"offered twice":        {sbomBundleOffered, map[string]int64{"a-1-sboms.tar.gz": 1, "b-1-sboms.tar.gz": 2}, true},
 		"withheld and absent":  {sbomBundleWithheld, without, false},
 		"withheld but present": {sbomBundleWithheld, with, true},
 		"unjudged, present":    {sbomBundleUnjudged, with, false},

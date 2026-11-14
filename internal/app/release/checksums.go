@@ -224,13 +224,13 @@ func checksumsFromAssembly(out io.Writer, in ChecksumsInput) (int, error) {
 		}
 	}
 
-	if asm.SBOMZipFile != "" {
-		if regularFileExists(asm.SBOMZipFile) {
-			if err := write(asm.SBOMZipFile, filepath.Base(asm.SBOMZipFile)); err != nil {
+	if asm.SBOMBundleFile != "" {
+		if regularFileExists(asm.SBOMBundleFile) {
+			if err := write(asm.SBOMBundleFile, filepath.Base(asm.SBOMBundleFile)); err != nil {
 				return manifest.count, err
 			}
 		} else if len(asm.SBOMs) > 0 {
-			return manifest.count, fmt.Errorf("assembly SBOM ZIP %q is missing; run release sbom-zip --assembly first: %w", asm.SBOMZipFile, errs.ErrMissingInput)
+			return manifest.count, fmt.Errorf("assembly SBOM bundle %q is missing; run release sbom-bundle --assembly first: %w", asm.SBOMBundleFile, errs.ErrMissingInput)
 		}
 	}
 
@@ -245,7 +245,7 @@ func validateAssemblyChecksumOutput(outputFile, assemblyFile string, asm domainr
 	}
 
 	inputs := make([]string, 0, len(asm.Assets)+len(asm.SBOMs)+2)
-	inputs = append(inputs, asm.SBOMZipFile)
+	inputs = append(inputs, asm.SBOMBundleFile)
 
 	if assemblyFile != cliio.StdSentinel {
 		inputs = append(inputs, assemblyFile)

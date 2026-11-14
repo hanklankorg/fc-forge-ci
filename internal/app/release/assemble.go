@@ -162,11 +162,11 @@ func Assemble(out io.Writer, in AssembleInput) (*domainrelease.Assembly, error) 
 	sortAssemblyFiles(collector.sboms)
 
 	asm := &domainrelease.Assembly{
-		Version:      domainrelease.AssemblyVersion,
-		Assets:       collector.assets,
-		SBOMs:        collector.sboms,
-		ChecksumFile: filepath.ToSlash(filepath.Join(releaseFilesDir, domainrelease.ChecksumsFile)),
-		SBOMZipFile:  filepath.ToSlash(filepath.Join(assetsDir, domainsbom.ZipName(in.ProjectName, version.StripVPrefix(in.Version)))),
+		Version:        domainrelease.AssemblyVersion,
+		Assets:         collector.assets,
+		SBOMs:          collector.sboms,
+		ChecksumFile:   filepath.ToSlash(filepath.Join(releaseFilesDir, domainrelease.ChecksumsFile)),
+		SBOMBundleFile: filepath.ToSlash(filepath.Join(assetsDir, domainsbom.BundleName(in.ProjectName, version.StripVPrefix(in.Version)))),
 	}
 
 	if err := writeAssembly(outputFile, asm); err != nil {
@@ -791,7 +791,7 @@ func readAssembly(path string) (domainrelease.Assembly, error) {
 
 // ValidateAssembly admits an unsigned assembly without loading signing material.
 // Assembly paths are not discovery hints: every declared input must exist, and
-// checksums must cover exactly the public assets and the generated SBOM ZIP.
+// checksums must cover exactly the public assets and the generated SBOM bundle.
 func ValidateAssembly(path string) error {
 	_, err := validatedSigningAssembly(path, nil)
 
@@ -814,8 +814,8 @@ func validatedSigningAssembly(path string, extensions []string) ([]string, error
 		selected = append(selected, asset.Path)
 	}
 
-	if asm.SBOMZipFile != "" && regularFileExists(asm.SBOMZipFile) {
-		selected = append(selected, asm.SBOMZipFile)
+	if asm.SBOMBundleFile != "" && regularFileExists(asm.SBOMBundleFile) {
+		selected = append(selected, asm.SBOMBundleFile)
 	}
 
 	if asm.ChecksumFile == "" {
@@ -891,12 +891,12 @@ func assemblyChecksumSubjects(asm domainrelease.Assembly) (map[string]string, er
 		}
 	}
 
-	if len(asm.SBOMs) > 0 && (asm.SBOMZipFile == "" || !regularFileExists(asm.SBOMZipFile)) {
-		return nil, fmt.Errorf("assembly SBOM ZIP is missing; run release sbom-zip --assembly first: %w", errs.ErrMissingInput)
+	if len(asm.SBOMs) > 0 && (asm.SBOMBundleFile == "" || !regularFileExists(asm.SBOMBundleFile)) {
+		return nil, fmt.Errorf("assembly SBOM bundle is missing; run release sbom-bundle --assembly first: %w", errs.ErrMissingInput)
 	}
 
-	if asm.SBOMZipFile != "" && regularFileExists(asm.SBOMZipFile) {
-		if err := add(asm.SBOMZipFile, filepath.Base(asm.SBOMZipFile)); err != nil {
+	if asm.SBOMBundleFile != "" && regularFileExists(asm.SBOMBundleFile) {
+		if err := add(asm.SBOMBundleFile, filepath.Base(asm.SBOMBundleFile)); err != nil {
 			return nil, err
 		}
 	}
@@ -941,7 +941,7 @@ func validateAssemblyPaths(asm domainrelease.Assembly) error {
 		}
 	}
 
-	for _, output := range []string{asm.ChecksumFile, asm.SBOMZipFile} {
+	for _, output := range []string{asm.ChecksumFile, asm.SBOMBundleFile} {
 		if output == "" {
 			continue
 		}

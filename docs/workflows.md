@@ -157,7 +157,7 @@ graph TD
 - `release-prepare-stage.yml` owns version-bump fanout and prepare-stage result normalization
 - `release-build-stage.yml` owns build fanout and build-stage result normalization
 - `release-publish-stage.yml` owns publish fanout and publish-stage result normalization
-- `release-create-github.yml` owns release-file assembly, SBOM ZIP creation, checksums, signing, and platform release upload
+- `release-create-github.yml` owns release-file assembly, SBOM bundle creation, checksums, signing, and platform release upload
 - leaf `build-*` and `publish-*` workflows stay focused on one ecosystem or destination each
 
 Release assets are named by their basename alone: two final assets with the

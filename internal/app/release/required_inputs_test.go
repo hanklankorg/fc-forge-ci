@@ -77,9 +77,9 @@ func TestGPGSignPackages_EachRequiredInputIsRefusedAlone(t *testing.T) {
 
 // TestSigners_MissingOrMisadvertisingSignerIsRefusedBeforeAnyEffect gives each
 // signing entry point a missing signer or one whose advertised sidecar
-// extensions are unusable. SignArtifacts and a signed SBOM ZIP from discovery
-// or from an assembly refuse before signing anything, and the ZIP is not
-// written: a signed SBOM ZIP with no signer used to write the ZIP and then
+// extensions are unusable. SignArtifacts and a signed SBOM bundle from discovery
+// or from an assembly refuse before signing anything, and the bundle is not
+// written: a signed SBOM bundle with no signer used to write the bundle and then
 // refuse it as a validation failure.
 func TestSigners_MissingOrMisadvertisingSignerIsRefusedBeforeAnyEffect(t *testing.T) {
 	signers := map[string]struct {
@@ -99,13 +99,13 @@ func TestSigners_MissingOrMisadvertisingSignerIsRefusedBeforeAnyEffect(t *testin
 		"sign artifacts": func(signer apprelease.Signer) error {
 			return apprelease.SignArtifacts(context.Background(), signer, &bytes.Buffer{}, apprelease.SignInput{Files: []string{"dist/app.tgz"}})
 		},
-		"sbom zip from discovery": func(signer apprelease.Signer) error {
-			_, err := apprelease.CreateSBOMZip(context.Background(), signer, apprelease.SBOMZipInput{ProjectName: "myapp", Version: "v1.2.3", SignArtifacts: true}, &bytes.Buffer{})
+		"sbom bundle from discovery": func(signer apprelease.Signer) error {
+			_, err := apprelease.CreateSBOMBundle(context.Background(), signer, apprelease.SBOMBundleInput{ProjectName: "myapp", Version: "v1.2.3", SignArtifacts: true}, &bytes.Buffer{})
 
 			return err
 		},
-		"sbom zip from assembly": func(signer apprelease.Signer) error {
-			_, err := apprelease.CreateSBOMZip(context.Background(), signer, apprelease.SBOMZipInput{AssemblyFile: "assembly.json", SignArtifacts: true}, &bytes.Buffer{})
+		"sbom bundle from assembly": func(signer apprelease.Signer) error {
+			_, err := apprelease.CreateSBOMBundle(context.Background(), signer, apprelease.SBOMBundleInput{AssemblyFile: "assembly.json", SignArtifacts: true}, &bytes.Buffer{})
 
 			return err
 		},
@@ -127,9 +127,9 @@ func TestSigners_MissingOrMisadvertisingSignerIsRefusedBeforeAnyEffect(t *testin
 					t.Errorf("signed %v with an unusable signer", recorder.signed)
 				}
 
-				for _, zip := range []string{"myapp-1.2.3-sboms.zip", "unknown-sboms.zip"} {
-					if _, err := os.Lstat(zip); !os.IsNotExist(err) {
-						t.Errorf("%s written for a refused signing request (%v)", zip, err)
+				for _, bundle := range []string{"myapp-1.2.3-sboms.tar.gz", "unknown-sboms.tar.gz"} {
+					if _, err := os.Lstat(bundle); !os.IsNotExist(err) {
+						t.Errorf("%s written for a refused signing request (%v)", bundle, err)
 					}
 				}
 			})
@@ -139,7 +139,7 @@ func TestSigners_MissingOrMisadvertisingSignerIsRefusedBeforeAnyEffect(t *testin
 
 // TestSigners_BackendFailureKeepsItsCause checks the downstream diagnostic: a
 // signer backend refusal reaches the caller as the backend's own error from
-// both SignArtifacts and a signed SBOM ZIP, rather than as a missing sidecar.
+// both SignArtifacts and a signed SBOM bundle, rather than as a missing sidecar.
 func TestSigners_BackendFailureKeepsItsCause(t *testing.T) {
 	t.Run("sign artifacts", func(t *testing.T) {
 		t.Chdir(t.TempDir())
@@ -153,13 +153,13 @@ func TestSigners_BackendFailureKeepsItsCause(t *testing.T) {
 		}
 	})
 
-	t.Run("sbom zip", func(t *testing.T) {
+	t.Run("sbom bundle", func(t *testing.T) {
 		t.Chdir(t.TempDir())
 		mustWrite(t, "myapp-pom-sbom.spdx.json", "{}")
 
 		signer := &advertisingSigner{extensions: []string{".asc"}, signErr: errSignerBackend}
 
-		res, err := apprelease.CreateSBOMZip(context.Background(), signer, apprelease.SBOMZipInput{ProjectName: "myapp", Version: "v1.2.3", SignArtifacts: true}, &bytes.Buffer{})
+		res, err := apprelease.CreateSBOMBundle(context.Background(), signer, apprelease.SBOMBundleInput{ProjectName: "myapp", Version: "v1.2.3", SignArtifacts: true}, &bytes.Buffer{})
 		if !errors.Is(err, errSignerBackend) || res == nil || res.Signed {
 			t.Fatalf("result = %+v err = %v, want an unsigned result carrying the backend error", res, err)
 		}

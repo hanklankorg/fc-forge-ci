@@ -4074,7 +4074,7 @@ EXAMPLE:
 |------|-------------|------|---------|----------|
 | `--repository` | "owner/repo" whose releases to trim (required) | string | `""` | `$REPOSITORY`, `$CI_REPO`, `$CI_PROJECT_PATH`, `$FORGEJO_REPOSITORY`, `$FORGEJO_REPO`, `$GITHUB_REPOSITORY` |
 | `--keep` | how many of the newest published releases keep every file (required) | int | `0` | `$RELEASE_ASSET_RETENTION` |
-| `--keep-files` | regular expression of the file names older releases keep | string | `"(?i)(checksums\\.txt\|sha256sums)\|\\.(bundle\|sig\|asc\|pem\|intoto\\.jsonl?)$\|\\.(sbom\|cdx\|cyclonedx\|spdx)\\.json$\|^(sbom-[a-z0-9][a-z0-9._-]*\|release-plan)\\.json$"` | `$RELEASE_ASSET_RETENTION_KEEP_FILES` |
+| `--keep-files` | regular expression of the file names older releases keep | string | `"(?i)(checksums\\.(txt\|sha256)\|sha256sums)\|-sboms\\.(tar\\.gz\|zip)$\|\\.(bundle\|sig\|asc\|pem\|intoto\\.jsonl?)$\|\\.(sbom\|cdx\|cyclonedx\|spdx)\\.json$\|^(sbom-[a-z0-9][a-z0-9._-]*\|release-plan)\\.json$"` | `$RELEASE_ASSET_RETENTION_KEEP_FILES` |
 | `--max-delete` | refuse a pass that would delete more files than this (0 disables the bound) | int | `200` | `$RELEASE_ASSET_RETENTION_MAX_DELETE` |
 | `--dry-run` | report what would be deleted without deleting it (default: true; pass --dry-run=false to delete) | bool | `true` | `$RELEASE_ASSET_RETENTION_DRY_RUN` |
 
@@ -4582,20 +4582,20 @@ EXAMPLE:
 | `--repository` | "owner/repo" slug used to derive the default project name (required) | string | `""` | `$REPOSITORY`, `$CI_REPO`, `$CI_PROJECT_PATH`, `$FORGEJO_REPOSITORY`, `$FORGEJO_REPO`, `$GITHUB_REPOSITORY` |
 | `--artifact-name` | explicit project name override (skips the repo-basename heuristic) | string | `""` | `$ARTIFACT_NAME` |
 
-### `forge-ci release sbom-zip`
+### `forge-ci release sbom-bundle`
 
-bundle all SBOM layers into &lt;project&gt;-&lt;version&gt;-sboms.zip; optionally sign via --sign + --method
+bundle all SBOM layers into &lt;project&gt;-&lt;version&gt;-sboms.tar.gz; optionally sign via --sign + --method
 
 ```
 EXAMPLE:
-   forge-ci release sbom-zip --project-name app --version 1.2.3 --sbom-dir sboms
+   forge-ci release sbom-bundle --project-name app --version 1.2.3 --sbom-dir sboms
 ```
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
-| `--project-name` | project slug used as the zip filename prefix (required) | string | `""` | `$PROJECT_NAME` |
-| `--version` | release version baked into the zip filename (required) | string | `""` | `$VERSION` |
-| `--sign` | additionally sign the resulting zip using the method selected by --method | bool | `false` | `$SIGN_ARTIFACTS` |
+| `--project-name` | project slug used as the bundle filename prefix (required) | string | `""` | `$PROJECT_NAME` |
+| `--version` | release version baked into the bundle filename (required) | string | `""` | `$VERSION` |
+| `--sign` | additionally sign the resulting bundle using the method selected by --method | bool | `false` | `$SIGN_ARTIFACTS` |
 | `--sbom-dir` | directory holding the SBOM layers to bundle | string | `""` | `$SBOM_DIR` |
 | `--assembly` | release assembly manifest whose SBOM inputs should be bundled | string | `""` | `$RELEASE_ASSEMBLY` |
 | `--debug-allow-swap` | DEBUG ONLY — bypass the swap-refusal policy when /proc/swaps reports an active swap area; emits a loud Warning annotation. NOT FOR PRODUCTION RELEASES; the supported fix is to disable swap on the runner, or for the job container (memory-swap equal to memory). See https://github.com/diggsweden/forge-ci/blob/main/docs/verification.md#swap-policy. | bool | `false` | n/a |
@@ -5219,7 +5219,7 @@ Which SBOM verb do I want?
    index      COMPOSE an offline index BOM linking unchanged platform SBOMs by
               checksum; the caller publishes those documents as release evidence.
 
-Related, outside this group: `release sbom-zip` bundles assembled layers into a release zip.
+Related, outside this group: `release sbom-bundle` bundles assembled layers into a release tar.gz.
 ```
 
 ### `forge-ci sbom assemble`
@@ -5245,8 +5245,8 @@ EXAMPLES:
        --layers=build,analyzed-container \
        --container-image=ghcr.io/examplescope/myapp:v1.2.3
 
-   # Bundle the assembled layers into a release-attached zip
-   forge-ci sbom assemble --project-type=maven --create-zip
+   # Bundle the assembled layers into a release-attached tar.gz
+   forge-ci sbom assemble --project-type=maven --create-bundle
 ```
 
 | Flag | Description | Type | Default | Env vars |
@@ -5257,7 +5257,7 @@ EXAMPLES:
 | `--name` | project slug used as the SBOM filename prefix | string | `""` | n/a |
 | `--working-dir` | directory syft scans | string | `"."` | n/a |
 | `--container-image` | container image to analyze (required for the analyzed-container layer) | string | `""` | n/a |
-| `--create-zip` | additionally bundle the layers into a release-attached zip | bool | `false` | n/a |
+| `--create-bundle` | additionally bundle the layers into a release-attached tar.gz | bool | `false` | n/a |
 | `--plan` | typed config-plan JSON: assemble one layer set per artifact in the plan (from "config parse-artifacts") | string | `""` | `$CONFIG_PLAN_JSON` |
 | `--acquisition-dir` | plan mode: use only this fresh producer tree for build BOMs, artifact scans, and generated outputs; requires --version | string | `""` | `$ACQUISITION_DIR` |
 | `--sboms` | plan mode: sboms enum ("all", "build,source", …) selecting which layers to produce per artifact | string | `"all"` | `$SBOMS` |

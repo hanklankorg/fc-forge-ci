@@ -9,11 +9,10 @@
 //   - resolve.go     — `resolve <artifact-name|metadata>` name/metadata helpers
 //   - attachments.go — `attachments <plan|upload>` release-attachment lifecycle
 //   - assemble.go    — `assemble` (canonical release file set)
-//   - artifacts.go   — `sign`, `download-artifacts`
+//   - artifacts.go   — `sign`, `download-artifacts`, `sbom-bundle` (bundle layered SBOMs)
 //   - checksums.go   — `checksums` (write the SHA256 manifest)
 //   - create.go      — `create` (create the platform release)
 //   - notes.go       — `notes`, `validate-changelog`
-//   - sbomzip.go     — `sbom-zip` (bundle layered SBOMs)
 package release
 
 import (
@@ -37,7 +36,7 @@ func New() *cli.Command {
 		Commands: slices.Concat(
 			cmdmeta.WithCategory("Assemble & publish",
 				resolveGroup(), assembleCmd(), validateAssemblyCmd(), prepareDistCmd(), assembleDistCmd(), gatherExportsCmd(), downloadArtifactsCmd(), checksumsCmd(),
-				notesCmd(), sbomZipCmd(), filesGroup(), attachmentsGroup(), signPublishContextCmd(), publishCmd(), publishSelfRuntimeCLICmd(),
+				notesCmd(), sbomBundleCmd(), filesGroup(), attachmentsGroup(), signPublishContextCmd(), publishCmd(), publishSelfRuntimeCLICmd(),
 				assetRetentionCmd()),
 			cmdmeta.WithCategory("Sign", gpgGroup(), sshGroup(), signCmd(), provenanceCmd()),
 			cmdmeta.WithCategory("Verify (trust boundary)",

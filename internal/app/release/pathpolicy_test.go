@@ -183,7 +183,7 @@ func TestChecksums_RejectsLinkedInputsInEveryDiscoveryBranch(t *testing.T) {
 	}
 }
 
-func TestCreateSBOMZip_RejectsLinkedInputsBeforeArchiveCreation(t *testing.T) {
+func TestCreateSBOMBundle_RejectsLinkedInputsBeforeArchiveCreation(t *testing.T) {
 	for _, branch := range []string{"workdir", "container"} {
 		for _, parent := range []bool{false, true} {
 			t.Run(branch+map[bool]string{false: "/leaf", true: "/parent"}[parent], func(t *testing.T) {
@@ -196,19 +196,19 @@ func TestCreateSBOMZip_RejectsLinkedInputsBeforeArchiveCreation(t *testing.T) {
 
 				bad := linkedReleaseInput(t, name, parent)
 
-				in := apprelease.SBOMZipInput{ProjectName: "app", Version: "1.0.0", WorkingDir: "absent-work", SBOMDir: "absent-sboms"}
+				in := apprelease.SBOMBundleInput{ProjectName: "app", Version: "1.0.0", WorkingDir: "absent-work", SBOMDir: "absent-sboms"}
 				if branch == "workdir" {
 					in.WorkingDir = filepath.Dir(bad)
 				} else {
 					in.SBOMDir = filepath.Dir(bad)
 				}
 
-				_, err := apprelease.CreateSBOMZip(context.Background(), nil, in, io.Discard)
+				_, err := apprelease.CreateSBOMBundle(context.Background(), nil, in, io.Discard)
 				if !errors.Is(err, errs.ErrValidation) {
 					t.Errorf("err=%v, want ErrValidation", err)
 				}
 
-				if _, statErr := os.Stat("app-1.0.0-sboms.zip"); !errors.Is(statErr, os.ErrNotExist) {
+				if _, statErr := os.Stat("app-1.0.0-sboms.tar.gz"); !errors.Is(statErr, os.ErrNotExist) {
 					t.Error("archive created before refusal")
 				}
 			})
@@ -217,7 +217,7 @@ func TestCreateSBOMZip_RejectsLinkedInputsBeforeArchiveCreation(t *testing.T) {
 }
 
 func TestAssembly_RejectsUnsafeFieldsBeforeProvider(t *testing.T) {
-	for _, field := range []string{"asset", "sbom", "checksums", "zip"} {
+	for _, field := range []string{"asset", "sbom", "checksums", "bundle"} {
 		for _, shape := range []string{"absolute", "parent traversal", "leaf link", "parent link"} {
 			t.Run(field+"/"+shape, func(t *testing.T) {
 				root := t.TempDir()
@@ -225,7 +225,7 @@ func TestAssembly_RejectsUnsafeFieldsBeforeProvider(t *testing.T) {
 				mustWrite(t, "safe/app.jar", "artifact")
 				mustWrite(t, "safe/sbom.json", "{}")
 				mustWrite(t, "safe/checksums", "checksums")
-				mustWrite(t, "safe/sboms.zip", "zip fixture")
+				mustWrite(t, "safe/sboms.tar.gz", "bundle fixture")
 
 				var bad string
 
@@ -246,7 +246,7 @@ func TestAssembly_RejectsUnsafeFieldsBeforeProvider(t *testing.T) {
 					}
 				}
 
-				asm := domainrelease.Assembly{Version: domainrelease.AssemblyVersion, Assets: []domainrelease.AssemblyFile{{Path: "safe/app.jar", Name: "app.jar"}}, SBOMs: []domainrelease.AssemblyFile{{Path: "safe/sbom.json", Name: "sbom.json"}}, ChecksumFile: "safe/checksums", SBOMZipFile: "safe/sboms.zip"}
+				asm := domainrelease.Assembly{Version: domainrelease.AssemblyVersion, Assets: []domainrelease.AssemblyFile{{Path: "safe/app.jar", Name: "app.jar"}}, SBOMs: []domainrelease.AssemblyFile{{Path: "safe/sbom.json", Name: "sbom.json"}}, ChecksumFile: "safe/checksums", SBOMBundleFile: "safe/sboms.tar.gz"}
 
 				switch field {
 				case "asset":
@@ -255,8 +255,8 @@ func TestAssembly_RejectsUnsafeFieldsBeforeProvider(t *testing.T) {
 					asm.SBOMs[0].Path = bad
 				case "checksums":
 					asm.ChecksumFile = bad
-				case "zip":
-					asm.SBOMZipFile = bad
+				case "bundle":
+					asm.SBOMBundleFile = bad
 				}
 
 				writeAssembly(t, "assembly.json", asm)
@@ -276,14 +276,14 @@ func TestAssembly_RejectsUnsafeFieldsBeforeProvider(t *testing.T) {
 }
 
 func TestAssembly_AllConsumersValidateBeforeActions(t *testing.T) {
-	for _, action := range []string{"sign", "checksum", "zip"} {
+	for _, action := range []string{"sign", "checksum", "bundle"} {
 		t.Run(action, func(t *testing.T) {
 			t.Chdir(t.TempDir())
 			bad := linkedReleaseInput(t, "app.jar", true)
 			mustWrite(t, "safe/sbom.json", "{}")
 			mustWrite(t, "safe/checksums", "old checksums")
-			mustWrite(t, "safe/sboms.zip", "old zip")
-			writeAssembly(t, "assembly.json", domainrelease.Assembly{Version: domainrelease.AssemblyVersion, Assets: []domainrelease.AssemblyFile{{Path: bad, Name: "app.jar"}}, SBOMs: []domainrelease.AssemblyFile{{Path: "safe/sbom.json", Name: "sbom.json"}}, ChecksumFile: "safe/checksums", SBOMZipFile: "safe/sboms.zip"})
+			mustWrite(t, "safe/sboms.tar.gz", "old bundle")
+			writeAssembly(t, "assembly.json", domainrelease.Assembly{Version: domainrelease.AssemblyVersion, Assets: []domainrelease.AssemblyFile{{Path: bad, Name: "app.jar"}}, SBOMs: []domainrelease.AssemblyFile{{Path: "safe/sbom.json", Name: "sbom.json"}}, ChecksumFile: "safe/checksums", SBOMBundleFile: "safe/sboms.tar.gz"})
 
 			signer := &fakeSigner{}
 
@@ -294,8 +294,8 @@ func TestAssembly_AllConsumersValidateBeforeActions(t *testing.T) {
 				err = apprelease.SignArtifacts(t.Context(), signer, io.Discard, apprelease.SignInput{AssemblyFile: "assembly.json"})
 			case "checksum":
 				_, err = apprelease.Checksums(io.Discard, apprelease.ChecksumsInput{AssemblyFile: "assembly.json"})
-			case "zip":
-				_, err = apprelease.CreateSBOMZip(t.Context(), nil, apprelease.SBOMZipInput{AssemblyFile: "assembly.json"}, io.Discard)
+			case "bundle":
+				_, err = apprelease.CreateSBOMBundle(t.Context(), nil, apprelease.SBOMBundleInput{AssemblyFile: "assembly.json"}, io.Discard)
 			}
 
 			if !errors.Is(err, errs.ErrValidation) {
@@ -306,7 +306,7 @@ func TestAssembly_AllConsumersValidateBeforeActions(t *testing.T) {
 				t.Error("signer ran before refusal")
 			}
 
-			if readFile(t, "safe/checksums") != "old checksums" || readFile(t, "safe/sboms.zip") != "old zip" {
+			if readFile(t, "safe/checksums") != "old checksums" || readFile(t, "safe/sboms.tar.gz") != "old bundle" {
 				t.Error("output changed before refusal")
 			}
 		})

@@ -16,14 +16,14 @@ const DefaultReleaseFilesDir = "release-files"
 
 // Assembly records the canonical file set for a release. Orchestrated
 // flows produce this once after all CI artifacts and generated SBOMs are on
-// disk; checksum, signing, SBOM ZIP, and release creation then consume the same
+// disk; checksum, signing, SBOM bundle, and release creation then consume the same
 // manifest instead of rediscovering divergent file sets.
 type Assembly struct {
-	Version      int            `json:"version"`
-	Assets       []AssemblyFile `json:"assets"`
-	SBOMs        []AssemblyFile `json:"sboms,omitempty"`
-	ChecksumFile string         `json:"checksum_file"`
-	SBOMZipFile  string         `json:"sbom_zip_file,omitempty"`
+	Version        int            `json:"version"`
+	Assets         []AssemblyFile `json:"assets"`
+	SBOMs          []AssemblyFile `json:"sboms,omitempty"`
+	ChecksumFile   string         `json:"checksum_file"`
+	SBOMBundleFile string         `json:"sbom_bundle_file,omitempty"`
 }
 
 // AssemblyFile is one staged file in a release assembly.

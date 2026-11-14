@@ -461,7 +461,7 @@ func TestGenerateProvenance_CompleteStatementForEachProfile(t *testing.T) {
 		"_type": "https://in-toto.io/Statement/v1",
 		"subject": [
 			{"name": "dist/app.tar.gz", "digest": {"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
-			{"name": "dist/app-sboms.zip", "digest": {"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+			{"name": "dist/app-sboms.tar.gz", "digest": {"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
 		],
 		"predicateType": "https://slsa.dev/provenance/v1",
 		"predicate": {
@@ -488,7 +488,7 @@ func TestGenerateProvenance_CompleteStatementForEachProfile(t *testing.T) {
 		"_type": "https://in-toto.io/Statement/v1",
 		"subject": [
 			{"name": "dist/app.tar.gz", "digest": {"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
-			{"name": "dist/app-sboms.zip", "digest": {"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+			{"name": "dist/app-sboms.tar.gz", "digest": {"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
 		],
 		"predicateType": "https://slsa.dev/provenance/v1",
 		"predicate": {
@@ -535,7 +535,7 @@ func TestGenerateProvenance_CompleteStatementForEachProfile(t *testing.T) {
 			body, err := apprelease.GenerateProvenance(apprelease.ProvenanceInput{
 				Checksums: strings.NewReader(
 					"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  dist/app.tar.gz\n" +
-						"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  dist/app-sboms.zip\n"),
+						"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  dist/app-sboms.tar.gz\n"),
 				GoSum:         strings.NewReader("github.com/foo/bar v1.0.0 h1:xyz=\n"),
 				RepositoryURL: "https://forge.example/examplescope/repo",
 				Ref:           "v2.0.0",

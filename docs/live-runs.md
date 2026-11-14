@@ -2578,7 +2578,7 @@ runs when the lab's opt-in `sigstore` profile is up and its contract names
 that Fulcio, and reports itself not covered otherwise.
 
 - `release.sboms: none` (`github-no-sboms`): the release must offer no
-  `*-sboms.zip`. Every other release whose policy and artifacts share a Build
+  `*-sboms.tar.gz`. Every other release whose policy and artifacts share a Build
   or analyzed-artifact layer must offer exactly one.
 - An empty `changelog-creator` (`github-no-changelog`), or
   `changelog.skipversionbump: true`: the release prepares no commit, so `main`

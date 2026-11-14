@@ -38,7 +38,7 @@ func New() *cli.Command {
    index      COMPOSE an offline index BOM linking unchanged platform SBOMs by
               checksum; the caller publishes those documents as release evidence.
 
-Related, outside this group: ` + "`release sbom-zip`" + ` bundles assembled layers into a release zip.`,
+Related, outside this group: ` + "`release sbom-bundle`" + ` bundles assembled layers into a release tar.gz.`,
 		Commands: []*cli.Command{
 			assembleCmd(),
 			buildCmd(),

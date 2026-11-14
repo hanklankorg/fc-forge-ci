@@ -69,7 +69,7 @@
     "sign": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Signing backend for `release sign` and `release sbom-zip --sign`. See https://github.com/diggsweden/forge-ci/blob/main/docs/verification.md#signing-methods-for-release-artifacts.",
+      "description": "Signing backend for `release sign` and `release sbom-bundle --sign`. See https://github.com/diggsweden/forge-ci/blob/main/docs/verification.md#signing-methods-for-release-artifacts.",
       "properties": {
         "method": {
           "type": "string",

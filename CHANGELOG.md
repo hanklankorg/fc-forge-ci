@@ -579,6 +579,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   verdict is printed first and the SARIF is kept. For `megalinter` this
   includes a failed checkout or download of the engine, so its image needs
   Git, curl and `sha256sum`, or `enable-gitlab-sast: false`.
+- **BREAKING**: The SBOM bundle of a GitHub release is
+  `<project>-<version>-sboms.tar.gz`, a reproducible gzip-compressed tar,
+  instead of `<project>-<version>-sboms.zip`. The content and its place in
+  the release are the same: it is listed in `checksums.sha256`, signed and
+  uploaded as before. `release sbom-zip` is now `release sbom-bundle`,
+  `sbom assemble --create-zip` is now `--create-bundle`, and the release
+  assembly field `sbom_zip_file` is now `sbom_bundle_file`. No zip is
+  produced and there is no compatibility switch; unpack the bundle with
+  `tar -xzf`.
 
 ### Removed
 
@@ -646,7 +655,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `release-images.yml`, `runtime-images.yml`, `base-images.yml` and
   `snapshot-images.yml`, and `test/forgejoguard` refuses a job that does
   not.
-- The swap policy of `release sign` and `release sbom-zip --sign` no
+- The swap policy of `release sign` and `release sbom-bundle --sign` no
   longer refuses a job whose container runs with swap disabled.
   `/proc/swaps` is host-wide, so a job container saw the host's swap and
   the GPG step stopped although its memory could not be swapped out. When
@@ -664,7 +673,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   moment fails the confirmation with `HTTP 500: dependency unavailable`,
   although nothing of the artifact was changed. A transport failure, whose
   outcome is unknown, and every other status still end the upload at once.
-- `release sign --method gpg` and `release sbom-zip --sign --method gpg`
+- `release sign --method gpg` and `release sbom-bundle --sign --method gpg`
   apply the swap policy before they read the private key, so the key is
   never decrypted on a runner with swap on. Before, the key was loaded
   and then refused.
@@ -911,6 +920,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when optional ancestor gates are skipped; retain failure/cancellation refusal.
 - Explicitly sign GitHub CLI checksum manifests after unsigned packaging and
   before artifact/release uploads, preserving stable-release rebuild verification.
+- Release asset retention keeps an old GitHub release's `checksums.sha256`
+  and its SBOM bundle. The default `--keep-files` pattern matched
+  `checksums.txt` and `sha256sums` but neither of these, so retention would
+  have deleted the checksum manifest and the SBOM bundle and kept only
+  their signatures. It now keeps `checksums.sha256` and `*-sboms.tar.gz`,
+  and the `*-sboms.zip` of a release made before the bundle became a
+  tar.gz.
 
 ## [0.93.1] - 2026-11-06
 

@@ -4,13 +4,15 @@
 package release_test
 
 import (
-	"archive/zip"
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -131,8 +133,8 @@ func TestAssemble_StagesEveryProducerLayoutIntoOneManifest(t *testing.T) {
 				SourceArtifact: "", Required: false,
 			},
 		},
-		ChecksumFile: "release-files/checksums.sha256",
-		SBOMZipFile:  "release-files/assets/my-app-1.2.3-sboms.zip",
+		ChecksumFile:   "release-files/checksums.sha256",
+		SBOMBundleFile: "release-files/assets/my-app-1.2.3-sboms.tar.gz",
 	}
 
 	for path, wantBody := range map[string]string{
@@ -215,7 +217,7 @@ func TestAssemble_RejectsUnsafeAttachmentPattern(t *testing.T) {
 }
 
 // TestAssembly_EveryStageTakesItsFilesFromTheManifest runs the four consumers
-// of an assembly manifest in the order a release runs them: zip the SBOMs,
+// of an assembly manifest in the order a release runs them: bundle the SBOMs,
 // checksum what ships, sign it, publish it. The claim they share is that none
 // of them discovers files for itself — each file set comes from the manifest.
 //
@@ -238,12 +240,12 @@ func TestAssembly_EveryStageTakesItsFilesFromTheManifest(t *testing.T) {
 		SBOMs: []domainrelease.AssemblyFile{
 			{Path: "release-files/sboms/api-sbom.spdx.json", Name: "api-sbom.spdx.json", Required: true},
 		},
-		ChecksumFile: assemblyChecksumPath,
-		SBOMZipFile:  assemblySBOMZipPath,
+		ChecksumFile:   assemblyChecksumPath,
+		SBOMBundleFile: assemblySBOMBundlePath,
 	})
 
-	t.Run("zips the SBOMs the manifest lists, under the name it chose", func(t *testing.T) {
-		zipRes, err := apprelease.CreateSBOMZip(context.Background(), nil, apprelease.SBOMZipInput{
+	t.Run("bundles the SBOMs the manifest lists, under the name it chose", func(t *testing.T) {
+		bundleRes, err := apprelease.CreateSBOMBundle(context.Background(), nil, apprelease.SBOMBundleInput{
 			ProjectName:  "my-app",
 			Version:      "v1.2.3",
 			AssemblyFile: domainrelease.DefaultAssemblyFile,
@@ -252,11 +254,11 @@ func TestAssembly_EveryStageTakesItsFilesFromTheManifest(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if zipRes.ZipName != assemblySBOMZipPath || zipRes.EntryCount != 1 {
-			t.Errorf("SBOM zip result = %+v", zipRes)
+		if bundleRes.BundleName != assemblySBOMBundlePath || bundleRes.EntryCount != 1 {
+			t.Errorf("SBOM bundle result = %+v", bundleRes)
 		}
 
-		assertZipEntries(t, assemblySBOMZipPath, []string{"api-sbom.spdx.json"})
+		assertBundleEntries(t, assemblySBOMBundlePath, []string{"api-sbom.spdx.json"})
 	})
 
 	t.Run("checksums what ships, naming each subject as it is published", func(t *testing.T) {
@@ -271,8 +273,8 @@ func TestAssembly_EveryStageTakesItsFilesFromTheManifest(t *testing.T) {
 
 		// The written file is what a consumer runs sha256sum --check
 		// against, so the subjects it names are the contract. A count
-		// alone cannot tell the SBOM zip from the SBOM it was made from.
-		want := []string{"app.jar", "my-app-1.2.3-sboms.zip"}
+		// alone cannot tell the SBOM bundle from the SBOM it was made from.
+		want := []string{"app.jar", "my-app-1.2.3-sboms.tar.gz"}
 
 		entries := checksumEntries(t, assemblyChecksumPath)
 		if got := checksumSubjects(t, assemblyChecksumPath); !slices.Equal(got, want) {
@@ -289,7 +291,7 @@ func TestAssembly_EveryStageTakesItsFilesFromTheManifest(t *testing.T) {
 		}
 	})
 
-	t.Run("signs the assets, the SBOM zip and the checksum file", func(t *testing.T) {
+	t.Run("signs the assets, the SBOM bundle and the checksum file", func(t *testing.T) {
 		signer := &fakeSigner{}
 		if err := apprelease.SignArtifacts(context.Background(), signer, &bytes.Buffer{}, apprelease.SignInput{AssemblyFile: domainrelease.DefaultAssemblyFile}); err != nil {
 			t.Fatal(err)
@@ -297,7 +299,7 @@ func TestAssembly_EveryStageTakesItsFilesFromTheManifest(t *testing.T) {
 
 		wantSigned := []string{
 			"release-files/assets/app.jar",
-			assemblySBOMZipPath,
+			assemblySBOMBundlePath,
 			assemblyChecksumPath,
 		}
 		if !slices.Equal(signer.signed, wantSigned) {
@@ -318,8 +320,8 @@ func TestAssembly_EveryStageTakesItsFilesFromTheManifest(t *testing.T) {
 		wantAssets := []string{
 			"release-files/assets/app.jar",
 			"release-files/assets/app.jar.asc",
-			assemblySBOMZipPath,
-			assemblySBOMZipPath + ".asc",
+			assemblySBOMBundlePath,
+			assemblySBOMBundlePath + ".asc",
 			assemblyChecksumPath,
 			assemblyChecksumPath + ".asc",
 		}
@@ -329,7 +331,7 @@ func TestAssembly_EveryStageTakesItsFilesFromTheManifest(t *testing.T) {
 	})
 }
 
-func TestChecksums_AssemblyRequiresSBOMZipWhenSBOMInputsExist(t *testing.T) {
+func TestChecksums_AssemblyRequiresSBOMBundleWhenSBOMInputsExist(t *testing.T) {
 	fsys := testfs.NewReal(t)
 	fsys.Chdir()
 
@@ -344,12 +346,12 @@ func TestChecksums_AssemblyRequiresSBOMZipWhenSBOMInputsExist(t *testing.T) {
 		SBOMs: []domainrelease.AssemblyFile{
 			{Path: "release-files/sboms/api-sbom.spdx.json", Name: "api-sbom.spdx.json", Required: true},
 		},
-		ChecksumFile: "release-files/checksums.sha256",
-		SBOMZipFile:  "release-files/assets/my-app-1.2.3-sboms.zip",
+		ChecksumFile:   "release-files/checksums.sha256",
+		SBOMBundleFile: "release-files/assets/my-app-1.2.3-sboms.tar.gz",
 	})
 
 	_, err := apprelease.Checksums(&bytes.Buffer{}, apprelease.ChecksumsInput{AssemblyFile: domainrelease.DefaultAssemblyFile})
-	if !errors.Is(err, errs.ErrMissingInput) || !strings.Contains(err.Error(), "run release sbom-zip --assembly first") {
+	if !errors.Is(err, errs.ErrMissingInput) || !strings.Contains(err.Error(), "run release sbom-bundle --assembly first") {
 		t.Fatalf("err = %v, want ErrMissingInput telling the operator which step to run", err)
 	}
 }
@@ -379,8 +381,8 @@ func releaseAssemblyTransferJSON(t *testing.T) string {
 // stage after Assemble takes them from the manifest rather than deriving them,
 // so the test states each path once and asserts against that.
 const (
-	assemblyChecksumPath = "release-files/checksums.sha256"
-	assemblySBOMZipPath  = "release-files/assets/my-app-1.2.3-sboms.zip"
+	assemblyChecksumPath   = "release-files/checksums.sha256"
+	assemblySBOMBundlePath = "release-files/assets/my-app-1.2.3-sboms.tar.gz"
 )
 
 // checksumEntry is one line of a sha256sum manifest.
@@ -447,23 +449,64 @@ func mustReleaseJSON(t *testing.T, value any) string {
 	return string(body)
 }
 
-// assertZipEntries requires the archive to hold exactly these entries. Both
-// sides are sorted first: nothing reads these archives in order, so entry order
-// is discovery order rather than a contract, and pinning it would fail on a
-// harmless change to how SBOMs are found.
-func assertZipEntries(t *testing.T, zipName string, want []string) {
+// bundleEntry is one member of an SBOM bundle as a consumer reads it.
+type bundleEntry struct {
+	header *tar.Header
+	body   string
+}
+
+// readBundle reads every member of the gzip-compressed tar at bundleName, in
+// archive order.
+func readBundle(t *testing.T, bundleName string) []bundleEntry {
 	t.Helper()
 
-	reader, err := zip.OpenReader(zipName)
+	file, err := os.Open(bundleName)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	defer func() { _ = reader.Close() }()
+	defer func() { _ = file.Close() }()
 
-	got := make([]string, 0, len(reader.File))
-	for _, file := range reader.File {
-		got = append(got, file.Name)
+	gz, err := gzip.NewReader(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var entries []bundleEntry
+
+	for reader := tar.NewReader(gz); ; {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		body, err := io.ReadAll(reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		entries = append(entries, bundleEntry{header: header, body: string(body)})
+	}
+
+	return entries
+}
+
+// assertBundleEntries requires the archive to hold exactly these entries. Both
+// sides are sorted first: nothing reads these archives in order, so entry order
+// is discovery order rather than a contract, and pinning it would fail on a
+// harmless change to how SBOMs are found.
+func assertBundleEntries(t *testing.T, bundleName string, want []string) {
+	t.Helper()
+
+	entries := readBundle(t, bundleName)
+
+	got := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		got = append(got, entry.header.Name)
 	}
 
 	slices.Sort(got)
@@ -472,6 +515,6 @@ func assertZipEntries(t *testing.T, zipName string, want []string) {
 	slices.Sort(wantSorted)
 
 	if !slices.Equal(got, wantSorted) {
-		t.Errorf("zip entries = %v, want %v", got, wantSorted)
+		t.Errorf("bundle entries = %v, want %v", got, wantSorted)
 	}
 }

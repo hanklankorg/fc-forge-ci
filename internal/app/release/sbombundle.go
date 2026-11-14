@@ -4,7 +4,6 @@
 package release
 
 import (
-	"archive/zip"
 	"context"
 	"errors"
 	"fmt"
@@ -14,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/diggsweden/forge-ci/internal/archive"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 	"github.com/diggsweden/forge-ci/internal/domain/sbom"
@@ -21,37 +21,37 @@ import (
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
 )
 
-// SBOMZipInput drives `forge-ci release sbom-zip`.
-type SBOMZipInput struct {
+// SBOMBundleInput drives `forge-ci release sbom-bundle`.
+type SBOMBundleInput struct {
 	ProjectName   string
 	Version       string
 	WorkingDir    string // default: cwd; root for *-sbom.{spdx,cyclonedx}.json globs
 	SBOMDir       string // default: ./sbom-artifacts; analyzed-container SBOMs are flattened (no path)
-	SignArtifacts bool   // when true (and signer != nil) emit <zip>.asc
+	SignArtifacts bool   // when true (and signer != nil) emit <bundle>.asc
 	AssemblyFile  string // when set, bundle exactly the staged SBOM inputs
 }
 
-// SBOMZipResult reports what CreateSBOMZip wrote.
-type SBOMZipResult struct {
-	ZipName    string // empty when no SBOMs were found
+// SBOMBundleResult reports what CreateSBOMBundle wrote.
+type SBOMBundleResult struct {
+	BundleName string // empty when no SBOMs were found
 	EntryCount int
 	Signed     bool
 }
 
-// CreateSBOMZip bundles every *-sbom.{spdx,cyclonedx}.json in the working
+// CreateSBOMBundle bundles every *-sbom.{spdx,cyclonedx}.json in the working
 // directory plus every analyzed-container SBOM under SBOMDir into a single
-// zip. Returns ZipName="" when nothing was found. signer is consulted only when in.SignArtifacts is
-// set and signer is non-nil.
-func CreateSBOMZip(ctx context.Context, signer Signer, in SBOMZipInput, out io.Writer) (*SBOMZipResult, error) {
-	if err := checkSBOMZipSigner(signer, in.SignArtifacts); err != nil {
+// gzip-compressed tar. Returns BundleName="" when nothing was found. signer is
+// consulted only when in.SignArtifacts is set and signer is non-nil.
+func CreateSBOMBundle(ctx context.Context, signer Signer, in SBOMBundleInput, out io.Writer) (*SBOMBundleResult, error) {
+	if err := checkSBOMBundleSigner(signer, in.SignArtifacts); err != nil {
 		return nil, err
 	}
 
 	if in.AssemblyFile != "" {
-		return createSBOMZipFromAssembly(ctx, signer, in, out)
+		return createSBOMBundleFromAssembly(ctx, signer, in, out)
 	}
 
-	in, ver := withSBOMZipDefaults(in)
+	in, ver := withSBOMBundleDefaults(in)
 
 	wdMatches, containerMatches, err := discoverSBOMs(in.WorkingDir, in.SBOMDir, in.ProjectName)
 	if err != nil {
@@ -59,88 +59,88 @@ func CreateSBOMZip(ctx context.Context, signer Signer, in SBOMZipInput, out io.W
 	}
 
 	if len(wdMatches)+len(containerMatches) == 0 {
-		_, _ = fmt.Fprintln(out, "No SBOMs found, skipping ZIP creation")
+		_, _ = fmt.Fprintln(out, "No SBOMs found, skipping bundle creation")
 
-		return &SBOMZipResult{}, nil
+		return &SBOMBundleResult{}, nil
 	}
 
-	zipName := sbom.ZipName(in.ProjectName, ver)
+	bundleName := sbom.BundleName(in.ProjectName, ver)
 
-	_, _ = fmt.Fprintln(out, "Creating SBOM zip archive with all 3 layers")
+	_, _ = fmt.Fprintln(out, "Creating SBOM bundle with all 3 layers")
 
-	count, err := writeSBOMZip(zipName, in.WorkingDir, wdMatches, containerMatches, out)
+	count, err := writeSBOMBundle(bundleName, in.WorkingDir, wdMatches, containerMatches, out)
 	if err != nil {
 		return nil, err
 	}
 
-	res := &SBOMZipResult{ZipName: zipName, EntryCount: count}
+	res := &SBOMBundleResult{BundleName: bundleName, EntryCount: count}
 
 	if in.SignArtifacts {
-		if err := signSBOMZip(ctx, signer, zipName, out); err != nil {
+		if err := signSBOMBundle(ctx, signer, bundleName, out); err != nil {
 			return res, err
 		}
 
 		res.Signed = true
 	}
 
-	_, _ = fmt.Fprintf(out, "Created SBOM ZIP: %s\n", zipName)
+	_, _ = fmt.Fprintf(out, "Created SBOM bundle: %s\n", bundleName)
 
 	return res, nil
 }
 
-func createSBOMZipFromAssembly(ctx context.Context, signer Signer, in SBOMZipInput, out io.Writer) (*SBOMZipResult, error) {
+func createSBOMBundleFromAssembly(ctx context.Context, signer Signer, in SBOMBundleInput, out io.Writer) (*SBOMBundleResult, error) {
 	asm, err := readAssembly(in.AssemblyFile)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(asm.SBOMs) == 0 {
-		_, _ = fmt.Fprintln(out, "No SBOMs found in release assembly, skipping ZIP creation")
+		_, _ = fmt.Fprintln(out, "No SBOMs found in release assembly, skipping bundle creation")
 
-		return &SBOMZipResult{}, nil
+		return &SBOMBundleResult{}, nil
 	}
 
-	zipName := asm.SBOMZipFile
-	if zipName == "" {
+	bundleName := asm.SBOMBundleFile
+	if bundleName == "" {
 		ver := in.Version
 		if ver == "" {
 			ver = "unknown"
 		}
 
-		zipName = sbom.ZipName(in.ProjectName, version.StripVPrefix(ver))
+		bundleName = sbom.BundleName(in.ProjectName, version.StripVPrefix(ver))
 	}
 
-	if mkdirErr := os.MkdirAll(filepath.Dir(zipName), 0o755); mkdirErr != nil { //nolint:gosec // public release staging dir.
-		return nil, fmt.Errorf("create SBOM ZIP dir for %q: %w", zipName, mkdirErr)
+	if mkdirErr := os.MkdirAll(filepath.Dir(bundleName), 0o755); mkdirErr != nil { //nolint:gosec // public release staging dir.
+		return nil, fmt.Errorf("create SBOM bundle dir for %q: %w", bundleName, mkdirErr)
 	}
 
-	_, _ = fmt.Fprintln(out, "Creating SBOM zip archive from release assembly")
+	_, _ = fmt.Fprintln(out, "Creating SBOM bundle from release assembly")
 
-	count, err := writeAssemblySBOMZip(zipName, asm.SBOMs, out)
+	count, err := writeAssemblySBOMBundle(bundleName, asm.SBOMs, out)
 	if err != nil {
 		return nil, err
 	}
 
-	res := &SBOMZipResult{ZipName: zipName, EntryCount: count}
+	res := &SBOMBundleResult{BundleName: bundleName, EntryCount: count}
 	if in.SignArtifacts {
-		if err := signSBOMZip(ctx, signer, zipName, out); err != nil {
+		if err := signSBOMBundle(ctx, signer, bundleName, out); err != nil {
 			return res, err
 		}
 
 		res.Signed = true
 	}
 
-	_, _ = fmt.Fprintf(out, "Created SBOM ZIP: %s\n", zipName)
+	_, _ = fmt.Fprintf(out, "Created SBOM bundle: %s\n", bundleName)
 
 	return res, nil
 }
 
 // discoverSBOMs lists SBOMs in the working dir (keeps relative path) and
-// in the container SBOM dir (flattened later when written into the zip).
+// in the container SBOM dir (flattened later when written into the bundle).
 // First return is working-dir matches; second is container matches.
 //
 // When projectName is set, only SBOMs named "<projectName>-*" are taken.
-// The zip is published and signed under the project's name, so an
+// The bundle is published and signed under the project's name, so an
 // unscoped glob would sweep any *-sbom.*.json another tool left in the
 // working directory into the release. Matching on the basename prefix
 // rather than splicing projectName into the glob keeps a name carrying
@@ -177,10 +177,10 @@ func scopeToProject(matches []string, projectName string) []string {
 	return kept
 }
 
-// writeSBOMZip writes wdMatches (path relative to workingDir) and
-// containerMatches (basename only) into zipName.
-func writeSBOMZip(zipName, workingDir string, wdMatches, containerMatches []string, out io.Writer) (int, error) {
-	return writeZipAtomic(zipName, func(zipWriter *zip.Writer) (int, error) {
+// writeSBOMBundle writes wdMatches (path relative to workingDir) and
+// containerMatches (basename only) into bundleName.
+func writeSBOMBundle(bundleName, workingDir string, wdMatches, containerMatches []string, out io.Writer) (int, error) {
+	return writeBundleAtomic(bundleName, func(bundle *archive.TarGzipWriter) (int, error) {
 		count := 0
 
 		for _, m := range wdMatches {
@@ -189,7 +189,7 @@ func writeSBOMZip(zipName, workingDir string, wdMatches, containerMatches []stri
 				rel = filepath.Base(m)
 			}
 
-			if err := addToZip(zipWriter, m, rel); err != nil {
+			if err := addToBundle(bundle, m, rel); err != nil {
 				return 0, err
 			}
 
@@ -200,7 +200,7 @@ func writeSBOMZip(zipName, workingDir string, wdMatches, containerMatches []stri
 
 		for _, m := range containerMatches {
 			base := filepath.Base(m)
-			if err := addToZip(zipWriter, m, base); err != nil {
+			if err := addToBundle(bundle, m, base); err != nil {
 				return 0, err
 			}
 
@@ -213,8 +213,8 @@ func writeSBOMZip(zipName, workingDir string, wdMatches, containerMatches []stri
 	})
 }
 
-func writeAssemblySBOMZip(zipName string, entries []domainrelease.AssemblyFile, out io.Writer) (int, error) {
-	return writeZipAtomic(zipName, func(zipWriter *zip.Writer) (int, error) {
+func writeAssemblySBOMBundle(bundleName string, entries []domainrelease.AssemblyFile, out io.Writer) (int, error) {
+	return writeBundleAtomic(bundleName, func(bundle *archive.TarGzipWriter) (int, error) {
 		count := 0
 
 		for _, entry := range entries {
@@ -227,7 +227,7 @@ func writeAssemblySBOMZip(zipName string, entries []domainrelease.AssemblyFile, 
 				name = filepath.Base(entry.Path)
 			}
 
-			if err := addToZip(zipWriter, entry.Path, name); err != nil {
+			if err := addToBundle(bundle, entry.Path, name); err != nil {
 				return 0, err
 			}
 
@@ -240,13 +240,14 @@ func writeAssemblySBOMZip(zipName string, entries []domainrelease.AssemblyFile, 
 	})
 }
 
-// writeZipAtomic builds the ZIP in a temporary file next to zipName and renames
-// it into place only after fill and both closes succeed, so a failed run never
-// leaves a partial ZIP behind for a later upload glob to publish.
-func writeZipAtomic(zipName string, fill func(*zip.Writer) (int, error)) (int, error) {
-	tmp, err := os.CreateTemp(filepath.Dir(zipName), "."+filepath.Base(zipName)+".*.tmp")
+// writeBundleAtomic builds the bundle in a temporary file next to bundleName
+// and renames it into place only after fill and both closes succeed, so a
+// failed run never leaves a partial bundle behind for a later upload glob to
+// publish.
+func writeBundleAtomic(bundleName string, fill func(*archive.TarGzipWriter) (int, error)) (int, error) {
+	tmp, err := os.CreateTemp(filepath.Dir(bundleName), "."+filepath.Base(bundleName)+".*.tmp")
 	if err != nil {
-		return 0, fmt.Errorf("create %q: %w", zipName, err)
+		return 0, fmt.Errorf("create %q: %w", bundleName, err)
 	}
 
 	fail := func(err error) (int, error) {
@@ -256,36 +257,36 @@ func writeZipAtomic(zipName string, fill func(*zip.Writer) (int, error)) (int, e
 		return 0, err
 	}
 
-	zipWriter := zip.NewWriter(tmp)
+	bundle := archive.NewTarGzipWriter(tmp)
 
-	count, err := fill(zipWriter)
+	count, err := fill(bundle)
 	if err != nil {
 		return fail(err)
 	}
 
-	if err := zipWriter.Close(); err != nil {
-		return fail(fmt.Errorf("close zip: %w", err))
+	if err := bundle.Close(); err != nil {
+		return fail(fmt.Errorf("close SBOM bundle: %w", err))
 	}
 
-	// CreateTemp creates 0600; the ZIP is a published release asset.
+	// CreateTemp creates 0600; the bundle is a published release asset.
 	if err := tmp.Chmod(0o644); err != nil {
-		return fail(fmt.Errorf("chmod %q: %w", zipName, err))
+		return fail(fmt.Errorf("chmod %q: %w", bundleName, err))
 	}
 
 	if err := tmp.Close(); err != nil {
-		return fail(fmt.Errorf("close zip file: %w", err))
+		return fail(fmt.Errorf("close SBOM bundle file: %w", err))
 	}
 
-	if err := os.Rename(tmp.Name(), zipName); err != nil {
-		return fail(fmt.Errorf("move ZIP into %q: %w", zipName, err))
+	if err := os.Rename(tmp.Name(), bundleName); err != nil {
+		return fail(fmt.Errorf("move SBOM bundle into %q: %w", bundleName, err))
 	}
 
 	return count, nil
 }
 
-// withSBOMZipDefaults fills the discovery directories and returns the version
-// used in the ZIP name, without a v prefix.
-func withSBOMZipDefaults(in SBOMZipInput) (SBOMZipInput, string) {
+// withSBOMBundleDefaults fills the discovery directories and returns the version
+// used in the bundle name, without a v prefix.
+func withSBOMBundleDefaults(in SBOMBundleInput) (SBOMBundleInput, string) {
 	if in.WorkingDir == "" {
 		in.WorkingDir = "."
 	}
@@ -302,16 +303,16 @@ func withSBOMZipDefaults(in SBOMZipInput) (SBOMZipInput, string) {
 	return in, version.StripVPrefix(ver)
 }
 
-// checkSBOMZipSigner checks a signing request before any SBOM is read or the
-// ZIP written, so a missing or misconfigured signer leaves no unsigned ZIP
-// behind.
-func checkSBOMZipSigner(signer Signer, sign bool) error {
+// checkSBOMBundleSigner checks a signing request before any SBOM is read or the
+// bundle written, so a missing or misconfigured signer leaves no unsigned
+// bundle behind.
+func checkSBOMBundleSigner(signer Signer, sign bool) error {
 	if !sign {
 		return nil
 	}
 
 	if signer == nil {
-		return fmt.Errorf("sbom-zip: signing requested but no signer is configured: %w", errs.ErrUsage)
+		return fmt.Errorf("sbom-bundle: signing requested but no signer is configured: %w", errs.ErrUsage)
 	}
 
 	_, err := signerExtensions(signer)
@@ -319,12 +320,12 @@ func checkSBOMZipSigner(signer Signer, sign bool) error {
 	return err
 }
 
-func signSBOMZip(ctx context.Context, signer Signer, zipName string, out io.Writer) error {
-	if err := signFileWithSidecars(ctx, signer, zipName); err != nil {
-		return fmt.Errorf("sign sbom zip: %w", err)
+func signSBOMBundle(ctx context.Context, signer Signer, bundleName string, out io.Writer) error {
+	if err := signFileWithSidecars(ctx, signer, bundleName); err != nil {
+		return fmt.Errorf("sign sbom bundle: %w", err)
 	}
 
-	_, _ = fmt.Fprintf(out, "Signed SBOM ZIP: %s\n", zipName)
+	_, _ = fmt.Fprintf(out, "Signed SBOM bundle: %s\n", bundleName)
 
 	return nil
 }
@@ -372,7 +373,7 @@ func globAll(dir string, patterns []string) ([]string, error) {
 	return out, nil
 }
 
-func addToZip(zipWriter *zip.Writer, srcPath, archivePath string) error {
+func addToBundle(bundle *archive.TarGzipWriter, srcPath, archivePath string) error {
 	file, err := openReleaseFile(srcPath)
 	if err != nil {
 		return fmt.Errorf("open %q: %w", srcPath, err)
@@ -380,14 +381,5 @@ func addToZip(zipWriter *zip.Writer, srcPath, archivePath string) error {
 
 	defer func() { _ = file.Close() }()
 
-	zw, err := zipWriter.Create(archivePath)
-	if err != nil {
-		return fmt.Errorf("zip create %q: %w", archivePath, err)
-	}
-
-	if _, err := io.Copy(zw, file); err != nil {
-		return fmt.Errorf("zip copy %q: %w", srcPath, err)
-	}
-
-	return nil
+	return bundle.AddFile(archivePath, file)
 }

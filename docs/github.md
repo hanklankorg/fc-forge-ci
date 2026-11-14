@@ -363,7 +363,8 @@ see otherwise.
 Each release adds its archives, binaries and packages, and a forge's storage
 quota fills. With `release-asset-retention: <N>` on `release-orchestrator.yml`
 the release keeps every file of the newest N published releases. After it publishes, each older release
-keeps its checksum manifests, signatures, bundles and SBOMs, and loses the
+keeps its checksum manifests (`checksums.sha256` among them), signatures,
+bundles and SBOMs, the `*-sboms.tar.gz` SBOM bundle included, and loses the
 rest; the releases, their notes and their tags stay. Empty, the default,
 deletes nothing. With reproducible builds a deleted file can be rebuilt from
 its tag and checked against the kept checksums and against its own

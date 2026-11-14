@@ -20,7 +20,7 @@ import (
 )
 
 // sbomBundle is whether a release must offer its SBOM bundle,
-// <project>-<version>-sboms.zip.
+// <project>-<version>-sboms.tar.gz.
 type sbomBundle int
 
 const (
@@ -34,7 +34,7 @@ const (
 	sbomBundleWithheld
 )
 
-const sbomBundleSuffix = "-sboms.zip"
+const sbomBundleSuffix = "-sboms.tar.gz"
 
 // The release orchestrator inputs the profile reads, and their defaults.
 const (

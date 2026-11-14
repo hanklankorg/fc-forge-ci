@@ -46,7 +46,7 @@
 # Generated Files:
 #   - checksums.sha256: SHA-256 checksums for all artifacts
 #   - *.asc or *.bundle: GPG or cosign signature sidecars
-#   - <project>-<version>-sboms.zip: bundled CycloneDX/SPDX SBOMs
+#   - <project>-<version>-sboms.tar.gz: bundled CycloneDX/SPDX SBOMs
 name: Create GitHub Release
 on:
   workflow_call: # yamllint disable-line rule:truthy
@@ -295,13 +295,13 @@ jobs:
           VERSION: ${{ steps.release-metadata.outputs.version }}
           RELEASE_ASSEMBLY: .forge-ci/release-assembly.json
         run: forge-ci release assemble
-      - name: Create SBOM ZIP
+      - name: Create SBOM bundle
         if: *if_has_sboms
         env:
           PROJECT_NAME: ${{ steps.release-metadata.outputs.project-name }}
           VERSION: ${{ steps.release-metadata.outputs.version }}
           RELEASE_ASSEMBLY: .forge-ci/release-assembly.json
-        run: forge-ci release sbom-zip
+        run: forge-ci release sbom-bundle
       - name: Generate checksums
         env:
           RELEASE_ASSEMBLY: .forge-ci/release-assembly.json

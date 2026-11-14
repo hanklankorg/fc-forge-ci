@@ -273,22 +273,26 @@ jq '.metadata.component.name, (.components | length)' bom.json
 Release SBOMs have two delivery paths:
 
 - The build and analyzed SBOMs selected by effective `release.sboms` policy are packaged in a signed
-  `*-sboms.zip` GitHub Release asset. The release checksum manifest covers the
-  ZIP and the other release assets.
+  `*-sboms.tar.gz` GitHub Release asset, a gzip-compressed tar. The release
+  checksum manifest covers the bundle and the other release assets.
 - Each per-architecture container digest receives its analyzed-container
   CycloneDX document as a signed cosign attestation. This path is registry- and
   forge-neutral; it does not depend on GitHub's attestation API.
 
 Verify release files in trust order: authenticate the checksum manifest, check
-downloaded files against it, then authenticate the optional detached SBOM ZIP
-signature:
+downloaded files against it, then authenticate the optional detached SBOM
+bundle signature and unpack the bundle:
 
 ```bash
-gh release download "$TAG" -p 'checksums.sha256*' -p '*-sboms.zip*'
+gh release download "$TAG" -p 'checksums.sha256*' -p '*-sboms.tar.gz*'
 gpg --verify checksums.sha256.asc checksums.sha256
 sha256sum -c checksums.sha256 --ignore-missing
-gpg --verify PROJECT-1.0.0-sboms.zip.asc PROJECT-1.0.0-sboms.zip
+gpg --verify PROJECT-1.0.0-sboms.tar.gz.asc PROJECT-1.0.0-sboms.tar.gz
+tar -xzf PROJECT-1.0.0-sboms.tar.gz
 ```
+
+The bundle is reproducible: the same SBOMs give the same bytes, because its
+entries carry no owner, a fixed mode and a zero modification time.
 
 For a container SBOM, choose the expected signer from trusted release policy
 and follow the [verified-predicate recipe](verification.md#verify--inspect-the-sbom).

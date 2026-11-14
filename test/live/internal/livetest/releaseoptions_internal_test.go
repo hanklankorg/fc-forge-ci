@@ -72,6 +72,13 @@ func TestReleaseRetentionFindings(t *testing.T) {
 	if got := ReleaseRetentionFindings(evidence, kept, before); len(got) != 3 {
 		t.Errorf("a release of evidence alone: %v, want 3 findings", got)
 	}
+
+	// The GitHub SBOM bundle is kept with the other SBOMs: losing it is a
+	// finding.
+	bundled := append(slices.Clone(before), "app-1.0.0-sboms.tar.gz")
+	if got := ReleaseRetentionFindings(bundled, kept, before); len(got) != 1 {
+		t.Errorf("a release that lost its SBOM bundle: %v, want 1 finding", got)
+	}
 }
 
 // A release option is a release trial's, named once; a prerelease version

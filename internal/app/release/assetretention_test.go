@@ -136,6 +136,40 @@ func TestApplyAssetRetention_KeepsPublishedSBOMAndProvenanceNames(t *testing.T) 
 	}
 }
 
+// A GitHub release's checksum manifest and SBOM bundle stay with the
+// signatures made over them; a kept signature of a deleted file verifies
+// nothing. The .zip is the bundle of a release made before it became a tar.gz.
+func TestApplyAssetRetention_KeepsGitHubChecksumManifestAndSBOMBundle(t *testing.T) {
+	t.Parallel()
+
+	old := goRelease("v1.0.0", 1)
+	for _, name := range []string{
+		"checksums.sha256",
+		"checksums.sha256.asc",
+		"app-1.0.0-sboms.tar.gz",
+		"app-1.0.0-sboms.tar.gz.asc",
+		"app-0.9.0-sboms.zip",
+		"app-0.9.0-sboms.zip.asc",
+	} {
+		old.Assets = append(old.Assets, provider.ListedAsset{Name: name, Size: 1e3})
+	}
+
+	// An archive that only resembles the bundle's name is still an archive.
+	old.Assets = append(old.Assets, provider.ListedAsset{Name: "app-sboms.tar.gz.backup", Size: 1e3})
+
+	pruner := &releasePruner{releases: []provider.ListedRelease{old, goRelease("v1.1.0", 2)}}
+
+	result, err := apprelease.ApplyAssetRetention(t.Context(), pruner, &bytes.Buffer{}, retention(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"v1.0.0/app_v1.0.0_linux_amd64.tar.gz", "v1.0.0/app_v1.0.0_amd64.deb", "v1.0.0/app-sboms.tar.gz.backup"}
+	if !slices.Equal(pruner.deleted, want) || result.Files != len(want) {
+		t.Fatalf("deleted %v, result %+v; want %v", pruner.deleted, result, want)
+	}
+}
+
 func TestApplyAssetRetention_KeepsPublicReleaseEvidenceDependencies(t *testing.T) {
 	t.Parallel()
 

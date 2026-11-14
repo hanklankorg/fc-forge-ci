@@ -36,7 +36,7 @@ func IsReleaseArtifact(path string) bool {
 	return false
 }
 
-// SBOMFilePatterns is the list of glob patterns the SBOM zip + checksum
+// SBOMFilePatterns is the list of glob patterns the SBOM bundle + checksum
 // flows look for in the working directory.
 var SBOMFilePatterns = []string{
 	"*-sbom.spdx.json",

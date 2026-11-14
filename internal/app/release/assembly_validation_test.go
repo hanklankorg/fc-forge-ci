@@ -21,13 +21,13 @@ import (
 func TestValidateAssemblyAndSignerAdmission(t *testing.T) {
 	const (
 		asset     = "release-files/assets/app.tgz"
-		zip       = "release-files/assets/app-sboms.zip"
+		bundle    = "release-files/assets/app-sboms.tar.gz"
 		sbom      = "release-files/sboms/app.spdx.json"
 		checksums = "release-files/checksums.sha256"
 	)
 
 	row := func(body, name string) string { return fmt.Sprintf("%x  %s\n", sha256.Sum256([]byte(body)), name) }
-	validRows := row("archive", "app.tgz") + row("sbom archive", "app-sboms.zip")
+	validRows := row("archive", "app.tgz") + row("sbom archive", "app-sboms.tar.gz")
 
 	cases := []struct {
 		name   string
@@ -39,7 +39,7 @@ func TestValidateAssemblyAndSignerAdmission(t *testing.T) {
 			fs.WriteFile(asset, []byte("corrupted"))
 		}, want: "digest mismatch"},
 		{name: "stale checksum", mutate: func(_ *testing.T, fs *testfs.Real, _ *domainrelease.Assembly) {
-			fs.WriteFile(checksums, []byte(row("old archive", "app.tgz")+row("sbom archive", "app-sboms.zip")))
+			fs.WriteFile(checksums, []byte(row("old archive", "app.tgz")+row("sbom archive", "app-sboms.tar.gz")))
 		}, want: "digest mismatch"},
 		{name: "missing checksum row", mutate: func(_ *testing.T, fs *testfs.Real, _ *domainrelease.Assembly) {
 			fs.WriteFile(checksums, []byte(row("archive", "app.tgz")))
@@ -58,11 +58,11 @@ func TestValidateAssemblyAndSignerAdmission(t *testing.T) {
 
 			removeAssemblyInput(t, asset)
 		}, want: "missing"},
-		{name: "missing SBOM ZIP", mutate: func(t *testing.T, _ *testfs.Real, _ *domainrelease.Assembly) {
+		{name: "missing SBOM bundle", mutate: func(t *testing.T, _ *testfs.Real, _ *domainrelease.Assembly) {
 			t.Helper()
 
-			removeAssemblyInput(t, zip)
-		}, want: "SBOM ZIP is missing"},
+			removeAssemblyInput(t, bundle)
+		}, want: "SBOM bundle is missing"},
 		{name: "missing SBOM input", mutate: func(t *testing.T, _ *testfs.Real, _ *domainrelease.Assembly) {
 			t.Helper()
 
@@ -99,7 +99,7 @@ func TestValidateAssemblyAndSignerAdmission(t *testing.T) {
 		{name: "dangling sidecar symlink", mutate: func(t *testing.T, _ *testfs.Real, _ *domainrelease.Assembly) {
 			t.Helper()
 
-			if err := os.Symlink("missing", zip+".bundle"); err != nil {
+			if err := os.Symlink("missing", bundle+".bundle"); err != nil {
 				t.Fatal(err)
 			}
 		}, want: "reserved signer output"},
@@ -119,7 +119,7 @@ func TestValidateAssemblyAndSignerAdmission(t *testing.T) {
 			fs := testfs.NewReal(t)
 			fs.Chdir()
 			fs.WriteFile(asset, []byte("archive"))
-			fs.WriteFile(zip, []byte("sbom archive"))
+			fs.WriteFile(bundle, []byte("sbom archive"))
 			fs.WriteFile(sbom, []byte(`{}`))
 			fs.WriteFile(checksums, []byte(validRows))
 
@@ -127,7 +127,7 @@ func TestValidateAssemblyAndSignerAdmission(t *testing.T) {
 				Version:      domainrelease.AssemblyVersion,
 				Assets:       []domainrelease.AssemblyFile{{Path: asset, Name: filepath.Base(asset), Required: true}},
 				SBOMs:        []domainrelease.AssemblyFile{{Path: sbom, Name: filepath.Base(sbom)}},
-				ChecksumFile: checksums, SBOMZipFile: zip,
+				ChecksumFile: checksums, SBOMBundleFile: bundle,
 			}
 			if tc.mutate != nil {
 				tc.mutate(t, fs, &asm)
@@ -152,7 +152,7 @@ func TestValidateAssemblyAndSignerAdmission(t *testing.T) {
 			}
 
 			if tc.want == "" && len(signer.signed) != 3 {
-				t.Fatalf("valid assembly signed %v, want asset, ZIP and checksums", signer.signed)
+				t.Fatalf("valid assembly signed %v, want asset, bundle and checksums", signer.signed)
 			}
 		})
 	}
@@ -172,7 +172,7 @@ func TestValidateAssemblyEmptyFileRelease(t *testing.T) {
 	fs.WriteFile("release-files/checksums.sha256", nil)
 	writeAssembly(t, domainrelease.DefaultAssemblyFile, domainrelease.Assembly{
 		Version: domainrelease.AssemblyVersion, ChecksumFile: "release-files/checksums.sha256",
-		SBOMZipFile: "release-files/assets/unused-sboms.zip",
+		SBOMBundleFile: "release-files/assets/unused-sboms.tar.gz",
 	})
 
 	if err := apprelease.ValidateAssembly(domainrelease.DefaultAssemblyFile); err != nil {

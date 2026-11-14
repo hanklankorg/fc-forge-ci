@@ -955,7 +955,7 @@ must be trusted for the argument exposure described in [Build Metadata](#build-m
 
 ### In-process OpenPGP signer
 
-`release sign` and `release sbom-zip --sign` use an in-process OpenPGP signer (`internal/adapters/openpgp/signer.go`, backed by `github.com/ProtonMail/go-crypto`). The private key:
+`release sign` and `release sbom-bundle --sign` use an in-process OpenPGP signer (`internal/adapters/openpgp/signer.go`, backed by `github.com/ProtonMail/go-crypto`). The private key:
 
 - Lives only in heap memory for the lifetime of the signing process.
 - Is never written to disk by forge-ci.
@@ -1099,7 +1099,7 @@ What this design does NOT defend against:
 
 ### Swap policy
 
-`release sign` and `release sbom-zip --sign` refuse to run when the process's memory can be swapped out. The check reads `/proc/swaps`; if any line beyond the header is present, swap is active on the host. `/proc/swaps` is host-wide, so a job container sees the host's swap even when the container itself may not use it. The check then reads the process's cgroup v2 path from `/proc/self/cgroup` and `memory.swap.max` for that cgroup and each ancestor under `/sys/fs/cgroup`. If any of them is `0`, the kernel will not swap the job's memory out: signing proceeds and a `::notice::` names the cgroup. Otherwise, including on cgroup v1 or when the files cannot be read, the binary exits `EX_CONFIG` (78) with an actionable error message.
+`release sign` and `release sbom-bundle --sign` refuse to run when the process's memory can be swapped out. The check reads `/proc/swaps`; if any line beyond the header is present, swap is active on the host. `/proc/swaps` is host-wide, so a job container sees the host's swap even when the container itself may not use it. The check then reads the process's cgroup v2 path from `/proc/self/cgroup` and `memory.swap.max` for that cgroup and each ancestor under `/sys/fs/cgroup`. If any of them is `0`, the kernel will not swap the job's memory out: signing proceeds and a `::notice::` names the cgroup. Otherwise, including on cgroup v1 or when the files cannot be read, the binary exits `EX_CONFIG` (78) with an actionable error message.
 
 A job container started with swap disabled, memory-swap equal to memory, has `memory.swap.max` set to `0` and satisfies the policy on a host with swap. Configure it once in the runner setup:
 

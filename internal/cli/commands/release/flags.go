@@ -4,7 +4,7 @@
 package release
 
 // Shared flag names, declared once so the repeated literals across the
-// release subcommands (assemble, sign, checksum, sbom-zip, create, resolve,
+// release subcommands (assemble, sign, checksum, sbom-bundle, create, resolve,
 // provenance) stay under goconst's budget and rename in one place.
 const (
 	flagOutput                   = "output"

@@ -129,7 +129,7 @@ type Config struct {
 	Containers []Container `yaml:"containers,omitempty"`
 
 	// Sign selects the signing backend for `release sign` and
-	// `release sbom-zip --sign`. Empty defaults to gpg (preserves
+	// `release sbom-bundle --sign`. Empty defaults to gpg (preserves
 	// the pre-cosign contract for existing repos).
 	Sign SignConfig `yaml:"sign,omitempty"`
 

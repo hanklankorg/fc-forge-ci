@@ -248,7 +248,7 @@ func TestGPGSigning_RefusesSwapBeforeReadingTheKey(t *testing.T) {
 
 	for _, command := range []string{
 		"sign --method gpg --file app.tgz",
-		"sbom-zip --sign --method gpg --project-name app --version 1.2.3 --sbom-dir .",
+		"sbom-bundle --sign --method gpg --project-name app --version 1.2.3 --sbom-dir .",
 	} {
 		err := New().Run(t.Context(), append(append([]string{New().Name}, strings.Fields(command)...), "--private-key-file", missing))
 		if err == nil || !strings.Contains(err.Error(), "swap is enabled on this runner") {

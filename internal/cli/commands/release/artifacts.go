@@ -100,7 +100,7 @@ func requireNoSwapWithWarning(cmd *cli.Command) error {
 
 // signSources builds a flag source chain that resolves from the
 // $FORGE_CI_PLAN scope first when the calling verb is plan-scoped.
-// An empty planScope keeps the plain env chain (`release sbom-zip` is
+// An empty planScope keeps the plain env chain (`release sbom-bundle` is
 // not plan-wired); with no env names either, the chain is empty.
 func signSources(planScope, key string, envNames ...string) cli.ValueSourceChain {
 	if planScope == "" {
@@ -111,7 +111,7 @@ func signSources(planScope, key string, envNames ...string) cli.ValueSourceChain
 }
 
 // signMethodFlags returns the per-invocation signing-method flag set
-// shared by `release sign` and `release sbom-zip --sign`. Three
+// shared by `release sign` and `release sbom-bundle --sign`. Three
 // methods exist (see docs/verification.md#signing-methods):
 //
 //   - gpg (default): long-lived OpenPGP key from --private-key-file or
@@ -536,24 +536,24 @@ func checksumsCmd() *cli.Command {
 	}
 }
 
-func sbomZipCmd() *cli.Command {
+func sbomBundleCmd() *cli.Command {
 	flags := append([]cli.Flag{
 		&cli.StringFlag{
 			Name:     "project-name",
 			Required: true,
 			Sources:  cli.EnvVars("PROJECT_NAME"),
-			Usage:    "project slug used as the zip filename prefix",
+			Usage:    "project slug used as the bundle filename prefix",
 		},
 		&cli.StringFlag{
 			Name:     flagVersion,
 			Required: true,
 			Sources:  cli.EnvVars("VERSION"),
-			Usage:    "release version baked into the zip filename",
+			Usage:    "release version baked into the bundle filename",
 		},
 		&cli.BoolFlag{
 			Name:    "sign",
 			Sources: cli.EnvVars("SIGN_ARTIFACTS"),
-			Usage:   "additionally sign the resulting zip using the method selected by --method",
+			Usage:   "additionally sign the resulting bundle using the method selected by --method",
 		},
 		&cli.StringFlag{
 			Name:    flagSBOMDir,
@@ -565,10 +565,10 @@ func sbomZipCmd() *cli.Command {
 	}, signMethodFlags("")...)
 
 	return &cli.Command{
-		Name:  "sbom-zip",
-		Usage: "bundle all SBOM layers into <project>-<version>-sboms.zip; optionally sign via --sign + --method",
+		Name:  "sbom-bundle",
+		Usage: "bundle all SBOM layers into <project>-<version>-sboms.tar.gz; optionally sign via --sign + --method",
 		Description: `EXAMPLE:
-   forge-ci release sbom-zip --project-name app --version 1.2.3 --sbom-dir sboms`,
+   forge-ci release sbom-bundle --project-name app --version 1.2.3 --sbom-dir sboms`,
 		Flags: flags,
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			var signer apprelease.Signer
@@ -584,7 +584,7 @@ func sbomZipCmd() *cli.Command {
 				signer = built
 			}
 
-			_, err := apprelease.CreateSBOMZip(ctx, signer, apprelease.SBOMZipInput{
+			_, err := apprelease.CreateSBOMBundle(ctx, signer, apprelease.SBOMBundleInput{
 				ProjectName:   cmd.String("project-name"),
 				Version:       cmd.String(flagVersion),
 				SBOMDir:       cmd.String(flagSBOMDir),
