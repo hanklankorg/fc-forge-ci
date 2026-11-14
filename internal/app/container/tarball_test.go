@@ -54,24 +54,32 @@ func makeTarball(t *testing.T, path string, files map[string]string) {
 	}
 }
 
-func TestExtractNPMTarball_HappyPath(t *testing.T) {
-	fsys := testfs.NewReal(t)
-	makeTarball(t, fsys.Path("demo-1.0.0.tgz"), map[string]string{
-		"package.json": `{"name":"demo"}`,
-		"dist/cli.js":  "ok",
-	})
+// A project's build writes where its tool says: dist/, build/, Nuxt's hidden
+// .output/. The package is unpacked as packed, under no directory name the
+// engine knows.
+func TestExtractNPMTarball_UnpacksWhateverDirectoryTheBuildWrote(t *testing.T) {
+	for _, built := range []string{"dist/cli.js", "build/index.js", ".output/server/index.mjs", "lib/esm/main.js"} {
+		fsys := testfs.NewReal(t)
+		makeTarball(t, fsys.Path("demo-1.0.0.tgz"), map[string]string{
+			"package.json": `{"name":"demo"}`,
+			built:          "ok",
+		})
 
-	if err := appcontainer.ExtractNPMTarball(io.Discard, appcontainer.ExtractNPMTarballInput{Dir: fsys.Root}); err != nil {
-		t.Fatalf("ExtractNPMTarball: %v", err)
-	}
+		if err := appcontainer.ExtractNPMTarball(io.Discard, appcontainer.ExtractNPMTarballInput{Dir: fsys.Root}); err != nil {
+			t.Fatalf("%s: ExtractNPMTarball: %v", built, err)
+		}
 
-	body := fsys.ReadFile("package.json")
-	if string(body) != `{"name":"demo"}` {
-		t.Errorf("package.json = %q", body)
-	}
+		if body := fsys.ReadFile("package.json"); string(body) != `{"name":"demo"}` {
+			t.Errorf("%s: package.json = %q", built, body)
+		}
 
-	if _, err := os.Stat(fsys.Path("demo-1.0.0.tgz")); !os.IsNotExist(err) {
-		t.Errorf("tarball should be removed: %v", err)
+		if body := fsys.ReadFile(built); string(body) != "ok" {
+			t.Errorf("%s = %q, want the built file as packed", built, body)
+		}
+
+		if _, err := os.Stat(fsys.Path("demo-1.0.0.tgz")); !os.IsNotExist(err) {
+			t.Errorf("%s: tarball should be removed: %v", built, err)
+		}
 	}
 }
 
