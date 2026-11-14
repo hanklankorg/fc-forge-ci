@@ -78,6 +78,8 @@ func TestXcodeReleaseBuild_UnsignedSelectedMetadata(t *testing.T) {
 				"archive", flag, identity, "-scheme", "Zebra", "-configuration", "Release",
 				"-archivePath", "build/app.xcarchive", "-destination", "generic/platform=iOS",
 				"-skipPackagePluginValidation", "CURRENT_PROJECT_VERSION=999",
+				// The project's own team and profile must not be asked for.
+				"CODE_SIGNING_ALLOWED=NO",
 			}
 			if len(buildOps.calls) != 1 || !slices.Equal(buildOps.calls[0], wantArchive) {
 				t.Errorf("xcodebuild calls = %q, want only %q", buildOps.calls, wantArchive)

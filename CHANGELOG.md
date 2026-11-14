@@ -569,6 +569,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A GitHub draft release without release files is read back. GitHub lists
+  a new draft about a second after it created it, and the list is the only
+  way to find a draft by its tag, so the readback ran first and reported
+  that no release existed. `release publish` now returns once the list
+  shows the draft, and fails with the tag if it never does.
+- The GitHub image job of a container that names an npm artifact no longer
+  requires the package to hold a `dist/` directory. A Nuxt application
+  packs `.output/`, and its image job failed on the missing `dist/`. The
+  job checks that the packed package arrived: `container
+  extract-npm-tarball` fails without one, and `container validate
+  artifacts` no longer takes `--project-type npm`.
+- An Xcode build with `enable-code-signing: false` archives with
+  `CODE_SIGNING_ALLOWED=NO`. A project that names a team and a
+  provisioning profile failed to archive without them, although the build
+  was not to be signed.
 - The lint gate under `enforce-lint: true` no longer fails on the findings
   of a check the project's plan only reports (`[policy] warn`, or absent
   from `[policy] block`). It counted every failed check, so a plan could

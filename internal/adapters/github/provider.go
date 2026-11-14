@@ -62,6 +62,10 @@ type Provider struct {
 	// tests set it so a retried upload does not wait.
 	sarifRetryDelay time.Duration
 
+	// draftListRetryDelay replaces draftListDelay when positive; the
+	// package's tests set it so a draft listed late does not wait.
+	draftListRetryDelay time.Duration
+
 	// ghOnce memoises the go-github client returned by releaseClient.
 	// Provider methods are safe for concurrent use; the first call wins.
 	ghOnce   sync.Once

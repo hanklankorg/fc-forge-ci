@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/archive"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
 
 // ExtractNPMTarballInput drives ExtractNPMTarball.
@@ -20,9 +21,11 @@ type ExtractNPMTarballInput struct {
 }
 
 // ExtractNPMTarball finds a *.tgz / *.tar.gz at the top of Dir,
-// extracts it with `tar --strip-components=1` semantics, removes the
-// tarball for container build contexts, and behaves as a no-op when no tarball
-// is present.
+// extracts it with `tar --strip-components=1` semantics and removes the
+// tarball for container build contexts. No tarball is an error: the image job
+// runs this for a container that names an npm artifact, and the packed package
+// is that artifact. Which directories it holds is the package's own choice,
+// so the package arriving is the check.
 func ExtractNPMTarball(out io.Writer, in ExtractNPMTarballInput) error {
 	dir := in.Dir
 	if dir == "" {
@@ -40,7 +43,7 @@ func ExtractNPMTarball(out io.Writer, in ExtractNPMTarballInput) error {
 	}
 
 	if tarball == "" {
-		return nil
+		return fmt.Errorf("no npm package (*.tgz) in %s: the build job's package did not arrive: %w", dir, errs.ErrMissingInput)
 	}
 
 	_, _ = fmt.Fprintf(out, "Extracting %s...\n", tarball)

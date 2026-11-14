@@ -42,7 +42,7 @@ func validateArtifactsCmd() *cli.Command {
 				Name:     "project-type",
 				Required: true,
 				Sources:  cli.EnvVars("PROJECT_TYPE"),
-				Usage:    "ecosystem of the produced artifacts (maven/gradle/npm/go/cargo)",
+				Usage:    "ecosystem of the produced artifacts (maven/gradle/go/cargo)",
 			},
 			&cli.StringFlag{
 				Name:     "artifact-dir",

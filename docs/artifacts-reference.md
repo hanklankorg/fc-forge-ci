@@ -626,7 +626,7 @@ and Google Play publisher agree.
 #### `config.enable-code-signing`
 
 - **Type:** `boolean`
-- **Description:** Enable iOS/macOS code signing and IPA export. When false, the build uploads an archive and release publishing skips App Store Connect upload.
+- **Description:** Enable iOS/macOS code signing and IPA export. When false, the build archives with `CODE_SIGNING_ALLOWED=NO`, so the team and provisioning profile the project names are not needed, uploads the archive, and release publishing skips App Store Connect upload.
 - **Default:** `true`
 - **Example:** `enable-code-signing: true`
 - **Requires secrets:**

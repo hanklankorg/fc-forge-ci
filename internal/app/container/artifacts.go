@@ -22,7 +22,8 @@ import (
 
 // ValidateArtifactsInput drives ValidateArtifacts.
 type ValidateArtifactsInput struct {
-	// ProjectType is one of "maven" | "npm" | "gradle" | "go" | "cargo".
+	// ProjectType is one of "maven" | "gradle" | "go" | "cargo". An npm
+	// package is checked by unpacking it: see ExtractNPMTarball.
 	ProjectType string
 	// ArtifactDir is the directory holding the downloaded artifacts.
 	ArtifactDir string
@@ -56,9 +57,6 @@ func ValidateArtifacts(out io.Writer, annot output.Annotator, in ValidateArtifac
 	case projecttype.Maven:
 		typeLabel, expectLabel = "Maven", "JAR files"
 		matcher = func(name string) bool { return strings.HasSuffix(name, ".jar") }
-	case projecttype.NPM:
-		typeLabel, expectLabel = "NPM", "built files"
-		matcher = func(string) bool { return true } // bash globs "*"
 	case projecttype.Gradle:
 		typeLabel, expectLabel = "Gradle", "JAR files"
 		matcher = func(name string) bool { return strings.HasSuffix(name, ".jar") }
@@ -86,7 +84,7 @@ func ValidateArtifacts(out io.Writer, annot output.Annotator, in ValidateArtifac
 	}
 
 	// Go + Cargo land binaries at dist/<goos>-<goarch>/<binary>-<goos>-<goarch>
-	// (nested), so recurse. JVM/NPM artifacts sit at the top level of the
+	// (nested), so recurse. JVM artifacts sit at the top level of the
 	// matrix-uploaded directory.
 	var hits []string
 

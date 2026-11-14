@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"time"
 
 	gogithub "github.com/google/go-github/v76/github"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
 	"github.com/diggsweden/forge-ci/internal/domain/repository"
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
+	"github.com/diggsweden/forge-ci/internal/retry"
 )
 
 // CreateRelease creates a release via the GitHub REST API
@@ -91,10 +93,43 @@ func (p *Provider) CreateRelease(ctx context.Context, repo string, spec provider
 	}
 
 	if spec.Draft {
-		return nil
+		return p.awaitDraftListed(ctx, client, owner, repoName, releaseID, spec.Tag)
 	}
 
 	return p.publishStagedRelease(ctx, client, owner, repoName, releaseID, spec, body)
+}
+
+// draftListAttempts and draftListDelay bound the wait for a new draft to
+// appear in the release list: a look every second for ten seconds.
+const (
+	draftListAttempts = 10
+	draftListDelay    = time.Second
+)
+
+// awaitDraftListed returns once the release list shows the draft this call
+// created. GitHub's tag endpoint omits drafts, so the list is the only way to
+// find a draft by its tag, and the list shows a new release about a second
+// late. A draft without files was read back before the list had it, and the
+// readback reported that no release existed. A draft CreateRelease has
+// returned is one the next command can find.
+func (p *Provider) awaitDraftListed(ctx context.Context, client *gogithub.Client, owner, repo string, releaseID int64, tag string) error {
+	delay := draftListDelay
+	if p.draftListRetryDelay > 0 {
+		delay = p.draftListRetryDelay
+	}
+
+	return retry.Run(ctx, nil, draftListAttempts, delay, func() error {
+		releases, err := listAllRepositoryReleases(ctx, client, owner, repo)
+		if err != nil {
+			return retry.Permanent(fmt.Errorf("list releases after creating draft %q: %w", tag, classifyGitHubError(err)))
+		}
+
+		if slices.ContainsFunc(releases, func(release *gogithub.RepositoryRelease) bool { return release.GetID() == releaseID }) {
+			return nil
+		}
+
+		return fmt.Errorf("draft release %q was created but the release list does not show it: %w", tag, errs.ErrDependencyUnavailable)
+	}, retry.WithBackoff(retry.Constant))
 }
 
 // releaseRequest builds the GitHub release payload shared by CreateRelease

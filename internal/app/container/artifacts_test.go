@@ -49,11 +49,11 @@ func TestValidateArtifacts_JVMFindsJARs(t *testing.T) {
 
 // TestValidateArtifacts_TopLevelTypesDoNotRecurse pins the boundary between the
 // two scanning rules. Go and Cargo recurse, because their binaries land under
-// dist/<os>-<arch>/. The JVM and NPM types deliberately do not, and nothing
-// tested that: an npm directory recursed would match the first file inside
-// node_modules and report artifacts for a build that produced none.
+// dist/<os>-<arch>/. The JVM types deliberately do not, and nothing tested
+// that: a directory recursed would match a JAR inside a dependency directory
+// and report artifacts for a build that produced none.
 func TestValidateArtifacts_TopLevelTypesDoNotRecurse(t *testing.T) {
-	for _, projectType := range []string{"maven", "gradle", "npm"} {
+	for _, projectType := range []string{"maven", "gradle"} {
 		t.Run(projectType, func(t *testing.T) {
 			fsys := testfs.NewReal(t)
 			fsys.WriteFile(filepath.Join("node_modules", "left-pad", "index.jar"), []byte("not an artifact"))
@@ -67,27 +67,6 @@ func TestValidateArtifacts_TopLevelTypesDoNotRecurse(t *testing.T) {
 				t.Errorf("err = %v, want a validation error: a nested file is not a %s artifact", err, projectType)
 			}
 		})
-	}
-}
-
-// TestValidateArtifacts_NPMAcceptsAnyTopLevelFile is the npm counterpart to the
-// JVM test. npm has no extension to match on -- the shell this replaced globbed
-// "*" -- so any file directly in the uploaded directory counts, and npm was
-// covered only by its failure case.
-func TestValidateArtifacts_NPMAcceptsAnyTopLevelFile(t *testing.T) {
-	fsys := testfs.NewReal(t)
-	fsys.WriteFile("bundle.tgz", []byte("packed"))
-	cf := fsys.WriteFile("Containerfile", []byte("FROM alpine\nCOPY bundle.tgz /app/\n"))
-
-	var out bytes.Buffer
-	if err := appcontainer.ValidateArtifacts(&out, output.Annotator{}, appcontainer.ValidateArtifactsInput{
-		ProjectType: "npm", ArtifactDir: fsys.Root, ContainerfilePath: cf,
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	if !strings.Contains(out.String(), "✓ NPM artifacts found:") || !strings.Contains(out.String(), "bundle.tgz") {
-		t.Errorf("missing NPM artifact output:\n%s", out.String())
 	}
 }
 
@@ -183,7 +162,6 @@ func TestValidateArtifacts_UnknownTypeErrors(t *testing.T) {
 // passed because a different validator ran would show up.
 func TestValidateArtifacts_MissingArtifactsFail(t *testing.T) {
 	for projectType, wantStderr := range map[string]string{
-		"npm":    "::error::No NPM artifacts found",
 		"maven":  "::error::No Maven artifacts found",
 		"gradle": "::error::No Gradle artifacts found",
 		"go":     "::error::No Go artifacts found",
@@ -321,11 +299,6 @@ func TestValidateArtifacts_ZeroSizePolicy(t *testing.T) {
 			files: map[string]string{"a.jar": "", "b.jar": "real"},
 		},
 		{
-			name: "every npm file is empty", projectType: "npm",
-			files:       map[string]string{"pkg.tgz": ""},
-			wantRefusal: true,
-		},
-		{
 			name: "every go binary is empty", projectType: "go",
 			files:       map[string]string{"dist/linux-amd64/app": ""},
 			wantRefusal: true,
@@ -339,8 +312,7 @@ func TestValidateArtifacts_ZeroSizePolicy(t *testing.T) {
 			fsys := testfs.NewReal(t)
 
 			// The artifact directory is a subdirectory so the Containerfile
-			// is not itself a match: the npm matcher accepts any top-level
-			// file, and Go recurses.
+			// is not itself a match: Go recurses.
 			artifactDir := fsys.MkdirAll("dist-root")
 			for path, body := range tc.files {
 				fsys.WriteFile(filepath.Join("dist-root", path), []byte(body))

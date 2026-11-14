@@ -694,15 +694,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DOWNLOAD_NAME: ${{ inputs['npm-artifact-name'] || 'npm-build-artifacts' }}
         run: forge-ci artifact download --name "$DOWNLOAD_NAME" --dir ./
-      - name: Extract NPM tarball
+      - name: Unpack the npm package
+        # The package holds what its package.json selects: dist/ for one
+        # project, .output/ for the next. Its arrival is what is checked.
         if: *if_has_npm_artifacts
         run: forge-ci container extract-npm-tarball
-      - name: Verify NPM artifacts
-        if: *if_has_npm_artifacts
-        env:
-          CONTAINER_CONTEXT: ${{ inputs.context }}
-          CONTAINER_FILE: ${{ inputs['container-file'] }}
-        run: forge-ci container validate artifacts --project-type npm --artifact-dir dist --containerfile "$CONTAINER_CONTEXT/$CONTAINER_FILE"
       - name: Download Gradle artifacts
         if: &if_has_gradle_artifacts ${{ contains(fromJson(inputs['artifact-types-json']), 'gradle') || contains(format(',{0},', inputs['artifact-types']), ',gradle,') }}
         env:

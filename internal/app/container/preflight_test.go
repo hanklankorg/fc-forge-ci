@@ -74,7 +74,7 @@ func snapshotContainerTree(t *testing.T, root string) map[string]string {
 func TestValidateArtifacts_RefusesLinkedMatches(t *testing.T) {
 	t.Parallel()
 
-	for _, project := range []string{"maven", "npm", "go", "cargo"} {
+	for _, project := range []string{"maven", "gradle", "go", "cargo"} {
 		for _, kind := range []string{"file", "directory", "root"} {
 			t.Run(project+"/"+kind, func(t *testing.T) {
 				t.Parallel()

@@ -131,6 +131,7 @@ func XcodeReleaseBuild(ctx context.Context, sink ci.OutputSink, sec XcodeSecurit
 	archive := XcodeArchiveInput{
 		Workspace: in.Workspace, Project: in.Project, Scheme: in.Scheme,
 		Configuration: in.Configuration, Destination: in.Destination, BuildNumber: in.BuildNumber,
+		Unsigned: !in.EnableCodeSigning,
 	}
 	if archiveErr := validateXcodeArchive(archive); archiveErr != nil {
 		return fmt.Errorf("archive: %w", archiveErr)

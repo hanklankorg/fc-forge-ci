@@ -31,6 +31,9 @@ type XcodeArchiveInput struct {
 	Destination   string
 	XcconfigPath  string
 	BuildNumber   string
+	// Unsigned archives without code signing, whatever signing the project
+	// itself configures.
+	Unsigned bool
 }
 
 func validateXcodeArchive(in XcodeArchiveInput) error {
@@ -112,6 +115,13 @@ func runXcodeArchive(ctx context.Context, ops XcodeBuildOps, out, stderr io.Writ
 
 	if in.BuildNumber != "" {
 		args = append(args, "CURRENT_PROJECT_VERSION="+in.BuildNumber)
+	}
+
+	// A project that names a team and a provisioning profile asks xcodebuild
+	// to sign with them. A build without code signing has neither, and its
+	// archive failed on the missing profile.
+	if in.Unsigned {
+		args = append(args, "CODE_SIGNING_ALLOWED=NO")
 	}
 
 	if mkdirErr := os.MkdirAll("build", 0o755); mkdirErr != nil { //nolint:gosec // xcodebuild output dir read by archive step.

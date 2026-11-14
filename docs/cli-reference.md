@@ -2884,7 +2884,7 @@ EXAMPLE:
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
-| `--project-type` | ecosystem of the produced artifacts (maven/gradle/npm/go/cargo) (required) | string | `""` | `$PROJECT_TYPE` |
+| `--project-type` | ecosystem of the produced artifacts (maven/gradle/go/cargo) (required) | string | `""` | `$PROJECT_TYPE` |
 | `--artifact-dir` | directory holding the built artifacts to inspect (required) | string | `""` | `$ARTIFACT_DIR` |
 | `--containerfile` | Containerfile path (enables COPY-vs-rebuild policy checks) | string | `""` | `$CONTAINERFILE` |
 

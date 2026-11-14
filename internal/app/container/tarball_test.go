@@ -6,11 +6,14 @@ package container_test
 import (
 	"archive/tar"
 	"compress/gzip"
+	"errors"
 	"io"
 	"os"
+	"strings"
 	"testing"
 
 	appcontainer "github.com/diggsweden/forge-ci/internal/app/container"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/testutil/testfs"
 )
 
@@ -72,22 +75,15 @@ func TestExtractNPMTarball_HappyPath(t *testing.T) {
 	}
 }
 
-func TestExtractNPMTarball_NoTarballIsNoOp(t *testing.T) {
+// The image job unpacks the package of a container that names an npm artifact.
+// Without the package the image would be built from the checkout alone, so a
+// missing one stops the job and is named.
+func TestExtractNPMTarball_NoTarballIsMissingInput(t *testing.T) {
 	fsys := testfs.NewReal(t)
-	// Bash silently does nothing; the Go port should too.
-	if err := appcontainer.ExtractNPMTarball(io.Discard, appcontainer.ExtractNPMTarballInput{Dir: fsys.Root}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
 
-	// "No-op" is the claim, so the directory has to be untouched -- not
-	// merely that nothing errored while something was unpacked into it.
-	entries, err := os.ReadDir(fsys.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if len(entries) != 0 {
-		t.Errorf("a run with no tarball created %v", entries)
+	err := appcontainer.ExtractNPMTarball(io.Discard, appcontainer.ExtractNPMTarballInput{Dir: fsys.Root})
+	if !errors.Is(err, errs.ErrMissingInput) || !strings.Contains(err.Error(), "no npm package (*.tgz)") {
+		t.Fatalf("err = %v, want a missing-input error naming the npm package", err)
 	}
 }
 

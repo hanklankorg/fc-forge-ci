@@ -154,6 +154,7 @@ func TestXcodeIOSRun_CLIInputsReachXcodebuild(t *testing.T) {
 		"-archivePath", "build/app.xcarchive",
 		"-destination", "generic/platform=iOS", // taken from the environment
 		"-skipPackagePluginValidation", "CURRENT_PROJECT_VERSION=888",
+		"CODE_SIGNING_ALLOWED=NO", // unsigned, whatever the project configures
 	}, builder.calls[0])
 
 	// The metadata published to the forge comes from the selected project,
