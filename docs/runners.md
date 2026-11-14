@@ -70,7 +70,7 @@ and so does how an administrator restricts it:
 |---|---|---|
 | GitLab | The policy project. It includes the component that runs the signer jobs and writes `signer-runner-tags` as literals; the components take tags only from inputs. | By writing the tags. A tag written as a `$VARIABLE` would let a project variable choose the runner that sees the credentials. |
 | Forgejo | The caller's release workflow, in `signer-runs-on`, which only the job that reads the signing key runs on. The examples pass the repository variable `CI_RUNNER_LABEL`, so whoever may set repository variables chooses. | By writing the labels in the workflow, on a protected branch whose changes the administrator's code owners review. Forgejo has no policy project, and the layer has no list to hold the labels to. |
-| GitHub | The layer, as a hosted literal. Two jobs run where their caller says instead: the signed Xcode build, on `runs-on-darwin-arm64`, and `slsa-attestor.yml`, on its `runs-on`. | With `enforce-signer-runs-on`, in the entry point the consumer cannot change: the labels the signed Xcode build may run on. It does not reach `slsa-attestor.yml`, which its operator calls directly with the KMS key and the runner. See [GitHub runners](#github-runners). |
+| GitHub | The layer, as a hosted literal. Two jobs run where their caller says instead: the signed Xcode build, on `runs-on-darwin-arm64`, and `slsa-attestor.yml`, on its `runs-on`. | With `enforce-signer-runs-on-darwin-arm64`, in the entry point the consumer cannot change: the labels the signed Xcode build may run on. It does not reach `slsa-attestor.yml`, which its operator calls directly with the KMS key and the runner. See [GitHub runners](#github-runners). |
 
 GitHub threads its role-specific inputs through the orchestrators. Its
 signing, trust-root and publication jobs retain hosted literals; see
@@ -120,7 +120,7 @@ Most projects set none of these on GitHub, where each has a hosted default.
 So `build-runner-tags-linux-arm64` chooses GitLab's arm64 image build runner
 and `runs-on-darwin-arm64` the GitHub macOS runner. GitHub has no `signer-`
 input: its signer jobs run on a hosted literal, with two exceptions named
-under [GitHub runners](#github-runners). `enforce-signer-runs-on` is not a
+under [GitHub runners](#github-runners). `enforce-signer-runs-on-darwin-arm64` is not a
 runner input: it selects no runner, and restricts the one a caller names.
 
 On Forgejo, runner selection is a repository or organization variable that
@@ -223,7 +223,7 @@ GitHub-hosted label there; a runner of your own that holds the signing
 certificate must be one you trust with it.
 
 Who may name that runner is the administrator's choice. The release and
-snapshot orchestrators take `enforce-signer-runs-on`, a JSON array of the
+snapshot orchestrators take `enforce-signer-runs-on-darwin-arm64`, a JSON array of the
 labels a signing job on a caller-named runner may run on. The default `[]`
 lets the caller choose. With a list, every label in `runs-on-darwin-arm64`
 must be in it, compared as written:
@@ -231,14 +231,14 @@ must be in it, compared as written:
 ```yaml
     with:
       runs-on-darwin-arm64: ${{ vars.MACOS_RUNNER }}
-      enforce-signer-runs-on: '["macos-26", "macos-27"]'
+      enforce-signer-runs-on-darwin-arm64: '["macos-26", "macos-27"]'
 ```
 
 A runner with any other label is refused by the job `Check: signer runner`,
 which names the input, the refused labels and the allowed ones:
 
 ```text
-runs-on-darwin-arm64 names the runner of a job that holds signing material, and enforce-signer-runs-on does not allow its label mac-mini (allowed: macos-26, macos-27): name an allowed runner in runs-on-darwin-arm64, or have the administrator add the label to enforce-signer-runs-on
+runs-on-darwin-arm64 names the runner of a job that holds signing material, and enforce-signer-runs-on-darwin-arm64 does not allow its label mac-mini (allowed: macos-26, macos-27): name an allowed runner in runs-on-darwin-arm64, or have the administrator add the label to enforce-signer-runs-on-darwin-arm64
 ```
 
 That job runs `forge-ci plan admit-signer-runner` on the hosted

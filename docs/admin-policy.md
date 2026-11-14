@@ -234,7 +234,7 @@ change.
 
 The signed Xcode build holds the signing certificate on the macOS runner its
 caller names in `runs-on-darwin-arm64`. The GitHub release and snapshot
-orchestrators take `enforce-signer-runs-on`, a JSON array of the labels that
+orchestrators take `enforce-signer-runs-on-darwin-arm64`, a JSON array of the labels that
 runner may have; the default `[]` lets the caller choose. Set it in the
 **administrator's protected entry point**, like the enforcement settings: it
 is an input and nothing else, never read from a variable, the environment or

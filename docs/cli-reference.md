@@ -3094,7 +3094,7 @@ refuse a signed Xcode build on a macOS runner the administrator's allowlist does
 ```
 The signed Xcode build of the GitHub layer holds the signing certificate on
 the runner its caller names in runs-on-darwin-arm64. The administrator
-restricts that runner with enforce-signer-runs-on, a JSON array of labels:
+restricts that runner with enforce-signer-runs-on-darwin-arm64, a JSON array of labels:
 every label the caller named must be in it. [] lets the caller choose.
 
 The layer runs this on a hosted runner the caller cannot name, in a job the
@@ -3107,7 +3107,7 @@ that is not a JSON array of labels never is.
 |------|-------------|------|---------|----------|
 | `--build-stage-plan-json` | release or snapshot build-stage plan, as the Xcode build's caller reads it (required) | string | `""` | n/a |
 | `--runs-on-darwin-arm64` | the macOS runner the caller named: a JSON array of labels (required) | string | `""` | n/a |
-| `--enforce-signer-runs-on` | the administrator's JSON array of labels a signing job on a caller-named runner may run on; [] lets the caller choose (required) | string | `""` | n/a |
+| `--enforce-signer-runs-on-darwin-arm64` | the administrator's JSON array of labels a signing job on a caller-named runner may run on; [] lets the caller choose (required) | string | `""` | n/a |
 
 ### `forge-ci plan gitlab-build-pipeline`
 

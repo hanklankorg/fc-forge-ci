@@ -26,7 +26,7 @@ on:
         required: false
         default: '["macos-26"]'
         type: string
-      enforce-signer-runs-on:
+      enforce-signer-runs-on-darwin-arm64:
         description: "Administrator setting: JSON array of the runner labels a signing job on a caller-named runner, the signed Xcode build on runs-on-darwin-arm64, may run on; a runner with any other label is refused before the job starts. [] lets the caller choose. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/runners.md."
         required: false
         default: "[]"
@@ -142,12 +142,12 @@ jobs:
         env:
           BUILD_STAGE_PLAN_JSON: ${{ inputs['snapshot-build-stage-plan-json'] }}
           RUNNER_DARWIN_ARM64: ${{ inputs['runs-on-darwin-arm64'] }}
-          SIGNER_RUNS_ON_ALLOWED: ${{ inputs['enforce-signer-runs-on'] }}
+          SIGNER_RUNS_ON_ALLOWED: ${{ inputs['enforce-signer-runs-on-darwin-arm64'] }}
         run: |
           forge-ci plan admit-signer-runner \
             --build-stage-plan-json="$BUILD_STAGE_PLAN_JSON" \
             --runs-on-darwin-arm64="$RUNNER_DARWIN_ARM64" \
-            --enforce-signer-runs-on="$SIGNER_RUNS_ON_ALLOWED"
+            --enforce-signer-runs-on-darwin-arm64="$SIGNER_RUNS_ON_ALLOWED"
   maven:
     needs: [resolve-bootstrap]
     name: "Build: ${{ matrix.artifact.name }} (Maven)"
