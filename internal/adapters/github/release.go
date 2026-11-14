@@ -21,6 +21,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/adapters/httpretry"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
+	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 	"github.com/diggsweden/forge-ci/internal/domain/repository"
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
 	"github.com/diggsweden/forge-ci/internal/retry"
@@ -332,9 +333,9 @@ func (p *Provider) reconcileReleaseAssets(ctx context.Context, client *gogithub.
 
 func releaseAssetPriority(name string) int {
 	switch name {
-	case "checksums.txt.bundle":
+	case domainrelease.ChecksumsFile + ".bundle":
 		return 1
-	case "checksums.txt":
+	case domainrelease.ChecksumsFile:
 		return 2
 	default:
 		return 0

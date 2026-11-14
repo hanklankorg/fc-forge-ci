@@ -58,7 +58,7 @@ func TestBuildCLIWorkflowSignsBeforeHandoff(t *testing.T) {
 		case "Generate + sign SLSA provenance (cosign sign-blob, keyless)":
 			require.True(t, signed, "checksum bundle must precede provenance and the handoff")
 		case "Upload dist artifact":
-			require.True(t, signed, "uploading unsigned packaging output loses checksums.txt.bundle")
+			require.True(t, signed, "uploading unsigned packaging output loses checksums.sha256.bundle")
 
 			handedOff = true
 		}
@@ -89,7 +89,7 @@ func TestBuildCLIWorkflowSignsBeforeHandoff(t *testing.T) {
 			}
 
 			require.NoError(t, os.WriteFile(filepath.Join(root, "dist", archive), payload, 0o600))
-			require.NoError(t, os.WriteFile(filepath.Join(root, "dist/checksums.txt"), []byte(manifest), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "dist/checksums.sha256"), []byte(manifest), 0o600))
 
 			releaseOwnerMetadata(t, filepath.Join(root, "dist"))
 			releaseOwnerStub(t, filepath.Join(root, "bin"))
@@ -102,7 +102,7 @@ func TestBuildCLIWorkflowSignsBeforeHandoff(t *testing.T) {
 				"RELEASE_OWNER_BINARY=" + os.Args[0],
 			}
 			output, runErr := cmd.CombinedOutput()
-			bundle := filepath.Join(root, "dist/checksums.txt.bundle")
+			bundle := filepath.Join(root, "dist/checksums.sha256.bundle")
 
 			if changed {
 				require.Error(t, runErr, "%s", output)

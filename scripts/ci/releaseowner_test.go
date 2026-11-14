@@ -60,7 +60,7 @@ func releaseOwnerMetadata(t *testing.T, dir string) {
 
 	for _, entry := range entries {
 		kind := "Archive"
-		if entry.Name() == "checksums.txt" {
+		if entry.Name() == "checksums.sha256" {
 			kind = "Checksum"
 		} else if strings.HasSuffix(entry.Name(), ".json") {
 			kind = "SBOM"

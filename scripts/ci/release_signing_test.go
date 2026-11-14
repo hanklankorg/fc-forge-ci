@@ -128,14 +128,14 @@ func TestReleaseSigningRequiresMatchingRebuild(t *testing.T) {
 			}
 
 			if scenario != "missing-checksum" {
-				require.NoError(t, os.WriteFile(filepath.Join(second, "checksums.txt"), []byte(manifest.String()), 0o600))
+				require.NoError(t, os.WriteFile(filepath.Join(second, "checksums.sha256"), []byte(manifest.String()), 0o600))
 			}
 
 			releaseOwnerMetadata(t, second)
 			releaseOwnerStub(t, bin)
 
 			call := filepath.Join(root, "sign-called")
-			cmd := exec.CommandContext(t.Context(), testBash(t), script, "release", "sign", "--method=sigstore", "--no-checksums-file", "--no-release-artifacts-dir", "--file", filepath.Join(second, "checksums.txt"))
+			cmd := exec.CommandContext(t.Context(), testBash(t), script, "release", "sign", "--method=sigstore", "--no-checksums-file", "--no-release-artifacts-dir", "--file", filepath.Join(second, "checksums.sha256"))
 			cmd.Dir = root
 			cmd.Env = []string{"PATH=" + bin + string(os.PathListSeparator) + testenv.GNUPath(t, "realpath") + string(os.PathListSeparator) + os.Getenv("PATH"), "SIGN_CALL=" + call, "LC_ALL=C", "RELEASE_OWNER_BINARY=" + os.Args[0]}
 
@@ -157,7 +157,7 @@ func TestReleaseSigningRequiresMatchingRebuild(t *testing.T) {
 
 				args, readErr := os.ReadFile(call)
 				require.NoError(t, readErr)
-				require.Equal(t, "release\nsign\n--method=sigstore\n--no-checksums-file\n--no-release-artifacts-dir\n--file\n"+filepath.Join(second, "checksums.txt")+"\n", string(args))
+				require.Equal(t, "release\nsign\n--method=sigstore\n--no-checksums-file\n--no-release-artifacts-dir\n--file\n"+filepath.Join(second, "checksums.sha256")+"\n", string(args))
 			} else {
 				require.Error(t, runErr, "%s", output)
 				require.NoFileExists(t, call, "failed verification must never call the signer")
@@ -216,7 +216,7 @@ func TestReleaseWorkflowPreparesReferenceBeforeSigning(t *testing.T) {
 
 		if step.Name == "Verify payload and sign checksum manifest" {
 			require.True(t, packaged, "unsigned packaging must precede the signing boundary")
-			require.Contains(t, step.Run, "scripts/ci/sign-reproducible-release.sh release sign --method=sigstore --no-checksums-file --no-release-artifacts-dir --file dist/checksums.txt")
+			require.Contains(t, step.Run, "scripts/ci/sign-reproducible-release.sh release sign --method=sigstore --no-checksums-file --no-release-artifacts-dir --file dist/checksums.sha256")
 			require.Equal(t, "${{ steps.release-context.outputs.release-tag }}", step.Env["GORELEASER_CURRENT_TAG"])
 			require.Equal(t, "${{ runner.temp }}/forge-ci-release-reference", step.Env["FORGE_CI_RELEASE_REFERENCE"])
 
@@ -228,7 +228,7 @@ func TestReleaseWorkflowPreparesReferenceBeforeSigning(t *testing.T) {
 			require.Equal(t, "${{ steps.release-context.outputs.release-tag }}", step.Env["RELEASE_TAG"])
 			require.Contains(t, step.Run, `source_sha="$(git rev-parse HEAD)"`)
 			require.Contains(t, step.Run, `--ref-name "$RELEASE_TAG" --source-sha "$source_sha"`)
-			require.Contains(t, step.Run, "dist/forge-ci_*.tar.gz,dist/forge-ci_*.tar.gz.cdx.sbom.json,dist/checksums.txt,dist/checksums.txt.bundle,")
+			require.Contains(t, step.Run, "dist/forge-ci_*.tar.gz,dist/forge-ci_*.tar.gz.cdx.sbom.json,dist/checksums.sha256,dist/checksums.sha256.bundle,")
 
 			provenance = true
 		}

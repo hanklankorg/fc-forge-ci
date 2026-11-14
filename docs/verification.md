@@ -11,23 +11,23 @@ matching guarantees are generated on the producing side.
 
 ## Verify the forge-ci CLI before you install it
 
-Each forge-ci release signs its `checksums.txt` keyless; the Sigstore bundle
-is `checksums.txt.bundle`. Verify the bundle with
+Each forge-ci release signs its `checksums.sha256` keyless; the Sigstore bundle
+is `checksums.sha256.bundle`. Verify the bundle with
 [cosign](https://docs.sigstore.dev/cosign/system_config/installation/), then
 check the archive against the verified checksums:
 
 ```bash
 VERSION=v0.93.1   # the release you install
 gh release download "$VERSION" --repo diggsweden/forge-ci \
-  -p "forge-ci_${VERSION#v}_linux_amd64.tar.gz" -p checksums.txt -p checksums.txt.bundle
+  -p "forge-ci_${VERSION#v}_linux_amd64.tar.gz" -p checksums.sha256 -p checksums.sha256.bundle
 
 cosign verify-blob \
-  --bundle checksums.txt.bundle \
+  --bundle checksums.sha256.bundle \
   --certificate-identity "https://github.com/diggsweden/forge-ci/.github/workflows/release-binary.yml@refs/tags/release-request/${VERSION}" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  checksums.txt
+  checksums.sha256
 
-sha256sum --check --ignore-missing checksums.txt
+sha256sum --check --ignore-missing checksums.sha256
 ```
 
 Both commands must succeed before you unpack the archive. Without `gh`,
@@ -40,7 +40,7 @@ The binary's provenance is checked the same way; see
 
 The shared GoReleaser configuration packages unsigned CLI archives and SBOMs.
 GitHub's `build-cli.yml` and `release-binary.yml` explicitly verify the payload
-and sign `checksums.txt`, producing `checksums.txt.bundle`, before uploading
+and sign `checksums.sha256`, producing `checksums.sha256.bundle`, before uploading
 the artifact handoff or release assets. Signed stable builds first compare the
 archives against an independent final-tag rebuild. Unsigned pull-request builds
 do not request OIDC signing.
@@ -1811,9 +1811,9 @@ cosign verify-blob \
   forge-ci.intoto.json
 ```
 
-The statement's `subject` digests come from `checksums.txt`, so a verified
+The statement's `subject` digests come from `checksums.sha256`, so a verified
 statement transitively vouches for every tarball + SBOM listed there. The same
-cosign bundle on `checksums.txt` answers "is this the authentic release"; the
+cosign bundle on `checksums.sha256` answers "is this the authentic release"; the
 provenance answers "which workflow + commit produced it".
 
 ### 5. Git Tag Verification

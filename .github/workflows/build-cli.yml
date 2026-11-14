@@ -174,7 +174,7 @@ jobs:
         if: ${{ inputs.sign }}
         env:
           GORELEASER_CURRENT_TAG: ${{ inputs.version-tag }}
-        run: bash scripts/ci/sign-reproducible-release.sh release sign --method=sigstore --no-checksums-file --no-release-artifacts-dir --file dist/checksums.txt
+        run: bash scripts/ci/sign-reproducible-release.sh release sign --method=sigstore --no-checksums-file --no-release-artifacts-dir --file dist/checksums.sha256
       - name: Generate + sign SLSA provenance (cosign sign-blob, keyless)
         # Portable, forge-neutral replacement for actions/attest-build-provenance
         # (see release-binary.yml for the full rationale + verify recipe).
@@ -191,7 +191,7 @@ jobs:
           archive="$(find dist -name 'forge-ci_*_linux_amd64.tar.gz' | head -1)"
           tar -xzf "$archive" -C "$RUNNER_TEMP" forge-ci
           "$RUNNER_TEMP/forge-ci" release provenance \
-            --checksums-file dist/checksums.txt \
+            --checksums-file dist/checksums.sha256 \
             --output dist/forge-ci.intoto.json \
             --bundle dist/forge-ci.intoto.jsonl
       - name: Upload dist artifact

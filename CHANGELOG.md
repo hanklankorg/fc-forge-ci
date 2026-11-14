@@ -342,6 +342,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failed at `xcode-select` once it signed. A caller that names no runner
   still gets `macos-26`. On GitLab the caller already names the macOS
   runner.
+- **BREAKING**: A forge-ci release names its checksums file
+  `checksums.sha256` and its Sigstore bundle `checksums.sha256.bundle`, as
+  every release forge-ci makes does. They were `checksums.txt` and
+  `checksums.txt.bundle`. A script that downloads and verifies the
+  forge-ci CLI asks for the new names from this release on; a release
+  published before it keeps the old ones.
+  [Verify the forge-ci CLI before you install it](docs/verification.md#verify-the-forge-ci-cli-before-you-install-it)
+  shows the commands. The rolling pre-release is published with the same
+  names, the bundle before the checksums file.
 - An Android artifact that sets no `sboms` gets the SBOM layers there are
   for it: `build,analyzed-container` for an application, `build` for a
   library as before. The default was `all`, which asks for an

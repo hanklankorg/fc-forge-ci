@@ -756,7 +756,7 @@ jobs:
         # Bootstrap the CLI from this run's checksum-verified linux/amd64
         # archive, then let the repository-private typed use case update the
         # pre-provisioned mutable -pre release in place: payloads first, the
-        # signature bundle next, and checksums.txt last as the commit point.
+        # signature bundle next, and checksums.sha256 last as the commit point.
         # Readers can briefly see mixed/missing payloads, but the old or absent
         # checksum makes installers fail closed; the channel tag moves only
         # after the complete asset set verifies. The moved tag is excluded from this workflow's and
@@ -775,14 +775,14 @@ jobs:
           assets_dir=cli-dist
           archive_name="forge-ci_${VERSION}_linux_amd64.tar.gz"
           archive="${assets_dir}/${archive_name}"
-          test -f "${assets_dir}/checksums.txt"
+          test -f "${assets_dir}/checksums.sha256"
           test -f "$archive"
-          checksum_entries="$(awk -v name="$archive_name" '$2 == name { count++ } END { print count + 0 }' "${assets_dir}/checksums.txt")"
+          checksum_entries="$(awk -v name="$archive_name" '$2 == name { count++ } END { print count + 0 }' "${assets_dir}/checksums.sha256")"
           if [[ "$checksum_entries" != 1 ]]; then
             printf 'Expected exactly one checksum entry for %s, found %s\n' "$archive_name" "$checksum_entries" >&2
             exit 1
           fi
-          (cd "$assets_dir" && sha256sum --check --strict checksums.txt)
+          (cd "$assets_dir" && sha256sum --check --strict checksums.sha256)
           mkdir -p cli-publish
           tar -xzf "$archive" -C cli-publish forge-ci
           ./cli-publish/forge-ci release publish-self-runtime-cli \

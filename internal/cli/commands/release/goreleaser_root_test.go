@@ -13,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	rootcli "github.com/diggsweden/forge-ci/internal/cli"
+	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
 )
 
@@ -24,6 +25,9 @@ func TestGoReleaserChecksumSigning(t *testing.T) {
 	require.NoError(t, err)
 
 	var config struct {
+		Checksum struct {
+			NameTemplate string `yaml:"name_template"`
+		} `yaml:"checksum"`
 		Signs []struct {
 			Cmd       string   `yaml:"cmd"`
 			Signature string   `yaml:"signature"`
@@ -38,8 +42,10 @@ func TestGoReleaserChecksumSigning(t *testing.T) {
 	require.NotEmpty(t, sign.Args)
 	require.Equal(t, "scripts/ci/sign-reproducible-release.sh", sign.Args[0])
 	require.Equal(t, "checksum", sign.Artifacts)
+	// The engine's own release names its checksums file as every release does.
+	require.Equal(t, domainrelease.ChecksumsFile, config.Checksum.NameTemplate)
 
-	const artifact = "dist/checksums.txt"
+	artifact := "dist/" + config.Checksum.NameTemplate
 
 	signature := strings.ReplaceAll(sign.Signature, "${artifact}", artifact)
 
@@ -69,8 +75,8 @@ func TestGoReleaserChecksumSigning(t *testing.T) {
 			signer := `#!/bin/sh
 set -eu
 [ "$#" -eq 5 ] && [ "$1" = sign-blob ] && [ "$2" = --yes ] &&
-  [ "$3" = --bundle ] && [ "$4" = dist/checksums.txt.bundle ] &&
-  [ "$5" = dist/checksums.txt ] || exit 64
+  [ "$3" = --bundle ] && [ "$4" = dist/checksums.sha256.bundle ] &&
+  [ "$5" = dist/checksums.sha256 ] || exit 64
 if [ ! -f sign-attempts ]; then
   printf 'attempt\n' >>sign-attempts
   if [ -n 'FIRST_FAILURE' ]; then

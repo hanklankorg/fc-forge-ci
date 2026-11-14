@@ -95,7 +95,7 @@ canonical CLI adds a `canonical-cli` job of its own, as the
 [publish-container example](publishing.md#github-container-registry-ghcrio)
 shows.
 
-A person installs the CLI from a GitHub release and verifies `checksums.txt`
+A person installs the CLI from a GitHub release and verifies `checksums.sha256`
 against its Sigstore bundle, as [verification](verification.md) describes.
 
 On Forgejo, and in GitLab's checksum-bound components, a job gets the binary

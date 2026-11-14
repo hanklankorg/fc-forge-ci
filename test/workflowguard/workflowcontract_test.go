@@ -729,7 +729,7 @@ func TestProductionReleaseCeremonyUsesRequestThenFinalTag(t *testing.T) {
 	}
 
 	runtimeText := string(runtimeWorkflow)
-	if !strings.Contains(runtimeText, "sha256sum --check --strict checksums.txt") ||
+	if !strings.Contains(runtimeText, "sha256sum --check --strict checksums.sha256") ||
 		strings.Count(runtimeText, "release publish-self-runtime-cli") != 1 {
 		t.Fatal("self-runtime CLI publication must checksum-bootstrap this run's CLI and invoke the typed private publisher exactly once")
 	}

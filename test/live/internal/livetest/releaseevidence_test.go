@@ -25,8 +25,8 @@ func TestReleaseEvidencePersistsBeforeCleanup(t *testing.T) {
 	payloads := map[string][]byte{
 		"archive.tar.gz":       {0, 255, 1, 2},
 		"release-files.json":   []byte(`{"assets":["archive.tar.gz"]}`),
-		"checksums.txt":        []byte("public checksum\n"),
-		"checksums.txt.bundle": []byte(`{"signature":"public"}`),
+		"checksums.sha256":        []byte("public checksum\n"),
+		"checksums.sha256.bundle": []byte(`{"signature":"public"}`),
 		"sbom.json":            []byte(`{"bomFormat":"CycloneDX"}`),
 		"package.deb":          []byte("public package"),
 	}

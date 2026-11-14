@@ -94,8 +94,8 @@ func TestPublishSelfRuntimeCLI_SelectsExactAssetsAndForcesPrereleasePolicy(t *te
 	// membership sweep left room for a file nobody listed either way --
 	// and these are published, signed release assets.
 	want := []string{
-		"checksums.txt",
-		"checksums.txt.bundle",
+		"checksums.sha256",
+		"checksums.sha256.bundle",
 		"forge-ci.intoto.json",
 		"forge-ci.intoto.jsonl",
 		"forge-ci_0.90.0-pre_darwin_arm64.tar.gz",
@@ -177,7 +177,7 @@ func TestPublishSelfRuntimeCLI_HonoursAConfiguredForkPolicy(t *testing.T) {
 
 func TestPublishSelfRuntimeCLI_RequiresEveryExpectedAssetBeforeMutation(t *testing.T) {
 	t.Chdir(t.TempDir())
-	writeSelfRuntimeAssets(t, "cli-dist", "checksums.txt.bundle")
+	writeSelfRuntimeAssets(t, "cli-dist", "checksums.sha256.bundle")
 
 	publisher := &fakeSelfRuntimePublisher{}
 
@@ -188,7 +188,7 @@ func TestPublishSelfRuntimeCLI_RequiresEveryExpectedAssetBeforeMutation(t *testi
 		TargetSHA:  strings.Repeat("a", 40),
 		AssetsDir:  "cli-dist",
 	})
-	if !errors.Is(err, errs.ErrMissingInput) || !strings.Contains(err.Error(), "checksums.txt.bundle") {
+	if !errors.Is(err, errs.ErrMissingInput) || !strings.Contains(err.Error(), "checksums.sha256.bundle") {
 		t.Fatalf("err = %v, want missing bundle", err)
 	}
 
@@ -209,7 +209,7 @@ func writeSelfRuntimeAssets(t *testing.T, dir, omit string) {
 		names = append(names, archive, archive+".cdx.sbom.json")
 	}
 
-	names = append(names, "checksums.txt", "checksums.txt.bundle", "forge-ci.intoto.json", "forge-ci.intoto.jsonl")
+	names = append(names, "checksums.sha256", "checksums.sha256.bundle", "forge-ci.intoto.json", "forge-ci.intoto.jsonl")
 
 	for _, name := range names {
 		if name != omit {

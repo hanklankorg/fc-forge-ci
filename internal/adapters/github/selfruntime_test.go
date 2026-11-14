@@ -338,15 +338,15 @@ func TestPublishSelfRuntimeCLI_ReconcilesInPlaceChecksumLastAndTagLast(t *testin
 	api.release, api.prerelease, api.tagSHA = true, true, strings.Repeat("c", 40)
 	api.assets = []*selfRuntimeAsset{
 		{id: 1, name: "binary.tgz", body: "old-binary"},
-		{id: 2, name: "checksums.txt.bundle", body: "old-bundle"},
-		{id: 3, name: "checksums.txt", body: "old-checksum"},
+		{id: 2, name: "checksums.sha256.bundle", body: "old-bundle"},
+		{id: 3, name: "checksums.sha256", body: "old-checksum"},
 		{id: 4, name: "stale.txt", body: "stale"},
 	}
 
 	assets := writeSelfRuntimeTestAssets(t, map[string]string{
 		"binary.tgz":           "new-binary",
-		"checksums.txt.bundle": "new-bundle",
-		"checksums.txt":        "new-checksum",
+		"checksums.sha256.bundle": "new-bundle",
+		"checksums.sha256":        "new-checksum",
 	})
 
 	err := selfRuntimePublisher(t, api).PublishSelfRuntimeCLI(
@@ -363,7 +363,7 @@ func TestPublishSelfRuntimeCLI_ReconcilesInPlaceChecksumLastAndTagLast(t *testin
 	}
 
 	for name, body := range map[string]string{
-		"binary.tgz": "new-binary", "checksums.txt.bundle": "new-bundle", "checksums.txt": "new-checksum",
+		"binary.tgz": "new-binary", "checksums.sha256.bundle": "new-bundle", "checksums.sha256": "new-checksum",
 	} {
 		if got[name] != body {
 			t.Errorf("asset %s = %q, want %q (all: %v)", name, got[name], body, got)
@@ -386,7 +386,7 @@ func TestPublishSelfRuntimeCLI_ReconcilesInPlaceChecksumLastAndTagLast(t *testin
 		}
 	}
 
-	if len(uploads) != 3 || !strings.Contains(uploads[0], "binary.tgz") || !strings.Contains(uploads[1], "checksums.txt.bundle") || !strings.Contains(uploads[2], "checksums.txt") {
+	if len(uploads) != 3 || !strings.Contains(uploads[0], "binary.tgz") || !strings.Contains(uploads[1], "checksums.sha256.bundle") || !strings.Contains(uploads[2], "checksums.sha256") {
 		t.Errorf("upload order = %v, want payload, bundle, checksum", uploads)
 	}
 
@@ -453,8 +453,8 @@ func TestPublishSelfRuntimeCLI_SourceAdvancedBeforeTagMove(t *testing.T) {
 	api.staleAfter = 8
 	api.assets = []*selfRuntimeAsset{
 		{id: 1, name: "binary.tgz", body: "old-binary"},
-		{id: 2, name: "checksums.txt.bundle", body: "old-bundle"},
-		{id: 3, name: "checksums.txt", body: "old-checksum"},
+		{id: 2, name: "checksums.sha256.bundle", body: "old-bundle"},
+		{id: 3, name: "checksums.sha256", body: "old-checksum"},
 		{id: 4, name: "stale.txt", body: "stale"},
 	}
 
@@ -470,7 +470,7 @@ func TestPublishSelfRuntimeCLI_SourceAdvancedBeforeTagMove(t *testing.T) {
 	}
 
 	assertSelfRuntimeAssetBodies(t, api.assets, map[string]string{
-		"binary.tgz": "old-binary", "checksums.txt.bundle": "old-bundle", "checksums.txt": "old-checksum", "stale.txt": "stale",
+		"binary.tgz": "old-binary", "checksums.sha256.bundle": "old-bundle", "checksums.sha256": "old-checksum", "stale.txt": "stale",
 	})
 }
 
@@ -484,8 +484,8 @@ func TestPublishSelfRuntimeCLI_TagMoveFailureRestoresPriorAssets(t *testing.T) {
 	api.failTagMove = true
 	api.assets = []*selfRuntimeAsset{
 		{id: 1, name: "binary.tgz", body: "old-binary"},
-		{id: 2, name: "checksums.txt.bundle", body: "old-bundle"},
-		{id: 3, name: "checksums.txt", body: "old-checksum"},
+		{id: 2, name: "checksums.sha256.bundle", body: "old-bundle"},
+		{id: 3, name: "checksums.sha256", body: "old-checksum"},
 	}
 
 	err := selfRuntimePublisher(t, api).PublishSelfRuntimeCLI(
@@ -500,7 +500,7 @@ func TestPublishSelfRuntimeCLI_TagMoveFailureRestoresPriorAssets(t *testing.T) {
 	}
 
 	assertSelfRuntimeAssetBodies(t, api.assets, map[string]string{
-		"binary.tgz": "old-binary", "checksums.txt.bundle": "old-bundle", "checksums.txt": "old-checksum",
+		"binary.tgz": "old-binary", "checksums.sha256.bundle": "old-bundle", "checksums.sha256": "old-checksum",
 	})
 }
 
@@ -533,11 +533,11 @@ func TestPublishSelfRuntimeCLI_PartialFailureLeavesOldChecksumFailClosed(t *test
 	oldTag := strings.Repeat("c", 40)
 	api := newSelfRuntimeAPI(target)
 	api.release, api.prerelease, api.tagSHA = true, true, oldTag
-	api.failUploadName = "checksums.txt.bundle"
+	api.failUploadName = "checksums.sha256.bundle"
 	api.assets = []*selfRuntimeAsset{
 		{id: 1, name: "binary.tgz", body: "old-binary"},
-		{id: 2, name: "checksums.txt.bundle", body: "old-bundle"},
-		{id: 3, name: "checksums.txt", body: "old-checksum"},
+		{id: 2, name: "checksums.sha256.bundle", body: "old-bundle"},
+		{id: 3, name: "checksums.sha256", body: "old-checksum"},
 	}
 
 	err := selfRuntimePublisher(t, api).PublishSelfRuntimeCLI(
@@ -556,11 +556,11 @@ func TestPublishSelfRuntimeCLI_PartialFailureLeavesOldChecksumFailClosed(t *test
 		t.Errorf("payload was not replaced before failure: %v", got)
 	}
 
-	if _, exists := got["checksums.txt.bundle"]; exists {
+	if _, exists := got["checksums.sha256.bundle"]; exists {
 		t.Errorf("failed bundle replacement left a bundle: %v", got)
 	}
 
-	if got["checksums.txt"] != "old-checksum" {
+	if got["checksums.sha256"] != "old-checksum" {
 		t.Errorf("checksum commit point changed after pre-commit failure: %v", got)
 	}
 
@@ -568,7 +568,7 @@ func TestPublishSelfRuntimeCLI_PartialFailureLeavesOldChecksumFailClosed(t *test
 		t.Fatalf("partial publication moved channel tag: tag=%s mutations=%v", api.tagSHA, api.mutations)
 	}
 
-	if slices.Contains(api.mutations, "delete:checksums.txt") {
+	if slices.Contains(api.mutations, "delete:checksums.sha256") {
 		t.Fatalf("checksum was mutated before bundle succeeded: %v", api.mutations)
 	}
 }
@@ -609,13 +609,13 @@ func TestPublishSelfRuntimeCLI_RequiresSignedChecksumCommitAssets(t *testing.T) 
 	api := newSelfRuntimeAPI(target)
 	spec := provider.ReleaseSpec{
 		Tag: selfRuntimeTag, Prerelease: true, MakeLatest: provider.MakeLatestFalse,
-		Assets: writeSelfRuntimeTestAssets(t, map[string]string{"binary.tgz": "binary", "checksums.txt": "checksum"}),
+		Assets: writeSelfRuntimeTestAssets(t, map[string]string{"binary.tgz": "binary", "checksums.sha256": "checksum"}),
 	}
 
 	err := selfRuntimePublisher(t, api).PublishSelfRuntimeCLI(
 		context.Background(), selfRuntimePolicy, selfRuntimeRepository, selfRuntimeSourceRef, target, "body", spec,
 	)
-	if !errors.Is(err, errs.ErrValidation) || !strings.Contains(err.Error(), "checksums.txt.bundle") {
+	if !errors.Is(err, errs.ErrValidation) || !strings.Contains(err.Error(), "checksums.sha256.bundle") {
 		t.Fatalf("missing signed checksum bundle error = %v", err)
 	}
 
@@ -630,7 +630,7 @@ func validSelfRuntimeSpec(t *testing.T) provider.ReleaseSpec {
 	return provider.ReleaseSpec{
 		Tag: selfRuntimeTag, Prerelease: true, MakeLatest: provider.MakeLatestFalse,
 		Assets: writeSelfRuntimeTestAssets(t, map[string]string{
-			"binary.tgz": "new-binary", "checksums.txt.bundle": "new-bundle", "checksums.txt": "new-checksum",
+			"binary.tgz": "new-binary", "checksums.sha256.bundle": "new-bundle", "checksums.sha256": "new-checksum",
 		}),
 	}
 }
@@ -689,8 +689,8 @@ func TestPublishSelfRuntimeCLI_RefusesHostileAssetNames(t *testing.T) {
 
 			assets := writeSelfRuntimeTestAssets(t, map[string]string{
 				"binary.tgz":           "new-binary",
-				"checksums.txt.bundle": "new-bundle",
-				"checksums.txt":        "new-checksum",
+				"checksums.sha256.bundle": "new-bundle",
+				"checksums.sha256":        "new-checksum",
 			})
 
 			err := selfRuntimePublisher(t, api).PublishSelfRuntimeCLI(
@@ -725,8 +725,8 @@ func TestPublishSelfRuntimeCLI_RefusesDuplicateAssetNames(t *testing.T) {
 
 	assets := writeSelfRuntimeTestAssets(t, map[string]string{
 		"binary.tgz":           "new-binary",
-		"checksums.txt.bundle": "new-bundle",
-		"checksums.txt":        "new-checksum",
+		"checksums.sha256.bundle": "new-bundle",
+		"checksums.sha256":        "new-checksum",
 	})
 
 	err := selfRuntimePublisher(t, api).PublishSelfRuntimeCLI(

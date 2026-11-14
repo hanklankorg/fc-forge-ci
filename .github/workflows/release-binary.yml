@@ -12,8 +12,8 @@
 # already-existing release.
 #
 # Builds linux/amd64, linux/arm64 and darwin/arm64 archives via goreleaser and
-# uploads them as a GitHub release with checksums.txt plus a Sigstore
-# v3 bundle (checksums.txt.bundle). The bundle is produced by cosign
+# uploads them as a GitHub release with checksums.sha256 plus a Sigstore
+# v3 bundle (checksums.sha256.bundle). The bundle is produced by cosign
 # keyless signing — no long-lived key — and is what a person verifies the
 # downloaded archives against (docs/verification.md).
 #
@@ -195,7 +195,7 @@ jobs:
         env:
           GORELEASER_CURRENT_TAG: ${{ steps.release-context.outputs.release-tag }}
           FORGE_CI_RELEASE_REFERENCE: ${{ runner.temp }}/forge-ci-release-reference
-        run: bash scripts/ci/sign-reproducible-release.sh release sign --method=sigstore --no-checksums-file --no-release-artifacts-dir --file dist/checksums.txt
+        run: bash scripts/ci/sign-reproducible-release.sh release sign --method=sigstore --no-checksums-file --no-release-artifacts-dir --file dist/checksums.sha256
       - name: Generate + sign SLSA provenance (cosign sign-blob, keyless)
         # Portable, forge-neutral replacement for actions/attest-build-provenance.
         # forge-ci generates the in-toto / SLSA-v1.0 statement from goreleaser's
@@ -219,9 +219,9 @@ jobs:
           source_sha="$(git rev-parse HEAD)"
           "$RUNNER_TEMP/forge-ci" release provenance \
             --ref-name "$RELEASE_TAG" --source-sha "$source_sha" \
-            --checksums-file dist/checksums.txt \
+            --checksums-file dist/checksums.sha256 \
             --output dist/forge-ci.intoto.json \
             --bundle dist/forge-ci.intoto.jsonl
           "$RUNNER_TEMP/forge-ci" release attachments upload \
             --tag "$RELEASE_TAG" \
-            --pattern "dist/forge-ci_*.tar.gz,dist/forge-ci_*.tar.gz.cdx.sbom.json,dist/checksums.txt,dist/checksums.txt.bundle,dist/forge-ci.intoto.json,dist/forge-ci.intoto.jsonl"
+            --pattern "dist/forge-ci_*.tar.gz,dist/forge-ci_*.tar.gz.cdx.sbom.json,dist/checksums.sha256,dist/checksums.sha256.bundle,dist/forge-ci.intoto.json,dist/forge-ci.intoto.jsonl"

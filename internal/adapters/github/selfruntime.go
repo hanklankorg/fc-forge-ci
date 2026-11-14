@@ -360,7 +360,7 @@ func validateSelfRuntimeAssets(desired []string) error {
 		names[name] = struct{}{}
 	}
 
-	for _, required := range []string{"checksums.txt.bundle", "checksums.txt"} {
+	for _, required := range []string{domainrelease.ChecksumsFile + ".bundle", domainrelease.ChecksumsFile} {
 		if _, ok := names[required]; !ok {
 			return fmt.Errorf("self-runtime publication requires %s: %w", required, errs.ErrValidation)
 		}
@@ -371,7 +371,7 @@ func validateSelfRuntimeAssets(desired []string) error {
 
 // reconcileSelfRuntimeAssets performs the rolling channel's intentionally
 // simple in-place update. Stale assets and payloads mutate first, the signature
-// bundle next, and checksums.txt last as the signed commit point. A partial
+// bundle next, and checksums.sha256 last as the signed commit point. A partial
 // update can reduce availability, but cannot validate as the new release.
 //
 //nolint:cyclop // direct replacement keeps every fail-closed mutation gate visible.
@@ -444,7 +444,7 @@ func (p *Provider) reconcileSelfRuntimeAssets(
 			}
 		}
 
-		// For checksums.txt this freshness read is the signed-checksum commit
+		// For checksums.sha256 this freshness read is the signed-checksum commit
 		// gate and occurs immediately before the upload mutation.
 		if err := beforeMutation(); err != nil {
 			_ = opened.Close()

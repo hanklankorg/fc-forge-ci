@@ -16,7 +16,7 @@ set -euo pipefail
   exit 2
 }
 manifest=$7
-[[ ${manifest##*/} == checksums.txt && -f $manifest && ! -L $manifest ]] || exit 2
+[[ ${manifest##*/} == checksums.sha256 && -f $manifest && ! -L $manifest ]] || exit 2
 directory=$(dirname -- "$manifest")
 if [[ -n ${FORGE_CI_RELEASE_REFERENCE:-} ]]; then
   reference=$(realpath -e -- "$FORGE_CI_RELEASE_REFERENCE")

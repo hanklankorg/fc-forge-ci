@@ -58,7 +58,7 @@ EXAMPLES:
 
    # Publish an explicit asset list instead of reading the manifest
    forge-ci release publish --tag=v1.2.3 --repository=examplescope/myapp \
-       --release-notes-file=dist/release-notes.md --asset=dist/myapp.tar.gz --asset=dist/checksums.txt
+       --release-notes-file=dist/release-notes.md --asset=dist/myapp.tar.gz --asset=dist/checksums.sha256
 
    # Publish assets from an assembly manifest
    forge-ci release publish --strategy=recreate --tag=v1.2.3 \

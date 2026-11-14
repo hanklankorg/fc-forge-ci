@@ -124,18 +124,18 @@ func selfReleaseVerifyUploadedAssets(t *testing.T, trial *GitHubTrial, repo, tag
 		t.Fatal("retain GitHub self-release inventory: ", err)
 	}
 
-	if !trial.verifyBundles(repo, assets, trust, evidence)["checksums.txt"] {
+	if !trial.verifyBundles(repo, assets, trust, evidence)["checksums.sha256"] {
 		t.Fatal("the uploaded checksum manifest has no verified signature")
 	}
 
 	dir := trial.tempDir("self-release-assets")
-	for _, name := range []string{"checksums.txt", "forge-ci.intoto.json", "forge-ci.intoto.jsonl"} {
+	for _, name := range []string{"checksums.sha256", "forge-ci.intoto.json", "forge-ci.intoto.jsonl"} {
 		trial.download(repo, assets[name], filepath.Join(dir, name), evidence)
 	}
 
 	trial.run(dir, nil, HostTool(t, "cosign"), append(append([]string{"verify-blob", "--bundle", "forge-ci.intoto.jsonl"}, trust.verifyArgs()...), "forge-ci.intoto.json")...)
 
-	manifest, err := os.ReadFile(filepath.Join(dir, "checksums.txt"))
+	manifest, err := os.ReadFile(filepath.Join(dir, "checksums.sha256"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func selfReleaseVerifyUploadedAssets(t *testing.T, trial *GitHubTrial, repo, tag
 }
 
 func selfReleaseAssetInventory(assets []*github.ReleaseAsset, version string) (map[string]int64, error) {
-	want := map[string]bool{"checksums.txt": true, "checksums.txt.bundle": true, "forge-ci.intoto.json": true, "forge-ci.intoto.jsonl": true}
+	want := map[string]bool{"checksums.sha256": true, "checksums.sha256.bundle": true, "forge-ci.intoto.json": true, "forge-ci.intoto.jsonl": true}
 
 	for _, target := range []string{"linux_amd64", "linux_arm64", "darwin_arm64"} {
 		name := "forge-ci_" + version + "_" + target + ".tar.gz"
@@ -206,7 +206,7 @@ func TestSelfReleaseAssetInventory(t *testing.T) {
 			t.Parallel()
 
 			names := make([]string, 0, 10)
-			names = append(names, "checksums.txt", "checksums.txt.bundle", "forge-ci.intoto.json", "forge-ci.intoto.jsonl")
+			names = append(names, "checksums.sha256", "checksums.sha256.bundle", "forge-ci.intoto.json", "forge-ci.intoto.jsonl")
 
 			for _, target := range []string{"linux_amd64", "linux_arm64", "darwin_arm64"} {
 				archive := "forge-ci_0.0.1_" + target + ".tar.gz"

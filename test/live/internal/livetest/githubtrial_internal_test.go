@@ -611,14 +611,14 @@ func TestUnsignedSubjectsListsEveryAssetWithoutAVerifiedSignature(t *testing.T) 
 	assets := map[string]int64{
 		"app.tar.gz": 1, "app.tar.gz.bundle": 2,
 		"app.jar": 3, "app.jar.asc": 4,
-		"checksums.txt": 5,
+		"checksums.sha256": 5,
 		"sbom.cdx.json": 6, "sbom.cdx.json.sig": 7,
 	}
 	bundles := map[string]bool{"app.tar.gz": true}
 	signatures := map[string]bool{"app.jar": true}
 
 	got := unsignedSubjects(maps.Keys(assets), bundles, signatures)
-	want := []string{"checksums.txt", "sbom.cdx.json"}
+	want := []string{"checksums.sha256", "sbom.cdx.json"}
 
 	if !slices.Equal(got, want) {
 		t.Errorf("unsignedSubjects = %v, want %v", got, want)
@@ -631,18 +631,18 @@ func TestUnsignedSubjectsListsEveryAssetWithoutAVerifiedSignature(t *testing.T) 
 func TestReleaseSignatureGapsFollowTheDeclaredMethod(t *testing.T) {
 	t.Parallel()
 
-	assets := map[string]int64{"app.jar": 1, "app.jar.asc": 2, "app.jar.bundle": 3, "checksums.txt": 4, "checksums.txt.asc": 5}
+	assets := map[string]int64{"app.jar": 1, "app.jar.asc": 2, "app.jar.bundle": 3, "checksums.sha256": 4, "checksums.sha256.asc": 5}
 
 	for name, tc := range map[string]struct {
 		method              domainrelease.SignMethod
 		bundles, signatures map[string]bool
 		want                string
 	}{
-		"gpg, a bundle offered":  {domainrelease.SignMethodGPG, nil, map[string]bool{"app.jar": true, "checksums.txt": true}, "offers Cosign bundles: [app.jar.bundle]"},
-		"sigstore, every bundle": {domainrelease.SignMethodSigstore, map[string]bool{"app.jar": true, "checksums.txt": true}, nil, ""},
-		"gpg, bundle only":       {domainrelease.SignMethodGPG, map[string]bool{"app.jar": true}, map[string]bool{"checksums.txt": true}, "carry only a Cosign bundle: [app.jar]"},
-		"kms, .asc only":         {domainrelease.SignMethodKMS, map[string]bool{"app.jar": true}, map[string]bool{"checksums.txt": true}, "carry only a GPG signature: [checksums.txt]"},
-		"sigstore, one unsigned": {domainrelease.SignMethodSigstore, map[string]bool{"app.jar": true}, nil, "1 assets without a verified sigstore signature: [checksums.txt]"},
+		"gpg, a bundle offered":  {domainrelease.SignMethodGPG, nil, map[string]bool{"app.jar": true, "checksums.sha256": true}, "offers Cosign bundles: [app.jar.bundle]"},
+		"sigstore, every bundle": {domainrelease.SignMethodSigstore, map[string]bool{"app.jar": true, "checksums.sha256": true}, nil, ""},
+		"gpg, bundle only":       {domainrelease.SignMethodGPG, map[string]bool{"app.jar": true}, map[string]bool{"checksums.sha256": true}, "carry only a Cosign bundle: [app.jar]"},
+		"kms, .asc only":         {domainrelease.SignMethodKMS, map[string]bool{"app.jar": true}, map[string]bool{"checksums.sha256": true}, "carry only a GPG signature: [checksums.sha256]"},
+		"sigstore, one unsigned": {domainrelease.SignMethodSigstore, map[string]bool{"app.jar": true}, nil, "1 assets without a verified sigstore signature: [checksums.sha256]"},
 		"gpg, nothing verified":  {domainrelease.SignMethodGPG, nil, nil, "2 assets without a verified gpg signature"},
 	} {
 		err := releaseSignatureGaps(tc.method, assets, tc.bundles, tc.signatures)
@@ -657,7 +657,7 @@ func TestReleaseSignatureGapsFollowTheDeclaredMethod(t *testing.T) {
 
 	delete(assets, "app.jar.bundle")
 
-	if err := releaseSignatureGaps(domainrelease.SignMethodGPG, assets, nil, map[string]bool{"app.jar": true, "checksums.txt": true}); err != nil {
+	if err := releaseSignatureGaps(domainrelease.SignMethodGPG, assets, nil, map[string]bool{"app.jar": true, "checksums.sha256": true}); err != nil {
 		t.Errorf("gpg, every .asc and no bundle: %v", err)
 	}
 }

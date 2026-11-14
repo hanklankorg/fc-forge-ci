@@ -71,11 +71,11 @@ archives:
         info: *archive_file_info
 
 checksum:
-  name_template: 'checksums.txt'
+  name_template: 'checksums.sha256'
 
 # Per-archive Software Bill of Materials via syft. One CycloneDX
-# document per tarball, included in checksums.txt — so the cosign
-# signature on checksums.txt (below) transitively covers every SBOM
+# document per tarball, included in checksums.sha256 — so the cosign
+# signature on checksums.sha256 (below) transitively covers every SBOM
 # via SHA-256. Consumers can enumerate inputs without an additional
 # verification step.
 #
@@ -97,11 +97,11 @@ sboms:
       - 'cyclonedx-json=$document'
 
 # Sigstore-keyless signing of the release. cosign signs the
-# checksums.txt — one bundle covers every per-arch tarball AND every
-# SBOM because checksums.txt is the integrity anchor (a per-artifact
+# checksums.sha256 — one bundle covers every per-arch tarball AND every
+# SBOM because checksums.sha256 is the integrity anchor (a per-artifact
 # signature would be redundant and noisier in the release UI). The
 # bundle carries the Fulcio cert + Rekor proof; consumers verify via
-# `cosign verify-blob --bundle checksums.txt.bundle`.
+# `cosign verify-blob --bundle checksums.sha256.bundle`.
 #
 # The source-built forge-ci CLI routes signing through its cosign adapter,
 # including the bounded retry for transient Sigstore failures.

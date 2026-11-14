@@ -103,8 +103,8 @@ func selfRuntimeCLIAssets(dir, version string) ([]string, error) {
 	}
 
 	names = append(names,
-		"checksums.txt",
-		"checksums.txt.bundle",
+		domainrelease.ChecksumsFile,
+		domainrelease.ChecksumsFile+".bundle",
 		"forge-ci.intoto.json",
 		"forge-ci.intoto.jsonl",
 	)
