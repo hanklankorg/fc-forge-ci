@@ -273,10 +273,13 @@ A derived report that cannot be written fails the scan with enforcement on
 or off: the reports are the evidence the step hands on.
 
 A lint-runner check that could not complete is not a finding and is never
-waived: its gate prints `result=incomplete` with
-`could-not-complete=<check ids>` unless the gate has findings, and the command
-fails after the findings of the other checks are reported and the security
-SARIF is written. A security check the runner reports as skipped, whether for
+called clean: its gate prints `result=incomplete` with
+`could-not-complete=<check ids>` unless the gate has findings. It then follows
+the gate it belongs to. Where that gate is enforced the command fails, after
+the findings of the other checks are reported and the security SARIF is
+written. Where the gate is report-only the command prints a warning naming the
+checks and does not fail: a scanner that cannot finish blocks no more than its
+findings would. A security check the runner reports as skipped, whether for
 a network outage or in offline mode, could not complete either. One that does
 not apply to the repository passes and is listed as
 `not-applicable=<check ids>`; the gate prints `result=not-applicable` when

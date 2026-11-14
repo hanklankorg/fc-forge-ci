@@ -352,6 +352,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A lint-runner check that could not complete now follows the enforcement of
+  the gate it belongs to. With `enforce-lint` or `enforce-vulnerabilities` on,
+  the gate still fails. With the gate report-only, the command prints a
+  warning naming the checks and no longer fails; the gate still prints
+  `result=incomplete` and is never called clean.
+
 - The signed Xcode build of the GitHub layer runs on the caller's
   `runs-on-darwin-arm64`, as the unsigned one does, where it was fixed to
   `macos-26`. The Xcode version a project builds with decides the macOS

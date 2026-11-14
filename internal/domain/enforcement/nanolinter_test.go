@@ -245,3 +245,24 @@ func TestNanolinterSkipAndNotApplicableAreScopedToTheirGate(t *testing.T) {
 		t.Errorf("a gate whose other scan ran reads as %q %q", outcome, detail)
 	}
 }
+
+// A check without a verdict is recorded on the gate it belongs to and on no
+// other, so each gate's enforcement decides for its own checks.
+func TestIncompleteIsRecordedPerGate(t *testing.T) {
+	t.Parallel()
+
+	report, err := ParseNanolinter([]byte(`{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"nanolinter"}},"results":[
+{"properties":{"source":"curated","check_id":"osv","class":"security","status":"fail","failure_reason_category":"tool_failure"}},
+{"properties":{"source":"curated","check_id":"sast","class":"security","status":"pass"}}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := report.Incomplete(Vulnerabilities); !errors.Is(err, errs.ErrPrerequisite) || !strings.Contains(err.Error(), "osv") {
+		t.Fatalf("vulnerabilities gate: %v", err)
+	}
+
+	if err := report.Incomplete(Lint); err != nil {
+		t.Fatalf("lint gate took the dependency check's failure: %v", err)
+	}
+}

@@ -44,8 +44,8 @@ type NanolinterReport struct {
 	VulnerabilityFindings int
 	SecuritySARIF         []byte
 	// Unavailable is set when a check produced no verdict: it failed at run
-	// time, or a security check was skipped. Enforcement decides on findings;
-	// whether a check ran is not a finding and is never waived.
+	// time, or a security check was skipped. That is not a finding. It blocks
+	// with the gate the check belongs to: see Incomplete.
 	Unavailable error
 
 	gates map[Check]*nanoGate
@@ -54,6 +54,7 @@ type NanolinterReport struct {
 // nanoGate records what the checks of one gate did besides finding things.
 type nanoGate struct {
 	incomplete    []string
+	unavailable   error
 	notApplicable []string
 	ran           bool
 }
@@ -87,6 +88,17 @@ func (report *NanolinterReport) Outcome(check Check) (string, string) {
 	}
 
 	return outcome, strings.Join(detail, " ")
+}
+
+// Incomplete returns why the gate's checks gave no verdict, nil when all did.
+// The caller fails on it where the gate is enforced and warns where it is
+// report-only: a scanner that cannot finish blocks no more than its findings.
+func (report *NanolinterReport) Incomplete(check Check) error {
+	if gate := report.gates[check]; gate != nil {
+		return gate.unavailable
+	}
+
+	return nil
 }
 
 // ParseNanolinter requires the full SARIF of this invocation, not a pre-existing
@@ -155,6 +167,7 @@ func (report *NanolinterReport) count(result nanoResult) {
 		switch {
 		case unavailable != nil:
 			gate.incomplete = append(gate.incomplete, result.Properties.CheckID)
+			gate.unavailable = errors.Join(gate.unavailable, unavailable)
 		case result.security() && result.Properties.Status == "n/a":
 			gate.notApplicable = append(gate.notApplicable, result.Properties.CheckID)
 		default:

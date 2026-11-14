@@ -84,12 +84,13 @@ func nanolinter(ctx context.Context, policy enforcement.Policy, runner LintRunne
 
 		outcome, detail := report.Outcome(check)
 
-		return reportOutcome(out, decision, outcome, detail)
+		// Findings are reported and gated first.
+		findings := reportOutcome(out, decision, outcome, detail)
+
+		return errors.Join(findings, gateIncomplete(out, decision, report.Incomplete(check)))
 	}
 
-	// Findings are reported and gated first; a check without a verdict then
-	// fails the command whatever the policy says about findings.
-	return errors.Join(gate(enforcement.Lint, report.LintFindings), gate(enforcement.Vulnerabilities, report.VulnerabilityFindings), report.Unavailable)
+	return errors.Join(gate(enforcement.Lint, report.LintFindings), gate(enforcement.Vulnerabilities, report.VulnerabilityFindings))
 }
 
 // boundedCapture keeps one structured report, refusing to grow past 8 MiB.
@@ -197,3 +198,18 @@ func (status commandExitError) Error() string {
 	return fmt.Sprintf("application test command exited %d", status)
 }
 func (status commandExitError) ExitCode() int { return int(status) }
+
+// gateIncomplete decides on the checks of a gate that gave no verdict. They
+// fail an enforced gate and are a warning under a report-only one, as their
+// findings would be.
+func gateIncomplete(out io.Writer, decision enforcement.Decision, incomplete error) error {
+	if incomplete == nil || decision.Enforced {
+		return incomplete
+	}
+
+	if _, err := fmt.Fprintf(out, "Warning: %s checks could not complete and their findings are unknown; %s is report-only, so this does not block: %v\n", decision.Check, decision.Check, incomplete); err != nil {
+		return fmt.Errorf("report incomplete checks: %w", err)
+	}
+
+	return nil
+}

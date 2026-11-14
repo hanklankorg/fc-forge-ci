@@ -106,21 +106,32 @@ func TestLintRunsAndKeepsInfrastructureFailuresBlocking(t *testing.T) {
 	}
 }
 
-// One check's runtime failure fails the command, but only after the findings
-// of the others are written and reported.
+// A check that could not complete follows its own gate: it fails the command
+// where that gate is enforced and is a warning where it is report-only. Either
+// way the findings of the other checks are written and reported first.
 func TestFindingsArePublishedBeforeACheckFailureIsReturned(t *testing.T) {
 	body := `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"nanolinter"}},"results":[
 {"ruleId":"sast","properties":{"source":"curated","check_id":"sast","class":"security","status":"fail","failure_reason_category":"network"}},
 {"ruleId":"CVE-EXAMPLE","properties":{"source":"curated","check_id":"osv","class":"security","status":"fail"}}]}]}`
 
-	for _, enforced := range []bool{false, true} {
+	for _, policy := range []enforcement.Policy{
+		{},
+		{EnforceLint: true},
+		{EnforceVulnerabilities: true},
+		{EnforceLint: true, EnforceVulnerabilities: true},
+	} {
 		sarif := filepath.Join(t.TempDir(), "security.sarif")
 
 		var out bytes.Buffer
 
-		err := nanolinter(t.Context(), enforcement.Policy{EnforceVulnerabilities: enforced}, &runner{status: 1, body: body}, &out, io.Discard, []string{"nanolinter", "verify"}, sarif)
-		if !errors.Is(err, errs.ErrPrerequisite) || errors.Is(err, errs.ErrValidation) != enforced {
-			t.Fatalf("enforced=%t: %v", enforced, err)
+		err := nanolinter(t.Context(), policy, &runner{status: 1, body: body}, &out, io.Discard, []string{"nanolinter", "verify"}, sarif)
+		if errors.Is(err, errs.ErrPrerequisite) != policy.EnforceLint || errors.Is(err, errs.ErrValidation) != policy.EnforceVulnerabilities {
+			t.Fatalf("policy %+v: %v", policy, err)
+		}
+
+		const warning = "Warning: lint checks could not complete and their findings are unknown; lint is report-only"
+		if strings.Contains(out.String(), warning) == policy.EnforceLint {
+			t.Fatalf("policy %+v: report-only warning misplaced:\n%s", policy, out.String())
 		}
 
 		written, readErr := os.ReadFile(sarif)
@@ -136,21 +147,26 @@ func TestFindingsArePublishedBeforeACheckFailureIsReturned(t *testing.T) {
 	}
 }
 
-// A security check that was skipped did not find the code clean: the command
-// fails whatever the enforcement, and never prints result=clean for its gate.
-func TestSkippedSecurityCheckIsNeitherCleanNorWaived(t *testing.T) {
+// A security check that was skipped did not find the code clean: its gate
+// never prints result=clean. The command fails where the gate is enforced and
+// warns where it is report-only.
+func TestSkippedSecurityCheckIsNeverClean(t *testing.T) {
 	const document = `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"nanolinter"}},"results":[{"ruleId":"osv","properties":{"source":"curated","check_id":"osv","class":"security","status":"%s"}}]}]}`
 
 	for _, enforced := range []bool{false, true} {
 		var out bytes.Buffer
 
 		err := nanolinter(t.Context(), enforcement.Policy{EnforceVulnerabilities: enforced}, &runner{body: fmt.Sprintf(document, "skip")}, &out, io.Discard, []string{"nanolinter", "verify"}, "")
-		if !errors.Is(err, errs.ErrPrerequisite) {
-			t.Fatalf("enforced=%t: a skipped scan passed: %v", enforced, err)
+		if errors.Is(err, errs.ErrPrerequisite) != enforced || (!enforced && err != nil) {
+			t.Fatalf("enforced=%t: skipped scan: %v", enforced, err)
 		}
 
 		if !strings.Contains(out.String(), "vulnerabilities result=incomplete count=0") || !strings.Contains(out.String(), "could-not-complete=osv\n") {
 			t.Fatalf("skipped scan not reported as incomplete:\n%s", out.String())
+		}
+
+		if strings.Contains(out.String(), "Warning: vulnerabilities checks could not complete") == enforced {
+			t.Fatalf("enforced=%t: report-only warning misplaced:\n%s", enforced, out.String())
 		}
 
 		out.Reset()
