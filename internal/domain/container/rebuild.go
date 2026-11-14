@@ -126,7 +126,7 @@ func runInstructions(body string) []runInstruction {
 	var runs []runInstruction
 
 	for _, ins := range instructions(body) {
-		if ins.keyword != "RUN" {
+		if ins.keyword != instructionRun {
 			continue
 		}
 
@@ -141,6 +141,14 @@ func runInstructions(body string) []runInstruction {
 
 	return runs
 }
+
+// The Containerfile instructions the checks read.
+const (
+	instructionFrom = "FROM"
+	instructionRun  = "RUN"
+	instructionCopy = "COPY"
+	instructionAdd  = "ADD"
+)
 
 // instruction is one instruction of a Containerfile.
 type instruction struct {
@@ -190,7 +198,7 @@ func instructions(body string) []instruction {
 		ins := instruction{line: start, keyword: strings.ToUpper(words[0]), words: words[1:]}
 
 		// Only these instructions take a here-document.
-		if ins.keyword == "RUN" || ins.keyword == "COPY" || ins.keyword == "ADD" {
+		if ins.keyword == instructionRun || ins.keyword == instructionCopy || ins.keyword == instructionAdd {
 			if delimiter := heredocStart.FindStringSubmatch(execFormScript(strings.Join(ins.words, " "))); delimiter != nil {
 				ins.heredoc, index = readHeredoc(lines, index+1, delimiter[1])
 			}

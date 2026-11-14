@@ -73,11 +73,11 @@ func ContainerfileShortImageNames(body string) []ShortImageName {
 			}
 
 			continue
-		case "FROM":
+		case instructionFrom:
 			if words := withoutOptions(ins.words); len(words) > 0 {
 				images = []string{words[0]}
 			}
-		case "COPY", "RUN":
+		case instructionCopy, instructionRun:
 			images = fromOptions(ins.words)
 		default:
 			continue
@@ -91,7 +91,7 @@ func ContainerfileShortImageNames(body string) []ShortImageName {
 
 		// A stage is known by its index and, with AS, by its name, to the
 		// instructions after its own FROM.
-		if ins.keyword == "FROM" {
+		if ins.keyword == instructionFrom {
 			stages[strconv.Itoa(stage)] = true
 			stage++
 
