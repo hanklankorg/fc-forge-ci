@@ -1,0 +1,361 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+// SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
+
+package build
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
+	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
+	appsummary "github.com/diggsweden/forge-ci/internal/app/summary"
+	"github.com/diggsweden/forge-ci/internal/domain/build"
+	"github.com/diggsweden/forge-ci/internal/domain/ci"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/output"
+	domainversion "github.com/diggsweden/forge-ci/internal/domain/version"
+	"github.com/diggsweden/forge-ci/internal/pathsafe"
+)
+
+// AndroidReleaseBuildInput drives AndroidReleaseBuild. It embeds the shared
+// ReleaseBuildOptions and adds the Android-specific knobs as configuration:
+// artifact-name composition, keystore signing, secrets.properties, task
+// resolution, and the pinned SBOM plugin.
+type AndroidReleaseBuildInput struct {
+	ReleaseBuildOptions
+
+	Library bool
+
+	// Artifact-name composition (ArtifactName from the embed is the override).
+	IncludeDateStamp   bool
+	ArtifactNamePrefix string
+	RepoName           string
+	ProductFlavor      string
+
+	// Signing credentials are passed only to this run's Gradle children.
+	// Password bytes are preserved; whitespace-only aliases are refused.
+	EnableSigning           bool
+	KeystoreBase64          string
+	KeystorePassword        string
+	KeyAlias                string
+	KeyPassword             string
+	SecretsPropertiesBase64 string
+
+	// TempDir is the run context's scratch directory, used to place the
+	// decoded keystore outside the project dir. The CLI binding reads
+	// $CI_TEMP_DIR / $RUNNER_TEMP via flag sources. Empty uses the canonical
+	// OS temp root. The parent must exist. Every run creates and cleans a
+	// private child below it.
+	TempDir string
+
+	// Build-task selection (GradleTasksOverride wins; else resolved).
+	GradleTasksOverride string
+	BuildTypes          string
+	IncludeAAB          bool
+	BuildModule         string
+
+	// SBOMToolVersion pins the cyclonedx-gradle-plugin.
+	SBOMToolVersion string
+}
+
+// AndroidReleaseBuild runs the whole Android release build as one step: compose
+// artifact names, make the wrapper executable, decode the signing keystore (when
+// enabled), resolve metadata + build tasks, write secrets.properties, run the
+// gradle build, generate the Build SBOM, and append the SBOM status.
+//
+// It is the Android sibling of GradleReleaseBuild — the binary-owned build
+// sequence (Design Rule 1). Signing files live through build and SBOM and are
+// cleaned on return. Injected properties are create-only; caller files are not
+// replaced. The keystore path and credentials use the child environment; the
+// resolved artifact names + version are emitted on the sink as the job outputs
+// downstream upload/publish jobs consume.
+func AndroidReleaseBuild(ctx context.Context, sink ci.OutputSink, summarySink ci.SummarySink, ops AndroidGradleOps, annot output.Annotator, out, stderr io.Writer, in AndroidReleaseBuildInput) (err error) {
+	if err := appenforcement.RequireTests(ctx, in.SkipTests); err != nil {
+		return err
+	}
+
+	dir, err := filepath.Abs(defaultDir(in.Dir))
+	if err != nil {
+		return err
+	}
+
+	in.Dir = dir
+
+	pre, err := preflightAndroidRelease(in)
+	if err != nil {
+		return err
+	}
+
+	project, err := pathsafe.OpenRoot(dir)
+	if err != nil {
+		return fmt.Errorf("open Android project: %w", err)
+	}
+	defer func() { err = errors.Join(err, project.Close()) }()
+
+	wrapper, err := openAndroidBuildFile(project, "gradlew")
+	if err != nil {
+		return err
+	}
+
+	defer func() { err = errors.Join(err, wrapper.Close()) }()
+
+	if err = preflightAndroidProject(project, &in); err != nil {
+		return err
+	}
+
+	if err = AndroidArtifactNames(ctx, sink, stderr, AndroidArtifactNamesInput{
+		Library:     in.Library,
+		IncludeDate: in.IncludeDateStamp,
+		Prefix:      in.ArtifactNamePrefix,
+		RepoName:    in.RepoName,
+		Flavor:      in.ProductFlavor,
+		Override:    in.ArtifactName,
+	}); err != nil {
+		return fmt.Errorf("compose artifact names: %w", err)
+	}
+
+	if err = wrapper.Chmod(0o755); err != nil {
+		return fmt.Errorf("make gradlew executable: %w", err)
+	}
+
+	bound := androidProjectGradle{ops: ops, dir: dir}
+
+	if in.EnableSigning {
+		env, cleanup, stageErr := stageAndroidKeystore(pre.keystore, in)
+		if stageErr != nil {
+			return stageErr
+		}
+		defer func() { err = errors.Join(err, cleanup()) }()
+
+		bound.env = env
+	}
+
+	if err = publishAndroidVersion(ctx, sink, annot, stderr, in); err != nil {
+		return fmt.Errorf("resolve version: %w", err)
+	}
+
+	if in.SecretsPropertiesBase64 != "" {
+		cleanup, createErr := createAndroidProperties(project, pre.properties)
+		if createErr != nil {
+			return fmt.Errorf("write secrets.properties: %w", createErr)
+		}
+		defer func() { err = errors.Join(err, cleanup()) }()
+	}
+
+	if err = AndroidGradleBuild(ctx, bound, out, stderr, AndroidGradleBuildInput{Tasks: pre.tasks, TestTask: pre.testTask, SkipTests: in.SkipTests}); err != nil {
+		return fmt.Errorf("gradle build: %w", err)
+	}
+
+	return androidSBOMStep(ctx, gradleDeps{summary: summarySink, ops: bound, w: out, stderr: stderr}, in)
+}
+
+// publishAndroidVersion emits the version output: a library's Gradle version,
+// or an app's version and version-code from gradle.properties.
+func publishAndroidVersion(ctx context.Context, sink ci.OutputSink, annot output.Annotator, stderr io.Writer, in AndroidReleaseBuildInput) error {
+	if in.Library {
+		return sink.Set(ctx, "version", resolveGradleVersion(in.Dir))
+	}
+
+	return AndroidVersionInfo(ctx, sink, stderr, annot, AndroidVersionInfoInput{Dir: in.Dir})
+}
+
+// androidReleasePreflight holds what AndroidReleaseBuild checks and decodes
+// before it opens the project, publishes an output or stages a secret.
+type androidReleasePreflight struct {
+	keystore, properties []byte
+	tasks, testTask      string
+}
+
+func preflightAndroidRelease(in AndroidReleaseBuildInput) (androidReleasePreflight, error) {
+	var (
+		pre androidReleasePreflight
+		err error
+	)
+
+	if in.Library && in.EnableSigning {
+		return pre, fmt.Errorf("android libraries do not use APK keystore signing: %w", errs.ErrInvalidConfig)
+	}
+
+	if in.EnableSigning {
+		if in.KeystoreBase64 == "" {
+			return pre, fmt.Errorf("ANDROID_KEYSTORE secret not found but enable-signing is true: %w", errs.ErrPermissionDenied)
+		}
+
+		pre.keystore, err = decodeMobileSecret(in.KeystoreBase64)
+		if err != nil {
+			return pre, fmt.Errorf("decode keystore base64: %w", err)
+		}
+	}
+
+	if in.SecretsPropertiesBase64 != "" {
+		pre.properties, err = decodeMobileSecret(in.SecretsPropertiesBase64)
+		if err != nil {
+			return pre, fmt.Errorf("decode secrets.properties base64: %w", err)
+		}
+	}
+
+	pre.tasks, err = androidReleaseTasks(in)
+	if err != nil {
+		return pre, err
+	}
+
+	pre.testTask, err = build.AndroidUnitTestTask(in.BuildModule)
+	if err != nil {
+		return pre, err
+	}
+	// These compose the artifact names this build publishes as job outputs, so
+	// they have to be printable text before a name is derived from them, not
+	// after a sink refuses one.
+	for _, field := range []struct{ name, value string }{
+		{"artifact-name", in.ArtifactName}, {"artifact-name-prefix", in.ArtifactNamePrefix},
+		{"repository-name", in.RepoName}, {"product-flavor", in.ProductFlavor},
+	} {
+		if err = validateScalarValue(field.value); err != nil {
+			return pre, fmt.Errorf("%s: %w", field.name, err)
+		}
+	}
+
+	if in.EnableBuildSBOM && !domainversion.IsStableSemverTag("v"+in.SBOMToolVersion) {
+		return pre, fmt.Errorf("SBOM tool version must be an exact MAJOR.MINOR.PATCH: %w", errs.ErrUsage)
+	}
+
+	return pre, validateAndroidCredentials(in)
+}
+
+// preflightAndroidProject checks the opened project and scratch locations
+// before anything is published. It settles in.TempDir for the keystore.
+func preflightAndroidProject(project *os.Root, in *AndroidReleaseBuildInput) error {
+	if err := checkAndroidMetadata(project); err != nil {
+		return err
+	}
+
+	if in.SecretsPropertiesBase64 != "" {
+		if _, statErr := project.Lstat("secrets.properties"); !errors.Is(statErr, os.ErrNotExist) {
+			return fmt.Errorf("injected secrets.properties requires an absent destination: %w", errors.Join(errs.ErrValidation, statErr))
+		}
+
+		if err := checkBuildWritableRoot(project); err != nil {
+			return err
+		}
+	}
+
+	if in.EnableSigning {
+		tempDir, err := androidKeystoreTempDir(in.TempDir, in.Dir)
+		if err != nil {
+			return err
+		}
+
+		in.TempDir = tempDir
+	}
+
+	if in.EnableBuildSBOM {
+		if _, err := gradleSBOMTempDir(); err != nil {
+			return fmt.Errorf("preflight Gradle SBOM scratch: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// stageAndroidKeystore writes the keystore into a private staging directory
+// below in.TempDir. It returns the Gradle child environment that names it and
+// the cleanup that removes it.
+func stageAndroidKeystore(keystore []byte, in AndroidReleaseBuildInput) ([]string, func() error, error) {
+	stage, err := pathsafe.NewArtifactStaging(in.TempDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("stage Android keystore: %w", err)
+	}
+
+	cleanup := func() error {
+		if err := stage.Close(); err != nil {
+			return fmt.Errorf("clean Android keystore: %w", err)
+		}
+
+		return nil
+	}
+
+	if err = stage.Root().WriteFile("release.keystore", keystore, 0o600); err != nil {
+		return nil, nil, errors.Join(fmt.Errorf("write Android keystore: %w", err), cleanup())
+	}
+
+	return []string{
+		"ANDROID_KEYSTORE_PATH=" + filepath.Join(stage.Root().Name(), "release.keystore"),
+		"ANDROID_KEYSTORE_PASSWORD=" + in.KeystorePassword,
+		"ANDROID_KEY_ALIAS=" + in.KeyAlias,
+		"ANDROID_KEY_PASSWORD=" + in.KeyPassword,
+	}, cleanup, nil
+}
+
+func androidReleaseTasks(in AndroidReleaseBuildInput) (string, error) {
+	tasks := strings.TrimSpace(in.GradleTasksOverride)
+	if tasks == "" {
+		var err error
+
+		tasks, err = build.ResolveAndroidBuildTasks(build.ResolveAndroidBuildTasksInput{Library: in.Library, Flavor: in.ProductFlavor, BuildTypes: in.BuildTypes, IncludeAAB: in.IncludeAAB, BuildModule: in.BuildModule, RunTests: !in.SkipTests})
+		if err != nil {
+			return "", fmt.Errorf("resolve Android build tasks: %w", err)
+		}
+	}
+	// Each task becomes one argument; name the field instead of echoing input.
+	for task := range strings.FieldsSeq(tasks) {
+		if err := validateScalarValue(task); err != nil {
+			return "", fmt.Errorf("resolved Android build tasks: %w: %w", err, errs.ErrValidation)
+		}
+	}
+
+	return tasks, nil
+}
+
+// AndroidGradleOps adds per-invocation environment overrides without widening
+// GradleOps for generic Gradle consumers. The adapter retains inherited runtime
+// variables (including JDK/SDK settings); this is not an environment sandbox.
+type AndroidGradleOps interface {
+	RunInDirEnvInherit(ctx context.Context, dir string, env []string, stdout, stderr io.Writer, args ...string) error
+}
+
+type androidProjectGradle struct {
+	ops AndroidGradleOps
+	dir string
+	env []string
+}
+
+func (g androidProjectGradle) RunInherit(ctx context.Context, stdout, stderr io.Writer, args ...string) error {
+	return g.ops.RunInDirEnvInherit(ctx, g.dir, g.env, stdout, stderr, args...)
+}
+
+func (g androidProjectGradle) RunInDirInherit(ctx context.Context, _ string, stdout, stderr io.Writer, args ...string) error {
+	return g.RunInherit(ctx, stdout, stderr, args...)
+}
+
+func androidSBOMStep(ctx context.Context, deps gradleDeps, in AndroidReleaseBuildInput) error {
+	outcome := outcomeSkipped
+
+	var generationErr error
+
+	if in.EnableBuildSBOM {
+		outcome = outcomeSuccess
+		if err := GradleSBOM(ctx, deps.ops, deps.w, deps.stderr, GradleSBOMInput{CycloneDXVersion: in.SBOMToolVersion, WorkingDir: in.Dir}); err != nil {
+			outcome = outcomeFailure
+			generationErr = fmt.Errorf("gradle-android Build SBOM generation failed: %w", err)
+		}
+	}
+
+	if err := appsummary.BuildSBOMStatus(ctx, deps.summary, appsummary.BuildSBOMStatusInput{
+		Ecosystem: "gradle-android",
+		Outcome:   outcome,
+		WorkDir:   defaultDir(in.Dir),
+	}); err != nil {
+		return errors.Join(generationErr, fmt.Errorf("write SBOM status: %w", err))
+	}
+
+	if generationErr != nil {
+		return generationErr
+	}
+
+	return nil
+}

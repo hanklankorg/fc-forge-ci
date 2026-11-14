@@ -1,0 +1,550 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+// SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
+
+package build
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"golang.org/x/mod/modfile"
+
+	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
+	domainbuild "github.com/diggsweden/forge-ci/internal/domain/build"
+	"github.com/diggsweden/forge-ci/internal/domain/ci"
+	"github.com/diggsweden/forge-ci/internal/domain/enforcement"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	domainversion "github.com/diggsweden/forge-ci/internal/domain/version"
+	"github.com/diggsweden/forge-ci/internal/listval"
+	"github.com/diggsweden/forge-ci/internal/pathsafe"
+)
+
+// GoTool runs `go` commands.
+//
+// architecture uses narrow per-tool interfaces so adapters for `go`
+// vs `cyclonedx-gomod` stay swappable. Merging would conflate roles.
+//
+//nolint:iface // intentionally distinct consumer-defined port — the
+type GoTool interface {
+	Run(ctx context.Context, in GoRunInput) error
+}
+
+// GoRunInput is one go/cyclonedx-gomod command invocation.
+type GoRunInput = domainbuild.GoRunInput
+
+// CycloneDXGoModTool runs cyclonedx-gomod commands.
+//
+//nolint:iface // see GoTool — distinct consumer-defined port by design.
+type CycloneDXGoModTool interface {
+	Run(ctx context.Context, in GoRunInput) error
+}
+
+// GoMetadataInput drives GoMetadata.
+type GoMetadataInput struct {
+	Dir             string
+	ArtifactName    string
+	BinaryNameInput string
+	VersionInput    string
+	RefName         string
+}
+
+// GoTestInput drives GoTest.
+type GoTestInput struct {
+	Dir           string
+	BuildTags     string
+	SelectionJSON string
+}
+
+// GoBuildSBOMInput drives GoBuildSBOM.
+type GoBuildSBOMInput struct {
+	Dir          string
+	ArtifactName string
+	BinaryName   string
+}
+
+// GoDownload runs `go mod download`.
+func GoDownload(ctx context.Context, tool GoTool, w, stderr io.Writer, dir string) error {
+	return GoDownloadWithRetry(ctx, tool, w, stderr, GoDownloadInput{Dir: dir, Attempts: 1})
+}
+
+// GoDownloadInput allows explicit bounded retries without changing existing callers.
+type GoDownloadInput struct {
+	Dir        string
+	Attempts   int
+	RetryDelay time.Duration
+}
+
+// GoDownloadWithRetry retries dependency reads only, and only a transport
+// failure, with cancellation-aware waits.
+func GoDownloadWithRetry(ctx context.Context, tool GoTool, out, stderr io.Writer, in GoDownloadInput) error {
+	if in.Attempts < 1 || in.Attempts > 10 || in.RetryDelay < 0 || in.RetryDelay > time.Minute {
+		return fmt.Errorf("go download requires 1–10 attempts and a retry delay between 0 and 1m: %w", errs.ErrUsage)
+	}
+
+	return retryDependencyRead(ctx, stderr, in.Attempts, in.RetryDelay, errs.GoReport, func(stderr io.Writer) error {
+		return tool.Run(ctx, GoRunInput{Dir: defaultGoDir(in.Dir), Args: []string{"mod", "download"}, Stdout: out, Stderr: stderr})
+	})
+}
+
+// GoTest runs `go test ./...` with optional build tags.
+func GoTest(ctx context.Context, tool GoTool, out, stderr io.Writer, in GoTestInput) error {
+	if in.SelectionJSON != "" {
+		selection, err := domainbuild.ParseGoTestSelection(in.SelectionJSON)
+		if err != nil {
+			return err
+		}
+
+		args := []string{testCommand, "-json", "-count=1", "-race", "-buildvcs=false"}
+		if strings.TrimSpace(in.BuildTags) != "" {
+			args = append(args, "-tags", strings.TrimSpace(in.BuildTags))
+		}
+
+		if selection.Run != "" {
+			args = append(args, "-run", selection.Run)
+		}
+
+		args = append(args, selection.Packages...)
+
+		run := appenforcement.SelectedTestRun
+		if selection.Gate == domainbuild.PolicyTestGate {
+			run = appenforcement.SelectedPolicyTestRun
+		}
+
+		return run(ctx, out, stderr, enforcement.GoJSON, func(stdout, stderr io.Writer) error {
+			return tool.Run(ctx, GoRunInput{Dir: defaultGoDir(in.Dir), Args: args, Stdout: stdout, Stderr: stderr})
+		})
+	}
+
+	args := []string{testCommand}
+
+	policy, err := appenforcement.Resolve(ctx)
+	if err != nil {
+		return err
+	}
+
+	if !policy.EnforceApplicationTests {
+		args = append(args, "-json")
+	}
+
+	if strings.TrimSpace(in.BuildTags) != "" {
+		args = append(args, "-tags", strings.TrimSpace(in.BuildTags))
+	}
+
+	args = append(args, "./...")
+
+	_, err = appenforcement.TestRun(ctx, out, stderr, enforcement.GoJSON, func(stdout, stderr io.Writer) error {
+		return tool.Run(ctx, GoRunInput{Dir: defaultGoDir(in.Dir), Args: args, Stdout: stdout, Stderr: stderr})
+	})
+
+	return err
+}
+
+// GoBuildSBOM generates a build-layer SBOM into the canonical forge-ci path.
+func GoBuildSBOM(ctx context.Context, tool CycloneDXGoModTool, out, stderr io.Writer, in GoBuildSBOMInput) error {
+	dir := defaultGoDir(in.Dir)
+
+	name := firstNonEmpty(in.ArtifactName, in.BinaryName)
+	if name == "" {
+		return fmt.Errorf("artifact-name or binary-name is required: %w", errs.ErrUsage)
+	}
+
+	safeName := domainversion.SanitizePathToken(name)
+	if safeName == "" {
+		return fmt.Errorf("artifact-name/binary-name %q is not a valid path token: %w", name, errs.ErrUsage)
+	}
+
+	sbomDir := filepath.Join(".forge-ci", "go-build-sbom", safeName)
+	if err := os.MkdirAll(filepath.Join(dir, sbomDir), 0o755); err != nil { //nolint:gosec // bom.json read by workflow.
+		return fmt.Errorf("mkdir go build sbom dir: %w", err)
+	}
+
+	return tool.Run(ctx, GoRunInput{
+		Dir:    dir,
+		Args:   []string{"mod", "-json", "-output", filepath.Join(sbomDir, "bom.json"), "."},
+		Stdout: out,
+		Stderr: stderr,
+	})
+}
+
+// GoBuildBinariesInput drives GoBuildBinaries.
+type GoBuildBinariesInput struct {
+	Dir         string
+	BinaryName  string
+	BuildTags   string
+	LDFlags     string
+	MainPackage string
+	Platforms   string
+	// Version is the explicit version override. When empty, RefName is
+	// consulted as a fallback; both are normalised through
+	// domainversion.StripVPrefix so "v1.2.3" and "1.2.3" produce the
+	// same baked-in result.
+	Version string
+	RefName string
+	Commit  string
+}
+
+// GoBuildBinaries cross-compiles one binary per target platform into dist/.
+//
+//nolint:cyclop // matrix loop: GOOS×GOARCH×ldflags×outputName combinations.
+func GoBuildBinaries(ctx context.Context, tool GoTool, out, stderr io.Writer, in GoBuildBinariesInput) error {
+	dir := defaultGoDir(in.Dir)
+
+	binaryName := strings.TrimSpace(in.BinaryName)
+	if binaryName == "" {
+		// Match `build go metadata`: derive from the module basename so
+		// callers can rely on the same default everywhere.
+		module, err := readGoModulePath(filepath.Join(dir, "go.mod"))
+		if err != nil {
+			return err
+		}
+
+		binaryName = filepath.Base(module)
+	}
+
+	// Resolve version with the same precedence as build go metadata:
+	// --version → --ref-name → error. Both are normalised through
+	// StripVPrefix so "v1.2.3" and "1.2.3" yield the same ldflag.
+	version := domainversion.StripVPrefix(strings.TrimSpace(in.Version))
+	if version == "" {
+		version = domainversion.StripVPrefix(strings.TrimSpace(in.RefName))
+	}
+
+	if version == "" {
+		// Empty injection would silently produce `main.version=""` in
+		// the binary — indistinguishable from a broken build. Reject so
+		// CI callers see the omission explicitly.
+		return fmt.Errorf("version is required (pass --version or --ref-name, or set $VERSION or $REF_NAME; use 'dev' for local builds): %w", errs.ErrUsage)
+	}
+
+	if err := validateScalarValue(version); err != nil {
+		return fmt.Errorf("version: %w", err)
+	}
+
+	platforms, err := splitGoPlatforms(in.Platforms)
+	if err != nil {
+		return err
+	}
+
+	mainPackage := strings.TrimSpace(in.MainPackage)
+	if mainPackage == "" {
+		mainPackage = "."
+	}
+
+	for _, value := range []string{binaryName, in.Commit, in.BuildTags, in.LDFlags, mainPackage} {
+		if scalarErr := validateScalarValue(value); scalarErr != nil {
+			return scalarErr
+		}
+	}
+
+	if !pathsafe.Relative(binaryName) || binaryName == "." || filepath.Base(binaryName) != binaryName {
+		return fmt.Errorf("binary-name must be a plain basename: %w", errs.ErrUsage)
+	}
+
+	buildDate, err := resolveBuildDate(time.Now)
+	if err != nil {
+		return err
+	}
+
+	// Wipe only the per-platform output dirs we are about to write.
+	// A blanket RemoveAll(dist) would silently delete sibling artifacts
+	// the user (or another tool) staged in dist/ — e.g. tarballs,
+	// release notes, SBOMs. Targeted cleanup keeps the contract narrow:
+	// `build go compile` owns its own platform subdirectories.
+	dist, dir, err := openPlatformDist(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dist.Close() }()
+
+	if err := requireGoCommand(ctx, tool, stderr, dir, mainPackage, in.BuildTags, platforms[0]); err != nil {
+		return err
+	}
+
+	for _, platform := range platforms {
+		goos, goarch, _ := parseGoPlatform(platform)
+		if rmErr := dist.RemoveAll(goos + "-" + goarch); rmErr != nil {
+			return fmt.Errorf("remove dist/%s-%s: %w", goos, goarch, rmErr)
+		}
+	}
+
+	baseLDFlags := fmt.Sprintf("-s -w -X main.version=%s -X main.commit=%s -X main.date=%s", version, in.Commit, buildDate)
+	if strings.TrimSpace(in.LDFlags) != "" {
+		baseLDFlags += " " + strings.TrimSpace(in.LDFlags)
+	}
+
+	for _, platform := range platforms {
+		goos, goarch, _ := parseGoPlatform(platform)
+
+		outDir := filepath.Join(dist.Name(), goos+"-"+goarch)
+		if err := dist.MkdirAll(goos+"-"+goarch, 0o755); err != nil {
+			return fmt.Errorf("mkdir %s: %w", outDir, err)
+		}
+
+		outName := fmt.Sprintf("%s-%s-%s", binaryName, goos, goarch)
+		if goos == archGOOSWindows {
+			outName += extExe
+		}
+
+		_, _ = fmt.Fprintf(out, "Building %s/%s -> %s\n", goos, goarch, filepath.Join(outDir, outName))
+
+		args := []string{subCmdBuild, "-trimpath", "-buildvcs=false", "-ldflags", baseLDFlags}
+		if strings.TrimSpace(in.BuildTags) != "" {
+			args = append(args, "-tags", strings.TrimSpace(in.BuildTags))
+		}
+
+		args = append(args, "-o", filepath.Join(outDir, outName), mainPackage)
+		if err := tool.Run(ctx, GoRunInput{
+			Dir:    dir,
+			Env:    []string{"CGO_ENABLED=0", "GOOS=" + goos, "GOARCH=" + goarch},
+			Args:   args,
+			Stdout: out,
+			Stderr: stderr,
+		}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// goMetadata is the resolved Go build identity shared by `build go metadata`
+// (which emits it) and `build go run` (which threads it through the sequence
+// in-process).
+// requireGoCommand refuses a package that is not `package main`, asked of go
+// itself for the first target platform. `go build -o` of a library succeeds
+// and writes a package archive to the binary's path, which a release would
+// then sign and publish as the program.
+func requireGoCommand(ctx context.Context, tool GoTool, stderr io.Writer, dir, mainPackage, buildTags, platform string) error {
+	goos, goarch, _ := parseGoPlatform(platform)
+
+	args := []string{"list", "-f", "{{.Name}}"}
+	if strings.TrimSpace(buildTags) != "" {
+		args = append(args, "-tags", strings.TrimSpace(buildTags))
+	}
+
+	var name strings.Builder
+
+	if err := tool.Run(ctx, GoRunInput{
+		Dir:    dir,
+		Env:    []string{"CGO_ENABLED=0", "GOOS=" + goos, "GOARCH=" + goarch},
+		Args:   append(args, mainPackage),
+		Stdout: &name,
+		Stderr: stderr,
+	}); err != nil {
+		return err
+	}
+
+	if got := strings.TrimSpace(name.String()); got != "main" {
+		return fmt.Errorf("main-package %s is package %q, not a command: project-type go builds a package main into a binary; release a library as project-type meta: %w", mainPackage, got, errs.ErrValidation)
+	}
+
+	return nil
+}
+
+type goMetadata struct {
+	BinaryName string
+	Version    string
+	Module     string
+}
+
+// resolveGoMetadata reads go.mod and applies the binary-name / version
+// precedence. Version defaults to "dev" when neither --version nor --ref-name
+// is supplied, matching the `build go metadata` contract.
+func resolveGoMetadata(in GoMetadataInput) (goMetadata, error) {
+	dir := in.Dir
+	if dir == "" {
+		dir = "."
+	}
+
+	module, err := readGoModulePath(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		return goMetadata{}, err
+	}
+
+	binaryName := firstNonEmpty(in.BinaryNameInput, in.ArtifactName, filepath.Base(module))
+	if err := validateScalarValue(binaryName); err != nil {
+		return goMetadata{}, fmt.Errorf("binary-name: %w", err)
+	}
+
+	// Both --version and --ref-name are commonly populated from git tags
+	// (which carry the "v" prefix); both inputs are normalised the same way
+	// so callers get identical output regardless of which flag they used.
+	version := domainversion.StripVPrefix(strings.TrimSpace(in.VersionInput))
+	if version == "" {
+		version = domainversion.StripVPrefix(strings.TrimSpace(in.RefName))
+	}
+
+	if version != "" {
+		if err := validateScalarValue(version); err != nil {
+			return goMetadata{}, fmt.Errorf("version: %w", err)
+		}
+	}
+
+	if version == "" {
+		version = "dev"
+	}
+
+	return goMetadata{BinaryName: binaryName, Version: version, Module: module}, nil
+}
+
+// GoMetadata reads go.mod metadata and emits the build contract used by the Go
+// build workflow: binary-name, version, and module.
+func GoMetadata(ctx context.Context, sink ci.OutputSink, writer io.Writer, in GoMetadataInput) error {
+	meta, err := resolveGoMetadata(in)
+	if err != nil {
+		return err
+	}
+
+	binaryName, version, module := meta.BinaryName, meta.Version, meta.Module
+
+	// Use a slice of pairs (not a map) so the emission order is
+	// deterministic — Go map iteration is randomised, which made
+	// `--json` output diff-noisy across runs.
+	outputs := []struct{ key, value string }{
+		{"binary-name", binaryName},
+		{"version", version}, //nolint:goconst // test fixture / generic identifier — extracting would explode setup boilerplate.
+		{"module", module},
+	}
+	for _, out := range outputs {
+		if err := sink.Set(ctx, out.key, out.value); err != nil {
+			// The sink already includes its own context (e.g. $GITHUB_OUTPUT
+			// path); only add the key when the sink error is opaque.
+			if errors.Is(err, errs.ErrInvalidConfig) || errors.Is(err, errs.ErrValidation) {
+				return err
+			}
+
+			return fmt.Errorf("emit output %q: %w", out.key, err)
+		}
+	}
+
+	_, _ = fmt.Fprintf(writer, "Binary: %s\nModule: %s\nVersion: %s\n", binaryName, module, version)
+
+	return nil
+}
+
+func readGoModulePath(path string) (string, error) {
+	body, err := os.ReadFile(path) //nolint:gosec // caller passes a CLI-flag-derived path to go.mod.
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("go.mod not found at %q: %w", path, errs.ErrMissingInput)
+		}
+
+		return "", fmt.Errorf("read go.mod at %q: %w", path, err)
+	}
+
+	parsed, err := modfile.Parse(path, body, nil)
+	if err != nil {
+		return "", fmt.Errorf("parse go.mod at %q: %w: %w", path, err, errs.ErrInvalidConfig)
+	}
+
+	if parsed.Module == nil || strings.TrimSpace(parsed.Module.Mod.Path) == "" {
+		return "", fmt.Errorf("go.mod module directive not found: %w", errs.ErrInvalidConfig)
+	}
+
+	return parsed.Module.Mod.Path, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+
+	return ""
+}
+
+func defaultGoDir(dir string) string {
+	if strings.TrimSpace(dir) == "" {
+		return "."
+	}
+
+	return dir
+}
+
+func splitGoPlatforms(value string) ([]string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return []string{domainbuild.DefaultPlatform}, nil
+	}
+
+	platforms := make([]string, 0)
+
+	for _, raw := range listval.Tokens(value) {
+		platform := strings.TrimSpace(raw)
+		if platform == "" {
+			continue
+		}
+
+		if _, _, err := parseGoPlatform(platform); err != nil {
+			return nil, err
+		}
+
+		platforms = append(platforms, platform)
+	}
+
+	if len(platforms) == 0 {
+		return nil, fmt.Errorf("platforms is empty: %w", errs.ErrUsage)
+	}
+
+	return platforms, nil
+}
+
+func parseGoPlatform(platform string) (string, string, error) {
+	goos, goarch, err := domainbuild.SplitPlatform(platform)
+	if err != nil {
+		return "", "", err
+	}
+
+	if !domainbuild.IsKnownGoPlatform(goos + "/" + goarch) {
+		return "", "", fmt.Errorf("unknown GOOS/GOARCH %q (not in `go tool dist list` for the pinned toolchain): %w", platform, errs.ErrUsage)
+	}
+
+	return goos, goarch, nil
+}
+
+// validateScalarValue rejects characters that break the GHA $GITHUB_OUTPUT
+// scalar contract (which forbids \r\n in values) and that would allow
+// trivial injection of fake output lines. The check runs at the app
+// layer so the same input is rejected uniformly across all sinks
+// (GHA, GitLab dotenv, JSON, /dev/null) — preventing the surprise of
+// "works locally with --json, fails in CI with GHA sink".
+func validateScalarValue(value string) error {
+	if strings.ContainsAny(value, "\r\n") {
+		return fmt.Errorf("value contains a newline (would break output sinks): %w", errs.ErrUsage)
+	}
+
+	if !utf8.ValidString(value) || strings.ContainsFunc(value, unicode.IsControl) {
+		return fmt.Errorf("value contains invalid UTF-8 or control characters: %w", errs.ErrUsage)
+	}
+
+	return nil
+}
+
+// resolveBuildDate returns the timestamp baked into the binary's
+// `main.date` ldflag. SOURCE_DATE_EPOCH (seconds since UNIX epoch,
+// reproducible-builds.org convention) wins when set so two identical
+// invocations produce byte-identical binaries; the supplied now()
+// fallback (typically time.Now) provides a useful default for
+// non-reproducible local builds. The clock is injected for testability.
+func resolveBuildDate(now func() time.Time) (string, error) {
+	if raw := strings.TrimSpace(os.Getenv("SOURCE_DATE_EPOCH")); raw != "" {
+		date, err := domainbuild.ParseSourceDateEpoch(raw)
+		if err != nil {
+			return "", err
+		}
+
+		return date.Format(time.RFC3339), nil
+	}
+
+	return now().UTC().Format(time.RFC3339), nil
+}

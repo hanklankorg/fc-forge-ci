@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/diggsweden/forge-ci/.forge-ci/artifacts.schema.json",
+  "title": "forge-ci artifacts.yml",
+  "description": "Declarative release plan for a repository. See https://github.com/diggsweden/forge-ci/blob/main/docs/artifacts-reference.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "anyOf": [
+    { "required": ["artifacts"] },
+    { "required": ["containers"], "properties": { "containers": { "minItems": 1 } } }
+  ],
+  "properties": {
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/artifact" }
+    },
+    "containers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/container" }
+    },
+    "sign": { "$ref": "#/$defs/sign" },
+    "git-signing": { "$ref": "#/$defs/git-signing" },
+    "distro-packages": { "$ref": "#/$defs/distro-packages" }
+  },
+  "$defs": {
+    "distro-packages": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The presence of this block publishes every .deb, .rpm and .apk file of the release to the forge's own Debian, RPM and Alpine package registries, beside the release; an empty block publishes with the default places. The published file is the release's file, unchanged. Supported by the Forgejo release; the GitLab and GitHub releases refuse it. See https://github.com/diggsweden/forge-ci/blob/main/docs/artifacts-reference.md#distro-packages-section.",
+      "properties": {
+        "debian": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "distribution": { "type": "string", "pattern": "^[a-z0-9]+([._-][a-z0-9]+)*$", "maxLength": 64, "description": "Distribution .deb files are published under. Default: stable." },
+            "component": { "type": "string", "pattern": "^[a-z0-9]+([._-][a-z0-9]+)*$", "maxLength": 64, "description": "Component .deb files are published under. Default: main." }
+          }
+        },
+        "rpm": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "group": { "type": "string", "pattern": "^[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$", "maxLength": 128, "description": "Group, the repository of the RPM registry, .rpm files are published to; steps joined by a slash, as in rocky/el9. Default: stable." }
+          }
+        },
+        "alpine": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "branch": { "type": "string", "pattern": "^[a-z0-9]+([._-][a-z0-9]+)*$", "maxLength": 64, "description": "Branch .apk files are published under. Default: stable." },
+            "repository": { "type": "string", "pattern": "^[a-z0-9]+([._-][a-z0-9]+)*$", "maxLength": 64, "description": "Repository .apk files are published under. Default: main." }
+          }
+        }
+      }
+    },
+    "git-signing": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Backend for signing the release commit and tag (git objects), independent of the artifact `sign` backend. See https://github.com/diggsweden/forge-ci/blob/main/docs/verification.md#choosing-a-method.",
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": ["gpg", "ssh"],
+          "description": "gpg (default; imports $RELEASE_GPG_PRIVATE_KEY) or ssh (git-native SSH signing via $SSH_SIGNING_KEY, no OpenPGP key on the runner, verified against .forge-ci/allowed_signers)."
+        }
+      }
+    },
+    "sign": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Signing backend for `release sign` and `release sbom-zip --sign`. See https://github.com/diggsweden/forge-ci/blob/main/docs/verification.md#signing-methods-for-release-artifacts.",
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": ["gpg", "sigstore", "kms"],
+          "description": "gpg (default; uses $GPG_PRIVATE_KEY), sigstore (keyless cosign + OIDC), or kms (cosign + key)."
+        },
+        "files-method": {
+          "type": "string",
+          "enum": ["gpg"],
+          "description": "Sign the release files with gpg while method (sigstore or kms) signs the container images. Omitted, method signs both. Supported by the GitHub release; the GitLab and Forgejo releases refuse it."
+        },
+        "key": {
+          "type": "string",
+          "description": "cosign --key reference for method=kms. Allowed schemes: awskms://, gcpkms://, azurekms://, hashivault://, pkcs11:, file: (intentionally explicit prefix for local key files). Other schemes are rejected as a security-hardening measure.",
+          "pattern": "^((awskms|gcpkms|azurekms|hashivault|pkcs11|file):|env://COSIGN_KEY$)"
+        },
+        "oidc-issuer": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "OIDC issuer URL for method=sigstore (default: auto-detected — GitHub Actions / GitLab / $CI_SERVER_URL). Must be HTTPS."
+        },
+        "transparency": {
+          "type": "string",
+          "enum": ["public", "none"],
+          "description": "Whether cosign publishes signatures to the permanent public Sigstore transparency log (Rekor). Omission defaults to public for public repositories; private or unknown visibility requires explicit public consent. The log carries the artifact's SHA-256, signature, public key and timestamp, not its contents or filename. none makes no entry and is valid only for method=kms; gpg has no log and keyless sigstore requires one. Verifying an unlogged signature needs --insecure-ignore-tlog."
+        }
+      }
+    },
+    "projectType": {
+      "type": "string",
+      "description": "Ecosystem identifier. For `go` and `cargo`, config.build-mode selects the pipeline shape (artifact-first|container-first; omitted defaults to artifact-first). Python is reserved as a future placeholder and is rejected until build/publish support exists.",
+      "enum": ["maven", "npm", "gradle", "gradle-android", "xcode-ios", "go", "cargo", "meta"]
+    },
+    "buildType": {
+      "type": "string",
+      "enum": ["application", "library"]
+    },
+    "publishTarget": {
+      "type": "string",
+      "enum": ["maven-central", "forge-packages", "google-play", "npmjs"]
+    },
+    "sboms": {
+      "type": "string",
+      "description": "Enum or comma-list. Valid: all, none, build, analyzed-artifact, analyzed-container, or a comma-separated subset.",
+      "pattern": "^(all|none|((build|analyzed-artifact|analyzed-container)(,(build|analyzed-artifact|analyzed-container))*))$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "project-type"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "project-type": { "$ref": "#/$defs/projectType" },
+        "working-directory": { "type": "string" },
+        "build-type": { "$ref": "#/$defs/buildType" },
+        "publish-to": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/publishTarget" }
+        },
+        "sboms": { "$ref": "#/$defs/sboms" },
+        "require-authorization": {
+          "type": "boolean",
+          "description": "When true, the release request must be signed by a key listed in .forge-ci/allowed_signers (SSH) or .forge-ci/allowed_gpg_keys.asc (GPG). Maven Central requires this authorization regardless of this setting."
+        },
+        "config": {
+          "type": "object",
+          "description": "Per-ecosystem options. Schema varies by project-type — see https://github.com/diggsweden/forge-ci/blob/main/docs/artifacts-reference.md for the field list of each ecosystem."
+        }
+      }
+    },
+    "container": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "from": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Artifact names this container consumes (matching artifacts[].name)."
+        },
+        "container-file": { "type": "string" },
+        "context": { "type": "string" },
+        "target": { "type": "string" },
+        "platforms": {
+          "type": "string",
+          "description": "Comma-separated platform list (e.g. linux/amd64,linux/arm64)."
+        },
+        "image-name": {
+          "type": "string",
+          "pattern": "^([a-z0-9.-]+(:[0-9]+)?/)?[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$",
+          "description": "Image repository in place of the one derived from the repository and name: a path under the registry (owner/app) or a full repository with its own registry. Containers that share one are tag variants and must differ by tag-suffix."
+        },
+        "tag-suffix": {
+          "type": "string",
+          "pattern": "^-[a-z0-9]+([._-][a-z0-9]+)*$",
+          "description": "Suffix after the release tag, e.g. -distroless for v1.2.3-distroless. Default: none."
+        },
+        "enable-slsa": {
+          "type": "boolean",
+          "description": "Generate SLSA build provenance for this container. Default: true. Set false to disable on a debug/testing container that shouldn't carry provenance."
+        },
+        "scan-severity": {
+          "type": "string",
+          "description": "Per-container blocking threshold of the vulnerability scan: a finding at this level or above with a fixed package blocks the publish; an unfixed CRITICAL blocks unless .trivyignore.yaml approves it. A level or a comma-list whose least severe entry counts ('CRITICAL,HIGH' blocks at HIGH). Default 'CRITICAL'. HIGH findings are always reported, blocking or not."
+        },
+        "build-args": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "build-secrets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z_][A-Z0-9_]*$"
+          },
+          "description": "Names of BuildKit secrets to forward into the Containerfile build as `--mount=type=secret,id=<lowercased-name>` mounts. Values come from the FORGE_CI_BUILD_SECRETS_JSON envelope packed by the caller workflow; the publish-container materialize step writes them to mode-0600 tmpfiles for the duration of the build. Unlike build-args, these values are NEVER recorded in SLSA provenance attestations — use this for any secret consumed at build time (private package tokens, build-time API keys). See https://github.com/diggsweden/forge-ci/blob/main/docs/artifacts-reference.md for the full caller recipe."
+        },
+        "extract": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "binary": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "target": {
+                  "type": "string",
+                  "description": "Containerfile stage that exposes the binary (typically a `FROM scratch` export-binary stage)."
+                },
+                "names": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Expected binary filenames; the build fails if any are missing."
+                },
+                "paths": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 128,
+                  "uniqueItems": true,
+                  "items": { "type": "string", "minLength": 1 },
+                  "description": "Regular executable paths in the retained runtime image, copied without rebuilding. Output basenames must be unique. Mutually exclusive with target and names."
+                }
+              },
+              "allOf": [
+                { "not": { "required": ["paths", "target"] } },
+                { "not": { "required": ["paths", "names"] } }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

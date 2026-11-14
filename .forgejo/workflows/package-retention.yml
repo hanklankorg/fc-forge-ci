@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+# workflow-call-secrets-contract: RELEASE_REGISTRY_TOKEN
+
+name: Preview GHCR package retention (reusable)
+defaults:
+  run:
+    shell: bash
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: Runner labels as a JSON array.
+        type: string
+        required: true
+      job-image:
+        description: Reviewed digest-pinned image containing the engine and sha256sum.
+        type: string
+        required: true
+      engine-sha256:
+        description: Literal checksum of the engine in job-image, from the reviewed engine revision.
+        type: string
+        required: true
+      packages-json:
+        description: Reviewed inventory {"include":[{"repository":"ghcr.io/owner/name","digest":"sha256:..."}]}. All rows for one repository are protected together.
+        type: string
+        required: true
+      registry-user:
+        description: GitHub account for the read-only GHCR inventory credential.
+        type: string
+        required: true
+      recent-count:
+        type: number
+        default: 10
+      max-delete:
+        description: Refuse a preview whose deletion set exceeds this limit.
+        type: number
+        default: 100
+jobs:
+  preview:
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container: ${{ inputs['job-image'] }}
+    # One serial Go pass covers the complete inventory, not one package per job.
+    timeout-minutes: 120
+    steps:
+      - name: Verify the caller-pinned engine bytes
+        env:
+          EXPECTED_SHA256: ${{ inputs['engine-sha256'] }}
+        run: |
+          set -euo pipefail
+          [[ "${EXPECTED_SHA256:?}" =~ ^[a-f0-9]{64}$ ]]
+          engine=$(command -v forge-ci)
+          printf '%s  %s\n' "$EXPECTED_SHA256" "$engine" | sha256sum --check --strict
+      - name: Preview the reviewed retention policy
+        env:
+          PACKAGES_JSON: ${{ inputs['packages-json'] }}
+          RECENT_COUNT: ${{ inputs['recent-count'] }}
+          MAX_DELETE: ${{ inputs['max-delete'] }}
+          GH_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+          REGISTRY_USER: ${{ inputs['registry-user'] }}
+        run: |
+          set -euo pipefail
+          forge-ci container package-retention \
+            --packages-json "${PACKAGES_JSON:?}" \
+            --recent-count "${RECENT_COUNT:?}" --max-delete "${MAX_DELETE:?}" \
+            --registry-username "${REGISTRY_USER:?}" --dry-run=true

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# Merge-request and release-candidate checks, run by Forge CI's check job in
+# the non-root, key-free Rust image: the tests of the command and of its
+# library crate, then the command itself.
+set -euo pipefail
+cargo test --workspace --locked
+test "$(cargo run --locked --quiet -- Ada)" = "Hello, Ada!"

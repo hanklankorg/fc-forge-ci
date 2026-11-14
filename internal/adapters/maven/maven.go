@@ -1,0 +1,140 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+// SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
+
+// Package maven shells out to the real `mvn` binary. Pure helpers
+// (snapshot detection, summary rendering) live in
+// internal/domain/build.
+package maven
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os/exec"
+	"strings"
+
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/safeexec"
+)
+
+// Adapter wraps the mvn binary. MvnBin is overridable for tests.
+type Adapter struct {
+	MvnBin  string   // empty → "mvn"
+	Env     []string // nil inherits; supplied explicitly for private dependency access
+	Options []string // settings shared by lifecycle and metadata invocations
+	Dir     string   // project directory for lifecycle and metadata; empty means current
+}
+
+// New returns an Adapter using the system mvn.
+func New() *Adapter { return &Adapter{} }
+
+// EvalExpression returns the value of a Maven expression as printed by
+// `mvn help:evaluate -Dexpression=<expr> -q -DforceStdout`. Used to read
+// project.{version,groupId,artifactId} without parsing the POM.
+//
+// Stdout is returned trimmed of a single trailing newline; combined
+// output is appended after the error sentinel chain so operators
+// see Maven's own diagnostic text in CI logs.
+func (a *Adapter) EvalExpression(ctx context.Context, expr string) (string, error) {
+	args := append(append([]string{}, a.Options...), "help:evaluate", "-Dexpression="+expr, "-q", "-DforceStdout")
+
+	env, cleanup, err := a.trustedEnvironment(ctx, a.Dir, args...)
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+
+	cmd := safeexec.Command(ctx, a.bin(), args...)
+	cmd.Env = env
+	cmd.Dir = a.Dir
+
+	// The value is stdout alone. A JVM that prints a notice on stderr
+	// ("Picked up JAVA_TOOL_OPTIONS: ...") must not have it read back as the
+	// project version; stderr travels only on the error.
+	var stderr bytes.Buffer
+
+	cmd.Stderr = &stderr
+
+	out, err := cmd.Output()
+	if err != nil {
+		wrapped := safeexec.WrapError(err, a.bin(), "help:evaluate")
+		if stderr.Len() == 0 {
+			return "", wrapped
+		}
+		// Defense-in-depth: a maven plugin diagnostic could in principle
+		// echo PEM key material or a JWT-shaped token. `help:evaluate`
+		// is a metadata query (no auth), so this is theoretical — but
+		// the redactor is a tripwire for any future plugin that would
+		// echo such material on stderr.
+		return "", fmt.Errorf("%w\n%s", wrapped, safeexec.RedactKeyMaterial(stderr.Bytes()))
+	}
+
+	return strings.TrimRight(string(out), "\n"), nil
+}
+
+// RunInherit invokes `mvn` with the given arguments and streams stdout
+// and stderr to the provided writers. Build/test/package steps want this
+// path so the user sees Maven's own progress in the CI log.
+func (a *Adapter) RunInherit(ctx context.Context, stdout, stderr io.Writer, args ...string) error {
+	return a.RunInheritIn(ctx, a.Dir, stdout, stderr, args...)
+}
+
+// RunInheritIn is like RunInherit but runs mvn inside dir. dir="" runs
+// in the current working directory.
+//
+// A build Maven ends on a file it could not transfer, from a host it could
+// not reach, ends as an unavailable dependency (errs.MavenReport), whatever
+// the goals are. Maven logs to its standard output, so that is the stream
+// kept for the report: the whole of it, in memory, for as long as Maven
+// runs, with no bound. Standard output therefore always reaches the caller
+// through a pipe, as it already did for a run with a dependency
+// token, whose streams are redacted.
+func (a *Adapter) RunInheritIn(ctx context.Context, dir string, stdout, stderr io.Writer, args ...string) error {
+	effectiveArgs := append(append([]string{}, a.Options...), args...)
+
+	env, cleanup, err := a.trustedEnvironment(ctx, dir, effectiveArgs...)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	cmd := safeexec.Command(ctx, a.bin(), effectiveArgs...)
+	cmd.Env = env
+	cmd.Dir = dir
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+
+	var said bytes.Buffer
+
+	safeexec.KeepStdout(cmd, &said)
+
+	err = cmd.Run()
+	if err == nil {
+		return nil
+	}
+
+	if _, ok := errors.AsType[*exec.ExitError](err); ok {
+		return safeexec.ExitFailure(err, a.bin(), firstArg(args), errs.MavenReport(said.String()))
+	}
+
+	return safeexec.WrapError(err, a.bin(), firstArg(args))
+}
+
+// firstArg is the safeexec-friendly subcommand label.
+func firstArg(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+
+	return args[0]
+}
+
+func (a *Adapter) bin() string {
+	if a.MvnBin != "" {
+		return a.MvnBin
+	}
+
+	return "mvn"
+}

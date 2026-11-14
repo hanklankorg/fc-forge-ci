@@ -1,0 +1,10 @@
+[package]
+name = "hello-greeting"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.85"
+description = "The library crate the hello-cargo-cli command is built on"
+license = "CC0-1.0"
+publish = false
+
+[dependencies]

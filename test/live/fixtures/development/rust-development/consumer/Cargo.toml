@@ -1,0 +1,10 @@
+[package]
+name = "rust-development-fixture"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "CC0-1.0"
+
+[profile.release]
+strip = true
+codegen-units = 1

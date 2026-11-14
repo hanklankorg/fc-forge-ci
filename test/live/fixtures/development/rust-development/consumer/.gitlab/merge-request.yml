@@ -1,0 +1,18 @@
+# These neutral coordinates are rebound to the tested engine by the controller.
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "development" && $CI_PIPELINE_SOURCE == "push"'
+include:
+  - component: $CI_SERVER_FQDN/engine/forge-ci/check@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    inputs:
+      forge-ci-repository: engine/forge-ci
+      server-url: $CI_SERVER_URL
+      job-image: $CI_JOB_IMAGE
+      job-name: 'Check: Rust development'
+      commands:
+        - 'SOURCE_SHA="$CI_COMMIT_SHA" IMAGE_REF="$CI_REGISTRY_IMAGE" REGISTRY_USER="$CI_REGISTRY_USER" REGISTRY_PASSWORD="$CI_REGISTRY_PASSWORD" bash ci/produce.sh'
+'Check: Rust development':
+  artifacts:
+    when: on_success
+    paths: [development-artifacts/]

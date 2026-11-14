@@ -1,0 +1,142 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# goreleaser config for forge-ci.
+#
+# Produces linux/amd64, linux/arm64 and darwin/arm64 archives plus checksums.
+# The release workflows install syft for per-archive SBOMs and use cosign with
+# the runner's OIDC identity for keyless signing of the checksum manifest.
+
+version: 2
+
+project_name: forge-ci
+
+before:
+  hooks:
+    - go mod verify
+
+builds:
+  - id: forge-ci
+    main: ./cmd/forge-ci
+    binary: forge-ci
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: darwin
+        goarch: amd64
+    flags:
+      - -trimpath
+      - -buildvcs=false
+      - -mod=readonly
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      # .CommitDate (not .Date) so the embedded timestamp is derived
+      # from the git commit, not the build wall-clock — required for
+      # byte-identical rebuilds (SOURCE_DATE_EPOCH semantics).
+      - -X main.date={{.CommitDate}}
+    # Pin the binary's filesystem mtime as well as archive entry metadata below.
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    # Normalize both the executable and bundled source files. Binary mtime alone
+    # does not remove checkout timestamps from README/license/schema entries.
+    builds_info:
+      owner: root
+      group: root
+      mode: 0755
+      mtime: '{{ .CommitDate }}'
+    files:
+      - src: LICENSE
+        info: &archive_file_info
+          owner: root
+          group: root
+          mode: 0644
+          mtime: '{{ .CommitDate }}'
+      # Flat dir — LICENSES/**/* matches nothing here; LICENSES/* ships the
+      # EUPL-1.2 / GPL-3.0-or-later / CC0-1.0 texts (GPL-3 requires conveying
+      # the license with the binary).
+      - src: LICENSES/*
+        info: *archive_file_info
+      - src: README.md
+        info: *archive_file_info
+      - src: docs/schemas/release-images.schema.json
+        info: *archive_file_info
+
+checksum:
+  name_template: 'checksums.txt'
+
+# Per-archive Software Bill of Materials via syft. One CycloneDX
+# document per tarball, included in checksums.txt — so the cosign
+# signature on checksums.txt (below) transitively covers every SBOM
+# via SHA-256. Consumers can enumerate inputs without an additional
+# verification step.
+#
+# Requires syft on PATH (release-binary.yml installs it before
+# goreleaser runs).
+sboms:
+  - id: archives
+    artifacts: archive
+    documents:
+      - '${artifact}.cdx.sbom.json'
+    cmd: syft
+    # sbom args use env-style expansion ($artifact, $document), NOT Go
+    # templates — `{{ .Document }}` errors with "map has no entry for key
+    # Document". $document expands to the documents: entry above.
+    args:
+      - scan
+      - '$artifact'
+      - --output
+      - 'cyclonedx-json=$document'
+
+# Sigstore-keyless signing of the release. cosign signs the
+# checksums.txt — one bundle covers every per-arch tarball AND every
+# SBOM because checksums.txt is the integrity anchor (a per-artifact
+# signature would be redundant and noisier in the release UI). The
+# bundle carries the Fulcio cert + Rekor proof; consumers verify via
+# `cosign verify-blob --bundle checksums.txt.bundle`.
+#
+# The source-built forge-ci CLI routes signing through its cosign adapter,
+# including the bounded retry for transient Sigstore failures.
+# The signing wrapper first compares all three actual release archives against
+# the independently rebuilt final-tag reference and checks the checksum manifest.
+# Requires:
+#   - FORGE_CI_RELEASE_REFERENCE: separate unsigned final-tag rebuild directory
+#   - forge-ci and cosign on PATH (the build/release workflows install them)
+#   - id-token: write permission on the calling workflow (granted in
+#     release-binary.yml so cosign can mint the GHA OIDC token)
+signs:
+  - id: checksums
+    cmd: bash
+    signature: '${artifact}.bundle'
+    artifacts: checksum
+    args:
+      - 'scripts/ci/sign-reproducible-release.sh'
+      - 'release'
+      - 'sign'
+      - '--method=sigstore'
+      - '--no-checksums-file'
+      - '--no-release-artifacts-dir'
+      - '--file'
+      - '${artifact}'
+    output: true
+
+snapshot:
+  version_template: '{{ incpatch .Version }}-snapshot+{{ .ShortCommit }}'
+
+release:
+  github:
+    owner: diggsweden
+    name: forge-ci
+  draft: false
+  prerelease: auto
+
+changelog:
+  disable: true

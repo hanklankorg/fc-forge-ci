@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# The binary is exported by the release's own export jobs; this declaration
+# builds only the runtime image from the same prepared release source, one
+# native build per platform the release selects.
+# The artifact is the release plan's: the GitLab release bumps its
+# Cargo version from it. Built container-first, it adds no build job.
+artifacts:
+  - name: hello-cargo-container
+    project-type: cargo
+    working-directory: .
+    config:
+      build-mode: container-first
+containers:
+  - name: hello-cargo-container
+    container-file: Containerfile
+    context: .
+    target: runtime
+    platforms: linux/amd64,linux/arm64

@@ -1,0 +1,414 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+# Include this component from a pinned, independently controlled CI policy.
+# "Release: plan" plans the release from the request's artifacts.yml and
+# writes the child's plan-driven jobs: a version job per toolchain family the
+# plan bumps and a build job per family it builds, each naming its hidden job
+# in templates/release-jobs.yml. The release child is that file and those
+# jobs: checks, version, release commit, family builds, images, signing and
+# publication in one pipeline, whose jobs hand their files on through needs.
+# The resource group stays locked through the mirrored child pipeline, covering
+# preparation, signing, promotion and publication across concurrent releases.
+spec:
+  component: [sha, reference]
+  inputs:
+    release-policy:
+      description: Accepted release versions; classification comes from the signed tag.
+      default: stable
+      options: [stable, stable-prerelease]
+    forge-ci-repository:
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
+    consumer-project:
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
+    server-url:
+      description: >-
+        This GitLab instance's URL as CI_SERVER_URL reads, https://host[:port] without a path, for example https://gitlab.example.com. The release tokens go only there: each job refuses to run when CI_SERVER_URL, which a project or pipeline variable can set, differs.
+      regex: '^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'
+    registry:
+      description: >-
+        This instance's container registry as CI_REGISTRY reads, host[:port], for example registry.gitlab.example.com, or empty when the project has none. GitLab configures it apart from the web host, so it is stated, not derived; each job refuses to run when CI_REGISTRY differs, and the images go to it.
+      regex: '^$|^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'
+    job-image:
+      description: Tools for consumer checks and changelog rendering, run as an ordinary user (see job-user).
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    job-user:
+      description: UID or UID:GID the job-image jobs run as, such as 65532:65532 for the runtime images' nonroot user; empty keeps the image's own user.
+      regex: '^$|^(0|[1-9][0-9]*)(:(0|[1-9][0-9]*))?$'
+      default: ''
+    runtime-image-java:
+      description: >-
+        Digest-pinned image of the java family (Maven, Gradle), such as forge-ci-runtime-java-25. The plan's Maven projects are version-bumped in it, its Maven and Gradle projects built in it. Empty, the default, when the plan has none; a planned family without its image is refused at "Release: plan".
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+      default: ''
+    runtime-image-node:
+      description: Digest-pinned image of the node family (npm), as runtime-image-java.
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+      default: ''
+    runtime-image-go:
+      description: Digest-pinned image of the go family, as runtime-image-java.
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+      default: ''
+    runtime-image-rust:
+      description: Digest-pinned image of the rust family (Cargo), as runtime-image-java.
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+      default: ''
+    runtime-image-android:
+      description: Digest-pinned image of the android family (Gradle Android), as runtime-image-java.
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+      default: ''
+    signer-image:
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    publication-project:
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
+    publication-image-repository:
+      description: The registry repository in publication-project that receives final images, without tag or digest.
+      regex: '^[^[:space:]''@]+$'
+    cosign-public-key-sha256:
+      regex: '^[0-9a-f]{64}$'
+    release-git-url:
+      regex: '^[^[:space:]'']*$'
+      default: ''
+    release-git-host-key-fingerprint:
+      description: The SSH host key fingerprint of release-git-url's host, SHA256:<base64> alone.
+      regex: '^SHA256:[A-Za-z0-9+/]{43}=?$'
+    request-allowed-signers:
+      description: OpenSSH allowed-signers text of the people who may sign a release request, without a single quote, since the jobs quote it in their script.
+      regex: '\A[^'']+\z'
+    bot-name:
+      regex: '^[^''[:cntrl:]]+$'
+    bot-email:
+      regex: '^[^''[:space:]]+@[^''[:space:]]+$'
+    checks:
+      type: array
+    runner-tags:
+      description: >-
+        Runner tags of the ordinary release jobs: request authorization, preparation, version jobs, image planning and the summary. Consumer build commands use build-runner-tags-linux-amd64 and signer jobs use signer-runner-tags. Empty, the default, leaves ordinary jobs untagged. Name literal tags only, never a $VARIABLE, which a project variable could set.
+      type: array
+      default: []
+    signer-runner-tags:
+      description: >-
+        Runner tags of the jobs that run in signer-image and hold the signing and publication credentials: the access checks, signing, promotion and publication. Set them in this policy, as literals, never from a $VARIABLE: they decide which runner sees the release credentials. Empty, the default, leaves them untagged.
+      type: array
+      default: []
+    build:
+      description: >-
+        Consumer build commands. They run once in each "Build: <family>" job, in that family's runtime image, with FORGE_CI_BUILD_FAMILY naming the family and FORGE_CI_ARTIFACTS its planned artifacts, space-separated, and leave files in dist/ and image-context/. They run once more in "Build: release files", in job-image, with both empty, over every family's and export job's files: that run writes the release notes and declares the release files.
+      type: array
+    build-runner-tags-linux-amd64:
+      description: >-
+        Runner tags of the consumer checks, family builds, release files and amd64 image and export jobs, whichever the image builder, for example [privileged] where only a tagged runner lets Buildah enter user namespaces, or a GitLab.com saas-linux-* tag. Required, and never empty: an untagged job could land on any runner. Request authorization and version preparation stay on runner-tags and signing on signer-runner-tags.
+      type: array
+    release-images:
+      description: >-
+        Build the containers artifacts-config declares in the release's image jobs, scan them, stage them in this project's registry and hand them to signing. The build leaves files the Containerfiles copy that are not in the repository in image-context/. Without artifacts.yml the root Containerfile is the image.
+      type: boolean
+      default: false
+    artifacts-config:
+      description: Path of the artifacts.yml declaring the release's artifacts and containers. Its sign.method gpg or sign.files-method gpg signs the checksums and SBOMs with RELEASE_GPG_PRIVATE_KEY, pinned to RELEASE_GPG_FINGERPRINT, which the signing access check requires before the release commit; without it the Cosign key signs them. Empty reads .forge-ci/artifacts.yml. Without that file the release plans no version bump and no family build.
+      regex: '^$|^[A-Za-z0-9_.][A-Za-z0-9_./-]*$'
+      default: ''
+    release-platforms:
+      description: Comma-separated subset of each container's platforms to build and export, for example linux/amd64. Empty builds each container's declared platforms, linux/amd64 when it declares none, and exports linux/amd64.
+      regex: '^$|^linux/(amd64|arm64)(,linux/(amd64|arm64))?$'
+      default: ''
+    labels:
+      description: >-
+        Newline-separated key=value labels every release image carries, for example org.opencontainers.image.licenses=MIT. forge-ci sets source, revision, title, version, url, documentation, ref.name and created from the release; a label naming one of them is refused at the release request, as labels without release-images is. Values are single lines without quotes.
+      regex: '^$|^[a-z0-9]+([._-][a-z0-9]+)*=[^''[:cntrl:]]+(\n[a-z0-9]+([._-][a-z0-9]+)*=[^''[:cntrl:]]+)*\n?$'
+      default: ''
+    image-builder:
+      description: >-
+        Image builder of the image jobs, which run in builder-job-image: buildah, the default, or kaniko, for runners that deny the user namespaces Buildah needs; either runs on the build runner inputs.
+      options: [buildah, kaniko]
+      default: buildah
+    builder-job-image:
+      description: The digest-pinned job image of the image builder, containers/buildah-job or, admitted, containers/kaniko-job. Required with release-images.
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+      default: ''
+    build-runner-tags-linux-arm64:
+      description: Runner tags of a native arm64 runner for the arm64 image and export jobs. Required; [] states there is none and builds no arm64 image, and a container that declares linux/arm64 then needs release-platforms narrowed.
+      type: array
+    export-files:
+      description: >-
+        Run the export commands before the build job: once per selected architecture (release-platforms; empty is linux/amd64, and a container that declares linux/arm64 then needs release-platforms named), natively on that architecture's runner, in builder-job-image with image-builder, on the release commit and with no credential of the job. Each job's dist/ is laid into the build job's dist/ before the build commands run. Requires builder-job-image.
+      type: boolean
+      default: false
+    export:
+      description: >-
+        Commands that export files from a Containerfile stage into dist/, for example `forge-ci container build --mode local --platform "$EXPORT_PLATFORM" --output-dir "dist/linux-$EXPORT_ARCH"`. EXPORT_PLATFORM and EXPORT_ARCH name the job's architecture. Set export-files with them; without it they are refused. No single quote.
+      type: array
+      default: []
+    changelog-creator:
+      default: git-cliff
+      options: [git-chglog, git-cliff]
+    changelog-config:
+      description: Consumer config used by the selected changelog renderer.
+      default: .forge-ci/gitcliff/keepachangelog.toml
+      regex: '^[A-Za-z0-9_.][A-Za-z0-9_./-]*$'
+    commit-body-config:
+      description: Consumer config used to render the release commit body.
+      default: .forge-ci/gitcliff/minimal.toml
+      regex: '^[A-Za-z0-9_.][A-Za-z0-9_./-]*$'
+    sign-distro-packages:
+      type: boolean
+      default: true
+    release-asset-retention:
+      description: >-
+        How many of the newest releases keep every file. After publishing, each older release keeps its checksums, signatures and SBOMs and loses its archives, binaries and packages, upload and link both; the releases and tags stay. Empty, the default, deletes nothing.
+      regex: '^$|^[1-9][0-9]*$'
+      default: ''
+    base-stages:
+      description: >-
+        The project's graph of base images, built, signed and promoted before the release files: stages separated by spaces, each a flavor for a root, or flavor:parent for a child of a parent that an earlier stage builds and flavor+flavor:parent for its siblings; a root and two siblings on it are three names in two stages. The images live in the bases repository of the publication project. A child stage needs image-builder buildah. Requires base-plan and builder-job-image. Empty, the default, has no base stage.
+      regex: '^$|^[a-z][a-z0-9+:-]*( [a-z][a-z0-9+:-]*)*$'
+      default: ''
+    base-plan:
+      description: >-
+        The project's command that prints the frozen plan of one stage of base-stages, run at the release commit in a job without release secrets, followed by the stage's flavors joined by commas, the bases repository and, for a child stage, the parent's digest-pinned ref and its input ID. Its words are separated by spaces and passed as written, with no shell between.
+      regex: '^[^''[:cntrl:]]*$'
+      default: ''
+    transparency-log:
+      description: >-
+        Whether Cosign signatures are also written to the public Sigstore transparency log. `none`, the default, writes no entry and contacts no Sigstore service: a signature is then verified against the key alone. `public` writes every signature to the public log, Rekor, permanently. Every release of one organization takes the same value, because a signature is verified the way it was made.
+      default: none
+      options: [none, public]
+    release-branch:
+      description: >-
+        Branch a release lands on. The release request must be its head, and the release commit is pushed to it. Empty, the default, takes the project's default branch.
+      default: ''
+      regex: '^$|^[A-Za-z0-9_][A-Za-z0-9_./-]*$'
+    enforce-lint:
+      type: boolean
+      default: false
+      description: >-
+        Enforcement setting, applied by the forge-ci of the checks and build jobs: false reports lint findings without failing. The checks still run. See docs/admin-policy.md.
+    enforce-vulnerabilities:
+      type: boolean
+      default: false
+      description: >-
+        Enforcement setting, applied by the forge-ci of the checks and build jobs: false reports vulnerability findings without failing.
+    enforce-application-tests:
+      type: boolean
+      default: false
+      description: >-
+        Enforcement setting, applied by the forge-ci of the checks and build jobs: false reports recognized test assertion failures without failing. Tests still run.
+    enforce-reproducible-builds:
+      type: boolean
+      default: false
+      description: >-
+        Enforcement setting, applied by the forge-ci of the checks and build jobs: false reports missing reproducible-build settings without failing.
+---
+# The plan of the request commit, before any release job: which family jobs
+# the release child has. The job holds the job token alone and runs no
+# consumer code: the engine, verified by checksum, reads artifacts.yml as
+# data. Its file names jobs and nothing else; the policy's values reach the
+# child only through the trigger's own include below.
+"Release: plan":
+  stage: .pre
+  tags: $[[ inputs.runner-tags ]]
+  interruptible: false
+  # One more attempt when the engine found a dependency unavailable, exit
+  # 69, and for no other failure; the job writes nothing outside its own
+  # files.
+  retry:
+    max: 1
+    exit_codes: 69
+  inherit:
+    variables: false
+  cache: []
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_TAG =~ /^release-request\/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/'
+  image:
+    name: $[[ inputs.job-image ]]
+    entrypoint: [""]
+    docker:
+      user: $RC_JOB_USER
+    kubernetes:
+      user: $RC_JOB_USER
+  variables:
+    GIT_STRATEGY: empty
+    GIT_SUBMODULE_STRATEGY: none
+    RC_JOB_USER: '$[[ inputs.job-user ]]'
+  script:
+    - |
+      set -euo pipefail
+      umask 077
+      want_user='$[[ inputs.job-user ]]'
+      if [ "${RC_JOB_USER-}" != "${want_user}" ]; then
+        echo "ERROR: RC_JOB_USER is '${RC_JOB_USER-}', not job-user '${want_user}'; remove the variable that sets it." >&2
+        exit 1
+      fi
+      job_uid=$(id -u) job_gid=$(id -g)
+      case "${want_user}" in
+        *:*) actual_user="${job_uid}:${job_gid}" ;;
+        *) actual_user=${want_user:+${job_uid}} ;;
+      esac
+      if [ "${actual_user}" != "${want_user}" ]; then
+        echo "ERROR: the job runs as uid=${job_uid} gid=${job_gid}, not job-user ${want_user}." >&2
+        exit 1
+      fi
+      if [ "${GIT_STRATEGY-}" != empty ] || [ "${GIT_SUBMODULE_STRATEGY-}" != none ]; then
+        echo "ERROR: GIT_STRATEGY is '${GIT_STRATEGY-}' and GIT_SUBMODULE_STRATEGY '${GIT_SUBMODULE_STRATEGY-}', not empty and none; remove the variables that set them." >&2
+        exit 1
+      fi
+      # The job token goes only to the instance as written.
+      readonly RC_SERVER_URL='$[[ inputs.server-url ]]' RC_CONSUMER_PROJECT='$[[ inputs.consumer-project ]]'
+      if [ "${CI_SERVER_URL-}" != "${RC_SERVER_URL}" ]; then
+        echo "ERROR: CI_SERVER_URL is '${CI_SERVER_URL-}', not server-url '${RC_SERVER_URL}'; remove the variable that sets it." >&2
+        exit 1
+      fi
+      export CI_API_V4_URL="${RC_SERVER_URL}/api/v4"
+      for name in RELEASE_SSH_SIGNING_KEY RELEASE_COSIGN_PRIVATE_KEY RELEASE_COSIGN_PASSPHRASE \
+        RELEASE_GPG_PRIVATE_KEY RELEASE_GPG_PASSPHRASE RELEASE_TOKEN RELEASE_REGISTRY_TOKEN RELEASE_PACKAGE_TOKEN \
+        SSH_SIGNING_KEY COSIGN_KEY COSIGN_PASSWORD GPG_SIGNING_KEY GPG_SIGNING_PASSWORD GITLAB_TOKEN; do
+        if [ -n "${!name:-}" ]; then
+          echo "ERROR: ${name} must not be available to the release plan." >&2
+          exit 1
+        fi
+      done
+      expected='$[[ component.sha ]]'
+      test '$[[ component.reference ]]' = "${expected}"
+      test "${CI_PROJECT_PATH:?}" = "${RC_CONSUMER_PROJECT}"
+      unset BASH_ENV ENV
+      work=$(mktemp -d /tmp/forge-ci-release-plan.XXXXXXXX)
+      trap 'rm -rf -- "${work}"' EXIT
+      export HOME="${work}/home" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null CI_OUTPUT="${work}/outputs.env"
+      mkdir -m 0700 "${HOME}"
+      export FORGE_CI_PACKAGE_PROVIDER=gitlab FORGE_CI_PROVIDER=gitlab
+      export FORGE_CI_REPOSITORY_URL="${RC_SERVER_URL}/$[[ inputs.forge-ci-repository ]].git"
+      git_options=(-c core.hooksPath=/dev/null -c credential.helper=)
+      if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+        for bundle in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; do
+          if [ -f "${bundle}" ]; then break; fi
+        done
+        test -f "${bundle}"
+        cat -- "${bundle}" "${CI_SERVER_TLS_CA_FILE}" > "${work}/ca-bundle.crt"
+        export CURL_CA_BUNDLE="${work}/ca-bundle.crt"
+        export GIT_SSL_CAINFO="${CURL_CA_BUNDLE}" SSL_CERT_FILE="${CURL_CA_BUNDLE}"
+        export NODE_EXTRA_CA_CERTS="${CURL_CA_BUNDLE}"
+        git_options+=(-c "http.sslCAInfo=${GIT_SSL_CAINFO}")
+      fi
+      object_format=sha1
+      if [ "${#expected}" -eq 64 ]; then object_format=sha256; fi
+      git init --quiet --object-format="${object_format}" "${work}/helpers"
+      git -C "${work}/helpers" remote add origin "${FORGE_CI_REPOSITORY_URL}"
+      # A forge that could not be reached is asked three times, and the job
+      # then ends as unavailable, exit 69. Any other refusal of the fetch
+      # ends it at once.
+      for attempt in 1 2 3; do
+        fetch_error=$(GIT_TERMINAL_PROMPT=0 git "${git_options[@]}" -C "${work}/helpers" fetch --quiet --depth=1 --no-tags origin "${expected}" 2>&1) && break
+        printf '%s\n' "${fetch_error}" >&2
+        case "${fetch_error}" in
+        "fatal: unable to access '"*"': Could not resolve host: "* | "fatal: unable to access '"*"': Failed to connect to "*) ;;
+        *) exit 1 ;;
+        esac
+        if [ "${attempt}" -eq 3 ]; then exit 69; fi
+        sleep 5
+      done
+      git "${git_options[@]}" -C "${work}/helpers" checkout --quiet --detach "${expected}"
+      test "$(git -C "${work}/helpers" rev-parse HEAD)" = "${expected}"
+      source "${work}/helpers/.engine/bin/lib-forge-ci.sh"
+      fetch_forge_ci
+      SIGNER_STRICT=1 verify_forge_ci
+      engine="${HELPERS_ENGINE_VERIFIED}"
+      consumer_format=sha1
+      if [ "${#CI_COMMIT_SHA}" -eq 64 ]; then consumer_format=sha256; fi
+      "${engine}" platform checkout --workspace "${work}/consumer" --server-url "${RC_SERVER_URL}" \
+        --repository "${CI_PROJECT_PATH}" --ref "${CI_COMMIT_SHA:?}" --object-format "${consumer_format}"
+      plan=(plan gitlab-release-pipeline --runtime-image-java '$[[ inputs.runtime-image-java ]]' --runtime-image-node '$[[ inputs.runtime-image-node ]]'
+        --runtime-image-go '$[[ inputs.runtime-image-go ]]' --runtime-image-rust '$[[ inputs.runtime-image-rust ]]'
+        --runtime-image-android '$[[ inputs.runtime-image-android ]]' --output "${CI_PROJECT_DIR:?}/_release-plan/release-families.yml")
+      if [ -n '$[[ inputs.artifacts-config ]]' ]; then plan+=(--file '$[[ inputs.artifacts-config ]]'); fi
+      # The base stages are the policy's; a stage needs its planner and the
+      # builder's job image, and is refused here, before any release job.
+      if [ -n '$[[ inputs.base-stages ]]' ]; then
+        if [ -z '$[[ inputs.base-plan ]]' ] || [ -z '$[[ inputs.builder-job-image ]]' ]; then
+          echo 'ERROR: base-stages needs base-plan, the command that prints the plan of one stage, and builder-job-image, the image its builds run in.' >&2
+          exit 1
+        fi
+        plan+=(--base-stages '$[[ inputs.base-stages ]]' --image-builder '$[[ inputs.image-builder ]]')
+      fi
+      mkdir -- "${CI_PROJECT_DIR}/_release-plan"
+      (cd -- "${work}/consumer" && "${engine}" "${plan[@]}")
+      chmod -R u=rwX,go=rX -- "${CI_PROJECT_DIR}/_release-plan"
+      cat -- "${CI_PROJECT_DIR}/_release-plan/release-families.yml"
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-plan/release-families.yml]
+release:
+  stage: deploy
+  # A trigger names no retry: GitLab refuses the key on a trigger job, and
+  # with it the whole configuration.
+  resource_group: release
+  interruptible: false
+  inherit:
+    variables: false
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_TAG =~ /^release-request\/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/'
+  needs:
+    - job: "Release: plan"
+      artifacts: true
+  trigger:
+    strategy: mirror
+    forward:
+      yaml_variables: false
+      pipeline_variables: false
+    include:
+      - project: $[[ inputs.forge-ci-repository ]]
+        ref: $[[ component.sha ]]
+        file: /templates/release-jobs.yml
+        inputs:
+          release-policy: $[[ inputs.release-policy ]]
+          engine-sha: $[[ component.sha ]]
+          engine-reference: $[[ component.reference ]]
+          forge-ci-repository: $[[ inputs.forge-ci-repository ]]
+          consumer-project: $[[ inputs.consumer-project ]]
+          server-url: $[[ inputs.server-url ]]
+          registry: $[[ inputs.registry ]]
+          job-image: $[[ inputs.job-image ]]
+          job-user: $[[ inputs.job-user ]]
+          runtime-image-java: $[[ inputs.runtime-image-java ]]
+          runtime-image-node: $[[ inputs.runtime-image-node ]]
+          runtime-image-go: $[[ inputs.runtime-image-go ]]
+          runtime-image-rust: $[[ inputs.runtime-image-rust ]]
+          runtime-image-android: $[[ inputs.runtime-image-android ]]
+          signer-image: $[[ inputs.signer-image ]]
+          publication-project: $[[ inputs.publication-project ]]
+          publication-image-repository: $[[ inputs.publication-image-repository ]]
+          cosign-public-key-sha256: $[[ inputs.cosign-public-key-sha256 ]]
+          release-git-url: $[[ inputs.release-git-url ]]
+          release-git-host-key-fingerprint: $[[ inputs.release-git-host-key-fingerprint ]]
+          request-allowed-signers: $[[ inputs.request-allowed-signers ]]
+          bot-name: $[[ inputs.bot-name ]]
+          bot-email: $[[ inputs.bot-email ]]
+          checks: $[[ inputs.checks ]]
+          runner-tags: $[[ inputs.runner-tags ]]
+          signer-runner-tags: $[[ inputs.signer-runner-tags ]]
+          build: $[[ inputs.build ]]
+          build-runner-tags-linux-amd64: $[[ inputs.build-runner-tags-linux-amd64 ]]
+          release-images: $[[ inputs.release-images ]]
+          artifacts-config: $[[ inputs.artifacts-config ]]
+          release-platforms: $[[ inputs.release-platforms ]]
+          labels: $[[ inputs.labels ]]
+          image-builder: $[[ inputs.image-builder ]]
+          builder-job-image: $[[ inputs.builder-job-image ]]
+          build-runner-tags-linux-arm64: $[[ inputs.build-runner-tags-linux-arm64 ]]
+          export-files: $[[ inputs.export-files ]]
+          export: $[[ inputs.export ]]
+          changelog-creator: $[[ inputs.changelog-creator ]]
+          changelog-config: $[[ inputs.changelog-config ]]
+          commit-body-config: $[[ inputs.commit-body-config ]]
+          sign-distro-packages: $[[ inputs.sign-distro-packages ]]
+          release-asset-retention: $[[ inputs.release-asset-retention ]]
+          base-stages: $[[ inputs.base-stages ]]
+          base-plan: $[[ inputs.base-plan ]]
+          transparency-log: $[[ inputs.transparency-log ]]
+          release-branch: $[[ inputs.release-branch ]]
+          enforce-lint: $[[ inputs.enforce-lint ]]
+          enforce-vulnerabilities: $[[ inputs.enforce-vulnerabilities ]]
+          enforce-application-tests: $[[ inputs.enforce-application-tests ]]
+          enforce-reproducible-builds: $[[ inputs.enforce-reproducible-builds ]]
+      # The plan's family jobs, each extending its hidden job of release-jobs.yml.
+      - artifact: _release-plan/release-families.yml
+        job: "Release: plan"

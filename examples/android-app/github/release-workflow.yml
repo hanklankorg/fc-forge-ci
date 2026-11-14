@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Example: Android App Release Workflow
+name: Release Workflow
+on:
+  push:
+    tags:
+      - "release-request/v*"
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  release:
+    uses: diggsweden/forge-ci/.github/workflows/release-orchestrator.yml@PIN_FORGE_CI_SHA # v0.90.0
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      actions: read
+    secrets:
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      # GPG signs the artifacts and the release commit and tag (both defaults).
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_GPG_PUBLIC_KEY: ${{ secrets.RELEASE_GPG_PUBLIC_KEY }}
+      # Android signing (enable-android-signing: true) and Google Play.
+      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+    with:
+      branch: main
+      # The full commit the workflow ref above names. Every plain-runner job
+      # runs the CLI built in this run from exactly this commit.
+      forge-ci-binary-ref: PIN_FORGE_CI_SHA # v0.90.0
+      # Every runtime image is pinned by digest: the workflow that runs it
+      # refuses anything else before its job starts. Replace FIXME with
+      # the digests of the release you call; see
+      # https://github.com/diggsweden/forge-ci/blob/main/docs/runtime-images.md#advanced-pinning-recipe
+      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-base@sha256:0000000000000000000000000000000000000000000000000000000000000000 # FIXME v0.90.0 digest
+      canonical-builder-image: ghcr.io/diggsweden/forge-ci-runtime-go-1.27@sha256:0000000000000000000000000000000000000000000000000000000000000000 # FIXME v0.90.0 digest
+      runtime-image-full: ghcr.io/diggsweden/forge-ci-runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000 # FIXME v0.90.0 digest
+      runtime-image-android: ghcr.io/diggsweden/forge-ci-runtime-android-35@sha256:0000000000000000000000000000000000000000000000000000000000000000 # FIXME v0.90.0 digest
+      artifacts-config: .forge-ci/artifacts.yml
+      release-publisher: github-cli

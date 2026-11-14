@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# Example: snapshot files of a Go CLI on GitLab CI/CD. The snapshot-images
+# component builds the declared CLI of one branch and keeps the binaries with
+# their receipt, snapshot-files.json, as the unsigned artifacts of the job
+# `Snapshot: files <artifact>`, for readers of the pipeline, for 7 days
+# (https://gitlab.example.com/team/ci/forge-ci/-/blob/PIN_FORGE_CI_SHA/docs/workflows.md#snapshot-files).
+#
+# This file is not the project's .gitlab-ci.yml. It belongs in the pinned
+# policy project an administrator owns, as the release does: the component
+# checks out the branch it is told, so whoever writes this include decides
+# what is built. It reads the project's .forge-ci/artifacts.yml, publishes no
+# image and needs no registry credential or protected variable. Replace the
+# placeholders as in .gitlab-ci.yml; `registry` is the instance's container
+# registry, or empty when it has none.
+#
+# The branch is named here, never taken from the pipeline's ref. The rule
+# below runs the snapshot for a pipeline requested on the default branch
+# through the web UI or the API; write the rule your policy wants.
+include:
+  - component: gitlab.example.com/team/ci/forge-ci/snapshot-images@PIN_FORGE_CI_SHA
+    inputs:
+      branch: development # FIXME: the branch to snapshot.
+      publish-files: true
+      forge-ci-repository: team/ci/forge-ci
+      server-url: https://gitlab.example.com
+      registry: registry.gitlab.example.com
+      job-image: registry.example.com/team/check-tools@sha256:PIN_IMAGE_DIGEST
+      build-image: registry.example.com/team/check-tools@sha256:PIN_IMAGE_DIGEST
+      artifact-job-image-go: ghcr.io/diggsweden/forge-ci-runtime-go-1.27@sha256:PIN_GO_IMAGE_DIGEST
+      build-runner-tags-linux-amd64: []
+      build-runner-tags-linux-arm64: []
+    rules:
+      - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

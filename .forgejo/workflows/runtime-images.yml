@@ -1,0 +1,763 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+# workflow-call-secrets-contract: RELEASE_REGISTRY_TOKEN RELEASE_COSIGN_PRIVATE_KEY RELEASE_COSIGN_PASSPHRASE CI_RUNNER_LENDER_TOKEN
+# Callable publication for the Forge CI runtime roster. The trusted layer SHA
+# and signer image are independent of the caller's source SHA being packaged.
+name: Runtime images (reusable)
+on:
+  workflow_call:
+    inputs:
+      forge-ci-repository:
+        description: Trusted layer repository, owner/repository on this forge or full HTTPS clone URL.
+        type: string
+        required: false
+        default: ''
+      forge-ci-sha:
+        description: Authenticated full layer commit matching the caller's workflow pin; not the product source SHA.
+        type: string
+        required: true
+      runs-on:
+        description: JSON array of trusted runner labels. The jobs that neither build, smoke-test on arm64 nor sign run there.
+        type: string
+        required: true
+      runs-on-linux-arm64:
+        description: JSON array of runner labels for the native linux/arm64 smoke test. Required when linux/arm64 is published; no other input stands in for it.
+        type: string
+        default: ''
+      build-runs-on-linux-amd64:
+        description: JSON array of runner labels for the linux/amd64 image builds. Required when linux/amd64 is published; no other input stands in for it.
+        type: string
+        default: ''
+      build-runs-on-linux-arm64:
+        description: JSON array of runner labels for the native linux/arm64 image builds. Required when linux/arm64 is published; no other input stands in for it.
+        type: string
+        default: ''
+      signer-runs-on:
+        description: JSON array of labels of the runner the signing job runs on, the one job that holds the signing credentials; it falls back to no other input.
+        type: string
+        required: true
+      signer-image:
+        description: Reviewed digest-pinned image for trusted control/signing jobs.
+        type: string
+        required: true
+      go-build-image:
+        description: Digest-pinned Go toolchain matching the product go.mod.
+        type: string
+        required: true
+      image-namespace:
+        description: Destination registry/owner namespace, independent of the source forge.
+        type: string
+        required: true
+      registry-user:
+        type: string
+        required: true
+      cosign-public-key:
+        description: Organisation public key; its digest must be a reviewed caller literal.
+        type: string
+        required: true
+      cosign-public-key-sha256:
+        type: string
+        required: true
+      transparency-log:
+        description: Reviewed caller policy, none or public.
+        type: string
+        required: false
+        default: none
+      release-platforms:
+        description: Optional subset of linux/amd64,linux/arm64; empty selects both.
+        type: string
+        default: ''
+      enforce-vulnerabilities:
+        description: Enforcement setting; false lets the assembly report image vulnerability findings without failing. Every image is still scanned. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md.
+        type: boolean
+        default: false
+defaults:
+  run:
+    shell: bash
+env:
+  FORGE_CI_PROVIDER: forgejo
+  FORGEJO_SERVER: ${{ forgejo.server_url }}
+  FORGEJO_REPO: ${{ forgejo.repository }}
+  SOURCE_SHA: ${{ forgejo.sha }}
+  PUBLICATION_REF: ${{ forgejo.ref }}
+  RUNTIME_IMAGE_NAMESPACE: ${{ inputs['image-namespace'] }}
+  RUNTIME_ENGINE_SHA: ${{ inputs['forge-ci-sha'] }}
+  GIT_DEFAULT_HASH: sha1
+jobs:
+  coordinates:
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    outputs:
+      helpers_repository: ${{ steps.validate.outputs.helpers_repository }}
+      signer_image: ${{ steps.validate.outputs.signer_image }}
+      go_build_image: ${{ steps.validate.outputs.go_build_image }}
+      builder: ${{ steps.validate.outputs.builder }}
+      builder_job_image: ${{ steps.validate.outputs.builder_job_image }}
+      transparency_log: ${{ steps.validate.outputs.transparency_log }}
+    steps:
+      - name: Validate layer and trusted image coordinates
+        id: validate
+        env:
+          HELPERS_REPOSITORY_INPUT: ${{ inputs['forge-ci-repository'] || vars.FORGE_CI_REPOSITORY }}
+          SERVER_URL: ${{ forgejo.server_url }}
+          SIGNER_IMAGE_INPUT: ${{ inputs['signer-image'] }}
+          GO_BUILD_IMAGE_INPUT: ${{ inputs['go-build-image'] }}
+          BUILDER_INPUT: ${{ vars.CI_IMAGE_BUILDER || 'buildah' }}
+          BUILDER_JOB_IMAGE_INPUT: ${{ vars.CI_IMAGE_BUILDER_JOB_IMAGE }}
+          PUBLIC_KEY_SHA256: ${{ inputs['cosign-public-key-sha256'] }}
+          TRANSPARENCY_LOG_INPUT: ${{ inputs['transparency-log'] }}
+        run: |
+          set -euo pipefail
+          repository=${HELPERS_REPOSITORY_INPUT:-}
+          if [ -z "$repository" ]; then
+            echo 'ERROR: name the forge-ci-repository input or FORGE_CI_REPOSITORY variable' >&2
+            exit 1
+          fi
+          if [[ "$repository" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+            repository="${SERVER_URL:?}/$repository.git"
+          fi
+          repository_rest=${repository#https://}
+          repository_authority=${repository_rest%%/*}
+          repository_path=${repository_rest#*/}
+          repository_slug=${repository_path%.git}
+          repository_port_invalid=false
+          if [[ "$repository_authority" =~ :([0-9]{1,5})$ ]]; then
+            port=${BASH_REMATCH[1]}
+            if ((10#$port < 1 || 10#$port > 65535)); then repository_port_invalid=true; fi
+          fi
+          if [[ "$repository" != https://* || "$repository" == *'?'* || "$repository" == *'#'* ||
+                ! "$repository_slug" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$ ||
+                "/$repository_slug/" == *'/./'* || "/$repository_slug/" == *'/../'* ||
+                "$repository_path" == *\\* || ! "$repository" =~ ^[[:graph:]]+$ ||
+                "$repository_rest" != */* || -z "$repository_path" || "$repository_authority" == *@* ||
+                ! "$repository_authority" =~ ^([A-Za-z0-9][A-Za-z0-9.-]*|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?$ ||
+                "$repository_port_invalid" == true ]]; then
+            echo 'ERROR: forge-ci repository must be a plain owner/repository or HTTPS clone URL' >&2
+            exit 1
+          fi
+          [[ "$RUNTIME_ENGINE_SHA" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
+          builder=${BUILDER_INPUT:-buildah}
+          builder_job_image=${BUILDER_JOB_IMAGE_INPUT:-}
+          case "$builder" in buildah | kaniko) ;; *) echo 'ERROR: CI_IMAGE_BUILDER must be buildah or kaniko' >&2; exit 1 ;; esac
+          if [[ "$builder" == kaniko && -z "$builder_job_image" ]]; then
+            echo 'ERROR: kaniko requires CI_IMAGE_BUILDER_JOB_IMAGE pinned by digest' >&2
+            exit 1
+          fi
+          images=("$SIGNER_IMAGE_INPUT" "$GO_BUILD_IMAGE_INPUT")
+          if [[ -n "$builder_job_image" ]]; then images+=("$builder_job_image"); fi
+          for image in "${images[@]}"; do
+            [[ "$image" =~ ^[a-z0-9]+([.-][a-z0-9]+)*(:[0-9]+)?/([a-z0-9]+(([._]|__|-+)[a-z0-9]+)*/)*[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?@sha256:[0-9a-f]{64}$ ]]
+          done
+          [[ "$PUBLIC_KEY_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          case "$TRANSPARENCY_LOG_INPUT" in none | public) ;; *) echo 'ERROR: transparency-log must be none or public' >&2; exit 1 ;; esac
+          printf 'helpers_repository=%s\n' "$repository" >>"${FORGEJO_OUTPUT:?}"
+          printf 'signer_image=%s\ngo_build_image=%s\nbuilder=%s\nbuilder_job_image=%s\ntransparency_log=%s\n' "$SIGNER_IMAGE_INPUT" "$GO_BUILD_IMAGE_INPUT" "$builder" "$builder_job_image" "$TRANSPARENCY_LOG_INPUT" >>"${FORGEJO_OUTPUT:?}"
+  plan:
+    needs: coordinates
+    if: ${{ needs.coordinates.result == 'success' && forgejo.ref == 'refs/heads/main' }}
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container: ${{ needs.coordinates.outputs.signer_image }}
+    timeout-minutes: 10
+    env:
+      SIGNER_STRICT: '1'
+      FORGE_CI_COSIGN_TRANSPARENCY: ${{ needs.coordinates.outputs.transparency_log }}
+    outputs:
+      build-matrix: ${{ steps.plan.outputs.build-matrix }}
+      image-matrix: ${{ steps.plan.outputs.image-matrix }}
+      candidate-tag: ${{ steps.plan.outputs.candidate-tag }}
+      run-id: ${{ steps.plan.outputs.run-id }}
+      platform-matrix: ${{ steps.platforms.outputs.matrix-json }}
+    steps:
+      - name: Checkout layer helpers
+        env:
+          FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+        run: |
+          set -euo pipefail
+          helpers="${RUNNER_TEMP:?}/runtime-layer"
+          format=sha1; if [[ ${#RUNTIME_ENGINE_SHA} == 64 ]]; then format=sha256; fi
+          git init --quiet --object-format="$format" "$helpers"
+          git -C "$helpers" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          if ! GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet --depth=1 --no-tags origin "$RUNTIME_ENGINE_SHA"; then
+            GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          fi
+          git -C "$helpers" checkout --quiet --detach "$RUNTIME_ENGINE_SHA"
+          printf 'RUNTIME_LAYER_ROOT=%s\nFORGE_CI_REPOSITORY_URL=%s\n' "$helpers" "$FORGE_CI_REPOSITORY_URL" >>"${FORGEJO_ENV:?}"
+      - name: Verify trusted helper checkout
+        run: test "$(git -C "${RUNTIME_LAYER_ROOT:?}" rev-parse HEAD)" = "$RUNTIME_ENGINE_SHA"
+      - name: Fetch engine binary
+        run: |
+          set -euo pipefail
+          source "${RUNTIME_LAYER_ROOT:?}/.engine/bin/lib-forge-ci.sh"
+          fetch_forge_ci
+      - name: Verify signer toolchain
+        run: bash "${RUNTIME_LAYER_ROOT:?}/.forgejo/scripts/verify-signer-toolchain.sh"
+      - name: Expose the verified engine
+        run: bash "$RUNTIME_LAYER_ROOT/.forgejo/actions/setup-forge-ci/setup-forge-ci.sh" "$RUNTIME_LAYER_ROOT/.engine"
+      - run: forge-ci platform checkout --object-format sha1 --depth 1
+        env:
+          FORGEJO_TOKEN: ${{ forgejo.token }}
+      - name: Select native architectures with the shared planner
+        id: platforms
+        env:
+          # Empty selects both declared architectures; a repository may narrow it.
+          RELEASE_PLATFORMS: ${{ inputs['release-platforms'] }}
+          RUNS_ON: ${{ inputs['runs-on'] }}
+          RUNS_ON_LINUX_ARM64: ${{ inputs['runs-on-linux-arm64'] }}
+          BUILD_RUNS_ON_LINUX_AMD64: ${{ inputs['build-runs-on-linux-amd64'] }}
+          BUILD_RUNS_ON_LINUX_ARM64: ${{ inputs['build-runs-on-linux-arm64'] }}
+        # Each selected platform builds on its own input's runner or not at
+        # all: the engine refuses a plan that builds one whose input has no value.
+        run: |
+          forge-ci container platform-plan --platforms linux/amd64,linux/arm64 --release-platforms "$RELEASE_PLATFORMS" \
+            --runner-input "runs-on=$RUNS_ON" \
+            --runner-input "runs-on-linux-arm64=$RUNS_ON_LINUX_ARM64" \
+            --runner-input "build-runs-on-linux-amd64=$BUILD_RUNS_ON_LINUX_AMD64" \
+            --runner-input "build-runs-on-linux-arm64=$BUILD_RUNS_ON_LINUX_ARM64"
+      - name: Require the arm64 smoke test runner when selected
+        env:
+          PLATFORM_MATRIX: ${{ steps.platforms.outputs.matrix-json }}
+          RUNS_ON_LINUX_ARM64: ${{ inputs['runs-on-linux-arm64'] }}
+        run: |
+          set -euo pipefail
+          # The smoke test is this workflow's own job, which the platform plan does not know.
+          if jq -e 'any(.[]; .suffix == "arm64")' <<<"$PLATFORM_MATRIX" >/dev/null; then
+            test -n "$RUNS_ON_LINUX_ARM64" || { echo 'linux/arm64 publication requires runs-on-linux-arm64 for the native smoke test' >&2; exit 1; }
+          fi
+      - name: Plan native runtime builds
+        id: plan
+        env:
+          PUBLICATION_REF: ${{ forgejo.ref }}
+          RUNTIME_RUN_ID: ${{ forgejo.run_id }}-${{ forgejo.run_attempt || 1 }}
+          REGISTRY_USER: ${{ inputs['registry-user'] }}
+          PLATFORM_MATRIX: ${{ steps.platforms.outputs.matrix-json }}
+        run: |
+          set -euo pipefail
+          : "${REGISTRY_USER:?Set RELEASE_REGISTRY_USER for GHCR publication}"
+          bash "$RUNTIME_LAYER_ROOT/scripts/ci/runtime-images.sh" plan
+          printf 'run-id=%s\n' "$RUNTIME_RUN_ID" >>"$FORGEJO_OUTPUT"
+  build-cli:
+    needs: [coordinates, plan]
+    if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' }}
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container: ${{ needs.coordinates.outputs.go_build_image }}
+    timeout-minutes: 20
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: 'off'
+    steps:
+      - name: Bootstrap the pinned runtime layer
+        env:
+          FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+        run: |
+          set -euo pipefail
+          helpers="${RUNNER_TEMP:?}/runtime-layer"
+          format=sha1; if [[ ${#RUNTIME_ENGINE_SHA} == 64 ]]; then format=sha256; fi
+          git init --quiet --object-format="$format" "$helpers"
+          git -C "$helpers" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          if ! GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet --depth=1 --no-tags origin "$RUNTIME_ENGINE_SHA"; then
+            GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          fi
+          git -C "$helpers" checkout --quiet --detach "$RUNTIME_ENGINE_SHA"
+          test "$(git -C "$helpers" rev-parse HEAD)" = "$RUNTIME_ENGINE_SHA"
+          bash "$helpers/.forgejo/actions/setup-forge-ci/setup-forge-ci.sh" "$helpers/.engine"
+          printf 'RUNTIME_LAYER_ROOT=%s\nFORGE_CI_REPOSITORY_URL=%s\n' "$helpers" "$FORGE_CI_REPOSITORY_URL" >>"${FORGEJO_ENV:?}"
+      - run: forge-ci platform checkout --object-format sha1 --depth 1
+        env:
+          FORGEJO_TOKEN: ${{ forgejo.token }}
+      - name: Independently rebuild the recorded CLI bytes
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          export GOMODCACHE="${RUNNER_TEMP:?}/runtime-modules" GOCACHE="${RUNNER_TEMP:?}/runtime-go-cache"
+          go mod download
+          mkdir -p runtime-cli
+          for arch in amd64 arm64; do
+            bash scripts/ci/engine-binary.sh build "$arch" "$PWD/runtime-cli/forge-ci-$arch"
+            bash "$RUNTIME_LAYER_ROOT/scripts/ci/runtime-images.sh" stage-cli "$arch"
+          done
+          forge-ci artifact upload --name runtime-cli --dir runtime-cli/ --retention-days 1 --if-no-files error
+  request-runner:
+    needs: [coordinates, plan, build-cli]
+    if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.build-cli.result == 'success' }}
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container: ${{ needs.coordinates.outputs.signer_image }}
+    timeout-minutes: 20
+    env:
+      SIGNER_STRICT: '1'
+      FORGE_CI_COSIGN_TRANSPARENCY: ${{ needs.coordinates.outputs.transparency_log }}
+    steps:
+      - name: Checkout layer helpers
+        env:
+          FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+        run: |
+          set -euo pipefail
+          helpers="${RUNNER_TEMP:?}/runtime-layer"
+          format=sha1; if [[ ${#RUNTIME_ENGINE_SHA} == 64 ]]; then format=sha256; fi
+          git init --quiet --object-format="$format" "$helpers"
+          git -C "$helpers" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          if ! GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet --depth=1 --no-tags origin "$RUNTIME_ENGINE_SHA"; then
+            GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          fi
+          git -C "$helpers" checkout --quiet --detach "$RUNTIME_ENGINE_SHA"
+          printf 'RUNTIME_LAYER_ROOT=%s\nFORGE_CI_REPOSITORY_URL=%s\n' "$helpers" "$FORGE_CI_REPOSITORY_URL" >>"${FORGEJO_ENV:?}"
+      - name: Verify trusted helper checkout
+        run: test "$(git -C "${RUNTIME_LAYER_ROOT:?}" rev-parse HEAD)" = "$RUNTIME_ENGINE_SHA"
+      - name: Fetch engine binary
+        run: |
+          set -euo pipefail
+          source "${RUNTIME_LAYER_ROOT:?}/.engine/bin/lib-forge-ci.sh"
+          fetch_forge_ci
+      - name: Verify signer toolchain
+        run: bash "${RUNTIME_LAYER_ROOT:?}/.forgejo/scripts/verify-signer-toolchain.sh"
+      - name: Expose the verified engine
+        run: bash "$RUNTIME_LAYER_ROOT/.forgejo/actions/setup-forge-ci/setup-forge-ci.sh" "$RUNTIME_LAYER_ROOT/.engine"
+      - name: Request an ephemeral runner when configured
+        env:
+          CI_RUNNER_LENDER: ${{ vars.CI_RUNNER_LENDER }}
+          CI_RUNNER_LENDER_REPOSITORY: ${{ vars.CI_RUNNER_LENDER_REPOSITORY }}
+          CI_RUNNER_LENDER_TOKEN: ${{ secrets.CI_RUNNER_LENDER_TOKEN }}
+          BUILD_MATRIX_JSON: ${{ needs.plan.outputs.build-matrix }}
+        run: |
+          set -euo pipefail
+          lender_token=$CI_RUNNER_LENDER_TOKEN
+          export -n lender_token
+          unset CI_RUNNER_LENDER_TOKEN
+          # Each lent runner is single-use: request one per build leg. The
+          # shared engine makes this a no-op when lending is not configured.
+          requests=$(jq -er '.include[].arch' <<<"$BUILD_MATRIX_JSON")
+          while read -r arch; do
+            printf '%s' "$lender_token" | forge-ci platform request-runner --arch "$arch" --token-file -
+          done <<<"$requests"
+  build:
+    needs: [coordinates, plan, build-cli, request-runner]
+    if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.build-cli.result == 'success' && needs.request-runner.result == 'success' }}
+    runs-on: ${{ fromJSON(inputs[format('build-runs-on-linux-{0}', matrix.arch)]) }}
+    container: ${{ needs.coordinates.outputs.builder_job_image }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      # Let the selected pool bound concurrency. A fixed low matrix cap can
+      # leave already-lent single-use runners idle until their lease expires.
+      matrix: ${{ fromJSON(needs.plan.outputs.build-matrix) }}
+    env:
+      RUNTIME_RUN_ID: ${{ needs.plan.outputs.run-id }}
+      PLATFORM_MATRIX: ${{ needs.plan.outputs.platform-matrix }}
+      CI_IMAGE_BUILDER: ${{ needs.coordinates.outputs.builder }}
+      CI_IMAGE_BUILDER_JOB_IMAGE: ${{ needs.coordinates.outputs.builder_job_image }}
+    steps:
+      - name: Bootstrap the pinned runtime layer
+        env:
+          FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+        run: |
+          set -euo pipefail
+          helpers="${RUNNER_TEMP:?}/runtime-layer"
+          format=sha1; if [[ ${#RUNTIME_ENGINE_SHA} == 64 ]]; then format=sha256; fi
+          git init --quiet --object-format="$format" "$helpers"
+          git -C "$helpers" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          if ! GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet --depth=1 --no-tags origin "$RUNTIME_ENGINE_SHA"; then
+            GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          fi
+          git -C "$helpers" checkout --quiet --detach "$RUNTIME_ENGINE_SHA"
+          test "$(git -C "$helpers" rev-parse HEAD)" = "$RUNTIME_ENGINE_SHA"
+          bash "$helpers/.forgejo/actions/setup-forge-ci/setup-forge-ci.sh" "$helpers/.engine"
+          printf 'RUNTIME_LAYER_ROOT=%s\nFORGE_CI_REPOSITORY_URL=%s\n' "$helpers" "$FORGE_CI_REPOSITORY_URL" >>"${FORGEJO_ENV:?}"
+      - run: forge-ci platform checkout --object-format sha1 --depth 1
+        env:
+          FORGEJO_TOKEN: ${{ forgejo.token }}
+      - run: forge-ci artifact download --name runtime-cli --dir runtime-cli/
+      - name: Stage this architecture's verified CLI
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: bash "$RUNTIME_LAYER_ROOT/scripts/ci/runtime-images.sh" stage-cli "$ARCH"
+      - name: Prepare the selected native builder
+        env:
+          SETUP_BUILDAH_EXTRA_PACKAGES: jq
+        run: bash "$RUNTIME_LAYER_ROOT/.forgejo/bin/setup-image-builder.sh"
+      - name: Authenticate the destination registry
+        env:
+          REGISTRY_USER: ${{ inputs['registry-user'] }}
+          REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$REGISTRY_TOKEN" | forge-ci container login \
+            --registry "$RUNTIME_IMAGE_NAMESPACE" --registry-username "$REGISTRY_USER" \
+            --registry-password-file - --create-auth-file --export-env
+      - name: Build and publish architecture candidate
+        env:
+          TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.arch }}
+        run: bash "$RUNTIME_LAYER_ROOT/scripts/ci/runtime-images.sh" build "$TARGET" "$ARCH"
+      - name: Remove registry credentials
+        if: always()
+        run: test -z "${REGISTRY_AUTH_FILE:-}" || rm -f -- "$REGISTRY_AUTH_FILE"
+  collect:
+    needs: [coordinates, plan, build]
+    if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.build.result == 'success' }}
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container: ${{ needs.coordinates.outputs.signer_image }}
+    timeout-minutes: 10
+    outputs:
+      smoke-matrix: ${{ steps.collect.outputs.smoke-matrix }}
+    env:
+      SIGNER_STRICT: '1'
+      FORGE_CI_COSIGN_TRANSPARENCY: ${{ needs.coordinates.outputs.transparency_log }}
+      RUNTIME_RUN_ID: ${{ needs.plan.outputs.run-id }}
+      PLATFORM_MATRIX: ${{ needs.plan.outputs.platform-matrix }}
+    steps:
+      - name: Checkout layer helpers
+        env:
+          FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+        run: |
+          set -euo pipefail
+          helpers="${RUNNER_TEMP:?}/runtime-layer"
+          format=sha1; if [[ ${#RUNTIME_ENGINE_SHA} == 64 ]]; then format=sha256; fi
+          git init --quiet --object-format="$format" "$helpers"
+          git -C "$helpers" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          if ! GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet --depth=1 --no-tags origin "$RUNTIME_ENGINE_SHA"; then
+            GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          fi
+          git -C "$helpers" checkout --quiet --detach "$RUNTIME_ENGINE_SHA"
+          printf 'RUNTIME_LAYER_ROOT=%s\nFORGE_CI_REPOSITORY_URL=%s\n' "$helpers" "$FORGE_CI_REPOSITORY_URL" >>"${FORGEJO_ENV:?}"
+      - name: Verify trusted helper checkout
+        run: test "$(git -C "${RUNTIME_LAYER_ROOT:?}" rev-parse HEAD)" = "$RUNTIME_ENGINE_SHA"
+      - name: Fetch engine binary
+        run: |
+          set -euo pipefail
+          source "${RUNTIME_LAYER_ROOT:?}/.engine/bin/lib-forge-ci.sh"
+          fetch_forge_ci
+      - name: Verify signer toolchain
+        run: bash "${RUNTIME_LAYER_ROOT:?}/.forgejo/scripts/verify-signer-toolchain.sh"
+      - name: Expose the verified engine
+        run: bash "$RUNTIME_LAYER_ROOT/.forgejo/actions/setup-forge-ci/setup-forge-ci.sh" "$RUNTIME_LAYER_ROOT/.engine"
+      - run: forge-ci platform checkout --object-format sha1 --depth 1
+        env:
+          FORGEJO_TOKEN: ${{ forgejo.token }}
+      - id: collect
+        run: bash "$RUNTIME_LAYER_ROOT/scripts/ci/runtime-images.sh" collect
+  request-smoke-runner:
+    needs: [coordinates, collect]
+    if: ${{ needs.coordinates.result == 'success' && needs.collect.result == 'success' }}
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container: ${{ needs.coordinates.outputs.signer_image }}
+    timeout-minutes: 20
+    env:
+      SIGNER_STRICT: '1'
+      FORGE_CI_COSIGN_TRANSPARENCY: ${{ needs.coordinates.outputs.transparency_log }}
+    steps:
+      - name: Checkout layer helpers
+        env:
+          FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+        run: |
+          set -euo pipefail
+          helpers="${RUNNER_TEMP:?}/runtime-layer"
+          format=sha1; if [[ ${#RUNTIME_ENGINE_SHA} == 64 ]]; then format=sha256; fi
+          git init --quiet --object-format="$format" "$helpers"
+          git -C "$helpers" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          if ! GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet --depth=1 --no-tags origin "$RUNTIME_ENGINE_SHA"; then
+            GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          fi
+          git -C "$helpers" checkout --quiet --detach "$RUNTIME_ENGINE_SHA"
+          printf 'RUNTIME_LAYER_ROOT=%s\nFORGE_CI_REPOSITORY_URL=%s\n' "$helpers" "$FORGE_CI_REPOSITORY_URL" >>"${FORGEJO_ENV:?}"
+      - name: Verify trusted helper checkout
+        run: test "$(git -C "${RUNTIME_LAYER_ROOT:?}" rev-parse HEAD)" = "$RUNTIME_ENGINE_SHA"
+      - name: Fetch engine binary
+        run: |
+          set -euo pipefail
+          source "${RUNTIME_LAYER_ROOT:?}/.engine/bin/lib-forge-ci.sh"
+          fetch_forge_ci
+      - name: Verify signer toolchain
+        run: bash "${RUNTIME_LAYER_ROOT:?}/.forgejo/scripts/verify-signer-toolchain.sh"
+      - name: Expose the verified engine
+        run: bash "$RUNTIME_LAYER_ROOT/.forgejo/actions/setup-forge-ci/setup-forge-ci.sh" "$RUNTIME_LAYER_ROOT/.engine"
+      - name: Request fresh smoke runners when ARM64 uses the build pool
+        if: inputs['runs-on-linux-arm64'] == inputs['build-runs-on-linux-arm64']
+        env:
+          CI_RUNNER_LENDER: ${{ vars.CI_RUNNER_LENDER }}
+          CI_RUNNER_LENDER_REPOSITORY: ${{ vars.CI_RUNNER_LENDER_REPOSITORY }}
+          CI_RUNNER_LENDER_TOKEN: ${{ secrets.CI_RUNNER_LENDER_TOKEN }}
+          SMOKE_MATRIX_JSON: ${{ needs.collect.outputs.smoke-matrix }}
+        run: |
+          set -euo pipefail
+          lender_token=$CI_RUNNER_LENDER_TOKEN
+          export -n lender_token
+          unset CI_RUNNER_LENDER_TOKEN
+          requests=$(jq -r '.include[] | select(.arch == "arm64") | .arch' <<<"$SMOKE_MATRIX_JSON")
+          if [[ -n "$requests" ]]; then
+            while read -r arch; do
+              printf '%s' "$lender_token" | forge-ci platform request-runner --arch "$arch" --token-file -
+            done <<<"$requests"
+          fi
+  smoke:
+    needs: [coordinates, collect, request-smoke-runner]
+    if: ${{ needs.coordinates.result == 'success' && needs.collect.result == 'success' && needs.request-smoke-runner.result == 'success' }}
+    runs-on: ${{ fromJSON(inputs[matrix.arch == 'arm64' && 'runs-on-linux-arm64' || 'runs-on']) }}
+    # Run the exact candidate digest as a native job container. No nested
+    # Podman/user namespaces are needed. Credentials are consumed
+    # by the runner for the pull, not exported to the smoke-test process.
+    container:
+      image: ${{ matrix.ref }}
+      credentials:
+        username: ${{ inputs['registry-user'] }}
+        password: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      # Borrowed smoke runners are single-use too; let their pool bound concurrency.
+      matrix: ${{ fromJSON(needs.collect.outputs.smoke-matrix) }}
+    steps:
+      - name: Check the installed CLI for smoke-test diagnostics
+        env:
+          EXPECTED_SHA256: ${{ matrix.checksum }}
+        run: |
+          set -euo pipefail
+          printf '%s  /usr/local/bin/forge-ci\n' "$EXPECTED_SHA256" | sha256sum --check --strict
+      - run: forge-ci platform checkout --object-format sha1 --depth 1
+        env:
+          FORGEJO_TOKEN: ${{ forgejo.token }}
+      - name: Exercise the native runtime toolchain
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          go_version=$(sed -n 's/^ARG GOLANG_IMAGE=\([0-9][0-9.]*\)-.*/\1/p' containers/runtime/Containerfile)
+          bash scripts/ci/runtime-smoke.sh "$TARGET" "$go_version"
+      - name: Record the digest that passed native smoke checks
+        env:
+          TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.arch }}
+          TESTED_REF: ${{ matrix.ref }}
+        run: |
+          set -euo pipefail
+          mkdir -p smoke-receipt
+          jq -n --arg source "$SOURCE_SHA" --arg target "$TARGET" \
+            --arg arch "$ARCH" --arg ref "$TESTED_REF" \
+            '{source:$source,target:$target,arch:$arch,ref:$ref}' >smoke-receipt/receipt.json
+          forge-ci artifact upload --name "runtime-smoke-$TARGET-$ARCH" \
+            --dir smoke-receipt --retention-days 30 --if-no-files error
+  assemble:
+    needs: [coordinates, plan, smoke]
+    if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.smoke.result == 'success' }}
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container: ${{ needs.coordinates.outputs.signer_image }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.plan.outputs.image-matrix) }}
+    env:
+      SIGNER_STRICT: '1'
+      FORGE_CI_COSIGN_TRANSPARENCY: ${{ needs.coordinates.outputs.transparency_log }}
+      RUNTIME_RUN_ID: ${{ needs.plan.outputs.run-id }}
+      PLATFORM_MATRIX: ${{ needs.plan.outputs.platform-matrix }}
+    steps:
+      - name: Checkout layer helpers
+        env:
+          FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+        run: |
+          set -euo pipefail
+          helpers="${RUNNER_TEMP:?}/runtime-layer"
+          format=sha1; if [[ ${#RUNTIME_ENGINE_SHA} == 64 ]]; then format=sha256; fi
+          git init --quiet --object-format="$format" "$helpers"
+          git -C "$helpers" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          if ! GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet --depth=1 --no-tags origin "$RUNTIME_ENGINE_SHA"; then
+            GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          fi
+          git -C "$helpers" checkout --quiet --detach "$RUNTIME_ENGINE_SHA"
+          printf 'RUNTIME_LAYER_ROOT=%s\nFORGE_CI_REPOSITORY_URL=%s\n' "$helpers" "$FORGE_CI_REPOSITORY_URL" >>"${FORGEJO_ENV:?}"
+      - name: Verify trusted helper checkout
+        run: test "$(git -C "${RUNTIME_LAYER_ROOT:?}" rev-parse HEAD)" = "$RUNTIME_ENGINE_SHA"
+      - name: Fetch engine binary
+        run: |
+          set -euo pipefail
+          source "${RUNTIME_LAYER_ROOT:?}/.engine/bin/lib-forge-ci.sh"
+          fetch_forge_ci
+      - name: Verify signer toolchain
+        run: bash "${RUNTIME_LAYER_ROOT:?}/.forgejo/scripts/verify-signer-toolchain.sh"
+      - name: Expose the verified engine
+        run: bash "$RUNTIME_LAYER_ROOT/.forgejo/actions/setup-forge-ci/setup-forge-ci.sh" "$RUNTIME_LAYER_ROOT/.engine"
+      - run: forge-ci platform checkout --object-format sha1 --depth 1
+        env:
+          FORGEJO_TOKEN: ${{ forgejo.token }}
+      - name: Authenticate the destination registry
+        env:
+          REGISTRY_USER: ${{ inputs['registry-user'] }}
+          REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$REGISTRY_TOKEN" | forge-ci container login \
+            --registry "$RUNTIME_IMAGE_NAMESPACE" --registry-username "$REGISTRY_USER" \
+            --registry-password-file - --create-auth-file --export-env
+      - name: Assemble tested candidates and record native evidence
+        env:
+          TARGET: ${{ matrix.target }}
+          RUNTIME_IMAGES_ADMIN_VULNERABILITIES: ${{ inputs['enforce-vulnerabilities'] }}
+        run: |
+          set -euo pipefail
+          source "$RUNTIME_LAYER_ROOT/scripts/bootstrap/install-trivy.sh"
+          install_trivy
+          bash "$RUNTIME_LAYER_ROOT/scripts/ci/runtime-images.sh" assemble "$TARGET"
+      - name: Remove registry credentials
+        if: always()
+        run: test -z "${REGISTRY_AUTH_FILE:-}" || rm -f -- "$REGISTRY_AUTH_FILE"
+  sign:
+    needs: [coordinates, plan, assemble]
+    if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.assemble.result == 'success' }}
+    runs-on: ${{ fromJSON(inputs['signer-runs-on']) }}
+    container: ${{ needs.coordinates.outputs.signer_image }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.plan.outputs.image-matrix) }}
+    env:
+      SIGNER_STRICT: '1'
+      TARGET: ${{ matrix.target }}
+      IMAGE_REPOSITORY: ${{ inputs['image-namespace'] }}/${{ matrix.name }}
+      ARCHS_JSON: ${{ toJSON(matrix.archs) }}
+      CANDIDATE_TAG: ${{ needs.plan.outputs.candidate-tag }}
+      FORGE_CI_COSIGN_TRANSPARENCY: ${{ needs.coordinates.outputs.transparency_log }}
+    # Only the caller-pinned layer is fetched here, never product source.
+    # No product code, tool install or candidate execution in this job.
+    steps:
+      - name: Checkout layer helpers
+        env:
+          FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+        run: |
+          set -euo pipefail
+          helpers="${RUNNER_TEMP:?}/runtime-layer"
+          format=sha1; if [[ ${#RUNTIME_ENGINE_SHA} == 64 ]]; then format=sha256; fi
+          git init --quiet --object-format="$format" "$helpers"
+          git -C "$helpers" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          if ! GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet --depth=1 --no-tags origin "$RUNTIME_ENGINE_SHA"; then
+            GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          fi
+          git -C "$helpers" checkout --quiet --detach "$RUNTIME_ENGINE_SHA"
+          printf 'RUNTIME_LAYER_ROOT=%s\nFORGE_CI_REPOSITORY_URL=%s\n' "$helpers" "$FORGE_CI_REPOSITORY_URL" >>"${FORGEJO_ENV:?}"
+      - name: Verify trusted helper checkout
+        run: test "$(git -C "${RUNTIME_LAYER_ROOT:?}" rev-parse HEAD)" = "$RUNTIME_ENGINE_SHA"
+      - name: Fetch engine binary
+        run: |
+          set -euo pipefail
+          source "${RUNTIME_LAYER_ROOT:?}/.engine/bin/lib-forge-ci.sh"
+          fetch_forge_ci
+      - name: Verify signer toolchain
+        run: bash "${RUNTIME_LAYER_ROOT:?}/.forgejo/scripts/verify-signer-toolchain.sh"
+      - name: Expose the verified engine
+        run: bash "$RUNTIME_LAYER_ROOT/.forgejo/actions/setup-forge-ci/setup-forge-ci.sh" "$RUNTIME_LAYER_ROOT/.engine"
+      - name: Download data-only evidence
+        run: forge-ci artifact download --name "runtime-evidence-$TARGET" --dir evidence/
+      - name: Authenticate the destination registry
+        env:
+          REGISTRY_USER: ${{ inputs['registry-user'] }}
+          REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$REGISTRY_TOKEN" | forge-ci container login \
+            --registry "$RUNTIME_IMAGE_NAMESPACE" --registry-username "$REGISTRY_USER" \
+            --registry-password-file - --create-auth-file --export-env
+      - name: Bind the signing key to the reviewed public key
+        working-directory: evidence
+        env:
+          TRUSTED_KEY_INPUT: ${{ inputs['cosign-public-key'] }}
+          TRUSTED_KEY_SHA256: ${{ inputs['cosign-public-key-sha256'] }}
+          COSIGN_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          public_key=$(printf '%s' "$TRUSTED_KEY_INPUT")
+          printf '%s\n' "$public_key" >cosign.pub
+          [[ "${TRUSTED_KEY_SHA256:?}" =~ ^[a-f0-9]{64}$ ]]
+          printf '%s\n' "$TRUSTED_KEY_SHA256" >cosign.pub.sha256
+          forge-ci validate signing-key --key env://COSIGN_KEY --trusted-public-key cosign.pub --trusted-public-key-digest cosign.pub.sha256
+      - name: Sign image and attest native SBOMs and source provenance
+        working-directory: evidence
+        env:
+          COSIGN_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          archs=$(jq -er '.[]' <<<"$ARCHS_JSON")
+          forge-ci container runtime-publication sign --auth-file "$REGISTRY_AUTH_FILE" \
+            --source-sha "$SOURCE_SHA" --server-url "$FORGEJO_SERVER" --repository "$FORGEJO_REPO" \
+            --image-repository "$IMAGE_REPOSITORY" --tag "$CANDIDATE_TAG" \
+            --name "runtime-$TARGET" --archs "$archs" --flavor "$TARGET" \
+            --method kms --key env://COSIGN_KEY
+      - name: Remove registry credentials
+        if: always()
+        run: test -z "${REGISTRY_AUTH_FILE:-}" || rm -f -- "$REGISTRY_AUTH_FILE"
+  publish:
+    needs: [coordinates, plan, sign]
+    if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.sign.result == 'success' }}
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container: ${{ needs.coordinates.outputs.signer_image }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.plan.outputs.image-matrix) }}
+    env:
+      SIGNER_STRICT: '1'
+      FORGE_CI_COSIGN_TRANSPARENCY: ${{ needs.coordinates.outputs.transparency_log }}
+      TARGET: ${{ matrix.target }}
+      IMAGE_REPOSITORY: ${{ inputs['image-namespace'] }}/${{ matrix.name }}
+      ARCHS_JSON: ${{ toJSON(matrix.archs) }}
+      CANDIDATE_TAG: ${{ needs.plan.outputs.candidate-tag }}
+    steps:
+      - name: Checkout layer helpers
+        env:
+          FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
+        run: |
+          set -euo pipefail
+          helpers="${RUNNER_TEMP:?}/runtime-layer"
+          format=sha1; if [[ ${#RUNTIME_ENGINE_SHA} == 64 ]]; then format=sha256; fi
+          git init --quiet --object-format="$format" "$helpers"
+          git -C "$helpers" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          if ! GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet --depth=1 --no-tags origin "$RUNTIME_ENGINE_SHA"; then
+            GIT_TERMINAL_PROMPT=0 git -C "$helpers" fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          fi
+          git -C "$helpers" checkout --quiet --detach "$RUNTIME_ENGINE_SHA"
+          printf 'RUNTIME_LAYER_ROOT=%s\nFORGE_CI_REPOSITORY_URL=%s\n' "$helpers" "$FORGE_CI_REPOSITORY_URL" >>"${FORGEJO_ENV:?}"
+      - name: Verify trusted helper checkout
+        run: test "$(git -C "${RUNTIME_LAYER_ROOT:?}" rev-parse HEAD)" = "$RUNTIME_ENGINE_SHA"
+      - name: Fetch engine binary
+        run: |
+          set -euo pipefail
+          source "${RUNTIME_LAYER_ROOT:?}/.engine/bin/lib-forge-ci.sh"
+          fetch_forge_ci
+      - name: Verify signer toolchain
+        run: bash "${RUNTIME_LAYER_ROOT:?}/.forgejo/scripts/verify-signer-toolchain.sh"
+      - name: Expose the verified engine
+        run: bash "$RUNTIME_LAYER_ROOT/.forgejo/actions/setup-forge-ci/setup-forge-ci.sh" "$RUNTIME_LAYER_ROOT/.engine"
+      - run: forge-ci artifact download --name "runtime-evidence-$TARGET" --dir evidence/
+      - name: Authenticate the destination registry
+        env:
+          REGISTRY_USER: ${{ inputs['registry-user'] }}
+          REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$REGISTRY_TOKEN" | forge-ci container login \
+            --registry "$RUNTIME_IMAGE_NAMESPACE" --registry-username "$REGISTRY_USER" \
+            --registry-password-file - --create-auth-file --export-env
+      - name: Verify signatures and reject a stale main before promotion
+        working-directory: evidence
+        env:
+          TRUSTED_KEY_INPUT: ${{ inputs['cosign-public-key'] }}
+          TRUSTED_KEY_SHA256: ${{ inputs['cosign-public-key-sha256'] }}
+          FORGEJO_TOKEN: ${{ forgejo.token }}
+        run: |
+          set -euo pipefail
+          public_key=$(printf '%s' "$TRUSTED_KEY_INPUT")
+          printf '%s\n' "$public_key" >cosign.pub
+          archs=$(jq -r '.[]' <<<"$ARCHS_JSON")
+          forge-ci container runtime-publication promote --auth-file "$REGISTRY_AUTH_FILE" \
+            --source-sha "$SOURCE_SHA" --server-url "$FORGEJO_SERVER" --repository "$FORGEJO_REPO" \
+            --image-repository "$IMAGE_REPOSITORY" --tag "$CANDIDATE_TAG" \
+            --name "runtime-$TARGET" --archs "$archs" \
+            --cosign-public-key-path cosign.pub --cosign-public-key-sha256 "$TRUSTED_KEY_SHA256"
+      - name: Retain the verified consumer pin
+        working-directory: evidence
+        run: |
+          set -euo pipefail
+          forge-ci artifact upload --name "runtime-published-$TARGET" --dir . --retention-days 30 --if-no-files error
+      - name: Remove registry credentials
+        if: always()
+        run: test -z "${REGISTRY_AUTH_FILE:-}" || rm -f -- "$REGISTRY_AUTH_FILE"

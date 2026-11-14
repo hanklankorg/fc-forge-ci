@@ -1,0 +1,183 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+spec:
+  inputs:
+    engine-sha:
+      regex: '^([0-9a-f]{40}|[0-9a-f]{64})$'
+    forge-ci-repository:
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
+    server-url:
+      regex: '^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'
+    registry:
+      regex: '^$|^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'
+    job-image:
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    build-image:
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    runner-tags:
+      type: array
+      default: []
+    image-builder:
+      options: [buildah, kaniko]
+      default: buildah
+    builder-job-image:
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+      default: ''
+    enforce-application-tests:
+      type: boolean
+      default: false
+    enforce-vulnerabilities:
+      type: boolean
+      default: false
+---
+.forge-ci-snapshot:
+  # No second attempt unless a job names the one for an unavailable
+  # dependency: a default of the including configuration reaches no job.
+  retry: 0
+  image:
+    name: $[[ inputs.job-image ]]
+    entrypoint: ['']
+  tags: $[[ inputs.runner-tags ]]
+  inherit:
+    variables: false
+  # A project, group or instance variable outranks a job's own, so the
+  # policy's values are not job variables: the start assigns them from the
+  # inputs, read only, and holds the runner's GIT_STRATEGY to its literal.
+  variables:
+    GIT_STRATEGY: empty
+  before_script:
+    - |
+      set -euo pipefail
+      umask 077
+      unset BASH_ENV ENV
+      if [ "${GIT_STRATEGY-}" != empty ]; then
+        echo "ERROR: GIT_STRATEGY is '${GIT_STRATEGY-}', not empty; remove the variable that sets it." >&2
+        exit 1
+      fi
+      # The instance and its registry as written: a project variable
+      # outranks the predefined CI_SERVER_URL, CI_API_V4_URL and CI_REGISTRY,
+      # and the job token goes where they point. Hold two to the literals,
+      # derive the API.
+      readonly RC_SERVER_URL='$[[ inputs.server-url ]]' RC_REGISTRY='$[[ inputs.registry ]]'
+      if [ "${CI_SERVER_URL-}" != "${RC_SERVER_URL}" ] || [ "${CI_REGISTRY-}" != "${RC_REGISTRY}" ]; then
+        echo "ERROR: CI_SERVER_URL is '${CI_SERVER_URL-}' and CI_REGISTRY '${CI_REGISTRY-}', not server-url '${RC_SERVER_URL}' and registry '${RC_REGISTRY}'; remove the variables that set them." >&2
+        exit 1
+      fi
+      export CI_API_V4_URL="${RC_SERVER_URL}/api/v4"
+      export FORGE_CI_PROVIDER=gitlab FORGE_CI_PACKAGE_PROVIDER=gitlab \
+        SNAPSHOT_LAYER_PROJECT='$[[ inputs.forge-ci-repository ]]' \
+        SNAPSHOT_ENGINE_SHA='$[[ inputs.engine-sha ]]' \
+        CI_IMAGE_BUILDER='$[[ inputs.image-builder ]]' \
+        CI_IMAGE_BUILDER_JOB_IMAGE='$[[ inputs.builder-job-image ]]'
+      readonly FORGE_CI_PROVIDER FORGE_CI_PACKAGE_PROVIDER SNAPSHOT_LAYER_PROJECT SNAPSHOT_ENGINE_SHA \
+        CI_IMAGE_BUILDER CI_IMAGE_BUILDER_JOB_IMAGE
+      # The administrator's settings, which every engine call passes as flags.
+      readonly SNAPSHOT_ADMIN_APPLICATION_TESTS='$[[ inputs.enforce-application-tests ]]' \
+        SNAPSHOT_ADMIN_VULNERABILITIES='$[[ inputs.enforce-vulnerabilities ]]'
+      export SNAPSHOT_SERVER=${RC_SERVER_URL}
+      export SNAPSHOT_REPOSITORY=${CI_PROJECT_PATH:?}
+      export FORGE_CI_REPOSITORY_URL="${RC_SERVER_URL}/${SNAPSHOT_LAYER_PROJECT}.git"
+      export SNAPSHOT_HELPERS="${CI_PROJECT_DIR:?}/snapshot-engine"
+      if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+        ca_bundle="${CI_PROJECT_DIR}/snapshot-ca.crt"
+        cat /etc/ssl/certs/ca-certificates.crt "${CI_SERVER_TLS_CA_FILE}" > "${ca_bundle}"
+        export GIT_SSL_CAINFO=${ca_bundle} CURL_CA_BUNDLE=${ca_bundle} SSL_CERT_FILE=${ca_bundle}
+        # Node reads none of those; npm needs it for the forge's registry.
+        export NODE_EXTRA_CA_CERTS=${ca_bundle}
+      fi
+      git init --quiet "${SNAPSHOT_HELPERS}"
+      git -C "${SNAPSHOT_HELPERS}" remote add origin "${FORGE_CI_REPOSITORY_URL}"
+      # A forge that could not be reached is asked three times, and the job
+      # then ends as unavailable, exit 69. Any other refusal of the fetch
+      # ends it at once.
+      for attempt in 1 2 3; do
+        fetch_error=$(GIT_TERMINAL_PROMPT=0 git -c credential.helper= -c core.hooksPath=/dev/null -C "${SNAPSHOT_HELPERS}" fetch --quiet --depth=1 --no-tags origin "${SNAPSHOT_ENGINE_SHA}" 2>&1) && break
+        printf '%s\n' "${fetch_error}" >&2
+        case "${fetch_error}" in
+        "fatal: unable to access '"*"': Could not resolve host: "* | "fatal: unable to access '"*"': Failed to connect to "*) ;;
+        *) exit 1 ;;
+        esac
+        if [ "${attempt}" -eq 3 ]; then exit 69; fi
+        sleep 5
+      done
+      git -C "${SNAPSHOT_HELPERS}" checkout --quiet --detach "${SNAPSHOT_ENGINE_SHA}"
+      test "$(git -C "${SNAPSHOT_HELPERS}" rev-parse HEAD)" = "${SNAPSHOT_ENGINE_SHA}"
+      source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
+      fetch_forge_ci
+      export CI_OUTPUT="${CI_PROJECT_DIR}/snapshot-outputs.env"
+      source "${SNAPSHOT_HELPERS}/.forgejo/bin/snapshot-images.sh"
+      source "${SNAPSHOT_HELPERS}/.gitlab/bin/snapshot-images.sh"
+      # Provider checks CI_MERGE_REQUEST_IID/ID and other MR markers even in children.
+      snapshot_validate_event
+  after_script:
+    - |
+      # Native tools and the artifact uploader may run as different users.
+      # Only the declared data handoffs are made readable, never auth or source.
+      for handoff in snapshot-plan.json snapshot-child.yml snapshot-layouts _snapshot-artifacts snapshot-files snapshot-context snapshot-receipts snapshot-evidence container-images.json; do
+        if [ -e "${handoff}" ] && [ ! -L "${handoff}" ]; then
+          find "${handoff}" \( -type d -o -type f \) -exec chmod u=rwX,go=rX -- {} +
+        fi
+      done
+# The generated produce, build and publish jobs give their script, which
+# names their artifact or image, architecture and context job as arguments.
+# Every job but the publishing one, which pushes images, gets one more
+# attempt when the engine found a dependency unavailable, exit 69, and for
+# no other failure.
+.forge-ci-snapshot-produce:
+  extends: .forge-ci-snapshot
+  retry:
+    max: 1
+    exit_codes: 69
+  artifacts:
+    expire_in: 1 day
+    paths: [_snapshot-artifacts/]
+# A generated files job names its own artifact: the file output's bundle,
+# under a name that carries the snapshot version, kept for 7 days. It holds
+# no registry or release credential and publishes nothing else.
+.forge-ci-snapshot-files:
+  extends: .forge-ci-snapshot
+  retry:
+    max: 1
+    exit_codes: 69
+.forge-ci-snapshot-context:
+  extends: .forge-ci-snapshot
+  retry:
+    max: 1
+    exit_codes: 69
+  script:
+    - snapshot_gitlab_gather
+  artifacts:
+    expire_in: 1 day
+    paths: [snapshot-context/]
+.forge-ci-snapshot-build:
+  extends: .forge-ci-snapshot
+  retry:
+    max: 1
+    exit_codes: 69
+  image:
+    name: $[[ inputs.build-image ]]
+    entrypoint: ['']
+  artifacts:
+    expire_in: 1 day
+    paths: [snapshot-layouts/]
+.forge-ci-snapshot-publish:
+  extends: .forge-ci-snapshot
+  # Never a second attempt, whatever default the including configuration sets.
+  retry: 0
+  # Scope SNAPSHOT_REGISTRY_PASSWORD to this environment, never to build jobs.
+  environment:
+    name: snapshot/registry
+    action: prepare
+  artifacts:
+    expire_in: 7 days
+    paths: [snapshot-receipts/, snapshot-evidence/]
+.forge-ci-snapshot-collect:
+  extends: .forge-ci-snapshot
+  retry:
+    max: 1
+    exit_codes: 69
+  script:
+    - snapshot_collect
+  artifacts:
+    expire_in: 7 days
+    paths: [container-images.json]

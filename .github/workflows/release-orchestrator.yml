@@ -1,0 +1,928 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Release Orchestrator
+# 
+# Purpose: Main orchestrator workflow that coordinates the complete release process for
+# production releases. It handles version management, artifact publishing, container 
+# building, security attestations, and GitHub release creation in a single workflow.
+#
+# How it works:
+# 1. Validates release prerequisites (version match, credentials, permissions)
+# 2. Bumps version and generates changelog using git-cliff
+# 3. Publishes artifacts to configured registries (Maven Central, NPM, GitHub Packages)
+# 4. Builds and publishes container images with SLSA/SBOM if configured
+# 5. Creates GitHub release with changelog, artifacts, and signatures
+#
+# Security controls:
+# - Configured artifact signing via GPG, Sigstore, or KMS
+# - SLSA provenance attestation for supply chain security
+# - SBOM generation in multiple formats (CycloneDX, SPDX)
+# - Container vulnerability scanning with Trivy
+#
+# Required Secrets (depending on configuration):
+#   GITHUB_TOKEN: Automatically provided for GitHub operations
+#   RELEASE_TOKEN: For version bump, tag move, and GitHub release creation
+#   RELEASE_GPG_PRIVATE_KEY: For release validation, version bump signing, and artifact signing
+#   RELEASE_GPG_PASSPHRASE: For release GPG key use
+#   RELEASE_GPG_PUBLIC_KEY: For tag/signature verification
+#   MAVEN_CENTRAL_USERNAME: For Maven Central publishing (when publish-to includes maven-central)
+#   MAVEN_CENTRAL_PASSWORD: For Maven Central publishing (when publish-to includes maven-central)
+#   NPM_TOKEN: read by the npm snapshot publish and reported by the prerequisites
+#              check; the release's npm publishing uses GITHUB_TOKEN
+#   CODE_SCANNING_TOKEN: Optional — uploads scan results to Code Scanning
+#                      (requires code_scanning_alerts:write — GitHub App or fine-grained PAT)
+#   The caller passes the secrets its release uses by name in an explicit
+#   `secrets:` mapping.
+#
+# Required Permissions:
+#   contents: write       # Create releases and tags
+#   packages: write       # Publish packages and containers
+#   id-token: write       # Keyless cosign OIDC (sign + attest, no GitHub attestation API)
+#   actions: read         # Download workflow artifacts
+#
+# What is built, signed and published comes from .forge-ci/artifacts.yml; see
+# https://github.com/diggsweden/forge-ci/blob/main/docs/artifacts-reference.md
+name: Orchestrate Release
+on:
+  workflow_call: # yamllint disable-line rule:truthy
+    inputs:
+      go-test-selections-json:
+        description: "Administrator-owned artifact-name to native Go test selection mapping. Set only in a protected administrator entry point, not consumer artifacts or dispatch inputs."
+        type: string
+        required: false
+        default: ""
+      cargo-test-selections-json:
+        description: "Administrator-owned artifact-name to finite Cargo test selection mapping. Set only in a protected administrator entry point, not consumer artifacts or dispatch inputs."
+        type: string
+        required: false
+        default: ""
+      enforce-application-tests:
+        description: "Enforcement setting: false reports recognized test assertion failures without failing; the tests still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      enforce-vulnerabilities:
+        description: "Enforcement setting: false reports vulnerability findings without failing; the scans still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      enforce-reproducible-builds:
+        description: "Enforcement setting: false reports missing reproducible-build settings without failing; the check still runs. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      # === artifacts.yml LOCATION ===
+      artifacts-config:
+        description: "Path to the artifacts config file. Defaults to .forge-ci/artifacts.yml. If the file is absent AND the repo has exactly one ecosystem manifest at root (pom.xml, package.json, Cargo.toml, go.mod), forge-ci auto-derives the equivalent plan in-memory."
+        required: false
+        default: ".forge-ci/artifacts.yml"
+        type: string
+      # === SHARED CONFIGURATION ===
+      release-policy:
+        description: "Accepted signed request versions: stable or stable-prerelease. Classification comes from the version tag."
+        required: false
+        default: "stable"
+        type: string
+      branch:
+        description: "Explicit branch or ref to prepare and release"
+        required: true
+        type: string
+      # Changelog creator configuration
+      changelog-creator:
+        description: "Changelog renderer: git-cliff, or empty to skip the changelog and version bump"
+        required: false
+        default: "git-cliff"
+        type: string
+      changelog.config:
+        description: "Changelog configuration file (default: uses generate-changelog default)"
+        required: false
+        default: ""
+        type: string
+      changelog.skipversionbump:
+        description: "Skip version bump (default: false)"
+        required: false
+        default: false
+        type: boolean
+      # Release publisher configuration  
+      release-publisher:
+        description: "Release publisher type (github-cli). Leave empty to skip GitHub release"
+        required: false
+        type: string
+      release.sboms:
+        description: "SBOMs to generate for the release: all | none | comma-list of build,analyzed-artifact,analyzed-container (default: all). Intersected with per-artefact `sboms` to compute the effective set."
+        required: false
+        default: "all"
+        type: string
+      release.attachartifacts:
+        description: "Glob patterns for artifacts to attach to GitHub release (comma/newline separated)"
+        required: false
+        default: ""
+        type: string
+      release.signartifacts:
+        description: "Sign release artifacts with the configured backend (default: true)"
+        required: false
+        default: true
+        type: boolean
+      release.requireallowlistedsigner:
+        description: "Require the tag signer to be allowlisted: .forge-ci/allowed_signers (SSH) or .forge-ci/allowed_gpg_keys.asc (GPG). Org policy sets this true in the shared release-workflow template; the engine default stays false as an auditable per-repo escape hatch for genuinely-private repos."
+        required: false
+        default: false
+        type: boolean
+      release.draft:
+        description: "Create as draft release (default: false)"
+        required: false
+        default: false
+        type: boolean
+      # Advanced configuration
+      file-pattern:
+        description: "Files to commit in version bump (auto-detected by project type if not specified)"
+        required: false
+        type: string
+        default: ""
+        # Auto-detected patterns by project type:
+        # - Maven: CHANGELOG.md pom.xml
+        # - NPM: CHANGELOG.md package.json package-lock.json npm-shrinkwrap.json
+        # - Gradle: CHANGELOG.md build.gradle settings.gradle
+        # - Gradle Android: CHANGELOG.md build.gradle settings.gradle gradle.properties
+        # - Xcode iOS: CHANGELOG.md project.pbxproj
+      runs-on:
+        description: "JSON array of runner labels for the ordinary jobs, read with fromJSON. Signing, promotion and publication jobs stay on GitHub-hosted runners."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      runs-on-darwin-arm64:
+        description: "JSON array of runner labels for the macOS arm64 jobs, read with fromJSON."
+        required: false
+        default: '["macos-26"]'
+        type: string
+      build-runs-on-linux-amd64:
+        description: "JSON array of runner labels for the linux/amd64 image builds, read with fromJSON. The runner must permit the user namespaces Buildah needs."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      build-runs-on-linux-arm64:
+        description: "JSON array of runner labels for the linux/arm64 image builds, read with fromJSON. The runner must permit the user namespaces Buildah needs."
+        required: false
+        default: '["ubuntu-26.04-arm"]'
+        type: string
+      forge-ci-binary-ref:
+        description: "Full approved engine commit (40 hex). The canonical CLI every hosted and container control-plane job runs is built from exactly this commit; publish lanes still pin their own callees to it."
+        required: true
+        type: string
+      runtime-image:
+        description: "Administrator-pinned forge-ci base runtime image@sha256 digest for control-plane and canonical receive jobs. Tags are refused by canonical admission."
+        required: true
+        type: string
+      runtime-image-full:
+        description: "forge-ci full runtime image for SBOM/security-capable release jobs. Pinned by digest (image@sha256:<64 hex>); required when the plan runs a job in it, which refuses an empty or unpinned value before its container starts."
+        required: false
+        default: ""
+        type: string
+      canonical-builder-image:
+        description: "Administrator-pinned Go-qualified image@sha256 digest for the canonical CLI build only. No fallback to policy or product runtimes."
+        required: true
+        type: string
+      runtime-image-java:
+        description: "forge-ci Java runtime image for Maven/Gradle jobs. Pinned by digest (image@sha256:<64 hex>); required when the plan runs a job in it, which refuses an empty or unpinned value before its container starts."
+        required: false
+        default: ""
+        type: string
+      runtime-image-node:
+        description: "forge-ci Node runtime image for NPM jobs. Pinned by digest (image@sha256:<64 hex>); required when the plan runs a job in it, which refuses an empty or unpinned value before its container starts."
+        required: false
+        default: ""
+        type: string
+      runtime-image-rust:
+        description: "forge-ci Rust runtime image for Cargo build + SBOM jobs (build-cargo.yml for artefact-first, sbom-cargo.yml for container-first). Pinned by digest (image@sha256:<64 hex>); required when the plan runs a job in it, which refuses an empty or unpinned value before its container starts."
+        required: false
+        default: ""
+        type: string
+      runtime-image-go:
+        description: "forge-ci Go runtime image for Go build/SBOM jobs. Pinned by digest (image@sha256:<64 hex>); required when the plan runs a job in it, which refuses an empty or unpinned value before its container starts."
+        required: false
+        default: ""
+        type: string
+      runtime-image-android:
+        description: "forge-ci Android runtime image for Gradle Android jobs. Pinned by digest (image@sha256:<64 hex>); required when the plan runs a job in it, which refuses an empty or unpinned value before its container starts."
+        required: false
+        default: ""
+        type: string
+      # === IMAGE PROMOTION LADDER (build-once / promote-many) ===
+      # When the release builds a container, the same immutable digest is
+      # promoted dev → staging → release by verified tag-moves (no rebuild).
+      # These name the GitHub Environments whose protection rules gate the
+      # staging and release promotions; the dev promotion is automatic.
+      # Fork-friendly: a fork can point these at its own environments.
+      promote-staging-environment:
+        description: "GitHub Environment gating the staging image promotion (its protection rules / reviewers pause the job). Empty = no gate."
+        required: false
+        default: "staging"
+        type: string
+      promote-release-environment:
+        description: "GitHub Environment gating the release image promotion (production reviewers). Empty = no gate."
+        required: false
+        default: "production"
+        type: string
+      # Optional digital-sovereignty target for the RELEASE promotion: copy the
+      # released digest (with its signature, via cosign) to a registry you own
+      # (Forgejo, Harbor). Empty = release stays on the build registry.
+      promote-release-repo:
+        description: "Destination PREFIX (typically the registry host, optionally + a namespace) for the release promotion. Each image's source path is preserved beneath it (<prefix>/<source-path-after-host>, e.g. forge.example + ghcr.io/owner/app → forge.example/owner/app), so a monorepo's containers map to distinct paths by construction. Empty = no cross-registry copy."
+        required: false
+        default: ""
+        type: string
+      promote-release-registry:
+        description: "Destination registry host to authenticate to for promote-release-repo (e.g. forge.example). Required when promote-release-repo is on a different registry."
+        required: false
+        default: ""
+        type: string
+      promote-release-registry-username:
+        description: "Username for the destination registry login (sovereignty release promotion)."
+        required: false
+        default: ""
+        type: string
+      bot-name:
+        description: "Release bot display name for the version-bump commit when artifacts.yml sets git-signing.method=ssh (cosmetic). SSH keys carry no UID, so the release-bot display name is supplied here. Unused for gpg, which derives it from the key UID."
+        required: false
+        default: ""
+        type: string
+      bot-email:
+        description: "Release bot email for the version-bump commit when git-signing.method=ssh. This is the SSH signing PRINCIPAL: it must match an entry in .forge-ci/allowed_signers, because that is what `validate tag signature` checks the SSH-signed release tag against. Pick the release-bot identity you listed in allowed_signers. Unused for gpg (which verifies by key fingerprint, not email)."
+        required: false
+        default: ""
+        type: string
+      cosign-public-key:
+        description: "The trusted Cosign public key, PEM, when artifacts.yml signs with sign.key env://COSIGN_KEY. Pass the COSIGN_PUBLIC_KEY repository or organization variable: each job that receives the key secret refuses to sign unless the key derives this public key."
+        required: false
+        default: ""
+        type: string
+      cosign-public-key-sha256:
+        description: "SHA-256 of cosign-public-key as `sha256sum cosign.pub` prints it, written out in the calling workflow, so a changed variable alone cannot swap the trusted key."
+        required: false
+        default: ""
+        type: string
+      release-asset-retention:
+        description: "How many of the newest published releases keep every file. After publishing, each older release keeps its checksums, signatures and SBOMs and loses its archives, binaries and packages; the releases and tags stay, and an immutable release is kept whole. Empty, the default, deletes nothing."
+        required: false
+        default: ""
+        type: string
+    # Top-level orchestrator: the canonical union of every secret any
+    # downstream stage may need. All `required: false`, so a caller
+    # passes by name only the secrets its release uses, in an explicit
+    # `secrets:` mapping. Older callers using `secrets: inherit` still
+    # work, but it hands every secret to the release. The declaration
+    # is also what `forge-ci doctor`-style tooling validates.
+    secrets:
+      # Release-time signing + tag pushing
+      RELEASE_GPG_PRIVATE_KEY:
+        description: "Armored OpenPGP private key (git signing, and release files when sign.method or sign.files-method is gpg)"
+        required: false
+      RELEASE_GPG_PASSPHRASE:
+        description: "Passphrase for RELEASE_GPG_PRIVATE_KEY"
+        required: false
+      RELEASE_GPG_PUBLIC_KEY:
+        description: "Public half of RELEASE_GPG_PRIVATE_KEY (validation only)"
+        required: false
+      RELEASE_TOKEN:
+        description: "Token with contents:write for release creation + version-bump push"
+        required: false
+      RELEASE_SSH_SIGNING_KEY:
+        description: "OpenSSH private key for the version-bump commit + tag (git-signing.method=ssh path)"
+        required: false
+      RELEASE_COSIGN_PRIVATE_KEY:
+        description: "Cosign private key, when artifacts.yml signs with sign.key env://COSIGN_KEY. Reaches only the steps that sign with it."
+        required: false
+      RELEASE_COSIGN_PASSPHRASE:
+        description: "Passphrase for RELEASE_COSIGN_PRIVATE_KEY"
+        required: false
+      # Maven Central publishing
+      MAVEN_CENTRAL_USERNAME:
+        description: "Sonatype OSSRH portal username"
+        required: false
+      MAVEN_CENTRAL_PASSWORD:
+        description: "Sonatype OSSRH portal token"
+        required: false
+      # npm publishing
+      NPM_TOKEN:
+        description: "npm registry publish token"
+        required: false
+      # Container security scanning (SARIF upload)
+      CODE_SCANNING_TOKEN:
+        description: "Token with security-events:write for SARIF upload"
+        required: false
+      # Android signing + secrets injection
+      ANDROID_KEYSTORE:
+        description: "Base64-encoded Android signing keystore (.jks/.keystore)"
+        required: false
+      ANDROID_KEYSTORE_PASSWORD:
+        description: "Password for ANDROID_KEYSTORE"
+        required: false
+      ANDROID_KEY_ALIAS:
+        description: "Alias of the signing key inside ANDROID_KEYSTORE"
+        required: false
+      ANDROID_KEY_PASSWORD:
+        description: "Password for the key referenced by ANDROID_KEY_ALIAS"
+        required: false
+      SECRETS_PROPERTIES_BASE64:
+        description: "Base64-encoded Android secrets.properties"
+        required: false
+      # Google Play publishing
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:
+        description: "Google Play Console service-account JSON"
+        required: false
+      # iOS signing + provisioning
+      IOS_SIGNING_CERTIFICATE_BASE64:
+        description: "Base64-encoded .p12 code-signing certificate"
+        required: false
+      IOS_SIGNING_CERTIFICATE_PASSPHRASE:
+        description: "Passphrase for IOS_SIGNING_CERTIFICATE_BASE64"
+        required: false
+      PROVISIONING_PROFILE_BASE64:
+        description: "Base64-encoded provisioning profile (.mobileprovision)"
+        required: false
+      XCCONFIG_BASE64:
+        description: "Base64-encoded xcconfig file"
+        required: false
+      # App Store Connect publishing
+      APP_STORE_CONNECT_API_KEY_ID:
+        description: "App Store Connect API key ID"
+        required: false
+      APP_STORE_CONNECT_ISSUER_ID:
+        description: "App Store Connect API issuer ID"
+        required: false
+      APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64:
+        description: "Base64-encoded App Store Connect API .p8 private key"
+        required: false
+      # Container build-time secret envelope
+      FORGE_CI_BUILD_SECRETS_JSON:
+        description: |
+          JSON envelope of {name: value} for every name listed in
+          containers[].build-secrets across the repo's artifacts.yml.
+          Stored as a single pre-packed repo/org secret by the
+          adopter so the value stays inside the secrets channel
+          end-to-end. Forwarded to publish-container.yml where it
+          is unpacked into mode-0600 tmpfiles and mounted via
+          Buildah --mount=type=secret — never recorded in SLSA
+          provenance, step inputs, or workflow logs. Recipe:
+          docs/artifacts-reference.md `build-secrets`.
+        required: false
+      # Sovereignty release promotion: destination-registry push token. Only
+      # needed when promote-release-repo targets a different registry; cosign
+      # copy authenticates the cross-registry push with it.
+      PROMOTE_RELEASE_REGISTRY_PASSWORD:
+        description: "Push token for promote-release-registry (digital-sovereignty release promotion)."
+        required: false
+concurrency:
+  # GitHub retains only one pending run per group, so branch-wide groups can
+  # silently replace a different pending request. Serialize reruns of this
+  # request only; branch mutation is guarded by the authorized-source SHA CAS.
+  group: reusable-release-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: read # Default permission; individual jobs declare additions.
+jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      images: |
+        runtime-image=${{ inputs['runtime-image'] }}
+  # ===== Stage 0: Configuration And Policy =====
+  canonical-cli:
+    needs: [resolve-bootstrap]
+    permissions:
+      contents: read
+      actions: read
+    # Integrated delivery owner; the approved engine commit must also contain
+    # the consumer action/script used by each receiving job.
+    uses: ./.github/workflows/canonical-cli-bootstrap.yml
+    with:
+      engine-repository: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+      engine-commit: ${{ inputs['forge-ci-binary-ref'] }}
+      runtime-image: ${{ inputs['canonical-builder-image'] }}
+      receive-runtime-image: ${{ inputs['runtime-image'] }}
+  parse-config:
+    needs: [resolve-bootstrap, canonical-cli]
+    if: ${{ !failure() && !cancelled() && needs.canonical-cli.result == 'success' }}
+    name: "Check: plan"
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      contents: read
+      actions: read # Canonical metadata/download; intentional read-only increase.
+    outputs:
+      # Typed setup contracts used by the next escape-bash stages.
+      config-plan-json: ${{ steps.parse.outputs.config-plan-json }}
+      release-plan-json: ${{ steps.plan.outputs.release-plan-json }}
+      prepare-stage-plan-json: ${{ steps.plan.outputs.prepare-stage-plan-json }}
+      build-stage-plan-json: ${{ steps.plan.outputs.build-stage-plan-json }}
+      publish-stage-plan-json: ${{ steps.plan.outputs.publish-stage-plan-json }}
+      artifact-transfer-plan-json: ${{ steps.plan.outputs.artifact-transfer-plan-json }}
+
+      # Final release tag (vX.Y.Z) derived from the pushed request ref
+      # (release-request/vX.Y.Z). Downstream jobs key off this, not
+      # github.ref_name, so the request prefix never leaks into release
+      # names, image tags or stable/draft classification.
+      release-tag: ${{ steps.relctx.outputs.release-tag }}
+    steps:
+      - &required-native-request-source
+        name: Require original immutable request source
+        shell: bash
+        env:
+          RELEASE_REQUEST_SHA: ${{ github.sha }}
+        run: |
+          if [[ ! "$RELEASE_REQUEST_SHA" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
+            printf '%s\n' 'original request source must be a full lowercase SHA-1 or SHA-256 object ID' >&2
+            exit 1
+          fi
+      - &canonical-context
+        name: Require original canonical success and approved identity
+        shell: /bin/bash --noprofile --norc -peuo pipefail {0}
+        env:
+          ENGINE_REPOSITORY: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          ENGINE_COMMIT: ${{ inputs['forge-ci-binary-ref'] }}
+          ENGINE_ORIGIN: ${{ github.server_url }}/${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          RUNTIME_IMAGE: ${{ inputs['runtime-image'] }}
+          PRODUCER_ARTIFACT_ID: ${{ needs.canonical-cli.outputs.artifact-id }}
+          PRODUCER_ARTIFACT_NAME: ${{ needs.canonical-cli.outputs.artifact-name }}
+          PRODUCER_RUN_ID: ${{ needs.canonical-cli.outputs.producer-run-id }}
+          PRODUCER_RUN_ATTEMPT: ${{ needs.canonical-cli.outputs.producer-run-attempt }}
+          PRODUCER_ENGINE_REPOSITORY: ${{ needs.canonical-cli.outputs.engine-repository }}
+          PRODUCER_ENGINE_COMMIT: ${{ needs.canonical-cli.outputs.engine-commit }}
+          CANONICAL_PRODUCER_RESULT: ${{ needs.canonical-cli.result }}
+        run: |
+          [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ && "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CANONICAL_PRODUCER_RESULT" == success && "$PRODUCER_RUN_ID" == "$GITHUB_RUN_ID" && "$PRODUCER_RUN_ATTEMPT" == "$GITHUB_RUN_ATTEMPT" ]]
+          [[ "$ENGINE_REPOSITORY" =~ ^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*$ && "$ENGINE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PRODUCER_ENGINE_REPOSITORY" == "$ENGINE_REPOSITORY" && "$PRODUCER_ENGINE_COMMIT" == "$ENGINE_COMMIT" ]]
+          [[ "$PRODUCER_ARTIFACT_ID" =~ ^[1-9][0-9]*$ && "$PRODUCER_ARTIFACT_NAME" == "forge-ci-canonical-linux-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ENGINE_COMMIT" ]]
+          [[ "$RUNTIME_IMAGE" =~ ^[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}$ ]]
+          [[ "$GITHUB_SERVER_URL" =~ ^https://[^/?#@[:space:]]+$ && "$ENGINE_ORIGIN" == "$GITHUB_SERVER_URL/$ENGINE_REPOSITORY" ]]
+          for variable in ENGINE_REPOSITORY ENGINE_COMMIT ENGINE_ORIGIN RUNTIME_IMAGE PRODUCER_ARTIFACT_ID PRODUCER_ARTIFACT_NAME PRODUCER_RUN_ID PRODUCER_RUN_ATTEMPT PRODUCER_ENGINE_REPOSITORY PRODUCER_ENGINE_COMMIT CANONICAL_PRODUCER_RESULT; do
+            printf '%s=%s\n' "$variable" "${!variable}" >>"$GITHUB_ENV"
+          done
+      - &canonical-checkout
+        name: Checkout only the approved engine before consumer or private steps
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ env.ENGINE_REPOSITORY }}
+          ref: ${{ env.ENGINE_COMMIT }}
+          path: _forge_ci_bootstrap
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - &canonical-consume
+        name: Consume canonical CLI from the independently pinned engine checkout
+        id: canonical-bootstrap
+        uses: ./_forge_ci_bootstrap/.github/actions/consume-canonical-cli
+        with:
+          tool-profile: runtime # The job container is the approved image.
+      - name: Validate release workflow provider
+        run: forge-ci validate release-provider
+      # Defense-in-depth gate at the top of the release pipeline:
+      # refuse triggers that would attach signing/package/API secrets
+      # to PR-HEAD code. Every downstream job depends on parse-config
+      # via `needs:`, so refusal here aborts the whole release.
+      # forge-ci is pre-baked in the runtime image; no install
+      # step needed.
+      - name: Refuse PR-context trigger (publish/release secrets in scope)
+        run: forge-ci validate event-context
+      - name: Checkout caller repository
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CHECKOUT_REF: ${{ github.sha }}
+          CHECKOUT_FETCH_ALL_REFS: "true"
+        run: forge-ci platform checkout
+      - name: Derive release tag from request ref
+        id: relctx
+        # release-request/vX.Y.Z → vX.Y.Z (the final release tag). The CLI
+        # owns the parsing; bash never strips refs.
+        env:
+          RELEASE_CONTEXT_REQUIRE_REQUEST: "true"
+          RELEASE_POLICY: ${{ inputs['release-policy'] }}
+        run: forge-ci version derive-release --release-policy "$RELEASE_POLICY"
+      - name: Parse artifacts.yml
+        id: parse
+        run: forge-ci config parse-artifacts
+        env:
+          ARTIFACTS_CONFIG: ${{ inputs['artifacts-config'] }}
+      - name: Plan release
+        id: plan
+        env:
+          CONFIG_PLAN_JSON: ${{ steps.parse.outputs.config-plan-json }}
+
+          # Explicit workflow-call inputs.
+          RUNNER_ORDINARY: ${{ inputs['runs-on'] }}
+          RUNNER_BUILD_AMD64: ${{ inputs['build-runs-on-linux-amd64'] }}
+          RUNNER_BUILD_ARM64: ${{ inputs['build-runs-on-linux-arm64'] }}
+          RUNNER_DARWIN_ARM64: ${{ inputs['runs-on-darwin-arm64'] }}
+          BRANCH: ${{ inputs.branch }}
+          FILE_PATTERN: ${{ inputs['file-pattern'] }}
+          RELEASE_POLICY: ${{ inputs['release-policy'] }}
+          RELEASE_PUBLISHER: ${{ inputs['release-publisher'] }}
+          RELEASE_REQUIRE_ALLOWLISTED_SIGNER: ${{ inputs['release.requireallowlistedsigner'] }}
+          RELEASE_DRAFT: ${{ inputs['release.draft'] }}
+          RELEASE_SBOMS: ${{ inputs['release.sboms'] }}
+          RELEASE_SIGN_ARTIFACTS: ${{ inputs['release.signartifacts'] }}
+          REPOSITORY_VISIBILITY: ${{ toJSON(github.event.repository.private) == 'true' && 'private' || (toJSON(github.event.repository.private) == 'false' && 'public' || 'unknown') }}
+          CHANGELOG_CREATOR: ${{ inputs['changelog-creator'] }}
+          CHANGELOG_SKIP_VERSION_BUMP: ${{ inputs['changelog.skipversionbump'] }}
+          # The platforms publish-container builds, so the publish stage
+          # expects only their per-architecture artifacts.
+          RELEASE_PLATFORMS: ${{ vars.RELEASE_PLATFORMS }}
+
+          # The DERIVED release tag, so stable/draft classification keys off
+          # vX.Y.Z, not the release-request/ prefix. TAG_NAME, not
+          # GITHUB_REF_NAME: Actions ignores a step's value for its own
+          # GITHUB_* variables, so that override never reached the planner,
+          # which saw release-request/vX.Y.Z and planned a draft that was not
+          # the latest release.
+          TAG_NAME: ${{ steps.relctx.outputs.release-tag }}
+        run: |
+          forge-ci plan release --release-policy "$RELEASE_POLICY" \
+            --runner-input "runs-on=$RUNNER_ORDINARY" \
+            --runner-input "build-runs-on-linux-amd64=$RUNNER_BUILD_AMD64" \
+            --runner-input "build-runs-on-linux-arm64=$RUNNER_BUILD_ARM64" \
+            --runner-input "runs-on-darwin-arm64=$RUNNER_DARWIN_ARM64"
+  # ===== Stage 1: Validation =====
+  validate-prerequisites:
+    name: "Check: release request"
+    needs: [resolve-bootstrap, parse-config, canonical-cli]
+    if: ${{ !failure() && !cancelled() && needs.parse-config.result == 'success' && needs.canonical-cli.result == 'success' }}
+    permissions:
+      contents: read
+    secrets:
+      MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+      MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_GPG_PUBLIC_KEY: ${{ secrets.RELEASE_GPG_PUBLIC_KEY }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      CODE_SCANNING_TOKEN: ${{ secrets.CODE_SCANNING_TOKEN }}
+    uses: ./.github/workflows/validate-release-prerequisites.yml
+    with:
+      enforce-reproducible-builds: ${{ inputs['enforce-reproducible-builds'] }}
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      config-plan-json: ${{ needs.parse-config.outputs.config-plan-json }}
+      has-cargo-publish-target: ${{ fromJson(needs.parse-config.outputs['publish-stage-plan-json']).targets.cargo_container_first.runs || fromJson(needs.parse-config.outputs['build-stage-plan-json']).targets.cargo.runs }}
+      publish-stage-plan-json: ${{ needs.parse-config.outputs.publish-stage-plan-json }}
+      has-maven-central-publish-target: ${{ fromJson(needs.parse-config.outputs['publish-stage-plan-json']).targets.maven_central.runs }}
+      # Enable the JVM reproducibility validator when any Maven/Gradle/
+      # Gradle-Android artefact is planned in the build stage.
+      has-jvm-artefact: ${{ fromJson(needs.parse-config.outputs['build-stage-plan-json']).targets.maven.runs || fromJson(needs.parse-config.outputs['build-stage-plan-json']).targets.gradle.runs || fromJson(needs.parse-config.outputs['build-stage-plan-json']).targets.gradle_android.runs }}
+      container-registry: ghcr.io
+      sign-artifacts: ${{ fromJson(needs.parse-config.outputs['release-plan-json']).policy.sign_artifacts }}
+      require-allowlisted-signer: ${{ fromJson(needs.parse-config.outputs['release-plan-json']).policy.require_allowlisted_signer }}
+      branch: ${{ inputs.branch }}
+      authorized-source-sha: ${{ github.sha }}
+      # Cargo prerequisite validation checks Cargo.lock and `cargo --version`,
+      # so it runs in the Rust runtime whenever Cargo artifacts (either mode)
+      # are present. Without a Rust image the value is empty and the callee
+      # refuses it before its container starts.
+      runtime-image: ${{ (fromJson(needs.parse-config.outputs['publish-stage-plan-json']).targets.cargo_container_first.runs || fromJson(needs.parse-config.outputs['build-stage-plan-json']).targets.cargo.runs) && inputs['runtime-image-rust'] || !(fromJson(needs.parse-config.outputs['publish-stage-plan-json']).targets.cargo_container_first.runs || fromJson(needs.parse-config.outputs['build-stage-plan-json']).targets.cargo.runs) && inputs['runtime-image'] || '' }}
+  # ===== Stage 2: Release Preparation =====
+  # Release preparation now lives below this control-plane stage call.
+  execute-prepare-stage:
+    name: Prepare
+    needs: [resolve-bootstrap, parse-config, validate-prerequisites, canonical-cli]
+    if: ${{ !failure() && !cancelled() }}
+    permissions:
+      actions: read
+      contents: write
+      packages: read
+    secrets:
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
+    uses: ./.github/workflows/release-prepare-stage.yml
+    with:
+      runs-on: ${{ inputs['runs-on'] }}
+      canonical-artifact-id: ${{ needs.canonical-cli.outputs.artifact-id }}
+      canonical-artifact-name: ${{ needs.canonical-cli.outputs.artifact-name }}
+      canonical-producer-run-id: ${{ needs.canonical-cli.outputs.producer-run-id }}
+      canonical-producer-run-attempt: ${{ needs.canonical-cli.outputs.producer-run-attempt }}
+      canonical-producer-engine-repository: ${{ needs.canonical-cli.outputs.engine-repository }}
+      canonical-producer-engine-commit: ${{ needs.canonical-cli.outputs.engine-commit }}
+      canonical-producer-result: ${{ needs.canonical-cli.result }}
+      release-policy: ${{ inputs['release-policy'] }}
+      branch: ${{ inputs.branch }}
+      authorized-source-sha: ${{ github.sha }}
+      existing-release-sha: ${{ needs.validate-prerequisites.outputs.existing-release-sha }}
+      prepare-stage-plan-json: ${{ needs.parse-config.outputs.prepare-stage-plan-json }}
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      # git_signing.method comes from artifacts.yml via the parsed config plan;
+      # defaults to gpg, so repos that never set git-signing are unchanged.
+      git-signing-method: ${{ fromJson(needs.parse-config.outputs.config-plan-json).git_signing.method }}
+      bot-name: ${{ inputs['bot-name'] }}
+      bot-email: ${{ inputs['bot-email'] }}
+      runtime-image: ${{ inputs['runtime-image'] }}
+  validate-release-tag:
+    name: "Prepare: check the release tag"
+    needs: [resolve-bootstrap, parse-config, execute-prepare-stage, canonical-cli]
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - *required-native-request-source
+      - *canonical-context
+      - *canonical-checkout
+      - *canonical-consume
+      - name: Checkout immutable release commit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CHECKOUT_REF: ${{ needs.execute-prepare-stage.outputs.release-sha }}
+          CHECKOUT_FETCH_ALL_REFS: "true"
+        run: forge-ci platform checkout
+      - name: Validate remote final tag object and commit
+        # The remote tag is read with the job's own read-only token, as the
+        # runner's token is on GitLab and Forgejo: validate-tag takes the
+        # ambient forge credential, so without it a private repository's
+        # ls-remote asks for a username and fails. No write token is needed.
+        env:
+          RELEASE_POLICY: ${{ inputs['release-policy'] }}
+          RELEASE_SHA: ${{ needs.execute-prepare-stage.outputs.release-sha }}
+          RELEASE_REQUEST_SHA: ${{ github.sha }}
+          RELEASE_REQUEST_IS_RELEASE: ${{ !fromJson(needs.parse-config.outputs['prepare-stage-plan-json']).targets.version_bump.runs }}
+          TAG_NAME: ${{ needs.parse-config.outputs.release-tag }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: forge-ci release validate-tag
+      - name: Validate final tag signature
+        env:
+          TAG_NAME: ${{ needs.parse-config.outputs.release-tag }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_GPG_PUBLIC_KEY: ${{ secrets.RELEASE_GPG_PUBLIC_KEY }}
+          REQUIRE_VALID_SIGNATURE: "true"
+        run: forge-ci validate tag signature
+  # ===== Stage 3: Build =====
+  # Build fanout now lives below this control-plane stage call.
+  execute-build-stage:
+    name: Build
+    needs: [resolve-bootstrap, parse-config, execute-prepare-stage, validate-release-tag]
+    if: ${{ !failure() && !cancelled() }}
+    permissions:
+      contents: read
+      packages: read
+    secrets:
+      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      SECRETS_PROPERTIES_BASE64: ${{ secrets.SECRETS_PROPERTIES_BASE64 }}
+      IOS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.IOS_SIGNING_CERTIFICATE_BASE64 }}
+      IOS_SIGNING_CERTIFICATE_PASSPHRASE: ${{ secrets.IOS_SIGNING_CERTIFICATE_PASSPHRASE }}
+      PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+      XCCONFIG_BASE64: ${{ secrets.XCCONFIG_BASE64 }}
+    uses: ./.github/workflows/release-build-stage.yml
+    with:
+      runs-on: ${{ inputs['runs-on'] }}
+      runs-on-darwin-arm64: ${{ inputs['runs-on-darwin-arm64'] }}
+      go-test-selections-json: ${{ inputs['go-test-selections-json'] }}
+      cargo-test-selections-json: ${{ inputs['cargo-test-selections-json'] }}
+      enforce-application-tests: ${{ inputs['enforce-application-tests'] }}
+      branch: ${{ needs.execute-prepare-stage.outputs.release-sha }}
+      release-tag: ${{ needs.parse-config.outputs.release-tag }}
+      release-sha: ${{ needs.execute-prepare-stage.outputs.release-sha }}
+      source-date-epoch: ${{ needs.execute-prepare-stage.outputs.source-date-epoch }}
+      build-stage-plan-json: ${{ needs.parse-config.outputs.build-stage-plan-json }}
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      runtime-image: ${{ inputs['runtime-image'] }}
+      runtime-image-java: ${{ inputs['runtime-image-java'] }}
+      runtime-image-node: ${{ inputs['runtime-image-node'] }}
+      runtime-image-go: ${{ inputs['runtime-image-go'] }}
+      runtime-image-android: ${{ inputs['runtime-image-android'] }}
+      runtime-image-rust: ${{ inputs['runtime-image-rust'] }}
+  # ===== Stage 4: Publish =====
+  # Publish fanout now lives below this control-plane stage call.
+  # Container-first cargo publishes here: lockfile-derived SBOM and the
+  # actual container build (which is where cargo compiles) belong with
+  # publish-stage's sibling jobs. Artefact-first cargo has already run
+  # in execute-build-stage above and lands in publish via the same
+  # release-artifact transfer plumbing the Go path uses.
+  execute-publish-stage:
+    name: Publish
+    needs: [resolve-bootstrap, parse-config, execute-prepare-stage, execute-build-stage, canonical-cli]
+    if: ${{ !failure() && !cancelled() }}
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      actions: read
+    secrets:
+      MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+      MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+      RELEASE_GPG_PUBLIC_KEY: ${{ secrets.RELEASE_GPG_PUBLIC_KEY }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+      APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64 }}
+      CODE_SCANNING_TOKEN: ${{ secrets.CODE_SCANNING_TOKEN }}
+      FORGE_CI_BUILD_SECRETS_JSON: ${{ secrets.FORGE_CI_BUILD_SECRETS_JSON }}
+    uses: ./.github/workflows/release-publish-stage.yml
+    with:
+      runs-on: ${{ inputs['runs-on'] }}
+      build-runs-on-linux-amd64: ${{ inputs['build-runs-on-linux-amd64'] }}
+      build-runs-on-linux-arm64: ${{ inputs['build-runs-on-linux-arm64'] }}
+      enforce-vulnerabilities: ${{ inputs['enforce-vulnerabilities'] }}
+      release-policy: ${{ inputs['release-policy'] }}
+      branch: ${{ needs.execute-prepare-stage.outputs.release-sha }}
+      release-tag: ${{ needs.parse-config.outputs.release-tag }}
+      release-sha: ${{ needs.execute-prepare-stage.outputs.release-sha }}
+      source-date-epoch: ${{ needs.execute-prepare-stage.outputs.source-date-epoch }}
+      publish-stage-plan-json: ${{ needs.parse-config.outputs.publish-stage-plan-json }}
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      canonical-artifact-id: ${{ needs.canonical-cli.outputs.artifact-id }}
+      canonical-artifact-name: ${{ needs.canonical-cli.outputs.artifact-name }}
+      canonical-producer-run-id: ${{ needs.canonical-cli.outputs.producer-run-id }}
+      canonical-producer-run-attempt: ${{ needs.canonical-cli.outputs.producer-run-attempt }}
+      canonical-producer-engine-repository: ${{ needs.canonical-cli.outputs.engine-repository }}
+      canonical-producer-engine-commit: ${{ needs.canonical-cli.outputs.engine-commit }}
+      canonical-producer-result: ${{ needs.canonical-cli.result }}
+      runtime-image: ${{ inputs['runtime-image'] }}
+      runtime-image-full: ${{ inputs['runtime-image-full'] }}
+      runtime-image-java: ${{ inputs['runtime-image-java'] }}
+      runtime-image-node: ${{ inputs['runtime-image-node'] }}
+      runtime-image-rust: ${{ inputs['runtime-image-rust'] }}
+      runtime-image-go: ${{ inputs['runtime-image-go'] }}
+      build-result-json: ${{ needs.execute-build-stage.outputs.result-json }}
+      # Carry the config-plan + sign-artifacts policy through so the
+      # publish stage can dispatch container image signing per
+      # sign.method (sigstore | kms; gpg is skipped).
+      config-plan-json: ${{ needs.parse-config.outputs.config-plan-json }}
+      sign-artifacts: ${{ fromJson(needs.parse-config.outputs['release-plan-json']).policy.sign_artifacts }}
+      cosign-public-key: ${{ inputs['cosign-public-key'] }}
+      cosign-public-key-sha256: ${{ inputs['cosign-public-key-sha256'] }}
+  # ===== Stage 4b: Image promotion ladder (build-once / promote-many) =====
+  # Only runs when the release built a container. The publish stage already
+  # pushed the immutable digest + its staging candidate tag and uploaded the
+  # release-image ledger as a run-scoped artifact; each job below promotes that
+  # SAME digest to the next stage pointer (:dev → :staging → :release) by a
+  # verified tag-move, never a rebuild. dev is automatic; staging and release
+  # pause on their GitHub Environment's protection rules. Kept parallel to
+  # create-release (not a dependency of it) so non-container releases — and the
+  # GitHub release itself, which attaches to the already-immutable :<version>
+  # tag — are never gated on the ladder.
+  promote-dev:
+    name: "Publish: images to dev"
+    needs: [parse-config, execute-publish-stage]
+    if: ${{ !failure() && !cancelled() && !fromJson(needs.parse-config.outputs['release-plan-json']).policy.prerelease && fromJson(needs.parse-config.outputs['publish-stage-plan-json']).targets.containers.runs }}
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    uses: ./.github/workflows/promote-stage.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      stage: dev
+      runtime-image: ${{ inputs['runtime-image'] }}
+      release-tag: ${{ needs.parse-config.outputs.release-tag }}
+  promote-staging:
+    name: "Publish: images to staging"
+    needs: [parse-config, execute-publish-stage, promote-dev]
+    if: ${{ !failure() && !cancelled() && !fromJson(needs.parse-config.outputs['release-plan-json']).policy.prerelease && fromJson(needs.parse-config.outputs['publish-stage-plan-json']).targets.containers.runs }}
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    uses: ./.github/workflows/promote-stage.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      stage: staging
+      runtime-image: ${{ inputs['runtime-image'] }}
+      environment: ${{ inputs['promote-staging-environment'] }}
+      release-tag: ${{ needs.parse-config.outputs.release-tag }}
+  promote-release:
+    name: "Publish: images to release"
+    needs: [parse-config, execute-publish-stage, promote-staging]
+    if: ${{ !failure() && !cancelled() && !fromJson(needs.parse-config.outputs['release-plan-json']).policy.prerelease && fromJson(needs.parse-config.outputs['publish-stage-plan-json']).targets.containers.runs }}
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    uses: ./.github/workflows/promote-stage.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      stage: release
+      runtime-image: ${{ inputs['runtime-image'] }}
+      environment: ${{ inputs['promote-release-environment'] }}
+      release-tag: ${{ needs.parse-config.outputs.release-tag }}
+      # Optional digital-sovereignty target — empty inputs keep release on the
+      # build registry (same-registry tag-move, no cosign/dest login).
+      stage-repo: ${{ inputs['promote-release-repo'] }}
+      stage-registry: ${{ inputs['promote-release-registry'] }}
+      stage-registry-username: ${{ inputs['promote-release-registry-username'] }}
+    secrets:
+      stage-registry-password: ${{ secrets.PROMOTE_RELEASE_REGISTRY_PASSWORD }}
+  # ===== Stage 5: Release =====
+  # Release creation stays top-level because it is the public end of the pipeline.
+  create-release:
+    name: "Publish: release"
+    needs: [resolve-bootstrap, canonical-cli, parse-config, execute-prepare-stage, validate-release-tag, execute-publish-stage]
+    # Run even if previous jobs were skipped but at least one succeeded
+    if: ${{ needs.canonical-cli.result == 'success' && fromJson(needs.parse-config.outputs['release-plan-json']).policy.create_release }}
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      id-token: write
+    secrets:
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PUBLIC_KEY: ${{ secrets.RELEASE_GPG_PUBLIC_KEY }}
+    uses: ./.github/workflows/release-create-github.yml
+    with:
+      runs-on: ${{ inputs['runs-on'] }}
+      canonical-artifact-id: ${{ needs.canonical-cli.outputs.artifact-id }}
+      canonical-artifact-name: ${{ needs.canonical-cli.outputs.artifact-name }}
+      canonical-producer-run-id: ${{ needs.canonical-cli.outputs.producer-run-id }}
+      canonical-producer-run-attempt: ${{ needs.canonical-cli.outputs.producer-run-attempt }}
+      canonical-producer-engine-repository: ${{ needs.canonical-cli.outputs.engine-repository }}
+      canonical-producer-engine-commit: ${{ needs.canonical-cli.outputs.engine-commit }}
+      canonical-producer-result: ${{ needs.canonical-cli.result }}
+      authorized-source-sha: ${{ github.sha }}
+      request-is-release: ${{ !fromJson(needs.parse-config.outputs['prepare-stage-plan-json']).targets.version_bump.runs }}
+      require-allowlisted-signer: ${{ fromJson(needs.parse-config.outputs['release-plan-json']).policy.require_allowlisted_signer }}
+      release-policy: ${{ inputs['release-policy'] }}
+      release-name: "${{ needs.parse-config.outputs.release-tag }}"
+      checkout-ref: ${{ needs.execute-prepare-stage.outputs.release-sha }}
+      attach-artifacts: ${{ inputs['release.attachartifacts'] }}
+      sboms: ${{ fromJson(needs.parse-config.outputs['release-plan-json']).policy.sboms }}
+      sign-artifacts: ${{ fromJson(needs.parse-config.outputs['release-plan-json']).policy.sign_artifacts }}
+      draft: ${{ fromJson(needs.parse-config.outputs['release-plan-json']).policy.create_draft_release }}
+      config-plan-json: ${{ needs.parse-config.outputs.config-plan-json }}
+      artifact-transfer-plan-json: ${{ needs.parse-config.outputs.artifact-transfer-plan-json }}
+      changelog-config: ${{ inputs['changelog.config'] }}
+      make-latest: ${{ fromJson(needs.parse-config.outputs['release-plan-json']).policy.make_latest }}
+      runtime-image: ${{ inputs['runtime-image'] }}
+      runtime-image-full: ${{ inputs['runtime-image-full'] }}
+      cosign-public-key: ${{ inputs['cosign-public-key'] }}
+      cosign-public-key-sha256: ${{ inputs['cosign-public-key-sha256'] }}
+      release-asset-retention: ${{ inputs['release-asset-retention'] }}
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+  # ===== Stage 6: Summary =====
+  release-summary:
+    name: Summary
+    needs:
+      - canonical-cli
+      - resolve-bootstrap
+      - parse-config
+      - execute-prepare-stage
+      - execute-build-stage
+      - execute-publish-stage
+      - promote-dev
+      - promote-staging
+      - promote-release
+      - create-release
+    if: always() && needs.resolve-bootstrap.result == 'success'
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+    steps:
+      - *canonical-context
+      - *canonical-checkout
+      - *canonical-consume
+      - name: Generate Release Summary
+        env:
+          # Release context.
+          RELEASE_VERSION: ${{ needs.parse-config.outputs.release-tag }}
+          RELEASE_BRANCH: ${{ inputs.branch }}
+          RELEASE_COMMIT: ${{ needs.execute-prepare-stage.outputs.release-sha || github.sha }}
+          RELEASE_ACTOR: ${{ github.actor }}
+
+          # Release preparation result.
+          PREPARE_STAGE_RESULT_JSON: ${{ needs.execute-prepare-stage.outputs.result-json }}
+
+          # Build-stage results.
+          BUILD_STAGE_RESULT_JSON: ${{ needs.execute-build-stage.outputs.result-json }}
+
+          # Publish-stage results.
+          PUBLISH_STAGE_RESULT_JSON: ${{ needs.execute-publish-stage.outputs.result-json }}
+
+          # Image-promotion ladder results (skipped when no container).
+          PROMOTE_DEV_RESULT: ${{ needs.promote-dev.result }}
+          PROMOTE_STAGING_RESULT: ${{ needs.promote-staging.result }}
+          PROMOTE_RELEASE_RESULT: ${{ needs.promote-release.result }}
+
+          # Release-stage result.
+          CREATE_RELEASE_RESULT: ${{ needs.create-release.result }}
+        run: forge-ci report release

@@ -1,0 +1,386 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+// SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
+
+//go:build linux
+
+package forgejobehavior
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"golang.org/x/mod/modfile"
+
+	"github.com/diggsweden/forge-ci/internal/testutil/evidence"
+	"github.com/diggsweden/forge-ci/internal/testutil/isolatedenv"
+	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
+)
+
+const (
+	// binaryScript is the one definition of how the layer's binary is built.
+	binaryScript = "scripts/ci/engine-binary.sh"
+)
+
+// engineArchitectures are the architectures the layer's binary is built and
+// recorded for.
+func engineArchitectures() []string { return []string{"amd64", "arm64"} }
+
+// trackedChecksum names the binary the layer runs on arch: the tree tracks
+// this one line and a job of that architecture downloads the binary by it.
+func trackedChecksum(arch string) string {
+	return ".engine/bin/forge-ci-linux-" + arch + ".sha256"
+}
+
+// builtEngine is the CLI of this tree for one architecture, built once per
+// test binary by binaryScript into a directory TestMain removes.
+type builtEngine struct {
+	once sync.Once
+	dir  string
+	path string
+	err  error
+}
+
+var engines = map[string]*builtEngine{"amd64": {}, "arm64": {}}
+
+var engineBuildEnv []string
+
+func TestMain(m *testing.M) {
+	var err error
+
+	engineBuildEnv, err = captureEngineBuildEnv()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "forgejobehavior: prepare compiler inputs: %v\n", err)
+		os.Exit(1)
+	}
+	// The layer's shell and the engine run the developer's git, which would
+	// otherwise read ~/.gitconfig: commit signing with a locked key, global
+	// hooks, prefixes. The whole process is isolated, as isolatedgit does.
+	_, cleanup, err := isolatedenv.IsolateProcess()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "forgejobehavior: isolate the test process: %v\n", err)
+		os.Exit(1)
+	}
+
+	code := evidence.Main(m)
+
+	cleanup()
+
+	for _, engine := range engines {
+		if engine.dir != "" {
+			_ = os.RemoveAll(engine.dir)
+		}
+	}
+
+	os.Exit(code)
+}
+
+// Resolve the installed compiler and caches while HOME still names the caller.
+// As in the CLI smoke harness, these are build inputs, not product environment.
+func captureEngineBuildEnv() ([]string, error) {
+	name := os.Getenv("GO")
+	if name == "" {
+		name = "go"
+	}
+
+	compiler, err := exec.LookPath(name)
+	if err != nil {
+		return nil, fmt.Errorf("find Go compiler: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	query := exec.CommandContext(ctx, compiler, "env", "-json", "GOMODCACHE", "GOCACHE")
+
+	query.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+
+	body, err := query.Output()
+	if err != nil {
+		return nil, fmt.Errorf("read Go cache locations: %w", err)
+	}
+
+	var caches struct {
+		Modules string `json:"GOMODCACHE"`
+		Build   string `json:"GOCACHE"`
+	}
+	if err := json.Unmarshal(body, &caches); err != nil {
+		return nil, fmt.Errorf("decode Go cache locations: %w", err)
+	}
+
+	return []string{"GO=" + compiler, "GOMODCACHE=" + caches.Modules, "GOCACHE=" + caches.Build,
+		"GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off"}, nil
+}
+
+// script runs binaryScript and returns its standard output. The script gets
+// the variables it reads and no others, so what it builds does not depend on
+// the shell the tests were started from.
+func script(ctx context.Context, root string, arguments ...string) (string, error) {
+	var stdout, stderr bytes.Buffer
+
+	command := exec.CommandContext(ctx, "bash", append([]string{filepath.Join(root, binaryScript)}, arguments...)...)
+	command.Dir = root
+	command.Stdout, command.Stderr = &stdout, &stderr
+
+	command.Env = append([]string{}, engineBuildEnv...)
+
+	for _, name := range []string{"PATH", "HOME", "TMPDIR", "GOMAXPROCS", "GOMEMLIMIT"} {
+		if value, set := os.LookupEnv(name); set {
+			command.Env = append(command.Env, name+"="+value)
+		}
+	}
+
+	if err := command.Run(); err != nil {
+		return "", fmt.Errorf("%s %s: %w\n%s", binaryScript, strings.Join(arguments, " "), err, stderr.String())
+	}
+
+	return stdout.String(), nil
+}
+
+func TestEngineBuildPreservesResourceControlsNotAmbientBuildFlags(t *testing.T) {
+	root := reporoot.Path(t)
+	scratch := t.TempDir()
+	compiler := filepath.Join(scratch, "go")
+
+	body := "#!/usr/bin/env bash\nset -eu\nif [ \"$1\" = env ]; then\n  printf '%s\\n' '" + pinnedToolchain(t, root) + "'\nelse\n  printf '%s|%s|%s|%s|%s\\n' \"${TMPDIR-}\" \"${GOMAXPROCS-}\" \"${GOFLAGS-}\" \"${GOPROXY-}\" \"${GOMEMLIMIT-}\"\n  printf '%s\\0' \"$@\" >\"$TMPDIR/argv\"\nfi\n"
+	if err := os.WriteFile(compiler, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	command := exec.CommandContext(t.Context(), "bash", filepath.Join(root, binaryScript), "build", "amd64", filepath.Join(scratch, "binary"))
+	command.Env = append(os.Environ(), "GO="+compiler, "TMPDIR="+scratch, "GOMAXPROCS=2", "GOMEMLIMIT=3GiB", "GOFLAGS=-mod=mod", "GOPROXY=https://invalid.example")
+
+	out, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("resource-control build: %v\n%s", err, out)
+	}
+
+	if want := scratch + "|2||off|3GiB\n"; string(out) != want {
+		t.Fatalf("build environment: got %q, want %q", out, want)
+	}
+
+	argv, err := os.ReadFile(filepath.Join(scratch, "argv"))
+	if err != nil || !strings.Contains(string(argv), "-p\x002\x00") {
+		t.Fatalf("compiler concurrency argv: %q (%v)", argv, err)
+	}
+}
+
+// git returns the trimmed output of a Git command in the repository.
+func git(t *testing.T, root string, arguments ...string) (string, error) {
+	t.Helper()
+
+	command := exec.CommandContext(t.Context(), "git", append([]string{"-C", root}, arguments...)...)
+	out, err := command.Output()
+
+	return strings.TrimSpace(string(out)), err
+}
+
+// forgeCIEngine returns the engine the tests of this package run: the CLI
+// built from this tree, so a change to a verb and to the workflow shell that
+// calls it are tested together. TestRecordedEngineChecksumIsABuildOfThisTree
+// holds the checksum a job downloads the binary by to the same build.
+//
+// It is the build of the host's architecture, which the tests run natively.
+// A host of an architecture the layer is not built for reports the engine
+// tier as not proven.
+func forgeCIEngine(t *testing.T) string {
+	t.Helper()
+
+	if _, built := engines[runtime.GOARCH]; !built {
+		evidence.NotProvenf(t, "the delivery-engine binary is built for amd64 and arm64, not %s; run its execution tier on one of those hosts", runtime.GOARCH)
+	}
+
+	return engineBuild(t, runtime.GOARCH)
+}
+
+// engineBuild returns the path of the engine build for arch without executing
+// it, for tests that inspect or publish its bytes.
+func engineBuild(t *testing.T, arch string) string {
+	t.Helper()
+
+	root := reporoot.Path(t)
+	engine := engines[arch]
+
+	engine.once.Do(func() {
+		// Not t.TempDir: the build outlives the test that first asks for it.
+		engine.dir, engine.err = os.MkdirTemp("", "forgejobehavior-engine-") //nolint:usetesting // shared by the package; TestMain removes it.
+		if engine.err != nil {
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+
+		engine.path = filepath.Join(engine.dir, "forge-ci")
+		_, engine.err = script(ctx, root, "build", arch, engine.path)
+	})
+
+	if engine.err != nil {
+		t.Fatalf("build the engine from this tree: %v", engine.err)
+	}
+
+	return engine.path
+}
+
+func fileSHA256(t *testing.T, path string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sum := sha256.Sum256(data)
+
+	return hex.EncodeToString(sum[:])
+}
+
+// recordedChecksum returns the digest in the tracked checksum file of arch,
+// which is one line naming bin/forge-ci, the path relative to the layer root.
+func recordedChecksum(t *testing.T, arch string) string {
+	t.Helper()
+
+	digest, name, found := strings.Cut(strings.TrimSuffix(string(reporoot.ReadFile(t, trackedChecksum(arch))), "\n"), "  ")
+	if !found || name != "bin/forge-ci" || len(digest) != sha256.Size*2 || strings.ContainsAny(digest, "\n ") {
+		t.Fatalf("%s is not one `<sha256>  bin/forge-ci` line; rewrite it with `just refresh-engine-binary`", trackedChecksum(arch))
+	}
+
+	return digest
+}
+
+// The checksum the tree records for each architecture is that build of the
+// tree it sits in, so the binary a job downloads by it cannot be other code
+// than the sources beside it. The build names no commit: it follows the working tree as it is, and a
+// commit that changes no build input leaves it valid. A change to Go source,
+// go.mod or go.sum fails here until the checksum is recorded again, in the
+// same commit or in one after it; what must hold is the tip.
+//
+// It is not proven, and says so, when the local Go toolchain is not the
+// release go.mod pins: another toolchain writes other bytes. The strict
+// profile turns that into a failure.
+func TestRecordedEngineChecksumIsABuildOfThisTree(t *testing.T) {
+	t.Parallel()
+
+	root := reporoot.Path(t)
+
+	if pinned, local := pinnedToolchain(t, root), localToolchain(t); local != pinned {
+		evidence.NotProvenf(t, "the local Go toolchain is not the release go.mod pins, so it cannot reproduce the layer binary")
+	}
+
+	inputs, err := script(t.Context(), root, "inputs")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, arch := range engineArchitectures() {
+		t.Run(arch, func(t *testing.T) {
+			t.Parallel()
+
+			recorded := recordedChecksum(t, arch)
+			if built := fileSHA256(t, engineBuild(t, arch)); built != recorded {
+				t.Fatalf("%s does not record the build of this tree: recorded %s, built %s.\n"+
+					"A build input (%s) changed since it was recorded; docs is embedded, so a docs-only commit counts. "+
+					"Run `just refresh-engine-binary`, or write this line to the file, and commit it:\n%s  bin/forge-ci",
+					trackedChecksum(arch), recorded, built, strings.Join(strings.Fields(inputs), ", "), built)
+			}
+		})
+	}
+}
+
+// pinnedToolchain returns the Go release go.mod names, as `go env GOVERSION`
+// spells it.
+func pinnedToolchain(t *testing.T, root string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parsed, err := modfile.ParseLax("go.mod", data, nil)
+	if err != nil || parsed.Go == nil {
+		t.Fatalf("go.mod names no Go release: %v", err)
+	}
+
+	return "go" + parsed.Go.Version
+}
+
+func localToolchain(t *testing.T) string {
+	t.Helper()
+
+	command := exec.CommandContext(t.Context(), "go", "env", "GOVERSION")
+
+	command.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+
+	out, err := command.Output()
+	if err != nil {
+		t.Fatalf("go env GOVERSION: %v", err)
+	}
+
+	return strings.TrimSpace(string(out))
+}
+
+// Every package the CLI is built from lies under a build input, so the list
+// the script prints names every source of the binary.
+func TestBuildInputsCoverEveryPackageOfTheCLI(t *testing.T) {
+	t.Parallel()
+
+	root := reporoot.Path(t)
+
+	inputs, err := script(t.Context(), root, "inputs")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var listed strings.Builder
+
+	for _, arch := range engineArchitectures() {
+		command := exec.CommandContext(t.Context(), "go", "list", "-deps",
+			"-f", "{{if .Module}}{{if or .Module.Main .Module.Replace}}{{.Dir}}{{end}}{{end}}", "./cmd/forge-ci")
+		command.Dir = root
+
+		command.Env = append(os.Environ(), "GOFLAGS=", "GOOS=linux", "GOARCH="+arch, "CGO_ENABLED=0")
+
+		out, err := command.Output()
+		if err != nil {
+			t.Fatalf("go list for %s: %v", arch, err)
+		}
+
+		listed.Write(out)
+	}
+
+	packages := strings.Fields(listed.String())
+	if len(packages) == 0 {
+		t.Fatal("go list named no package of this module; the check proves nothing")
+	}
+
+	for _, directory := range packages {
+		relative, err := filepath.Rel(root, directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		covered := false
+
+		for input := range strings.FieldsSeq(inputs) {
+			if relative == input || strings.HasPrefix(relative, input+string(filepath.Separator)) {
+				covered = true
+			}
+		}
+
+		if !covered {
+			t.Errorf("the CLI is built from %s, which no build input of %s covers", relative, binaryScript)
+		}
+	}
+}

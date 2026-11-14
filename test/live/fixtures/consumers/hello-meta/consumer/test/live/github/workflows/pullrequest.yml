@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# Forge CI owns the lint gate; the project's own test job runs the installer.
+# Require both jobs as status checks before merging.
+name: Pull Request Workflow
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: "Test: shell"
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      # FIXME: your project's own checks.
+      - run: sh -n install.sh && sh -n lib/greeting.sh && sh install.sh
+
+  pr-checks:
+    uses: diggsweden/forge-ci/.github/workflows/pullrequest-orchestrator.yml@2f4e845cee96973d1082bf00a5a18689c1482148 # v0.90.0
+    permissions:
+      actions: read
+      contents: read
+    with:
+      forge-ci-binary-ref: 2f4e845cee96973d1082bf00a5a18689c1482148 # v0.90.0
+      project-type: meta
+      lint-engine: nanolinter
+      # The lint image of the core flavour, pinned by digest: the plan job
+      # refuses a tag.
+      nanolinter-image: codefloe.com/itiquette/nanolinter:core@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-base@sha256:0000000000000000000000000000000000000000000000000000000000000000 # FIXME v0.90.0 digest
+      canonical-builder-image: ghcr.io/diggsweden/forge-ci-runtime-go-1.27@sha256:0000000000000000000000000000000000000000000000000000000000000000 # FIXME v0.90.0 digest

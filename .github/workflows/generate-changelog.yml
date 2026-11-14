@@ -1,0 +1,147 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# Generate Changelog
+#
+# Reusable workflow that wraps git-cliff. Runs inside the forge-ci runtime
+# container; `git-cliff` is on PATH and changelog validation lives in the
+# forge-ci binary.
+#
+# Common use cases:
+#   - Full history: git-cliff-args=""
+#   - Latest release: git-cliff-args="--latest"
+#   - Commit message: git-cliff-args="--latest --strip header"
+name: Generate Changelog
+on:
+  workflow_call:
+    inputs:
+      release-policy:
+        description: "Accepted release versions: stable or stable-prerelease"
+        type: string
+        default: "stable"
+      branch:
+        description: "Branch, tag, or SHA to generate the changelog from. Empty uses the triggering ref."
+        required: false
+        default: ""
+        type: string
+      changelog-config:
+        description: "Path to git-cliff configuration file. Defaults to the bundled template at /opt/forge-ci/templates/gitcliff/default.toml inside the runtime image."
+        required: false
+        default: "/opt/forge-ci/templates/gitcliff/default.toml"
+        type: string
+      git-cliff-args:
+        description: "Arguments for git-cliff (empty for full, '--latest' for latest release)"
+        required: false
+        default: ""
+        type: string
+      output-file:
+        description: "Output filename"
+        required: false
+        default: "ReleasenotesTmp"
+        type: string
+      upload-as-artifact:
+        description: "Upload as artifact (true) or keep in workspace (false)"
+        required: false
+        default: true
+        type: boolean
+      artifact-name:
+        description: "Artifact name if uploading"
+        required: false
+        default: "release-changelog"
+        type: string
+      runtime-image:
+        description: "forge-ci runtime image., pinned by digest (image@sha256:<64 hex>); the resolver refuses anything else before the job container starts."
+        required: true
+        type: string
+      runs-on:
+        description: "JSON array of runner labels for the ordinary jobs, read with fromJSON. Signing, promotion and publication jobs stay on GitHub-hosted runners."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      forge-ci-binary-ref:
+        description: "Full engine commit (40 hex) the workflow ref names; a tag or branch is refused"
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      images: |
+        runtime-image=${{ inputs['runtime-image'] }}
+  generate-changelog:
+    needs: [resolve-bootstrap]
+    name: Generate
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    steps:
+      - name: Checkout Repository
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CHECKOUT_REF: ${{ inputs.branch }}
+          CHECKOUT_FETCH_ALL_REFS: "true" # full history + tags for git-cliff
+        run: forge-ci platform checkout
+      - name: Generate Changelog with git-cliff
+        shell: bash
+        env:
+          CONFIG: ${{ inputs['changelog-config'] }}
+          ARGS: ${{ inputs['git-cliff-args'] }}
+          OUTPUT: ${{ inputs['output-file'] }}
+          GITHUB_REPO: ${{ github.repository }}
+          # The caller's ref: a release runs on its release-request tag.
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          RELEASE_POLICY: ${{ inputs['release-policy'] }}
+        run: |
+          # git-cliff is baked into the runtime image; ARGS is split on
+          # whitespace by design (git-cliff flags like `--latest`).
+          # --offline: with GITHUB_REPO set, git-cliff otherwise fetches pull
+          # request metadata from the API without a token, and the shared
+          # runner address hits the anonymous rate limit (403, a panic). The
+          # templates use only owner and repo, which GITHUB_REPO supplies.
+          # Stable history boundaries keep beta/rolling tags from truncating
+          # cumulative beta notes or the eventual stable release notes.
+          # --tag: the final tag does not exist while the release prepares, so
+          # git-cliff is told its name, as the Go adapter does; without it the
+          # new section is "Unreleased".
+          stable='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          history="$stable"
+          release_tag=()
+          if [[ "$REF_TYPE" == tag && "$REF_NAME" == release-request/* ]]; then
+            final="${REF_NAME#release-request/}"
+            forge-ci validate tag release-guard --tag "$REF_NAME" --release-policy "$RELEASE_POLICY"
+            # Include this exact target for --latest after its final tag exists,
+            # while excluding earlier prereleases from the history boundaries.
+            history="$stable|^${final//./[.]}$"
+            release_tag=(--tag "$final")
+          fi
+          # shellcheck disable=SC2086
+          git-cliff --offline --config "$CONFIG" --tag-pattern "$history" "${release_tag[@]}" --output "$OUTPUT" $ARGS
+      - name: Verify Changelog Generation
+        env:
+          CHANGELOG_FILE: ${{ inputs['output-file'] }}
+        run: forge-ci release validate-changelog
+      - name: Stage Changelog Artifact
+        if: ${{ inputs['upload-as-artifact'] }}
+        env:
+          CHANGELOG_FILE: ${{ inputs['output-file'] }}
+        run: |
+          mkdir -p .forge-ci/changelog-artifact
+          cp -- "$CHANGELOG_FILE" ".forge-ci/changelog-artifact/$(basename -- "$CHANGELOG_FILE")"
+      - name: Upload Changelog Artifact
+        if: ${{ inputs['upload-as-artifact'] }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs['artifact-name'] }}
+          path: .forge-ci/changelog-artifact/**
+          retention-days: "7"
+          if-no-files-found: warn

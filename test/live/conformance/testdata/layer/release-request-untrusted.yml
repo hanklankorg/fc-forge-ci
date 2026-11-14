@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Live-tier fixture of TestForgejoLayer_PrepareReleaseRefusesAnUntrustedRequest.
+# A template: the test renders it into a scratch repository on the lab beside a
+# changelog, sets the release secrets there and pushes a signed request tag.
+# It is the minimal release's prepare call and nothing after it, asking for
+# the request's signature to be verified: the secrets and the bot's key are
+# real, so a request the layer wrongly admitted would be committed and tagged.
+name: Forgejo layer untrusted release request
+
+on:
+  push:
+    tags:
+      - 'release-request/v*'
+
+# permissions: is a GitHub field Forgejo ignores (warning per run) --
+# kept for Scorecard Token-Permissions and GitHub portability. Real
+# restriction is Forgejo's repo-scoped read-default token.
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    uses: OWNER/forge-ci/.forgejo/workflows/prepare-release.yml@PIN_FORGE_CI_SHA
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-repository: RENDER_FORGE_CI_REPOSITORY
+      forge-ci-sha: PIN_FORGE_CI_SHA
+      signer-image: RENDER_SIGNER_IMAGE
+      bot-name: Layer acceptance
+      bot-email: layer-acceptance@invalid.example
+      # The fixtures render with git-chglog from .chglog/, as the layer did
+      # before git-cliff became the default; the three inputs keep that.
+      changelog-creator: git-chglog
+      changelog-config: .chglog/config-keepachangelog.yml
+      commit-body-config: .chglog/config-minimal.yml
+      release-git-url: RENDER_RELEASE_GIT_URL
+      release-git-host-key-fingerprint: RENDER_RELEASE_GIT_HOST_KEY_FINGERPRINT
+      sign-distro-packages: 'false'
+      publish-container-images: 'false'
+      # The layer admits the request only when .forgejo/release-allowed-signers
+      # of the requested commit names the key that signed the tag. The test
+      # commits a file that names another key, or no file.
+      verify-release-request-signature: 'true'
+    secrets:
+      RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}

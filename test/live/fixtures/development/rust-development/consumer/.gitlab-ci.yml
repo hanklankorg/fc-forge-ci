@@ -1,0 +1,5 @@
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "development" && $CI_PIPELINE_SOURCE == "push"'
+include:
+  - local: .gitlab/merge-request.yml

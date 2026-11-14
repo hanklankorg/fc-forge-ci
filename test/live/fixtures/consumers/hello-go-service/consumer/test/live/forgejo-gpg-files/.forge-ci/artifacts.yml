@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# The same Go service with its release files signed with GPG on Forgejo:
+# `method: gpg`. The Forgejo release signs the checksums and the SBOMs with
+# RELEASE_GPG_PRIVATE_KEY, pinned to RELEASE_GPG_FINGERPRINT, and the
+# provenance, the evidence and the image with its Cosign key. The trial
+# stages this file over .forge-ci/artifacts.yml.
+sign:
+  method: gpg
+
+artifacts:
+  - name: my-service
+    project-type: go
+    working-directory: .
+    config:
+      build-mode: container-first
+
+containers:
+  - name: my-service
+    from: [my-service]
+    container-file: Containerfile
+    context: .
+    target: runtime
+    platforms: linux/amd64,linux/arm64
+    extract:
+      binary:
+        target: export-binary
+        names: [my-service]

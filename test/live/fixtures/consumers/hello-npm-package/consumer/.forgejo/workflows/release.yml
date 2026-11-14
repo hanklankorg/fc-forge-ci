@@ -1,0 +1,180 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# Isolated Forge CI release of a publishable npm package:
+#
+#   prepare (forge-ci)  ->  build (ours)  ->  sign-and-publish (forge-ci)
+#
+# The build packs the package, tested by installing the tarball offline, and
+# hands it over with its Build SBOM in dist/; signing keys never enter it.
+# sign-and-publish signs and publishes the Forgejo release, the tarball one
+# of its files. The Forgejo layer publishes to no package registry.
+name: Release
+
+on:
+  push:
+    tags:
+      - release-request/v[0-9]*.[0-9]*.[0-9]*
+
+env:
+  FORGE_CI_PROVIDER: forgejo
+  FORGEJO_SERVER: ${{ forgejo.server_url }}
+  FORGEJO_REPO: ${{ forgejo.repository }}
+
+jobs:
+  prepare:
+    name: Prepare
+    if: success() && startsWith(forgejo.ref, 'refs/tags/')
+    uses: itiquette/forge-ci/.forgejo/workflows/prepare-release.yml@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-repository: itiquette/forge-ci
+      forge-ci-sha: c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+      signer-image: forgejo.example/itiquette/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      bot-name: Hello npm Release Bot
+      bot-email: hello-release-bot@lab.invalid
+      changelog-creator: git-chglog
+      changelog-config: .chglog/config-keepachangelog.yml
+      commit-body-config: .chglog/config-minimal.yml
+      release-git-url: ${{ vars.RELEASE_GIT_URL }}
+      release-git-host-key-fingerprint: ${{ vars.RELEASE_GIT_HOST_KEY_FINGERPRINT }}
+      verify-release-request-signature: 'true'
+      release-request-allowed-signers: .forgejo/release-allowed-signers
+      # The plan of artifacts.yml bumps package.json and its lockfile in the
+      # job image, which carries Node and npm.
+      runtime-image-node: ${{ vars.CI_JOB_IMAGE }}
+      sign-distro-packages: 'false'
+      publish-container-images: 'false'
+    secrets:
+      RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+
+  # Ours: tests, the packed package and its Build SBOM into dist/. No signing
+  # key reaches it.
+  build:
+    name: "Build: release files"
+    needs: prepare
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 30
+    outputs:
+      dist-digest: ${{ steps.dist.outputs.digest }}
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+
+      - name: Checkout prepared release
+        env:
+          CHECKOUT_REF: ${{ needs.prepare.outputs.release-sha }}
+        run: forge-ci platform checkout
+
+      - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-toolchain@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+        with:
+          cache-key-suffix: release-build
+          install-dev-tools: false
+          cache: 'false'
+          mise-locked: true
+
+      - name: Build and test
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release-tag }}
+          NODE_VERSION: '24'
+          # renovate: datasource=npm depName=@cyclonedx/cyclonedx-npm
+          CYCLONEDX_VERSION: '6.0.1'
+        run: forge-ci build npm run --scope @example-org --expect-version "${RELEASE_TAG#v}"
+
+      - name: Declare the release files
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release-tag }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.release-sha }}
+        run: |
+          set -euo pipefail
+          # npm pack names a scoped package <scope>-<name>-<version>.tgz.
+          package="example-org-hello-npm-package-${RELEASE_TAG#v}.tgz"
+          test -f "${package}"
+          rm -rf -- dist
+          mkdir -p dist
+          cp -- "${package}" dist/
+          cp -- bom.json "dist/hello-npm-package-${RELEASE_TAG#v}.cdx.json"
+          if ! forge-ci release notes --changelog-file CHANGELOG.md \
+            --release-version "${RELEASE_TAG}" --target-file dist/release-notes.md; then
+            echo "WARNING: no ${RELEASE_TAG} section in CHANGELOG.md; the release body is a stub" >&2
+            forge-ci release notes --source-file /nonexistent --target-file dist/release-notes.md \
+              --release-version "${RELEASE_TAG}" --release-commit "${RELEASE_SHA}"
+          fi
+          forge-ci release files declare \
+            --asset 'dist/*.tgz' \
+            --sbom "dist/hello-npm-package-${RELEASE_TAG#v}.cdx.json"
+
+      - name: Upload dist/ with hand-off digest
+        id: dist
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/upload-dist@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+        with:
+          artifact-name: build-dist
+          path: dist/
+
+  sign-and-publish:
+    name: Sign and publish
+    needs: [prepare, build]
+    # job-graph-guard: allow reason="reads needs.prepare.outputs but is gated on needs.build.result=='success'; build needs prepare, so build can only succeed if prepare succeeded, making prepare.outputs always present"
+    if: ${{ always() && needs.build.result == 'success' }}
+    uses: itiquette/forge-ci/.forgejo/workflows/sign-and-publish-release.yml@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      signer-runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      release-tag: ${{ needs.prepare.outputs.release-tag }}
+      release-sha: ${{ needs.prepare.outputs.release-sha }}
+      artifacts-config: ${{ needs.prepare.outputs.artifacts-config }}
+      release-request-sha: ${{ forgejo.sha }}
+      dist-digest: ${{ needs.build.outputs.dist-digest }}
+      artifact-name: build-dist
+      artifact-path: dist/
+      caller-workflow: release.yml
+      forge-ci-repository: itiquette/forge-ci
+      forge-ci-sha: c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+      sign-distro-packages: 'false'
+      signer-image: forgejo.example/itiquette/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: 1111111111111111111111111111111111111111111111111111111111111111
+    secrets:
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+
+  # ===========================================================================
+  # JOB: summary — the release overview; Forgejo 17 shows it above the logs,
+  # older Forgejo prints it in this job's log.
+  # ===========================================================================
+  summary:
+    name: Summary
+    if: ${{ always() && startsWith(forgejo.ref, 'refs/tags/') }}
+    needs: [prepare, build, sign-and-publish]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 5
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+
+      - name: Write the release summary
+        env:
+          CI_RUN_URL: ${{ forgejo.server_url }}/${{ forgejo.repository }}/actions/runs/${{ forgejo.run_number }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release-tag }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.release-sha }}
+          RELEASE_ACTOR: ${{ forgejo.actor }}
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          PUBLISH_RESULT: ${{ needs.sign-and-publish.result }}
+        run: |
+          forge-ci report release \
+            --job "Prepare=${PREPARE_RESULT}" \
+            --job "Build: release files=${BUILD_RESULT}" \
+            --job "Sign and publish=${PUBLISH_RESULT}"

@@ -1,0 +1,18 @@
+[package]
+name = "hello-cargo-cli"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A tiny command-line program for showing Forge CI's Cargo release without a container"
+license = "CC0-1.0"
+publish = false
+
+# The library crate beside the command. It keeps a version of its own: the
+# release bumps the root package, which is the one the declaration names.
+[workspace]
+members = ["greeting"]
+resolver = "3"
+
+# A path dependency and nothing from a registry: the build needs no network.
+[dependencies]
+hello-greeting = { path = "greeting" }

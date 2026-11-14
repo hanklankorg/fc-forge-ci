@@ -1,0 +1,192 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+name: Release
+on:
+  push:
+    tags: ['release-request/v[0-9]*.[0-9]*.[0-9]*']
+env:
+  FORGE_CI_PROVIDER: forgejo
+  FORGEJO_SERVER: ${{ forgejo.server_url }}
+  FORGEJO_REPO: ${{ forgejo.repository }}
+jobs:
+  prepare:
+    uses: itiquette/forge-ci/.forgejo/workflows/prepare-release.yml@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-repository: itiquette/forge-ci
+      forge-ci-sha: c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+      signer-image: forgejo.example/itiquette/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      bot-name: Hello npm Release Bot
+      bot-email: hello-release-bot@lab.invalid
+      changelog-creator: git-chglog
+      changelog-config: .chglog/config-keepachangelog.yml
+      commit-body-config: .chglog/config-minimal.yml
+      release-git-url: ${{ vars.RELEASE_GIT_URL }}
+      release-git-host-key-fingerprint: ${{ vars.RELEASE_GIT_HOST_KEY_FINGERPRINT }}
+      verify-release-request-signature: 'true'
+      release-request-allowed-signers: .forgejo/release-allowed-signers
+      # The plan of artifacts.yml bumps package.json and its lockfile in the
+      # job image, which carries Node and npm.
+      runtime-image-node: ${{ vars.CI_JOB_IMAGE }}
+      sign-distro-packages: 'false'
+      publish-container-images: 'true'
+    secrets:
+      RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+  summary:
+    name: Summary
+    if: ${{ always() && startsWith(forgejo.ref, 'refs/tags/') }}
+    needs: [prepare, build, release-images, handoff, sign-and-publish]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 5
+    steps:
+      - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+      - env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release-tag }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.release-sha }}
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          IMAGES_RESULT: ${{ needs.release-images.result }}
+          HANDOFF_RESULT: ${{ needs.handoff.result }}
+          PUBLISH_RESULT: ${{ needs.sign-and-publish.result }}
+        run: |
+          forge-ci report release --job "Prepare=${PREPARE_RESULT}" --job "Build=${BUILD_RESULT}" \
+            --job "Images=${IMAGES_RESULT}" --job "Hand-off=${HANDOFF_RESULT}" --job "Publish=${PUBLISH_RESULT}"
+  build:
+    name: 'Build: release files'
+    needs: prepare
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 30
+    env:
+      ARTIFACT_NAME: hello-npm-service
+    steps:
+      - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+      - name: Checkout prepared release
+        env:
+          CHECKOUT_REF: ${{ needs.prepare.outputs.release-sha }}
+        run: forge-ci platform checkout
+      - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-toolchain@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+        with:
+          cache-key-suffix: release-build
+          install-dev-tools: false
+          cache: 'false'
+          mise-locked: true
+      - name: Build and test
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release-tag }}
+          NODE_VERSION: '24'
+          # renovate: datasource=npm depName=@cyclonedx/cyclonedx-npm
+          CYCLONEDX_VERSION: '6.0.1'
+        run: forge-ci build npm run --expect-version "${RELEASE_TAG#v}"
+      - name: Stage image context and release files
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release-tag }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.release-sha }}
+        run: |
+          set -euo pipefail
+          # npm pack names a scoped package <scope>-<name>-<version>.tgz.
+          package="example-org-${ARTIFACT_NAME}-${RELEASE_TAG#v}.tgz"
+          rm -rf -- dist image
+          mkdir -p image image-context dist
+          tar -xzf "${package}" --strip-components=1 -C image
+          cp -R image/. image-context/
+          forge-ci artifact upload --name image-context --dir image-context --retention-days 1 --if-no-files error
+          cp -- "${package}" dist/
+          cp -- bom.json "dist/${ARTIFACT_NAME}.cdx.json"
+          if ! forge-ci release notes --changelog-file CHANGELOG.md --release-version "${RELEASE_TAG}" --target-file dist/release-notes.md; then
+            forge-ci release notes --source-file /nonexistent --target-file dist/release-notes.md --release-version "${RELEASE_TAG}" --release-commit "${RELEASE_SHA}"
+          fi
+          forge-ci release files declare --asset 'dist/*.tgz' --sbom "dist/${ARTIFACT_NAME}.cdx.json"
+      - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/upload-dist@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+        with:
+          artifact-name: release-files
+          path: dist/
+  release-images:
+    needs: [prepare, build]
+    uses: itiquette/forge-ci/.forgejo/workflows/release-images.yml@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      build-runs-on-linux-amd64: ${{ vars.CI_RUNNER_LABEL_CONTAINER || vars.CI_RUNNER_LABEL }}
+      build-runs-on-linux-arm64: ${{ vars.CI_RUNNER_LABEL_CONTAINER_ARM64 || vars.CI_RUNNER_LABEL_ARM64 }}
+      forge-ci-repository: itiquette/forge-ci
+      forge-ci-sha: c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+      release-tag: ${{ needs.prepare.outputs.release-tag }}
+      release-sha: ${{ needs.prepare.outputs.release-sha }}
+      context-artifact: image-context
+      release-platforms: ${{ vars.RELEASE_PLATFORMS || 'linux/amd64' }}
+    secrets:
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+  handoff:
+    needs: [build, release-images]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 15
+    outputs:
+      dist_digest: ${{ steps.dist.outputs.digest }}
+    steps:
+      - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+      - run: |
+          set -euo pipefail
+          forge-ci artifact download --name release-files --dir dist
+          forge-ci artifact download --name release-images --dir dist
+      - id: dist
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/upload-dist@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+        with:
+          artifact-name: build-dist
+          path: dist/
+  sign-and-publish:
+    needs: [prepare, handoff]
+    uses: itiquette/forge-ci/.forgejo/workflows/sign-and-publish-release.yml@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      signer-runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      release-tag: ${{ needs.prepare.outputs.release-tag }}
+      release-sha: ${{ needs.prepare.outputs.release-sha }}
+      artifacts-config: ${{ needs.prepare.outputs.artifacts-config }}
+      release-request-sha: ${{ forgejo.sha }}
+      dist-digest: ${{ needs.handoff.outputs['dist_digest'] }}
+      artifact-name: build-dist
+      artifact-path: dist/
+      release-images-path: dist/release-images.json
+      caller-workflow: release.yml
+      forge-ci-repository: itiquette/forge-ci
+      forge-ci-sha: c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+      sign-distro-packages: 'false'
+      signer-image: forgejo.example/itiquette/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: 1111111111111111111111111111111111111111111111111111111111111111
+    secrets:
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+  publish-package:
+    # The package of the signed release goes to the owner's package registry:
+    # the tarball the release offers as a file, published once the release is.
+    name: 'Publish: package'
+    needs: sign-and-publish
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 15
+    steps:
+      - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+      - name: Download the release files
+        run: forge-ci artifact download --name release-files --dir package
+      - name: Publish the released package
+        env:
+          # The automatic token may not write packages; this one may write
+          # the owner's.
+          FORGEJO_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+        # Forgejo reads release-<version> as a version and refuses it as a
+        # dist-tag, so the tag is release.<version> here.
+        run: forge-ci publish forge-packages deploy --project-type npm --working-dir package --npm-tag 'release.{version}'

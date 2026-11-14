@@ -1,0 +1,45 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+// SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
+
+package version
+
+import (
+	"crypto/sha256"
+	"errors"
+	"fmt"
+	"strings"
+)
+
+var (
+	errSnapshotTagInputs  = errors.New("snapshot container tag requires a usable branch and abbreviated commit")
+	errSnapshotTagTooLong = errors.New("snapshot container tag base is too long")
+)
+
+// ComposeSnapshotContainerTag uses a postfix so registry retention can recognize
+// snapshots. Every branch token carries its logical branch hash, including
+// literal names resembling generated tokens. Reserve room for native arch tags.
+func ComposeSnapshotContainerTag(base, branch, shortSHA string) (string, error) {
+	if base == "" {
+		base = SnapshotVersionDefaultBase
+	}
+
+	token := SanitizePathToken(branch)
+	if token == "" || len(shortSHA) < SnapshotShortSHALen || strings.Trim(shortSHA, "0123456789abcdef") != "" {
+		return "", errSnapshotTagInputs
+	}
+
+	budget := 128 - len(base) - len(shortSHA) - len("---snapshot-arm64")
+	if budget < 18 {
+		return "", errSnapshotTagTooLong
+	}
+
+	sum := sha256.Sum256([]byte(branch))
+
+	if len(token) > budget-17 {
+		token = token[:budget-17]
+	}
+
+	token = strings.TrimRight(token, "-.") + fmt.Sprintf("-%x", sum[:8])
+
+	return fmt.Sprintf("%s-%s-%s-snapshot", base, token, shortSHA), nil
+}

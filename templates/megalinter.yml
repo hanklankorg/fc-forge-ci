@@ -1,0 +1,214 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# GitLab CI/CD Catalog component: the MegaLinter PR lint gate.
+#
+# This component runs MegaLinter's bundled linters using the project's
+# `.mega-linter.yml`. The image input is mandatory and accepts only a digest
+# reference. GitLab validates that input before creating the job because the job
+# container receives the checkout, CI variables (including CI_JOB_TOKEN), and
+# any runner-provided mounts.
+#
+# The component provides two capabilities:
+#   1. MegaLinter runs enabled linters and fails the job on blocking findings
+#      (DISABLE_ERRORS=false); that exit is the lint gate.
+#   2. MegaLinter's SARIF is converted to the GitLab SAST schema and published as
+#      `artifacts:reports:sast`, so blocking findings land on the merge-request
+#      Security tab. The conversion uses `forge-ci security report
+#      to-gitlab-sast`, run from the engine binary this component's commit
+#      records, as the check component runs it. A report that cannot be
+#      written fails the job and keeps the SARIF as a plain artifact, so the
+#      image needs Git, curl and sha256sum, or enable-gitlab-sast: false.
+spec:
+  component: [sha]
+  inputs:
+    stage:
+      default: test
+      description: Pipeline stage the lint gate runs in.
+    job-name:
+      default: megalinter
+      description: Name of the generated job.
+    megalinter-image:
+      regex: '^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$'
+      description: Required trusted MegaLinter image reference pinned by @sha256:<64 lowercase hex>.
+    enable-gitlab-sast:
+      type: boolean
+      default: true
+      description: >-
+        Convert MegaLinter's SARIF to a GitLab SAST report and publish it as artifacts:reports:sast (populates the MR Security tab; display needs GitLab Ultimate). When false, the SARIF is kept as a plain artifact only.
+    server-url:
+      description: >-
+        This GitLab instance's URL as CI_SERVER_URL reads, https://host[:port] without a path, for example https://gitlab.example.com. The job token goes only there: each job refuses to run when CI_SERVER_URL, which a project or pipeline variable can set, differs.
+      regex: '^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'
+    forge-ci-repository:
+      description: >-
+        Project serving this component and its public engine package, including any subgroups. The SARIF to GitLab-SAST conversion runs the engine binary that this component's commit records, downloaded from that project's generic packages and checked against the recorded checksum. May name $CI_PROJECT_PATH: lib-forge-ci.sh refuses an expanded path that is not a project on server-url before any download.
+    runner-tags:
+      type: array
+      default: []
+      description: Runner tags of the job, all of which one runner must carry; empty, the default, leaves it untagged. Name literal tags only, never a $VARIABLE, which a project variable could set.
+---
+"$[[ inputs.job-name ]]":
+  # One more attempt when the engine found a dependency unavailable, exit
+  # 69, and for no other failure.
+  retry:
+    max: 1
+    exit_codes: 69
+  stage: $[[ inputs.stage ]]
+  tags: $[[ inputs.runner-tags ]]
+  rules:
+    - when: on_success
+  needs: []
+  cache: []
+  # The image starts its tool as its entrypoint; the script runs the tool
+  # itself. The Docker executor would run the job's shell through that
+  # entrypoint; the Kubernetes one ignores it.
+  image:
+    name: $[[ inputs.megalinter-image ]]
+    entrypoint: [""]
+  variables:
+    GIT_STRATEGY: fetch
+    GIT_CHECKOUT: "true"
+    # MegaLinter lints the checked-out project and writes its reports here.
+    DEFAULT_WORKSPACE: $CI_PROJECT_DIR
+    # The whole history, for the comparison with the merge request's target.
+    GIT_DEPTH: "0"
+    SARIF_REPORTER: "true"
+    DISABLE_ERRORS: "false"
+    RC_FORGE_CI_REPOSITORY: "$[[ inputs.forge-ci-repository ]]"
+    SARIF_FILE: megalinter-reports/megalinter-report.sarif
+    GL_SAST_FILE: gl-sast-report.json
+  # Explicit gate fields replace earlier same-named values. Other keys still
+  # merge; policy injection, not include ordering, is the authority boundary.
+  allow_failure: false
+  before_script: []
+  after_script: []
+  script:
+    - |
+      set -uo pipefail
+      # The report as written: a project variable outranks a job's own.
+      readonly ENABLE_GITLAB_SAST='$[[ inputs.enable-gitlab-sast ]]'
+      # The instance as written: a project or pipeline variable outranks
+      # the predefined CI_SERVER_URL and CI_API_V4_URL, and the job token
+      # goes where they point. Hold the one to the literal, derive the other.
+      readonly RC_SERVER_URL='$[[ inputs.server-url ]]'
+      if [ "${CI_SERVER_URL-}" != "${RC_SERVER_URL}" ]; then
+        echo "ERROR: CI_SERVER_URL is '${CI_SERVER_URL-}', not server-url '${RC_SERVER_URL}'; remove the variable that sets it." >&2
+        exit 1
+      fi
+      export CI_API_V4_URL="${RC_SERVER_URL}/api/v4"
+
+      # --- Merge-request base -----------------------------------------------
+      # Trust the checkout, then fetch the merge request's target.
+      # --- Checkout trust ---------------------------------------------------
+      # The runner's user owns the checkout, and a lint image may run as
+      # another user, so git refuses the checkout as dubious ownership.
+      # Trust this one directory for every git call of the job, the linter's
+      # own included, through the environment: no config file is written,
+      # and the consumer's own GIT_CONFIG_* entries stay in force.
+      git_config_count="${GIT_CONFIG_COUNT:-0}"
+      case "$git_config_count" in
+        ''|*[!0-9]*) echo "GIT_CONFIG_COUNT is not a number: ${git_config_count}" >&2; exit 1 ;;
+      esac
+      export "GIT_CONFIG_KEY_${git_config_count}=safe.directory"
+      export "GIT_CONFIG_VALUE_${git_config_count}=${CI_PROJECT_DIR:?}"
+      export GIT_CONFIG_COUNT=$((git_config_count + 1))
+
+      # --- Target fetch -----------------------------------------------------
+      # Diff-based checks (secret scanning, commit checks, changed-file
+      # linting) compare the merge request with its target branch, and GitLab
+      # fetches only the merge request's head: fetch the target as
+      # origin/<target>. GIT_DEPTH 0 gives the head its whole history so the
+      # two meet; a depth the consumer set is deepened here.
+      # The job token reaches git through a credential helper, never argv.
+      target="${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-}"
+      if [ -n "$target" ]; then
+        fetch_options=(-c core.hooksPath=/dev/null
+          -c 'credential.helper=!f() { echo username=gitlab-ci-token; echo "password=${CI_JOB_TOKEN}"; }; f')
+        if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+          fetch_options+=(-c "http.sslCAInfo=${CI_SERVER_TLS_CA_FILE}")
+        fi
+        depth=()
+        if [ "$(git rev-parse --is-shallow-repository)" = true ]; then depth=(--unshallow); fi
+        if ! GIT_TERMINAL_PROMPT=0 git "${fetch_options[@]}" fetch --quiet --no-tags "${depth[@]}" \
+          "${RC_SERVER_URL}/${CI_PROJECT_PATH:?}.git" "+refs/heads/${target}:refs/remotes/origin/${target}"; then
+          echo "cannot fetch the merge request's target branch ${target} (a pipeline error, not a lint finding)" >&2
+          exit 1
+        fi
+      fi
+
+      # MegaLinter's diff mode (VALIDATE_ALL_CODEBASE: false) compares with
+      # origin/$DEFAULT_BRANCH, the default branch unless set: in a merge
+      # request that is the target, unless the consumer chose otherwise.
+      if [ -n "$target" ]; then export DEFAULT_BRANCH="${DEFAULT_BRANCH:-$target}"; fi
+
+      # --- Lint gate --------------------------------------------------------
+      # Run MegaLinter's entrypoint over $DEFAULT_WORKSPACE. SARIF_REPORTER emits
+      # the SARIF the conversion below consumes; DISABLE_ERRORS=false makes a
+      # blocking finding exit non-zero (the gate). Capture the exit but keep
+      # going so the SAST report is still produced when the gate is red
+      # (artifacts: when: always).
+      gate=0
+      bash /entrypoint.sh || gate=$?
+      if [ "$gate" -ne 0 ]; then
+        echo "MegaLinter found blocking lint issues — see the MegaLinter output above (a lint gate on your code, not a pipeline error)."
+      fi
+
+      # --- SARIF -> GitLab SAST --------------------------------------------
+      # Convert MegaLinter's SARIF to the GitLab SAST schema for the MR Security
+      # tab. The engine comes from forge-ci-repository at this component's commit:
+      # the checkout records the binary's checksum, and the binary is
+      # downloaded from that project's generic packages and checked against
+      # it. The report is what the merge request shows: a conversion that
+      # fails, fails the job, after the gate has printed its verdict.
+      if [ "$ENABLE_GITLAB_SAST" = "true" ] && [ -f "$SARIF_FILE" ]; then
+        # GitLab runs the script under errexit, which would end the job on a
+        # failed conversion, while an `if` or `||` around the subshell would
+        # switch its own errexit off. Pause the job's errexit around it instead.
+        set +e
+        (
+          set -euo pipefail
+          expected='$[[ component.sha ]]'
+          export FORGE_CI_PACKAGE_PROVIDER=gitlab
+          export FORGE_CI_REPOSITORY_URL="${RC_SERVER_URL}/${RC_FORGE_CI_REPOSITORY:?}.git"
+          helpers=$(mktemp -d /tmp/forge-ci-helpers.XXXXXXXX)
+          trap 'rm -rf -- "${helpers}"' EXIT
+          git_options=(-c core.hooksPath=/dev/null -c credential.helper=)
+          if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+            git_options+=(-c "http.sslCAInfo=${CI_SERVER_TLS_CA_FILE}")
+          fi
+          object_format=sha1
+          if [ "${#expected}" -eq 64 ]; then object_format=sha256; fi
+          git init --quiet --object-format="${object_format}" "${helpers}"
+          git -C "${helpers}" remote add origin "${FORGE_CI_REPOSITORY_URL}"
+          GIT_TERMINAL_PROMPT=0 git "${git_options[@]}" -C "${helpers}" \
+            fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin "${expected}"
+          git "${git_options[@]}" -C "${helpers}" checkout --quiet --detach "${expected}"
+          test "$(git -C "${helpers}" rev-parse HEAD)" = "${expected}"
+          # shellcheck source=.engine/bin/lib-forge-ci.sh
+          source "${helpers}/.engine/bin/lib-forge-ci.sh"
+          if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+            CURL_CA_BUNDLE="${CI_SERVER_TLS_CA_FILE}" fetch_forge_ci
+          else
+            fetch_forge_ci
+          fi
+          SIGNER_STRICT=1 verify_forge_ci
+          run_forge_ci security report to-gitlab-sast --input "$SARIF_FILE" --output "$GL_SAST_FILE"
+        )
+        converted=$?
+        set -e
+        if [ "$converted" -ne 0 ]; then
+          echo "ERROR: the GitLab SAST report could not be written (engine checkout, download or conversion failed); the SARIF is kept as a plain artifact (a pipeline error, not a lint finding)." >&2
+          if [ "$gate" -eq 0 ]; then gate=1; fi
+        fi
+      fi
+
+      # The lint gate decides the job result, and so does a lost SAST report.
+      exit "$gate"
+  artifacts:
+    when: always
+    paths:
+      - megalinter-reports/megalinter-report.sarif
+    reports:
+      sast: gl-sast-report.json

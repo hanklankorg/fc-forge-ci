@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# The release build runs on the runner host, where the image is built too:
+# setup-toolchain installs these from mise.lock (`mise lock --platform
+# linux-x64,linux-arm64` after a change). The wrapper brings Gradle.
+[tools]
+java = "temurin-25.0.4+7.0.LTS"
+# release-images.yml scans every platform before it publishes.
+"aqua:aquasecurity/trivy" = "0.76.1"

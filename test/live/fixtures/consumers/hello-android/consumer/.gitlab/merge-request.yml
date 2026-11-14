@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# Merge-request gate through Forge CI's GitLab components: the nanolinter lint
+# gate and the project's own checks. Lint runs in a digest-pinned nanolinter
+# image, the checks in Forge CI's Android runtime image (linux/amd64 only) as
+# its nonroot user; neither job holds a release or signing credential. The
+# build is unsigned: Android signing stays out of merge-request pipelines.
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+variables:
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: safe.directory
+  GIT_CONFIG_VALUE_0: "*"
+include:
+  - component: $CI_SERVER_FQDN/itiquette/forge-ci/nanolinter@2f4e845cee96973d1082bf00a5a18689c1482148
+    inputs:
+      forge-ci-repository: itiquette/forge-ci
+      server-url: $CI_SERVER_URL
+      job-name: "Check: lint"
+      nanolinter-image: $CI_LINT_IMAGE
+  - component: $CI_SERVER_FQDN/itiquette/forge-ci/check@2f4e845cee96973d1082bf00a5a18689c1482148
+    inputs:
+      forge-ci-repository: itiquette/forge-ci
+      server-url: $CI_SERVER_URL
+      job-name: "Check: build and test"
+      job-image: $CI_JOB_IMAGE
+      job-user: "65532:65532"
+      # The unit tests and the unsigned demo APKs and AAB, as the GitHub
+      # pull request builds them.
+      commands:
+        - ./gradlew --no-daemon app:test assembleDemoDebug assembleDemoRelease bundleDemoRelease

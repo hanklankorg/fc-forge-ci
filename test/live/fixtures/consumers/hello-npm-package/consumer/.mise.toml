@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# The Forgejo release build runs on the runner host: setup-toolchain
+# installs these.
+[tools]
+node = "24.22.0"

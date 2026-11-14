@@ -1,0 +1,313 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+//
+// SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
+
+package livetest
+
+import (
+	"archive/zip"
+	"bytes"
+	"errors"
+	"io/fs"
+	"maps"
+	"net/http"
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
+)
+
+// zipEntry is one entry of an archive built for a test.
+type zipEntry struct {
+	name    string
+	content string
+	mode    fs.FileMode
+}
+
+func buildZIP(t *testing.T, entries ...zipEntry) []byte {
+	t.Helper()
+
+	var archive bytes.Buffer
+
+	writer := zip.NewWriter(&archive)
+
+	for _, entry := range entries {
+		header := &zip.FileHeader{Name: entry.name, Method: zip.Deflate}
+		header.SetMode(entry.mode)
+
+		file, err := writer.CreateHeader(header)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := file.Write([]byte(entry.content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	return archive.Bytes()
+}
+
+func TestZIPTree_ReadsEveryFileByName(t *testing.T) {
+	t.Parallel()
+
+	archive := buildZIP(t,
+		zipEntry{name: ".hidden", content: "hidden\n", mode: 0o600},
+		zipEntry{name: "empty", mode: 0o600},
+		zipEntry{name: "dir/nested/file", content: "nested\n", mode: 0o755},
+	)
+
+	tree, err := ZIPTree(archive, 14)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string][]byte{".hidden": []byte("hidden\n"), "empty": {}, "dir/nested/file": []byte("nested\n")}
+	if !maps.EqualFunc(tree, want, bytes.Equal) {
+		t.Errorf("tree = %q, want %q", tree, want)
+	}
+}
+
+func TestZIPTree_RefusesWhatATreeComparisonCouldNotJudge(t *testing.T) {
+	t.Parallel()
+
+	regular := func(name string) zipEntry { return zipEntry{name: name, content: "x", mode: 0o600} }
+
+	for name, archive := range map[string][]byte{
+		"not an archive":   []byte("PK is not enough"),
+		"absolute name":    buildZIP(t, regular("/etc/passwd")),
+		"climbing name":    buildZIP(t, regular("../outside")),
+		"unclean name":     buildZIP(t, regular("dir/../file")),
+		"backslash name":   buildZIP(t, regular(`dir\file`)),
+		"directory entry":  buildZIP(t, zipEntry{name: "dir/", mode: fs.ModeDir | 0o700}),
+		"symbolic link":    buildZIP(t, zipEntry{name: "link", content: "target", mode: fs.ModeSymlink | 0o777}),
+		"duplicate name":   buildZIP(t, regular("file"), regular("file")),
+		"over the limit":   buildZIP(t, zipEntry{name: "file", content: "0123456789abcdefg", mode: 0o600}),
+		"over it in total": buildZIP(t, zipEntry{name: "a", content: "0123456789", mode: 0o600}, zipEntry{name: "b", content: "0123456", mode: 0o600}),
+	} {
+		tree, err := ZIPTree(archive, 16)
+		if err == nil || tree != nil {
+			t.Errorf("%s: ZIPTree = %q, %v; want a refusal and no tree", name, tree, err)
+		}
+
+		if name != "not an archive" && !errors.Is(err, errs.ErrValidation) {
+			t.Errorf("%s: refusal %v is not a validation error", name, err)
+		}
+	}
+}
+
+// GitLab's job artifacts record their directories, which ZIPFiles passes
+// over and nothing else.
+func TestZIPFiles_PassesOverDirectoryRecordsAlone(t *testing.T) {
+	t.Parallel()
+
+	directory := zipEntry{name: "dir/", mode: fs.ModeDir | 0o700}
+
+	tree, err := ZIPFiles(buildZIP(t, directory, zipEntry{name: "dir/file", content: "x", mode: 0o600}), 16)
+	if err != nil || !maps.EqualFunc(tree, map[string][]byte{"dir/file": []byte("x")}, bytes.Equal) {
+		t.Fatalf("ZIPFiles = %q, %v; want the one file", tree, err)
+	}
+
+	if tree, err = ZIPFiles(buildZIP(t, directory, zipEntry{name: "link", content: "target", mode: fs.ModeSymlink | 0o777}), 16); err == nil {
+		t.Fatalf("ZIPFiles = %q; want the symbolic link refused", tree)
+	}
+}
+
+func TestRunIsOver_OnlyForAStatusForgejoWillNotChange(t *testing.T) {
+	t.Parallel()
+
+	for status, want := range map[string]bool{
+		"success": true, "failure": true, "cancelled": true, "skipped": true, "error": true,
+		"": false, "unknown": false, "waiting": false, "running": false, "blocked": false,
+	} {
+		if got := runIsOver(status); got != want {
+			t.Errorf("runIsOver(%q) = %t, want %t", status, got, want)
+		}
+	}
+}
+
+func TestSelectRun_JudgesOnlyTheRunTheAwaitedEventStarted(t *testing.T) {
+	t.Parallel()
+
+	run := func(id int64, file, event, trigger string) WorkflowRun {
+		return WorkflowRun{ID: id, WorkflowID: file, Event: event, TriggerEvent: trigger}
+	}
+
+	const (
+		file        = "pullrequest.yml"
+		pullRequest = "pull_request"
+	)
+
+	for name, test := range map[string]struct {
+		runs    []WorkflowRun
+		event   string
+		wantID  int64
+		afterID int64
+		refuse  bool
+	}{
+		"none yet":                         {event: pullRequest},
+		"the awaited run":                  {runs: []WorkflowRun{run(3, file, pullRequest, pullRequest)}, event: pullRequest, wantID: 3},
+		"another workflow's run is unseen": {runs: []WorkflowRun{run(4, "release.yml", "schedule", "schedule")}, event: pullRequest},
+		"a push run beside it is passed over": {
+			runs:  []WorkflowRun{run(5, file, eventPush, eventPush), run(6, file, pullRequest, pullRequest)},
+			event: pullRequest, wantID: 6,
+		},
+		"a push run alone is not the awaited one": {runs: []WorkflowRun{run(7, file, eventPush, eventPush)}, event: pullRequest},
+		"a push run is the awaited one":           {runs: []WorkflowRun{run(8, file, eventPush, eventPush)}, event: eventPush, wantID: 8},
+		"two awaited runs":                        {runs: []WorkflowRun{run(9, file, pullRequest, pullRequest), run(10, file, pullRequest, pullRequest)}, event: pullRequest, refuse: true},
+		"two push runs when push is awaited":      {runs: []WorkflowRun{run(11, file, eventPush, eventPush), run(12, file, eventPush, eventPush)}, event: eventPush, refuse: true},
+		"an unknown event":                        {runs: []WorkflowRun{run(13, file, "schedule", "schedule")}, event: pullRequest, refuse: true},
+		"an empty event":                          {runs: []WorkflowRun{run(14, file, "", "")}, event: pullRequest, refuse: true},
+		"a push event another event triggered":    {runs: []WorkflowRun{run(15, file, eventPush, "schedule")}, event: pullRequest, refuse: true},
+		"the awaited event, another trigger":      {runs: []WorkflowRun{run(16, file, pullRequest, eventPush)}, event: pullRequest, refuse: true},
+		"second release excludes the first":       {runs: []WorkflowRun{run(20, file, eventPush, eventPush), run(21, file, eventPush, eventPush)}, event: eventPush, afterID: 20, wantID: 21},
+		"old release is not a new result":         {runs: []WorkflowRun{run(20, file, eventPush, eventPush)}, event: eventPush, afterID: 20},
+		"two newer releases remain ambiguous":     {runs: []WorkflowRun{run(21, file, eventPush, eventPush), run(22, file, eventPush, eventPush)}, event: eventPush, afterID: 20, refuse: true},
+	} {
+		got, passedOver, err := selectRun(test.runs, file, test.event, test.afterID)
+
+		switch {
+		case test.refuse:
+			if !errors.Is(err, errs.ErrValidation) || got.ID != 0 {
+				t.Errorf("%s: selectRun = %+v, %v; want a refusal", name, got, err)
+			}
+		case err != nil || got.ID != test.wantID:
+			t.Errorf("%s: selectRun = run %d, %v; want run %d", name, got.ID, err, test.wantID)
+		}
+
+		// A push run is passed over, and named, only when another event is awaited.
+		wantPassed := 0
+
+		if !test.refuse && test.event != eventPush {
+			for _, run := range test.runs {
+				if run.WorkflowID == file && run.Event == eventPush && run.ID > test.afterID {
+					wantPassed++
+				}
+			}
+		}
+
+		if len(passedOver) != wantPassed {
+			t.Errorf("%s: %d runs passed over, want %d", name, len(passedOver), wantPassed)
+		}
+	}
+}
+
+// A 5xx is the forge failing to serve, which jobLog asks again about; a 404
+// stays an absence and any other status stays final.
+func TestFetchStatusError_SeparatesServerFailureFromAbsenceAndRefusal(t *testing.T) {
+	cases := map[int]struct{ absent, server bool }{
+		http.StatusNotFound:            {absent: true},
+		http.StatusInternalServerError: {server: true},
+		http.StatusBadGateway:          {server: true},
+		http.StatusServiceUnavailable:  {server: true},
+		http.StatusForbidden:           {},
+		http.StatusUnauthorized:        {},
+	}
+	for code, want := range cases {
+		err := fetchStatusError("https://forge.example/api/v1/repos/o/r/actions/jobs/1/logs", code)
+		if errors.Is(err, errAbsent) != want.absent || errors.Is(err, errServerSide) != want.server || !errors.Is(err, errs.ErrValidation) {
+			t.Errorf("HTTP %d: %v; want absent=%t server=%t", code, err, want.absent, want.server)
+		}
+	}
+}
+
+// A job counts as never started only when the forge reports task 0.
+func TestRunJobStarted(t *testing.T) {
+	t.Parallel()
+
+	none, task := int64(0), int64(7)
+
+	for name, test := range map[string]struct {
+		task *int64
+		want bool
+	}{
+		"no task id reported": {task: nil, want: true},
+		"task 0":              {task: &none, want: false},
+		"a task":              {task: &task, want: true},
+	} {
+		if got := (RunJob{TaskID: test.task}).Started(); got != test.want {
+			t.Errorf("%s: started %t, want %t", name, got, test.want)
+		}
+	}
+}
+
+// A run is given up only when nothing is left that can move it and it has
+// stood still for the settle time: jobs that are blocked beside jobs that
+// are over. A job that waits for a runner, however long, is not that.
+func TestRunDeadlockIsOnlyARunNothingCanMove(t *testing.T) {
+	t.Parallel()
+
+	job := func(id int64, name, status string) RunJob { return RunJob{ID: id, Name: name, Status: status} }
+	done := []RunJob{job(1, "Prepare", runSuccess), job(2, "Scan", runSkipped)}
+	stuck := append(slices.Clone(done), job(3, "Publish (incomplete matrix)", runBlocked), job(4, "Summary", runBlocked))
+	blocked := WorkflowRun{ID: 7, Status: runBlocked}
+	start := time.Unix(0, 0)
+
+	type reading struct {
+		after time.Duration
+		run   WorkflowRun
+		runs  []WorkflowRun
+		jobs  []RunJob
+		err   error
+	}
+
+	for _, test := range []struct {
+		name     string
+		readings []reading
+		want     []string
+	}{
+		{"blocked jobs alone, for the settle time", []reading{{0, blocked, nil, stuck, nil}, {runDeadlockSettle, blocked, nil, stuck, nil}},
+			[]string{`"Publish (incomplete matrix)"`, `"Summary"`}},
+		{"not yet for the settle time", []reading{{0, blocked, nil, stuck, nil}, {runDeadlockSettle - time.Second, blocked, nil, stuck, nil}}, nil},
+		{"a job waits for a busy runner", []reading{
+			{0, blocked, nil, append(slices.Clone(stuck), job(5, "Build", "waiting")), nil},
+			{time.Hour, blocked, nil, append(slices.Clone(stuck), job(5, "Build", "waiting")), nil},
+		}, nil},
+		{"a job runs", []reading{
+			{0, blocked, nil, append(slices.Clone(stuck), job(5, "Build", "running")), nil},
+			{time.Hour, blocked, nil, append(slices.Clone(stuck), job(5, "Build", "running")), nil},
+		}, nil},
+		{"a job of a status this does not know", []reading{
+			{0, blocked, nil, append(slices.Clone(stuck), job(5, "Build", "unknown")), nil},
+			{time.Hour, blocked, nil, append(slices.Clone(stuck), job(5, "Build", "unknown")), nil},
+		}, nil},
+		{"the run is not blocked", []reading{{0, WorkflowRun{ID: 7, Status: "waiting"}, nil, stuck, nil}, {time.Hour, WorkflowRun{ID: 7, Status: "running"}, nil, stuck, nil}}, nil},
+		{"another run of the repository is not over", []reading{
+			{0, blocked, []WorkflowRun{blocked, {ID: 6, Status: "running"}}, stuck, nil},
+			{time.Hour, blocked, []WorkflowRun{blocked, {ID: 6, Status: "running"}}, stuck, nil},
+		}, nil},
+		{"the other runs are over", []reading{
+			{0, blocked, []WorkflowRun{blocked, {ID: 6, Status: runSuccess}}, stuck, nil},
+			{runDeadlockSettle, blocked, []WorkflowRun{blocked, {ID: 6, Status: runSuccess}}, stuck, nil},
+		}, []string{`"Publish (incomplete matrix)"`, `"Summary"`}},
+		{"a job moved between two readings: the time starts again", []reading{
+			{0, blocked, nil, append(slices.Clone(done), job(3, "Publish", runBlocked), job(4, "Summary", runBlocked)), nil},
+			{runDeadlockSettle, blocked, nil, append(slices.Clone(done), job(3, "Publish", runSkipped), job(4, "Summary", runBlocked)), nil},
+		}, nil},
+		{"a job ran between two blocked readings", []reading{
+			{0, blocked, nil, stuck, nil},
+			{time.Minute, WorkflowRun{ID: 7, Status: "running"}, nil, nil, nil},
+			{runDeadlockSettle, blocked, nil, stuck, nil},
+		}, nil},
+		{"jobs that cannot be read say nothing", []reading{{0, blocked, nil, stuck, nil}, {runDeadlockSettle, blocked, nil, nil, errors.New("unread")}}, nil},
+		{"no job is blocked", []reading{{0, blocked, nil, done, nil}, {time.Hour, blocked, nil, done, nil}}, nil},
+	} {
+		var (
+			deadlock runDeadlock
+			got      []string
+		)
+
+		for _, reading := range test.readings {
+			got = deadlock.observe(start.Add(reading.after), reading.run, reading.runs, func() ([]RunJob, error) { return reading.jobs, reading.err })
+		}
+
+		if !slices.Equal(got, test.want) {
+			t.Errorf("%s: blocked jobs %q, want %q", test.name, got, test.want)
+		}
+	}
+}

@@ -1,0 +1,116 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: 'Build Go'
+description: >-
+  The build step of a consumer's own job for a Go module: one `forge-ci build go run`, which downloads the modules, runs `go test ./...`, writes the CycloneDX Build SBOM and cross-compiles one binary per platform. Binaries land in <working-directory>/dist/<os>-<arch>/<binary>-<os>-<arch>, and the SBOM in <working-directory>/.forge-ci/go-build-sbom/<name>/bom.json. The job brings the toolchain: Go (see setup-toolchain). The step installs its pinned cyclonedx-gomod for the Build SBOM unless enable-build-sbom is 'false' or the job already has one on PATH. The step holds no secret.
+inputs:
+  version:
+    description: >-
+      Version stamped into the binary as main.version, with or without a leading v. Required: in a release it is the prepare job's release-tag, which the runner's ref name (the request tag) is not.
+    required: true
+  commit:
+    description: >-
+      Commit stamped into the binary as main.commit. Required: in a release it is the prepare job's release-sha, which the event commit is not.
+    required: true
+  working-directory:
+    description: Directory containing go.mod.
+    required: false
+    default: '.'
+  platforms:
+    description: Comma-separated GOOS/GOARCH targets to cross-compile.
+    required: false
+    default: linux/amd64
+  artifact-name:
+    description: Name of the build, which also names the SBOM directory. Empty takes the binary name.
+    required: false
+    default: ''
+  binary-name:
+    description: Name of the binary. Empty takes artifact-name, then the basename of the module path.
+    required: false
+    default: ''
+  main-package:
+    description: Main package to build, relative to working-directory.
+    required: false
+    default: '.'
+  build-tags:
+    description: Comma-separated build tags for the tests and the build.
+    required: false
+    default: ''
+  ldflags:
+    description: Linker flags appended after the version stamps.
+    required: false
+    default: ''
+  skip-tests:
+    description: "Legacy input; true is refused. Admin policy controls findings, and tests still run."
+    required: false
+    default: 'false'
+  enforce-application-tests:
+    description: "Enforcement setting, true or false: false reports recognized test assertion failures without failing; the tests still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+    required: false
+    default: 'false'
+  enable-build-sbom:
+    description: "'false' skips the Build SBOM, and with it the cyclonedx-gomod install."
+    required: false
+    default: 'true'
+  source-date-epoch:
+    description: >-
+      Unix seconds stamped into the binary as main.date, for a reproducible build: the commit time of the built commit. Empty keeps a SOURCE_DATE_EPOCH the job already set, and otherwise stamps the build time.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    # The Build SBOM generator is forge-ci's, pinned by version and checksum
+    # in its install script, as the runtime image carries it on GitHub and
+    # GitLab. One the job already has on PATH is used as it is.
+    - name: Install cyclonedx-gomod
+      if: ${{ inputs.enable-build-sbom != 'false' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        export CI_TEMP_DIR="${RUNNER_TEMP:?}"
+        # shellcheck source=scripts/bootstrap/install-cyclonedx-gomod.sh
+        source "${GITHUB_ACTION_PATH}/../../../scripts/bootstrap/install-cyclonedx-gomod.sh"
+        install_cyclonedx_gomod
+
+    - name: Build Go module
+      shell: bash
+      env:
+        BUILD_GO_VERSION: ${{ inputs.version }}
+        BUILD_GO_COMMIT: ${{ inputs.commit }}
+        BUILD_GO_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        BUILD_GO_PLATFORMS: ${{ inputs.platforms }}
+        BUILD_GO_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        BUILD_GO_BINARY_NAME: ${{ inputs.binary-name }}
+        BUILD_GO_MAIN_PACKAGE: ${{ inputs.main-package }}
+        BUILD_GO_BUILD_TAGS: ${{ inputs.build-tags }}
+        BUILD_GO_LDFLAGS: ${{ inputs.ldflags }}
+        BUILD_GO_SKIP_TESTS: ${{ inputs.skip-tests }}
+        BUILD_GO_ADMIN_APPLICATION_TESTS: ${{ inputs.enforce-application-tests }}
+        BUILD_GO_BUILD_SBOM: ${{ inputs.enable-build-sbom }}
+        BUILD_GO_SOURCE_DATE_EPOCH: ${{ inputs.source-date-epoch }}
+      run: |
+        set -euo pipefail
+        if [ -n "${BUILD_GO_SOURCE_DATE_EPOCH}" ]; then
+          export SOURCE_DATE_EPOCH="${BUILD_GO_SOURCE_DATE_EPOCH}"
+        fi
+        # shellcheck source=.engine/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../../.engine/bin/lib-forge-ci.sh"
+        if [ -z "${FORGE_CI_BIN:-}" ]; then fetch_forge_ci; fi
+        SIGNER_STRICT=1 verify_forge_ci
+        run_forge_ci build go run \
+          --enforce-application-tests="${BUILD_GO_ADMIN_APPLICATION_TESTS:?enforce-application-tests is required}" \
+          --version "${BUILD_GO_VERSION:?version is required}" \
+          --commit "${BUILD_GO_COMMIT:?commit is required}" \
+          --working-dir "${BUILD_GO_WORKING_DIRECTORY:?working-directory is required}" \
+          --platforms "${BUILD_GO_PLATFORMS:?platforms is required}" \
+          --artifact-name "${BUILD_GO_ARTIFACT_NAME}" \
+          --binary-name "${BUILD_GO_BINARY_NAME}" \
+          --main-package "${BUILD_GO_MAIN_PACKAGE}" \
+          --build-tags "${BUILD_GO_BUILD_TAGS}" \
+          --ldflags "${BUILD_GO_LDFLAGS}" \
+          --skip-tests="${BUILD_GO_SKIP_TESTS:?skip-tests is required}" \
+          --build-sbom="${BUILD_GO_BUILD_SBOM:?enable-build-sbom is required}"

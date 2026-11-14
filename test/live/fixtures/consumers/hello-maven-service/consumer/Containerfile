@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# The runtime image: the jar the release built, on a Java runtime. Nothing
+# runs at build time, so every platform builds without CPU emulation.
+# A shell-free Java runtime: the service needs neither a package manager nor
+# the Pebble helper included in the previous Temurin base.
+FROM gcr.io/distroless/java25-debian13:nonroot@sha256:5d3177252775d4b01603470fe21c015393019089904f68724bd37242e4bc6e6d
+
+# Readable whatever umask the build ran under: GitLab's release build runs with
+# 077, which would leave the jar unreadable to the runtime user.
+COPY --chmod=0444 target/hello-maven-service-*.jar /app/app.jar
+
+USER 65532:65532
+EXPOSE 8080
+ENTRYPOINT ["/usr/bin/java", "-jar", "/app/app.jar"]

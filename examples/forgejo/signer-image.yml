@@ -1,0 +1,457 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# Pin the exact commit of an authenticated forge-ci release. Serve that commit
+# and its checksum-bound engine package on your Forgejo instance before use.
+#
+# Publishes the two things a commit of forge-ci's Forgejo layer needs on
+# your instance before any consumer can pin it, in this order:
+#
+#   1. The engine binary. The layer tracks the checksums of its CLI, one per
+#      architecture, and not the CLI. The first job builds the linux/amd64
+#      and linux/arm64 binaries of the pinned commit from freshly downloaded
+#      modules (cross-compiled, so no emulation), requires each build to be
+#      the one the commit's checksum names, and uploads both to the generic
+#      packages of OWNER, where every job of the layer downloads the one of
+#      its runner's architecture by that checksum and without credentials.
+#   2. Your organization's signer image: the image the four signer workflows
+#      run their privileged jobs in, which every consumer passes by digest as
+#      signer-image. forge-ci ships the definition,
+#      containers/signer/Containerfile, and publishes no image.
+#
+# Copy to .forgejo/workflows/signer-image.yml of ONE repository of your
+# organization, the one that holds its release policy, then replace the
+# placeholders. Every one is a literal in the file, so `git grep` finds them:
+#
+#   OWNER                organization or user that hosts forge-ci on your
+#                        instance, in FORGE_CI_REPOSITORY_URL, which the four
+#                        engine checkouts clone, and the two image commands
+#   PIN_FORGE_CI_SHA  ONE forge-ci commit, in five places: the
+#                        FORGE_CI_COMMIT_SHA variable and the ENGINE_REF of
+#                        the four checkouts. Use the commit your consumers
+#                        pin, so the binary, the image and the workflows are
+#                        one revision.
+#
+# Set the variables CI_RUNNER_LABEL and CI_RUNNER_LABEL_ARM64, the pool per
+# architecture as JSON label arrays (a single label is ["linux-amd64"]; all
+# labels in an array must match the selected runner), and SIGNER_REGISTRY_USER,
+# and two separate secrets. The two image builds run on that pool, native to
+# their architecture because the build executes its steps and no leg may rely
+# on CPU emulation. They need user namespaces, which a pool that shares its
+# kernel denies; such a pool has two ways out, both by variables only. Build
+# with kaniko: CI_IMAGE_BUILDER=kaniko, and CI_IMAGE_BUILDER_JOB_IMAGE the
+# digest-pinned kaniko job image. Or borrow a runner: CI_RUNNER_LABEL_CONTAINER and
+# CI_RUNNER_LABEL_CONTAINER_ARM64 name the runners the builds move to, and
+# CI_RUNNER_LENDER with CI_RUNNER_LENDER_REPOSITORY and the secret
+# CI_RUNNER_LENDER_TOKEN name the lender the request-runner jobs ask for them.
+# docs/runners.md of forge-ci (https://forge.example/owner/forge-ci)
+# describes both.
+# ENGINE_PACKAGE_TOKEN writes the engine owner's generic package on this
+# forge; SIGNER_REGISTRY_TOKEN authenticates only to the signer image registry.
+# The engine package and signer image must be readable without credentials.
+# Forks must publish from main; each job refuses a mistaken side-branch dispatch.
+#
+# The image is built for linux/amd64 and linux/arm64 and pushed to the
+# instance's own registry as
+#
+#   <forge host>/<OWNER>/forge-ci-signer:signer-<recipe commit first 40 hex>-<engine commit>
+#
+# To publish the signer elsewhere, set the literal SIGNER_IMAGE_REPOSITORY below
+# to a full OCI repository (no tag or digest). Source labels still identify the
+# engine checkout. On GHCR, make the package public after its first publication.
+#
+# The assemble job prints the digest-pinned reference, and it is the job
+# output image-ref. That reference, written out, is what consumers pass as
+# signer-image; rebuild and repin when you move PIN_FORGE_CI_SHA.
+#
+# Nothing of the repository that runs this workflow enters the image. Each
+# job checks forge-ci out at the pinned commit into its workspace, verifies
+# the checkout, and runs the layer's own actions from it, and the binary the
+# first job published. The build context is that checkout, cut down to the one
+# file the image copies by containers/signer/Containerfile.containerignore.
+#
+# The pin is a commit, not a signature: authenticate the commit before you
+# pin it. The binary job downloads the Go release go.mod names and the Go
+# modules go.sum names. The image build downloads the base image from
+# docker.io and jq, cosign and syft from github.com, each verified against a
+# digest in the Containerfile.
+#
+name: Signer image
+on:
+  # Manual rebuilds, for example after a registry cleanup: the signer image is
+  # consumed by digest, so it can be rebuilt on demand without a source change.
+  workflow_dispatch:
+  # Moving the pin is a reviewed change to this file, and the only source
+  # change that rebuilds the image.
+  push:
+    branches:
+      - main
+    paths:
+      - .forgejo/workflows/signer-image.yml
+concurrency:
+  group: signer-image-${{ forgejo.repository }}-${{ forgejo.ref }}
+  cancel-in-progress: false
+env:
+  FORGEJO_SERVER: ${{ forgejo.server_url }}
+  FORGEJO_REPO: ${{ forgejo.repository }}
+  # This repository supplies the recipe identity in the tag prefix. It is
+  # not the source revision of the engine checkout used to build the image.
+  SIGNER_RECIPE_COMMIT_SHA: ${{ forgejo.sha }}
+  # The forge-ci revision the binary and the image are built from. Keep it
+  # equal to the `ENGINE_REF` of the engine checkouts below; each job
+  # verifies its checkout against it.
+  FORGE_CI_COMMIT_SHA: PIN_FORGE_CI_SHA
+  # The repository the checkouts below clone. The layer's resolver reads it
+  # to find the engine binary: a generic package of that repository's owner.
+  FORGE_CI_REPOSITORY_URL: ${{ forgejo.server_url }}/OWNER/forge-ci
+  # Empty derives the forge-local image repository above. Otherwise this is the
+  # reviewed destination, for example ghcr.io/OWNER/forge-ci-signer.
+  SIGNER_IMAGE_REPOSITORY: ''
+jobs:
+  # The independent rebuild. The checksum in the pinned commit was recorded
+  # on its author's machine, from that machine's module cache. This job builds
+  # again from modules downloaded here and verified against go.sum, and
+  # publishes only when the result is byte for byte the recorded one.
+  publish-engine-binary:
+    name: Publish the engine binary
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Stop a mistaken dispatch from a branch; a branch writer can remove this.
+      - name: Require main for publication
+        env:
+          PUBLICATION_REF: ${{ forgejo.ref }}
+        run: |
+          set -euo pipefail
+          if [ "${PUBLICATION_REF:?}" != refs/heads/main ]; then
+            echo "ERROR: publish the engine binary and signer image from main only" >&2
+            exit 1
+          fi
+      # actions/checkout always sends this repository's job token, and Forgejo
+      # refused it for the engine repository although that one is public (403
+      # "User permission denied", Forgejo 16.0.6). Fetch without credentials.
+      - name: Checkout the engine at the pinned revision
+        env:
+          ENGINE_REF: PIN_FORGE_CI_SHA
+        run: |
+          set -euo pipefail
+          git init --quiet .
+          git remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          GIT_TERMINAL_PROMPT=0 git -c protocol.version=2 fetch --quiet --no-tags --depth=1 --no-recurse-submodules origin "${ENGINE_REF:?}"
+          git checkout --quiet --detach FETCH_HEAD
+      - name: Verify the engine checkout
+        run: |
+          set -euo pipefail
+          actual_sha=$(git rev-parse HEAD)
+          if [ "${actual_sha}" != "${FORGE_CI_COMMIT_SHA:?}" ]; then
+            echo "ERROR: engine checkout resolved to ${actual_sha}, not the pinned ${FORGE_CI_COMMIT_SHA}" >&2
+            exit 1
+          fi
+      - name: Set up the Go release of go.mod
+        uses: https://code.forgejo.org/actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        with:
+          # The exact release of go.mod: another one writes other bytes.
+          go-version-file: go.mod
+          cache: false
+      - name: Build the engine binaries from fresh modules
+        run: |
+          set -euo pipefail
+          # An empty module cache of this job, filled from the network with
+          # what the CLI is built from, each module verified against go.sum.
+          export GOMODCACHE="${RUNNER_TEMP:?}/engine-modules" GOCACHE="${RUNNER_TEMP:?}/engine-build-cache"
+          for arch in amd64 arm64; do
+            GOFLAGS=-mod=readonly CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" go list -deps ./cmd/forge-ci >/dev/null
+            # The one definition of the build; it reads that cache and no network.
+            bash scripts/ci/engine-binary.sh build "${arch}" "${RUNNER_TEMP:?}/engine-${arch}/bin/forge-ci"
+            if ! (cd "${RUNNER_TEMP:?}/engine-${arch}" && sha256sum --check --quiet "${GITHUB_WORKSPACE:?}/.engine/bin/forge-ci-linux-${arch}.sha256"); then
+              echo "ERROR: the linux/${arch} build of ${FORGE_CI_COMMIT_SHA:?} is not the binary its .engine/bin/forge-ci-linux-${arch}.sha256 records, so nothing is published. Pin a commit whose checksums are builds of its tree." >&2
+              sha256sum "${RUNNER_TEMP:?}/engine-${arch}/bin/forge-ci" >&2
+              exit 1
+            fi
+          done
+      - name: Publish the engine binaries
+        env:
+          FORGE_CI_PACKAGE_TOKEN: ${{ secrets.ENGINE_PACKAGE_TOKEN }}
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            bash scripts/ci/engine-binary.sh publish "${arch}" "${RUNNER_TEMP:?}/engine-${arch}/bin/forge-ci"
+          done
+  # One ephemeral runner per architecture for the builds below, from the
+  # lender the variables name; nothing when no lender is configured.
+  # The engine binary this job runs is the one the first job published.
+  request-runner:
+    name: Request a ${{ matrix.arch }} runner
+    needs: publish-engine-binary
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI_RUNNER_LENDER: ${{ vars.CI_RUNNER_LENDER }}
+      CI_RUNNER_LENDER_REPOSITORY: ${{ vars.CI_RUNNER_LENDER_REPOSITORY }}
+    steps:
+      # Stop a mistaken dispatch from a branch; a branch writer can remove this.
+      - name: Require main for publication
+        env:
+          PUBLICATION_REF: ${{ forgejo.ref }}
+        run: |
+          set -euo pipefail
+          if [ "${PUBLICATION_REF:?}" != refs/heads/main ]; then
+            echo "ERROR: publish the engine binary and signer image from main only" >&2
+            exit 1
+          fi
+      # actions/checkout always sends this repository's job token, and Forgejo
+      # refused it for the engine repository although that one is public (403
+      # "User permission denied", Forgejo 16.0.6). Fetch without credentials.
+      - name: Checkout the engine at the pinned revision
+        env:
+          ENGINE_REF: PIN_FORGE_CI_SHA
+        run: |
+          set -euo pipefail
+          git init --quiet .
+          git remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          GIT_TERMINAL_PROMPT=0 git -c protocol.version=2 fetch --quiet --no-tags --depth=1 --no-recurse-submodules origin "${ENGINE_REF:?}"
+          git checkout --quiet --detach FETCH_HEAD
+      - name: Verify the engine checkout
+        run: |
+          set -euo pipefail
+          actual_sha=$(git rev-parse HEAD)
+          if [ "${actual_sha}" != "${FORGE_CI_COMMIT_SHA:?}" ]; then
+            echo "ERROR: engine checkout resolved to ${actual_sha}, not the pinned ${FORGE_CI_COMMIT_SHA}" >&2
+            exit 1
+          fi
+      # The lender's token is this job's only secret; it reaches the engine
+      # over stdin and is cleared from the environment the engine inherits.
+      - name: Request one ephemeral runner
+        env:
+          CI_RUNNER_LENDER_TOKEN: ${{ secrets.CI_RUNNER_LENDER_TOKEN }}
+          RUNNER_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null # the resolver of the engine checkout
+          source .engine/bin/lib-forge-ci.sh
+          printf '%s' "${CI_RUNNER_LENDER_TOKEN}" | CI_RUNNER_LENDER_TOKEN='' \
+            run_forge_ci platform request-runner --arch "${RUNNER_ARCH:?}" --token-file -
+  build-signer-arch:
+    name: Build signer image (${{ matrix.arch }})
+    needs: [publish-engine-binary, request-runner]
+    # Each architecture builds on a runner of its own architecture: the pool,
+    # or the CI_RUNNER_LABEL_CONTAINER runner an installation names instead,
+    # the one just requested when a lender is configured.
+    runs-on: ${{ fromJSON(vars[matrix.arch == 'arm64' && 'CI_RUNNER_LABEL_CONTAINER_ARM64' || 'CI_RUNNER_LABEL_CONTAINER'] || vars[matrix.arch == 'arm64' && 'CI_RUNNER_LABEL_ARM64' || 'CI_RUNNER_LABEL']) }}
+    # The image builder's job image, which kaniko needs; empty, the runner's
+    # own environment, where setup-buildah installs Buildah.
+    container: ${{ vars.CI_IMAGE_BUILDER_JOB_IMAGE }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        arch: [amd64, arm64]
+    defaults:
+      run:
+        shell: bash
+    env:
+      # The image builder type, buildah unless the repository says otherwise,
+      # and its job image; setup-image-builder and build-arch read them.
+      CI_IMAGE_BUILDER: ${{ vars.CI_IMAGE_BUILDER || 'buildah' }}
+      CI_IMAGE_BUILDER_JOB_IMAGE: ${{ vars.CI_IMAGE_BUILDER_JOB_IMAGE }}
+    steps:
+      # Stop a mistaken dispatch from a branch; a branch writer can remove this.
+      - name: Require main for publication
+        env:
+          PUBLICATION_REF: ${{ forgejo.ref }}
+        run: |
+          set -euo pipefail
+          if [ "${PUBLICATION_REF:?}" != refs/heads/main ]; then
+            echo "ERROR: publish the engine binary and signer image from main only" >&2
+            exit 1
+          fi
+      # actions/checkout always sends this repository's job token, and Forgejo
+      # refused it for the engine repository although that one is public (403
+      # "User permission denied", Forgejo 16.0.6). Fetch without credentials.
+      - name: Checkout the engine at the pinned revision
+        env:
+          ENGINE_REF: PIN_FORGE_CI_SHA
+        run: |
+          set -euo pipefail
+          git init --quiet .
+          git remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          GIT_TERMINAL_PROMPT=0 git -c protocol.version=2 fetch --quiet --no-tags --depth=1 --no-recurse-submodules origin "${ENGINE_REF:?}"
+          git checkout --quiet --detach FETCH_HEAD
+      - name: Verify the engine checkout
+        run: |
+          set -euo pipefail
+          actual_sha=$(git rev-parse HEAD)
+          if [ "${actual_sha}" != "${FORGE_CI_COMMIT_SHA:?}" ]; then
+            echo "ERROR: engine checkout resolved to ${actual_sha}, not the pinned ${FORGE_CI_COMMIT_SHA}" >&2
+            exit 1
+          fi
+      # The builder is the repository's choice; this step prepares whichever
+      # one CI_IMAGE_BUILDER names, and admits the kaniko job image by digest.
+      - name: Prepare the image builder
+        uses: ./.forgejo/actions/setup-image-builder
+        with:
+          extra-packages: jq skopeo
+      - name: Configure registry auth
+        uses: ./.forgejo/actions/registry-login
+        with:
+          registry: ${{ env.SIGNER_IMAGE_REPOSITORY }}
+          username: ${{ vars.SIGNER_REGISTRY_USER }}
+          token: ${{ secrets.SIGNER_REGISTRY_TOKEN }}
+          create-auth-file: 'true'
+          export-env: 'true'
+      # Keep image layers in the registry, not the forge's artifact storage.
+      # Architecture candidates may be uploaded independently; the final index
+      # is assembled by digest only after both native builds succeed.
+      - name: Build and publish signer architecture candidate
+        env:
+          SIGNER_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null # the resolver of the engine checkout
+          source .engine/bin/lib-forge-ci.sh
+          # Bound the recipe prefix so SHA-256 engine commits also fit OCI tags.
+          : "${SIGNER_RECIPE_COMMIT_SHA:?}"
+          FORGE_CI_PROVIDER=forgejo run_forge_ci container multiarch-image build-arch \
+            --auth-file "${REGISTRY_AUTH_FILE:?}" \
+            --arch "${SIGNER_ARCH:?}" \
+            --source-sha "${FORGE_CI_COMMIT_SHA:?}" \
+            --server-url "${FORGEJO_SERVER:?}" \
+            --repository OWNER/forge-ci \
+            --repository-suffix -signer \
+            --image-repository "${SIGNER_IMAGE_REPOSITORY}" \
+            --tag-prefix "signer-${SIGNER_RECIPE_COMMIT_SHA:0:40}-" \
+            --name signer-image \
+            --title 'forge-ci signer' \
+            --containerfile containers/signer/Containerfile
+      - name: Upload signer architecture metadata
+        env:
+          SIGNER_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null # the resolver of the engine checkout
+          source .engine/bin/lib-forge-ci.sh
+          FORGE_CI_PROVIDER=forgejo run_forge_ci artifact upload \
+            --name "signer-image-arch-${SIGNER_ARCH}" \
+            --dir "signer-image-arch-${SIGNER_ARCH}/" \
+            --retention-days 1 \
+            --if-no-files error \
+            --include-hidden
+      - name: Remove registry auth file
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${REGISTRY_AUTH_FILE:-}" ]; then
+            rm -f "${REGISTRY_AUTH_FILE}"
+          fi
+  assemble-signer-image:
+    name: Assemble signer image manifest
+    needs: build-signer-arch
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 30
+    outputs:
+      image-ref: ${{ steps.assemble.outputs.image-ref }}
+      image-digest: ${{ steps.assemble.outputs.image-digest }}
+      image-tag: ${{ steps.assemble.outputs.image-tag }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Stop a mistaken dispatch from a branch; a branch writer can remove this.
+      - name: Require main for publication
+        env:
+          PUBLICATION_REF: ${{ forgejo.ref }}
+        run: |
+          set -euo pipefail
+          if [ "${PUBLICATION_REF:?}" != refs/heads/main ]; then
+            echo "ERROR: publish the engine binary and signer image from main only" >&2
+            exit 1
+          fi
+      # actions/checkout always sends this repository's job token, and Forgejo
+      # refused it for the engine repository although that one is public (403
+      # "User permission denied", Forgejo 16.0.6). Fetch without credentials.
+      - name: Checkout the engine at the pinned revision
+        env:
+          ENGINE_REF: PIN_FORGE_CI_SHA
+        run: |
+          set -euo pipefail
+          git init --quiet .
+          git remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          GIT_TERMINAL_PROMPT=0 git -c protocol.version=2 fetch --quiet --no-tags --depth=1 --no-recurse-submodules origin "${ENGINE_REF:?}"
+          git checkout --quiet --detach FETCH_HEAD
+      - name: Verify the engine checkout
+        run: |
+          set -euo pipefail
+          actual_sha=$(git rev-parse HEAD)
+          if [ "${actual_sha}" != "${FORGE_CI_COMMIT_SHA:?}" ]; then
+            echo "ERROR: engine checkout resolved to ${actual_sha}, not the pinned ${FORGE_CI_COMMIT_SHA}" >&2
+            exit 1
+          fi
+      - name: Configure registry auth
+        uses: ./.forgejo/actions/registry-login
+        with:
+          registry: ${{ env.SIGNER_IMAGE_REPOSITORY }}
+          username: ${{ vars.SIGNER_REGISTRY_USER }}
+          token: ${{ secrets.SIGNER_REGISTRY_TOKEN }}
+          create-auth-file: 'true'
+          export-env: 'true'
+      - name: Download signer amd64 metadata
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null # the resolver of the engine checkout
+          source .engine/bin/lib-forge-ci.sh
+          FORGE_CI_PROVIDER=forgejo run_forge_ci artifact download \
+            --name signer-image-arch-amd64 \
+            --dir signer-image-arch-amd64/
+      - name: Download signer arm64 metadata
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null # the resolver of the engine checkout
+          source .engine/bin/lib-forge-ci.sh
+          FORGE_CI_PROVIDER=forgejo run_forge_ci artifact download \
+            --name signer-image-arch-arm64 \
+            --dir signer-image-arch-arm64/
+      - name: Assemble and publish signer manifest
+        id: assemble
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null # the resolver of the engine checkout
+          source .engine/bin/lib-forge-ci.sh
+          : "${SIGNER_RECIPE_COMMIT_SHA:?}"
+          FORGE_CI_PROVIDER=forgejo run_forge_ci container multiarch-image assemble \
+            --auth-file "${REGISTRY_AUTH_FILE:?}" \
+            --source-sha "${FORGE_CI_COMMIT_SHA:?}" \
+            --server-url "${FORGEJO_SERVER:?}" \
+            --repository OWNER/forge-ci \
+            --repository-suffix -signer \
+            --image-repository "${SIGNER_IMAGE_REPOSITORY}" \
+            --tag-prefix "signer-${SIGNER_RECIPE_COMMIT_SHA:0:40}-" \
+            --name signer-image
+      - name: Upload signer image metadata
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null # the resolver of the engine checkout
+          source .engine/bin/lib-forge-ci.sh
+          FORGE_CI_PROVIDER=forgejo run_forge_ci artifact upload \
+            --name signer-image-dist \
+            --dir signer-image-dist/ \
+            --retention-days 30 \
+            --if-no-files error \
+            --include-hidden
+      - name: Remove registry auth file
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${REGISTRY_AUTH_FILE:-}" ]; then
+            rm -f "${REGISTRY_AUTH_FILE}"
+          fi

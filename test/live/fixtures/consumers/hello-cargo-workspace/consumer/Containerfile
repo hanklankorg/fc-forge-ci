@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:9daf2b244ccc30523e55cafe32edf8465671ba567d0101620e5612ccb76ea1a7 AS builder
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY worker ./worker
+COPY keytool ./keytool
+RUN cargo test --workspace --locked --offline && cargo build --workspace --release --locked --offline
+
+FROM scratch AS export-worker
+COPY --from=builder /src/target/release/hello-worker /hello-worker
+
+FROM scratch AS export-keytool
+COPY --from=builder /src/target/release/hello-keytool /hello-keytool
+
+# Both binaries in one stage, for the Forgejo and GitLab releases' export
+# jobs: one native export per selected platform, with the selected builder.
+FROM scratch AS export-binaries
+COPY --from=builder /src/target/release/hello-worker /hello-worker
+COPY --from=builder /src/target/release/hello-keytool /hello-keytool
+
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d241a468a4fd7519ddbbebe66b49b5f365771716ea688ad40b6c6f1c2 AS runtime-worker
+COPY --from=builder /src/target/release/hello-worker /usr/local/bin/hello-worker
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/hello-worker"]
+
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d241a468a4fd7519ddbbebe66b49b5f365771716ea688ad40b6c6f1c2 AS runtime-keytool
+COPY --from=builder /src/target/release/hello-keytool /usr/local/bin/hello-keytool
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/hello-keytool"]

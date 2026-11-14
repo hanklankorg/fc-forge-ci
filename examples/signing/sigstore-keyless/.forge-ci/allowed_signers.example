@@ -1,0 +1,4 @@
+# Replace this demonstration key with the public half of RELEASE_SSH_SIGNING_KEY
+# and the principal with the release workflow's bot-email, then commit this
+# file as .forge-ci/allowed_signers.
+FIXME-release-bot@example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDussZse6ojniFGMb4q0xtD/GSJ2QQkEAkgFc/dZVTJp

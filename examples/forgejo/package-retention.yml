@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# Replace the workflow, image and engine-checksum pins with a verified tuple.
+# PACKAGE_RETENTION_MATRIX is reviewed policy, shaped as:
+# {"include":[{"repository":"ghcr.io/owner/runtime","digest":"sha256:<protected consumer pin>"}]}.
+# Only this caller owns scheduling; the reusable workflow always previews.
+name: Preview package retention
+on:
+  schedule:
+    - cron: '19 4 * * 1'
+  workflow_dispatch:
+concurrency:
+  group: package-retention
+  cancel-in-progress: false
+jobs:
+  preview:
+    uses: OWNER/forge-ci/.forgejo/workflows/package-retention.yml@FORGE_CI_COMMIT
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      job-image: REGISTRY/OWNER/forge-ci-signer@sha256:PIN_SIGNER_IMAGE_DIGEST
+      engine-sha256: PIN_ENGINE_BINARY_SHA256
+      packages-json: ${{ vars.PACKAGE_RETENTION_MATRIX }}
+      registry-user: ${{ vars.RELEASE_REGISTRY_USER }}
+      recent-count: 10
+      max-delete: 100
+    secrets:
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}

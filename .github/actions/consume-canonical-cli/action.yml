@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+name: Consume approved canonical CLI
+description: "Run only from the fresh explicitly pinned ENGINE checkout, before consumer checkout; requires job-specific actions read and canonical producer context env."
+inputs:
+  tool-profile:
+    description: "Literal tool profile of scripts/ci/trusted-runtime-tools.sh for this job: runtime inside the approved image, host on a hosted runner, host-toolchain only for key-free version-file preparation. The calling workflow states it; there is no default."
+    required: true
+outputs:
+  verified:
+    description: "Local step completion only, not an authorization token for another job"
+    value: ${{ steps.receive.outputs.verified }}
+runs:
+  using: composite
+  steps:
+    - name: Retain approved engine and admit original delivery context
+      shell: /bin/bash --noprofile --norc -peuo pipefail {0}
+      env:
+        TOOL_PROFILE: ${{ inputs.tool-profile }}
+      run: /bin/bash -p "$GITHUB_ACTION_PATH/../../../scripts/ci/canonical-consumer.sh" prepare
+    - name: Read fresh native metadata with this job's token
+      shell: /bin/bash --noprofile --norc -peuo pipefail {0}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TOOL_PROFILE: ${{ inputs.tool-profile }}
+      run: |
+        unset GH_DEBUG
+        /bin/bash -p "$RUNNER_TEMP/forge-ci-approved-engine/scripts/ci/trusted-runtime-tools.sh" "$TOOL_PROFILE" gh api --hostname "${GITHUB_SERVER_URL#https://}" \
+          "repos/$GITHUB_REPOSITORY/actions/artifacts/$PRODUCER_ARTIFACT_ID" >"$RUNNER_TEMP/forge-ci-canonical-metadata.json"
+    - name: Admit exact metadata before extraction
+      shell: /bin/bash --noprofile --norc -peuo pipefail {0}
+      env:
+        TOOL_PROFILE: ${{ inputs.tool-profile }}
+      run: /bin/bash -p "$RUNNER_TEMP/forge-ci-approved-engine/scripts/ci/canonical-consumer.sh" admit
+    - name: Download only the original canonical ID
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        artifact-ids: ${{ env.PRODUCER_ARTIFACT_ID }}
+        path: ${{ runner.temp }}/forge-ci-canonical-${{ github.run_id }}-${{ github.run_attempt }}
+        merge-multiple: true
+    - name: Verify raw bytes and bootstrap before installing a launcher
+      id: receive
+      shell: /bin/bash --noprofile --norc -peuo pipefail {0}
+      env:
+        TOOL_PROFILE: ${{ inputs.tool-profile }}
+      run: /bin/bash -p "$RUNNER_TEMP/forge-ci-approved-engine/scripts/ci/canonical-consumer.sh" receive

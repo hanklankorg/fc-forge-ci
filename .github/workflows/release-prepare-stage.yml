@@ -1,0 +1,415 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+name: Release Prepare Stage
+on:
+  workflow_call: # yamllint disable-line rule:truthy
+    inputs:
+      canonical-artifact-id: {type: string, required: false, default: ""}
+      canonical-artifact-name: {type: string, required: false, default: ""}
+      canonical-producer-run-id: {type: string, required: false, default: ""}
+      canonical-producer-run-attempt: {type: string, required: false, default: ""}
+      canonical-producer-engine-repository: {type: string, required: false, default: ""}
+      canonical-producer-engine-commit: {type: string, required: false, default: ""}
+      canonical-producer-result: {type: string, required: false, default: ""}
+      release-policy:
+        description: "Accepted release versions: stable or stable-prerelease"
+        type: string
+        default: "stable"
+      branch:
+        required: true
+        type: string
+      authorized-source-sha:
+        description: "Immutable release-request commit validated as the target branch HEAD"
+        required: true
+        type: string
+      existing-release-sha:
+        description: "Verified existing final-tag commit for an exact-tag recovery"
+        required: false
+        default: ""
+        type: string
+      prepare-stage-plan-json:
+        required: true
+        type: string
+      runs-on:
+        description: "JSON array of runner labels for the ordinary jobs, read with fromJSON. Signing, promotion and publication jobs stay on GitHub-hosted runners."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      forge-ci-binary-ref:
+        description: "Full engine commit (40 hex) the workflow ref names; a tag or branch is refused"
+        required: true
+        type: string
+      runtime-image:
+        description: "Administrator-pinned forge-ci base runtime image@sha256 digest for the changelog, summary and canonical receive jobs; the orchestrator passes its admitted input"
+        required: true
+        type: string
+      git-signing-method:
+        description: "How to sign the release commit + tag: gpg (default) or ssh. Orchestrator passes fromJSON(config-plan-json).git_signing.method."
+        required: false
+        default: "gpg"
+        type: string
+      bot-name:
+        description: "Release bot display name for the bump commit when git-signing-method=ssh (cosmetic; gpg derives it from the key UID)."
+        required: false
+        default: ""
+        type: string
+      bot-email:
+        description: "Release bot email recorded in the bump commit when git-signing-method=ssh. Unused for gpg, which derives the identity from the key's UID."
+        required: false
+        default: ""
+        type: string
+    # Aggregator: forwards to version-bump.yml. All `required: false`
+    # — `secrets: inherit` at callsites continues to flow org-scoped
+    # secrets through unchanged. The declaration documents the
+    # contract for adopters outside the org.
+    secrets:
+      RELEASE_GPG_PRIVATE_KEY:
+        description: "Armored OpenPGP private key for signing the version-bump commit"
+        required: false
+      RELEASE_GPG_PASSPHRASE:
+        description: "Passphrase for RELEASE_GPG_PRIVATE_KEY"
+        required: false
+      RELEASE_TOKEN:
+        description: "Token with contents:write for pushing the version-bump commit"
+        required: false
+      RELEASE_SSH_SIGNING_KEY:
+        description: "OpenSSH private key for signing the release commit + tag when git-signing-method=ssh"
+        required: false
+    outputs:
+      stage-ran:
+        description: Prepare stage ran at least one version bump path
+        value: ${{ jobs.summarize-prepare-stage.outputs.stage-ran }}
+      stage-result:
+        description: Normalized prepare stage result
+        value: ${{ jobs.summarize-prepare-stage.outputs.stage-result }}
+      result-json:
+        description: Prepare stage result payload
+        value: ${{ jobs.summarize-prepare-stage.outputs.result-json }}
+      release-sha:
+        description: Commit SHA the release tag points to (the final HEAD carrying every artifact's bump)
+        value: ${{ jobs.version-bump.outputs.release-sha }}
+      source-date-epoch:
+        description: Commit timestamp of the prepared release SHA
+        value: ${{ jobs.version-bump.outputs.source-date-epoch }}
+permissions:
+  contents: read
+jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      images: |
+        runtime-image=${{ inputs['runtime-image'] }}
+  generate-full-changelog:
+    needs: [resolve-bootstrap]
+    name: "Prepare: changelog"
+    if: ${{ inputs['existing-release-sha'] == '' && fromJson(inputs['prepare-stage-plan-json']).targets.version_bump.runs }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/generate-changelog.yml
+    with:
+      runs-on: ${{ inputs['runs-on'] }}
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      release-policy: ${{ inputs['release-policy'] }}
+      branch: ${{ inputs['authorized-source-sha'] }}
+      runtime-image: ${{ inputs['runtime-image'] }}
+      upload-as-artifact: true
+      changelog-config: "/opt/forge-ci/templates/gitcliff/keepachangelog.toml"
+      git-cliff-args: ""
+      output-file: "CHANGELOG.md"
+      artifact-name: full-changelog
+  generate-minimal-changelog:
+    needs: [resolve-bootstrap]
+    name: "Prepare: commit message"
+    if: ${{ inputs['existing-release-sha'] == '' && fromJson(inputs['prepare-stage-plan-json']).targets.version_bump.runs }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/generate-changelog.yml
+    with:
+      runs-on: ${{ inputs['runs-on'] }}
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      release-policy: ${{ inputs['release-policy'] }}
+      branch: ${{ inputs['authorized-source-sha'] }}
+      runtime-image: ${{ inputs['runtime-image'] }}
+      upload-as-artifact: true
+      changelog-config: "/opt/forge-ci/templates/gitcliff/minimal.toml"
+      git-cliff-args: "--latest --strip header"
+      output-file: "minimal-changelog.txt"
+      artifact-name: minimal-changelog
+  prepare-version-files:
+    name: "Prepare: version files without signing keys"
+    needs: [resolve-bootstrap, generate-full-changelog]
+    if: ${{ inputs['existing-release-sha'] == '' && fromJson(inputs['prepare-stage-plan-json']).targets.version_bump.runs }}
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      patch-digest: ${{ steps.patch.outputs.digest }}
+    steps:
+      - &canonical-context
+        # Host jobs have no image: the canonical exact-ID CLI is their only CLI.
+        name: Require original canonical success and approved identity
+        shell: /bin/bash --noprofile --norc -peuo pipefail {0}
+        env:
+          ENGINE_REPOSITORY: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          ENGINE_COMMIT: ${{ inputs['forge-ci-binary-ref'] }}
+          ENGINE_ORIGIN: ${{ github.server_url }}/${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          RUNTIME_IMAGE: ${{ inputs['runtime-image'] }}
+          PRODUCER_ARTIFACT_ID: ${{ inputs['canonical-artifact-id'] }}
+          PRODUCER_ARTIFACT_NAME: ${{ inputs['canonical-artifact-name'] }}
+          PRODUCER_RUN_ID: ${{ inputs['canonical-producer-run-id'] }}
+          PRODUCER_RUN_ATTEMPT: ${{ inputs['canonical-producer-run-attempt'] }}
+          PRODUCER_ENGINE_REPOSITORY: ${{ inputs['canonical-producer-engine-repository'] }}
+          PRODUCER_ENGINE_COMMIT: ${{ inputs['canonical-producer-engine-commit'] }}
+          CANONICAL_PRODUCER_RESULT: ${{ inputs['canonical-producer-result'] }}
+        run: |
+          [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ && "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CANONICAL_PRODUCER_RESULT" == success && "$PRODUCER_RUN_ID" == "$GITHUB_RUN_ID" && "$PRODUCER_RUN_ATTEMPT" == "$GITHUB_RUN_ATTEMPT" ]]
+          [[ "$ENGINE_REPOSITORY" =~ ^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*$ && "$ENGINE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PRODUCER_ENGINE_REPOSITORY" == "$ENGINE_REPOSITORY" && "$PRODUCER_ENGINE_COMMIT" == "$ENGINE_COMMIT" ]]
+          [[ "$PRODUCER_ARTIFACT_ID" =~ ^[1-9][0-9]*$ && "$PRODUCER_ARTIFACT_NAME" == "forge-ci-canonical-linux-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ENGINE_COMMIT" ]]
+          [[ "$RUNTIME_IMAGE" =~ ^[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}$ ]]
+          [[ "$GITHUB_SERVER_URL" =~ ^https://[^/?#@[:space:]]+$ && "$ENGINE_ORIGIN" == "$GITHUB_SERVER_URL/$ENGINE_REPOSITORY" ]]
+          for variable in ENGINE_REPOSITORY ENGINE_COMMIT ENGINE_ORIGIN RUNTIME_IMAGE PRODUCER_ARTIFACT_ID PRODUCER_ARTIFACT_NAME PRODUCER_RUN_ID PRODUCER_RUN_ATTEMPT PRODUCER_ENGINE_REPOSITORY PRODUCER_ENGINE_COMMIT CANONICAL_PRODUCER_RESULT; do
+            printf '%s=%s\n' "$variable" "${!variable}" >>"$GITHUB_ENV"
+          done
+      - &canonical-checkout
+        name: Checkout only the approved engine before consumer or private steps
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ env.ENGINE_REPOSITORY }}
+          ref: ${{ env.ENGINE_COMMIT }}
+          path: _forge_ci_bootstrap
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - name: Consume canonical CLI from the independently pinned engine checkout
+        id: canonical-bootstrap
+        uses: ./_forge_ci_bootstrap/.github/actions/consume-canonical-cli
+        with:
+          # The one key-free job whose CLI runs the product's own version tools
+          # (mvn, npm, cargo) from the hosted runner's toolchain directories.
+          # Those tools are unqualified by design; the privileged version-bump
+          # job re-verifies this job's output by digest before any private
+          # effect. See docs/engine-delivery.md.
+          tool-profile: host-toolchain
+      - name: Checkout immutable authorized source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs['authorized-source-sha'] }}
+          persist-credentials: false
+      - name: Refuse PR-context trigger
+        run: forge-ci validate event-context
+      - name: Derive release context
+        id: relctx
+        env:
+          RELEASE_CONTEXT_REQUIRE_REQUEST: "true"
+          RELEASE_POLICY: ${{ inputs['release-policy'] }}
+        run: forge-ci version derive-release --release-policy "$RELEASE_POLICY"
+      - name: Download Full Changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: forge-ci artifact download --name full-changelog --dir .
+      - name: Prepare version files
+        env:
+          PREPARE_STAGE_PLAN_JSON: ${{ inputs['prepare-stage-plan-json'] }}
+          VERSION: ${{ steps.relctx.outputs.version }}
+          MAVEN_CLI_OPTS: "--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always"
+        run: forge-ci version bump-plan
+      - name: Upload native version changes
+        id: patch
+        run: |
+          set -euo pipefail
+          handoff="${RUNNER_TEMP:?}/prepared-version-bump"
+          mkdir -p "${handoff}"
+          git -c core.quotePath=true diff --binary --no-ext-diff --no-textconv --no-color --no-renames \
+            --src-prefix=a/ --dst-prefix=b/ -- \
+            ':(glob)**/pom.xml' ':(glob)**/package.json' ':(glob)**/package-lock.json' \
+            ':(glob)**/npm-shrinkwrap.json' ':(glob)**/Cargo.toml' ':(glob)**/Cargo.lock' >"${handoff}/native.patch"
+          digest=$(sha256sum "${handoff}/native.patch")
+          printf 'digest=%s\n' "${digest%% *}" >>"${GITHUB_OUTPUT:?}"
+      - name: Upload version patch artifact
+        # GitHub exposes the runtime upload token to actions, not run steps.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: prepared-version-bumps
+          path: ${{ runner.temp }}/prepared-version-bump/native.patch
+          retention-days: "1"
+          if-no-files-found: error
+  version-bump:
+    name: "Prepare: version, release commit and tag"
+    env:
+      RELEASE_POLICY: ${{ inputs['release-policy'] }}
+    needs: [resolve-bootstrap, generate-full-changelog, generate-minimal-changelog, prepare-version-files]
+    if: ${{ !cancelled() && needs.resolve-bootstrap.result == 'success' && needs.generate-full-changelog.result != 'failure' && needs.generate-minimal-changelog.result != 'failure' && needs.prepare-version-files.result != 'failure' && needs.prepare-version-files.result != 'cancelled' }}
+    runs-on: ubuntu-26.04
+    permissions:
+      actions: read
+      contents: write
+    outputs:
+      release-sha: ${{ steps.release-state.outputs.release-sha }}
+      source-date-epoch: ${{ steps.release-state.outputs.source-date-epoch }}
+    steps:
+      - *canonical-context
+      - *canonical-checkout
+      - name: Consume canonical CLI from the independently pinned engine checkout
+        id: canonical-bootstrap
+        uses: ./_forge_ci_bootstrap/.github/actions/consume-canonical-cli
+        with:
+          tool-profile: host # Signing keys in scope: root-owned system tools only.
+      - name: Checkout immutable authorized source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs['existing-release-sha'] || inputs['authorized-source-sha'] }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Refuse PR-context trigger (release secrets in scope)
+        run: forge-ci validate event-context
+      - name: Derive release context from request tag
+        id: relctx
+        env:
+          RELEASE_CONTEXT_REQUIRE_REQUEST: "true"
+        run: forge-ci version derive-release --release-policy "$RELEASE_POLICY"
+      - name: Revalidate exact-tag recovery lease
+        if: ${{ inputs['existing-release-sha'] != '' }}
+        env:
+          TAG_NAME: ${{ steps.relctx.outputs.release-tag }}
+          BRANCH: ${{ inputs.branch }}
+        run: forge-ci validate tag commit --require-head --branch "$BRANCH"
+      - name: Download Full Changelog
+        if: ${{ inputs['existing-release-sha'] == '' && fromJson(inputs['prepare-stage-plan-json']).targets.version_bump.runs }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: forge-ci artifact download --name full-changelog --dir "$RUNNER_TEMP/version-full-changelog"
+      - name: Verify Full Changelog
+        if: ${{ inputs['existing-release-sha'] == '' && fromJson(inputs['prepare-stage-plan-json']).targets.version_bump.runs }}
+        run: |
+          set -euo pipefail
+          source_file="${RUNNER_TEMP:?}/version-full-changelog/CHANGELOG.md"
+          test -f "${source_file}" && test ! -L "${source_file}"
+          cp --remove-destination -- "${source_file}" CHANGELOG.md
+          forge-ci validate changelog --path CHANGELOG.md --required
+      - name: Download prepared version changes
+        if: ${{ inputs['existing-release-sha'] == '' && fromJson(inputs['prepare-stage-plan-json']).targets.version_bump.runs }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: forge-ci artifact download --name prepared-version-bumps --dir "$RUNNER_TEMP/prepared-version-bumps"
+      - name: Require a regular version patch
+        if: ${{ inputs['existing-release-sha'] == '' && fromJson(inputs['prepare-stage-plan-json']).targets.version_bump.runs }}
+        run: test -f "$RUNNER_TEMP/prepared-version-bumps/native.patch" && test ! -L "$RUNNER_TEMP/prepared-version-bumps/native.patch"
+      - name: Apply complete version-bump plan
+        id: bump-plan
+        if: ${{ inputs['existing-release-sha'] == '' && fromJson(inputs['prepare-stage-plan-json']).targets.version_bump.runs }}
+        env:
+          PREPARE_STAGE_PLAN_JSON: ${{ inputs['prepare-stage-plan-json'] }}
+          VERSION: ${{ steps.relctx.outputs.version }}
+          MAVEN_CLI_OPTS: "--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always"
+          PATCH_DIGEST: ${{ needs.prepare-version-files.outputs.patch-digest }}
+        # Native tools ran only in prepare-version-files. The engine validates
+        # their patch; other ecosystems use its existing pure text writers.
+        run: forge-ci version bump-plan --patch "$RUNNER_TEMP/prepared-version-bumps/native.patch" --patch-sha256 "$PATCH_DIGEST"
+      - name: Download Minimal Changelog
+        if: ${{ inputs['existing-release-sha'] == '' && fromJson(inputs['prepare-stage-plan-json']).targets.version_bump.runs }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: forge-ci artifact download --name minimal-changelog --dir "$RUNNER_TEMP/version-minimal-changelog"
+      - name: Read Minimal Changelog
+        id: minimal-changelog
+        if: ${{ inputs['existing-release-sha'] == '' && fromJson(inputs['prepare-stage-plan-json']).targets.version_bump.runs }}
+        run: forge-ci validate changelog --path "$RUNNER_TEMP/version-minimal-changelog/minimal-changelog.txt"
+      # Admit the preparation inputs before either private signing setup path.
+      - name: Import GPG key
+        id: import-gpg
+        if: ${{ inputs['git-signing-method'] != 'ssh' }}
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+          GIT_USER_SIGNINGKEY: "true"
+          GIT_COMMIT_GPGSIGN: "true"
+          FORGE_CI_GIT_CONFIG_GLOBAL: "true"
+        run: forge-ci release gpg import
+      - name: Set up SSH signing
+        if: ${{ inputs['git-signing-method'] == 'ssh' }}
+        env:
+          SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
+          COMMIT_AUTHOR_NAME: ${{ inputs['bot-name'] }}
+          COMMIT_AUTHOR_EMAIL: ${{ inputs['bot-email'] }}
+          GIT_COMMIT_GPGSIGN: "true"
+          FORGE_CI_GIT_CONFIG_GLOBAL: "true"
+        run: forge-ci release ssh setup
+      - name: Commit complete release preparation
+        if: ${{ inputs['existing-release-sha'] == '' && fromJson(inputs['prepare-stage-plan-json']).targets.version_bump.runs }}
+        env:
+          BRANCH: ${{ inputs.branch }}
+          AUTHORIZED_SOURCE_SHA: ${{ inputs['authorized-source-sha'] }}
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          COMMIT_AUTHOR_NAME: ${{ steps.import-gpg.outputs.name || inputs['bot-name'] }}
+          COMMIT_AUTHOR_EMAIL: ${{ steps.import-gpg.outputs.email || inputs['bot-email'] }}
+          COMMIT_MESSAGE: |
+            chore(release): ${{ steps.relctx.outputs.release-tag }}
+
+            ${{ steps.minimal-changelog.outputs.content }}
+
+            ${{ steps.relctx.outputs.commit-trailers }}
+            [skip ci]
+          FILE_PATTERN: ${{ steps.bump-plan.outputs.file-pattern }}
+        run: forge-ci version commit-push --branch "$BRANCH"
+      - name: Create release tag (create-once, no force) at final HEAD
+        env:
+          RELEASE_TAG: ${{ steps.relctx.outputs.release-tag }}
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: forge-ci version tag-release
+      - name: Capture immutable release state
+        id: release-state
+        run: |
+          printf 'release-sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          printf 'source-date-epoch=%s\n' "$(git log -1 --format=%ct HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Cleanup GPG key
+        if: ${{ always() && steps.canonical-bootstrap.outputs.verified == 'true' && inputs['git-signing-method'] != 'ssh' }}
+        env:
+          GPG_FINGERPRINT: ${{ steps.import-gpg.outputs.fingerprint }}
+        run: forge-ci release gpg cleanup
+      - name: Cleanup SSH signing key
+        if: ${{ always() && steps.canonical-bootstrap.outputs.verified == 'true' && inputs['git-signing-method'] == 'ssh' }}
+        run: forge-ci release ssh cleanup
+  summarize-prepare-stage:
+    name: Summary
+    needs: [resolve-bootstrap, version-bump]
+    if: always() && needs.resolve-bootstrap.result == 'success'
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      stage-ran: ${{ steps.summary.outputs.stage-ran }}
+      stage-result: ${{ steps.summary.outputs.stage-result }}
+      result-json: ${{ steps.summary.outputs.result-json }}
+    steps:
+      - *canonical-context
+      - *canonical-checkout
+      - name: Consume canonical CLI from the independently pinned engine checkout
+        id: canonical-bootstrap
+        uses: ./_forge_ci_bootstrap/.github/actions/consume-canonical-cli
+        with:
+          tool-profile: runtime # The job container is the approved image.
+      - name: Normalize prepare stage result
+        id: summary
+        env:
+          STAGE_PLAN_JSON: ${{ inputs['prepare-stage-plan-json'] }}
+          JOB_RESULTS: ${{ toJson(needs) }}
+        run: forge-ci report stage-result
+      - name: Upload prepare stage manifests
+        if: ${{ always() && steps.canonical-bootstrap.outputs.verified == 'true' && hashFiles('.ci-results/*.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-results-prepare
+          path: .ci-results/*.json
+          include-hidden-files: "true"
+          retention-days: "5"
+          if-no-files-found: ignore

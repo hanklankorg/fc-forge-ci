@@ -1,0 +1,346 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# Pin the exact commit of an authenticated forge-ci release. Serve that commit
+# and its checksum-bound engine package on your Forgejo instance before use.
+#
+# Release flow for a graph of base images: a root, `base`, and two flavors
+# built on it, `tools` and `debug`. Copy to your repo as .forgejo/workflows/release.yml,
+# then replace the placeholders. Every one is a literal in the file, so
+# `git grep` finds them:
+#
+#   FORGE_HOST                    host of your Forgejo instance (with :port if
+#                                 it has one), in the action URLs and the
+#                                 signer image coordinate
+#   OWNER                         organization or user that hosts forge-ci
+#                                 on that instance
+#   2f4e845cee96973d1082bf00a5a18689c1482148              ONE forge-ci commit SHA, everywhere
+#   PIN_SIGNER_IMAGE_DIGEST       sha256 digest of the signer image your
+#                                 organization built from forge-ci's
+#                                 containers/signer/Containerfile
+#   1111111111111111111111111111111111111111111111111111111111111111  output of `sha256sum cosign.pub` for your
+#                                 organization's Cosign public key
+#
+# Then fill in the FIXME bot identity and configure the variables
+# CI_RUNNER_LABEL, RELEASE_GIT_HOST_KEY_FINGERPRINT, COSIGN_PUBLIC_KEY and
+# BASE_IMAGE_REPOSITORY, the one repository the base images live in (for
+# example FORGE_HOST/OWNER/REPOSITORY-base), and the secrets used below.
+# RELEASE_REGISTRY_TOKEN may write packages of the repository's owner.
+#
+# Requires Forgejo v16+ (reusable-workflow job expansion, forgejo#8780).
+#
+#   prepare -> base -> sign -> promote -> authenticate
+#           -> flavors -> sign -> promote -> inventory -> sign-and-publish
+#
+# The root is one stage and its flavors, siblings on the one parent, are
+# another: base-images.yml builds a stage without a registry token and stages
+# unsigned candidates, sign-container-images.yml signs them in the one job
+# that holds the key, and promote-base-container-images.yml verifies each
+# signature and lineage before the content-addressed final tags move.
+#
+# The flavors are planned only from what verify-base-container-images.yml
+# prints for their parent. The parent's ref below is the promoted digest; the check
+# authenticates that digest against your pinned key and the parent's input
+# ID, and stops the release when it does not verify. Nothing a build job
+# wrote names the parent.
+#
+# Buildah needs user namespaces, which a shared runner pool may deny. An
+# installation whose pool denies them sets CI_RUNNER_LABEL_CONTAINER to the
+# runner pool the image builds move to. A pool without user namespaces can
+# select kaniko. See
+# https://codefloe.com/itiquette/forge-ci/src/commit/2f4e845cee96973d1082bf00a5a18689c1482148/docs/runners.md.
+name: Release
+on:
+  push:
+    tags:
+      - release-request/v[0-9]*.[0-9]*.[0-9]*
+env:
+  FORGE_CI_PROVIDER: forgejo
+  FORGEJO_SERVER: ${{ forgejo.server_url }}
+  FORGEJO_REPO: ${{ forgejo.repository }}
+jobs:
+  prepare:
+    name: Prepare
+    if: success() && startsWith(forgejo.ref, 'refs/tags/')
+    uses: itiquette/forge-ci/.forgejo/workflows/prepare-release.yml@2f4e845cee96973d1082bf00a5a18689c1482148
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-repository: itiquette/forge-ci
+      forge-ci-sha: 2f4e845cee96973d1082bf00a5a18689c1482148
+      signer-image: forgejo.example/itiquette/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      bot-name: Hello Go Release Bot
+      bot-email: hello-release-bot@lab.invalid
+      release-git-url: ${{ vars.RELEASE_GIT_URL }}
+      release-git-host-key-fingerprint: ${{ vars.RELEASE_GIT_HOST_KEY_FINGERPRINT }}
+      verify-release-request-signature: 'false'
+      release-request-allowed-signers: .forgejo/release-allowed-signers
+      sign-distro-packages: 'false'
+      # The base images are staged, signed and promoted by the jobs below,
+      # not by the release signer, so the release itself publishes no image.
+      publish-container-images: 'false'
+    secrets:
+      RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+  # ===========================================================================
+  # The root: planned by your code, built from nothing but the commit.
+  # ===========================================================================
+  base-plan:
+    name: "Plan: base"
+    needs: prepare
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 10
+    outputs:
+      plan: ${{ steps.plan.outputs.plan }}
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@2f4e845cee96973d1082bf00a5a18689c1482148
+      - name: Checkout prepared release
+        env:
+          CHECKOUT_REF: ${{ needs.prepare.outputs.release-sha }}
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout
+      - name: Plan the base
+        id: plan
+        env:
+          BASE_IMAGE_REPOSITORY: ${{ vars.BASE_IMAGE_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          printf 'plan=%s\n' "$(bash base-plan.sh base "${BASE_IMAGE_REPOSITORY:?}")" >>"${FORGEJO_OUTPUT:?}"
+  base:
+    name: "Base: build and stage"
+    needs: [prepare, base-plan]
+    uses: itiquette/forge-ci/.forgejo/workflows/base-images.yml@2f4e845cee96973d1082bf00a5a18689c1482148
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      build-runs-on-linux-amd64: ${{ vars.CI_RUNNER_LABEL_CONTAINER || vars.CI_RUNNER_LABEL }}
+      forge-ci-repository: itiquette/forge-ci
+      forge-ci-sha: 2f4e845cee96973d1082bf00a5a18689c1482148
+      release-sha: ${{ needs.prepare.outputs.release-sha }}
+      image-repository: ${{ vars.BASE_IMAGE_REPOSITORY }}
+      image-plan-json: ${{ needs.base-plan.outputs.plan }}
+      artifact-name: base-stage
+    secrets:
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+  base-sign:
+    name: "Base: sign"
+    needs: [prepare, base]
+    uses: itiquette/forge-ci/.forgejo/workflows/sign-container-images.yml@2f4e845cee96973d1082bf00a5a18689c1482148
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      signer-runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-repository: itiquette/forge-ci
+      forge-ci-sha: 2f4e845cee96973d1082bf00a5a18689c1482148
+      signer-image: forgejo.example/itiquette/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: 1111111111111111111111111111111111111111111111111111111111111111
+      ledger-json: ${{ needs.base.outputs.ledger-json }}
+      sbom-artifact: base-stage-sboms
+      base-repository: ${{ vars.BASE_IMAGE_REPOSITORY }}
+      source-sha: ${{ needs.prepare.outputs.release-sha }}
+      caller-workflow: release.yml
+    secrets:
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+  base-promote:
+    name: "Base: promote"
+    needs: [prepare, base, base-sign]
+    uses: itiquette/forge-ci/.forgejo/workflows/promote-base-container-images.yml@2f4e845cee96973d1082bf00a5a18689c1482148
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-repository: itiquette/forge-ci
+      forge-ci-sha: 2f4e845cee96973d1082bf00a5a18689c1482148
+      signer-image: forgejo.example/itiquette/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: 1111111111111111111111111111111111111111111111111111111111111111
+      release-sha: ${{ needs.prepare.outputs.release-sha }}
+      ledger-json: ${{ needs.base.outputs.ledger-json }}
+      base-inputs-json: ${{ needs.base.outputs.base-inputs-json }}
+      base-repository: ${{ vars.BASE_IMAGE_REPOSITORY }}
+      caller-workflow: release.yml
+    secrets:
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+  # ===========================================================================
+  # The parent, authenticated: the one source of what the flavors build on.
+  # ===========================================================================
+  base-parent:
+    name: "Base: authenticate as parent"
+    needs: [prepare, base, base-promote]
+    uses: itiquette/forge-ci/.forgejo/workflows/verify-base-container-images.yml@2f4e845cee96973d1082bf00a5a18689c1482148
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-repository: itiquette/forge-ci
+      forge-ci-sha: 2f4e845cee96973d1082bf00a5a18689c1482148
+      signer-image: forgejo.example/itiquette/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: 1111111111111111111111111111111111111111111111111111111111111111
+      release-sha: ${{ needs.prepare.outputs.release-sha }}
+      base-repository: ${{ vars.BASE_IMAGE_REPOSITORY }}
+      base-inputs-json: ${{ needs.base.outputs.base-inputs-json }}
+      expected-ref: ${{ fromJSON(needs.base-promote.outputs.base-images-json)[0].ref }}
+      caller-workflow: release.yml
+    secrets:
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+  # ===========================================================================
+  # The flavors: siblings, planned on the authenticated parent and on nothing
+  # else, and built, signed and promoted as one stage.
+  # ===========================================================================
+  flavors-plan:
+    name: "Plan: flavors"
+    needs: [prepare, base-parent]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 10
+    outputs:
+      plan: ${{ steps.plan.outputs.plan }}
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@2f4e845cee96973d1082bf00a5a18689c1482148
+      - name: Checkout prepared release
+        env:
+          CHECKOUT_REF: ${{ needs.prepare.outputs.release-sha }}
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout
+      - name: Plan the flavors
+        id: plan
+        env:
+          BASE_IMAGE_REPOSITORY: ${{ vars.BASE_IMAGE_REPOSITORY }}
+          PARENT_REF: ${{ fromJSON(needs.base-parent.outputs.parent-base-json).ref }}
+          PARENT_INPUT_ID: ${{ fromJSON(needs.base-parent.outputs.parent-base-json).input_id }}
+        run: |
+          set -euo pipefail
+          printf 'plan=%s\n' "$(bash base-plan.sh tools,debug "${BASE_IMAGE_REPOSITORY:?}" "${PARENT_REF:?}" "${PARENT_INPUT_ID:?}")" >>"${FORGEJO_OUTPUT:?}"
+  flavors:
+    name: "Flavors: build and stage"
+    needs: [prepare, base-parent, flavors-plan]
+    uses: itiquette/forge-ci/.forgejo/workflows/base-images.yml@2f4e845cee96973d1082bf00a5a18689c1482148
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      build-runs-on-linux-amd64: ${{ vars.CI_RUNNER_LABEL_CONTAINER || vars.CI_RUNNER_LABEL }}
+      forge-ci-repository: itiquette/forge-ci
+      forge-ci-sha: 2f4e845cee96973d1082bf00a5a18689c1482148
+      release-sha: ${{ needs.prepare.outputs.release-sha }}
+      image-repository: ${{ vars.BASE_IMAGE_REPOSITORY }}
+      image-plan-json: ${{ needs.flavors-plan.outputs.plan }}
+      parent-base-json: ${{ needs.base-parent.outputs.parent-base-json }}
+      artifact-name: flavors-stage
+    secrets:
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+  flavors-sign:
+    name: "Flavors: sign"
+    needs: [prepare, flavors]
+    uses: itiquette/forge-ci/.forgejo/workflows/sign-container-images.yml@2f4e845cee96973d1082bf00a5a18689c1482148
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      signer-runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-repository: itiquette/forge-ci
+      forge-ci-sha: 2f4e845cee96973d1082bf00a5a18689c1482148
+      signer-image: forgejo.example/itiquette/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: 1111111111111111111111111111111111111111111111111111111111111111
+      ledger-json: ${{ needs.flavors.outputs.ledger-json }}
+      sbom-artifact: flavors-stage-sboms
+      base-repository: ${{ vars.BASE_IMAGE_REPOSITORY }}
+      source-sha: ${{ needs.prepare.outputs.release-sha }}
+      caller-workflow: release.yml
+    secrets:
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+  flavors-promote:
+    name: "Flavors: promote"
+    needs: [prepare, flavors, flavors-sign]
+    uses: itiquette/forge-ci/.forgejo/workflows/promote-base-container-images.yml@2f4e845cee96973d1082bf00a5a18689c1482148
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-repository: itiquette/forge-ci
+      forge-ci-sha: 2f4e845cee96973d1082bf00a5a18689c1482148
+      signer-image: forgejo.example/itiquette/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: 1111111111111111111111111111111111111111111111111111111111111111
+      release-sha: ${{ needs.prepare.outputs.release-sha }}
+      ledger-json: ${{ needs.flavors.outputs.ledger-json }}
+      # Each flavor's declared inputs carry its parent_base; promotion holds
+      # every image's own signed statement to it.
+      base-inputs-json: ${{ needs.flavors.outputs.base-inputs-json }}
+      base-repository: ${{ vars.BASE_IMAGE_REPOSITORY }}
+      caller-workflow: release.yml
+    secrets:
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+  # ===========================================================================
+  # JOB: inventory — the release's one public file names every promoted
+  # image by digest. Zero signing-key references, ever.
+  # ===========================================================================
+  inventory:
+    name: "Build: image inventory"
+    needs: [prepare, base-promote, flavors-promote]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 10
+    outputs:
+      dist-digest: ${{ steps.dist.outputs.digest }}
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@2f4e845cee96973d1082bf00a5a18689c1482148
+      - name: Declare the release files
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release-tag }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.release-sha }}
+          BASE_IMAGES_JSON: ${{ needs.base-promote.outputs.base-images-json }}
+          FLAVOR_IMAGES_JSON: ${{ needs.flavors-promote.outputs.base-images-json }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          printf '{"base":%s,"flavors":%s}\n' "${BASE_IMAGES_JSON:?}" "${FLAVOR_IMAGES_JSON:?}" >dist/image-inventory.json
+          forge-ci release notes \
+            --source-file release-notes.md \
+            --target-file dist/release-notes.md \
+            --release-version "${RELEASE_TAG}" \
+            --release-commit "${RELEASE_SHA}"
+          forge-ci release files declare --asset dist/image-inventory.json
+      - name: Upload dist/ with hand-off digest
+        id: dist
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/upload-dist@2f4e845cee96973d1082bf00a5a18689c1482148
+        with:
+          artifact-name: build-dist
+          path: dist/
+  # ===========================================================================
+  # JOB: sign-and-publish, the signing secret boundary. The secrets block is
+  # the complete, enumerated signing hand-off (never `secrets: inherit`).
+  # ===========================================================================
+  sign-and-publish:
+    name: Sign and publish
+    needs: [prepare, inventory]
+    uses: itiquette/forge-ci/.forgejo/workflows/sign-and-publish-release.yml@2f4e845cee96973d1082bf00a5a18689c1482148
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      signer-runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      release-tag: ${{ needs.prepare.outputs.release-tag }}
+      release-sha: ${{ needs.prepare.outputs.release-sha }}
+      artifacts-config: ${{ needs.prepare.outputs.artifacts-config }}
+      # The commit the request tag pushed, from the event context.
+      release-request-sha: ${{ forgejo.sha }}
+      dist-digest: ${{ needs.inventory.outputs.dist-digest }}
+      artifact-name: build-dist
+      artifact-path: dist/
+      caller-workflow: release.yml
+      forge-ci-repository: itiquette/forge-ci
+      forge-ci-sha: 2f4e845cee96973d1082bf00a5a18689c1482148
+      sign-distro-packages: 'false'
+      signer-image: forgejo.example/itiquette/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: 1111111111111111111111111111111111111111111111111111111111111111
+    secrets:
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}

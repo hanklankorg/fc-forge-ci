@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# One Gradle application jar and the runtime image built from it, signed keyless.
+sign:
+  method: sigstore
+artifacts:
+  - name: hello-gradle-service
+    project-type: gradle
+    working-directory: .
+    build-type: application
+    config:
+      java-version: 25
+      gradle-tasks: build
+containers:
+  - name: hello-gradle-service
+    from: [hello-gradle-service]
+    container-file: Containerfile
+    context: .
+    # Declared platforms; RELEASE_PLATFORMS narrows them, linux/amd64 by default.
+    platforms: linux/amd64,linux/arm64

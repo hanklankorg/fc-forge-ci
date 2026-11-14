@@ -1,0 +1,123 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# GitLab CI/CD Catalog component: Maven release build (application or library).
+#
+# The GitLab counterpart of .github/workflows/build-maven.yml. The whole sequence
+# (install → metadata → app/lib build → SBOM → summaries) lives in the binary as
+# `forge-ci build maven run`, which branches on --build-type, so this job is a
+# single line — the same sequence GitHub runs. mvn runs in the job's working
+# directory (the CLI binds subprocesses to it). GitLab clones the repo for the job; the runtime-java
+# image carries Maven + forge-ci. JARs/POMs land under target/ and the Build
+# SBOM as target/bom.json, which the job publishes as artifacts.
+#
+# Consume (pin a released version):
+#   include:
+#     - component: $CI_SERVER_FQDN/diggsweden/forge-ci/build-maven@0.90.0
+#       inputs:
+#         runtime-image: ghcr.io/diggsweden/forge-ci-runtime-java-25@sha256:PIN_DIGEST
+#         build-type: app
+spec:
+  inputs:
+    stage:
+      default: build
+      description: Pipeline stage the build runs in.
+    job-name:
+      default: build-maven
+      description: Name of the generated job.
+    working-directory:
+      default: "."
+      description: Directory containing pom.xml.
+    build-type:
+      default: app
+      options: ["app", "lib"]
+      description: Lifecycle — "app" (clean package) or "lib" (compile/test/package with an optional project-owned profile).
+    profile:
+      default: ""
+      description: Maven profile to activate (library builds).
+    private-dependencies:
+      type: boolean
+      default: false
+      description: "Use the caller's read-scoped DEPENDENCY_TOKEN and optional DEPENDENCY_USERNAME."
+    settings-path:
+      default: ""
+      description: Consumer-owned settings.xml; required for private dependencies and never overwritten.
+    cli-opts:
+      default: "--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always"
+      description: Extra args forwarded to mvn.
+    skip-tests:
+      type: boolean
+      default: false
+      description: Legacy input; true is refused. Admin policy controls findings, and tests still run.
+    enforce-application-tests:
+      type: boolean
+      default: false
+      description: Enforcement setting; false lets recognized test assertion failures be reported without failing the build. Tests still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md.
+    enable-build-sbom:
+      type: boolean
+      default: true
+      description: Generate the cyclonedx-maven-plugin Build SBOM.
+    sbom-tool-version:
+      # renovate: datasource=maven depName=org.cyclonedx:cyclonedx-maven-plugin
+      default: "2.9.3"
+      description: Pinned org.cyclonedx:cyclonedx-maven-plugin version.
+    java-version:
+      default: "25"
+      description: JDK major version, reported in the build summary.
+    runtime-image:
+      description: forge-ci runtime image carrying Maven, pinned by @sha256.
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    runner-tags:
+      type: array
+      default: []
+      description: Runner tags of the job, all of which one runner must carry; empty, the default, leaves it untagged. Name literal tags only, never a $VARIABLE, which a project variable could set.
+---
+"$[[ inputs.job-name ]]":
+  # One more attempt when the engine found a dependency unavailable, exit
+  # 69, and for no other failure.
+  retry:
+    max: 1
+    exit_codes: 69
+  stage: $[[ inputs.stage ]]
+  tags: $[[ inputs.runner-tags ]]
+  rules:
+    - when: on_success
+  needs: []
+  cache: []
+  image: $[[ inputs.runtime-image ]]
+  variables:
+    GIT_STRATEGY: fetch
+    GIT_CHECKOUT: "true"
+    RC_PROJECT_DIRECTORY: "$[[ inputs.working-directory ]]"
+    BUILD_TYPE: "$[[ inputs.build-type ]]"
+    MAVEN_PROFILE: "$[[ inputs.profile ]]"
+    PRIVATE_DEPENDENCIES: "$[[ inputs.private-dependencies ]]"
+    MAVEN_SETTINGS_PATH: "$[[ inputs.settings-path ]]"
+    MAVEN_CLI_OPTS: "$[[ inputs.cli-opts ]]"
+    SKIP_TESTS: "$[[ inputs.skip-tests ]]"
+    ENABLE_BUILD_SBOM: "$[[ inputs.enable-build-sbom ]]"
+    CYCLONEDX_MAVEN_VERSION: "$[[ inputs.sbom-tool-version ]]"
+    JAVA_VERSION: "$[[ inputs.java-version ]]"
+    CI_SUMMARY_FILE: "$CI_PROJECT_DIR/maven-build-summary.md"
+  # Explicit gate fields replace earlier same-named values. Other keys still
+  # merge; policy injection, not include ordering, is the authority boundary.
+  allow_failure: false
+  before_script: []
+  after_script: []
+  script:
+    # The administrator's setting as written, a flag of the engine: no
+    # project variable can supply or change it.
+    - forge-ci build maven run --working-dir "$RC_PROJECT_DIRECTORY" --enforce-application-tests='$[[ inputs.enforce-application-tests ]]'
+  artifacts:
+    # Always, so failed tests still reach the merge request test report.
+    when: always
+    reports:
+      junit:
+        - $[[ inputs.working-directory ]]/**/target/surefire-reports/TEST-*.xml
+        - $[[ inputs.working-directory ]]/**/target/failsafe-reports/TEST-*.xml
+    paths:
+      # Shown in the job log too; GitLab renders no summary file.
+      - maven-build-summary.md
+      - $[[ inputs.working-directory ]]/target/
+      - $[[ inputs.working-directory ]]/**/target/

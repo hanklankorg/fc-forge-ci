@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# Trivy findings this repository accepts. Every entry states why the finding
+# does not apply here and when to look again; anything without both does not
+# belong in this file.
+vulnerabilities:
+  - id: GO-2026-5932
+    statement: >-
+      golang.org/x/crypto/openpgp is unmaintained and has no fixed version. This repository never imports golang.org/x/crypto; the module is a transitive dependency only, and OpenPGP goes through github.com/ProtonMail/go-crypto/openpgp, the maintained fork the advisory points at. govulncheck reports no reachable path. Revisit if the main module ever imports golang.org/x/crypto directly.
+    expired_at: 2027-04-15
+  - id: CVE-2026-60002
+    statement: >-
+      Use-after-free in the OpenSSH client (ssh) before 10.4 when a server changes its host key during a key re-exchange. The runtime images' openssh-client is Debian 13's 1:10.0p1-7+deb13u4, which Debian rates <no-dsa> (minor issue) and fixes only in forky/sid (10.4p1); trixie has no fixed package. The client is used for connections, not only for ssh-keygen tag verification: on GitLab the "Prepare: release commit and tag" job pushes over ssh://git@<forge> through forge-ci's GIT_SSH_COMMAND, which sets StrictHostKeyChecking=yes with a pinned known_hosts file (internal/adapters/git/pinnedssh.go). The connection therefore fails at the first key exchange, before any re-key, unless the server proves the forge's pinned host key: reaching the bug requires the forge itself or its stolen host key. A consumer step that runs its own ssh in the image to a host it does not pin is outside this assessment. Revisit when Debian 13 ships a fixed openssh-client, or at expiry.
+    expired_at: 2027-02-01

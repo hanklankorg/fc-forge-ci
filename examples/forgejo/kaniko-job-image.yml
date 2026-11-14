@@ -1,0 +1,183 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# Publish the kaniko job image on a runner pool that denies user namespaces.
+#
+# This is the one image that cannot be built by a job in the kaniko job image,
+# because it is that image. Each architecture is built natively, on the pool's
+# amd64 and arm64 runners, in kaniko's own debug image, which has the
+# executor and a BusyBox shell and nothing else: no git, so the pinned engine
+# commit is the build context as kaniko's own git context, and no forge-ci, so
+# kaniko pushes each architecture itself. A third job, on the pool with the
+# engine, admits each pushed architecture only if its architecture and
+# revision label match, and merges the two into one index. Everything that
+# follows (consumer images, the signer image) runs in that image with forge-ci.
+#
+# Copy to .forgejo/workflows/kaniko-job-image.yml of the repository that
+# holds the organization's release policy, then replace the placeholders:
+#
+#   FORGE_HOST/OWNER/forge-ci: the instance and owner that serve the engine
+#   PIN_FORGE_CI_SHA           the forge-ci commit the consumers pin; the
+#                              Containerfile is that commit's
+#   KANIKO_JOB_IMAGE           the destination repository, e.g.
+#                              ghcr.io/OWNER/forge-ci-kaniko-job
+#
+# Set CI_RUNNER_LABEL and CI_RUNNER_LABEL_ARM64 to the pool's JSON label
+# arrays for each architecture, the variable SIGNER_REGISTRY_USER and the
+# secret SIGNER_REGISTRY_TOKEN to an account that may write that
+# repository. Make the package public after its first publication; the
+# consumers' jobs pull it without credentials. Pin the index digest the merge
+# job prints as CI_IMAGE_BUILDER_JOB_IMAGE, with CI_IMAGE_BUILDER=kaniko, on
+# the repositories that build with kaniko.
+name: Kaniko job image
+# Dispatch only: the merge job runs the engine binary of the pinned commit,
+# which the signer workflow publishes, and its digest is pinned by a person.
+on:
+  workflow_dispatch:
+env:
+  FORGE_CI_REPOSITORY_URL: https://FORGE_HOST/OWNER/forge-ci
+  FORGE_CI_COMMIT_SHA: PIN_FORGE_CI_SHA
+  KANIKO_JOB_IMAGE: KANIKO_JOB_IMAGE
+jobs:
+  # One native build per architecture; kaniko does not emulate.
+  build:
+    name: Build the kaniko job image (${{ matrix.arch }})
+    runs-on: ${{ fromJSON(vars[matrix.arch == 'arm64' && 'CI_RUNNER_LABEL_ARM64' || 'CI_RUNNER_LABEL']) }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    # Renovate updates this digest with the Containerfile's kaniko stage.
+    container:
+      image: ghcr.io/osscontainertools/kaniko:v1.28.6-debug@sha256:7ab44d0131c3051b6dea128067e258c7afb5c4815082a93b9cf6c624f2140bf0
+    defaults:
+      run:
+        shell: sh
+    # The image contains /kaniko, kaniko's own directory, so the executor
+    # moves its binaries here first; without that it refuses to save /kaniko
+    # ("resolves to /kaniko in the kaniko directory").
+    env:
+      KANIKO_DIR: /kaniko-bootstrap
+    steps:
+      - name: Require main for publication
+        env:
+          PUBLICATION_REF: ${{ forgejo.ref }}
+        run: |
+          set -eu
+          if [ "${PUBLICATION_REF:?}" != refs/heads/main ]; then
+            echo "ERROR: publish the kaniko job image from main only" >&2
+            exit 1
+          fi
+      # The build context is the pinned engine commit, cloned by kaniko. The
+      # token is written to the workspace, outside both kaniko directories,
+      # and removed.
+      - name: Build and push this architecture with kaniko
+        env:
+          ARCH: ${{ matrix.arch }}
+          SIGNER_REGISTRY_USER: ${{ vars.SIGNER_REGISTRY_USER }}
+          SIGNER_REGISTRY_TOKEN: ${{ secrets.SIGNER_REGISTRY_TOKEN }}
+        run: |
+          set -eu
+          registry="${KANIKO_JOB_IMAGE%%/*}"
+          git_context="git://${FORGE_CI_REPOSITORY_URL#https://}.git#refs/heads/main#${FORGE_CI_COMMIT_SHA:?}"
+          DOCKER_CONFIG="$(pwd)/.kaniko-docker"
+          export DOCKER_CONFIG
+          mkdir -p "${DOCKER_CONFIG}"
+          auth="$(printf '%s:%s' "${SIGNER_REGISTRY_USER:?}" "${SIGNER_REGISTRY_TOKEN:?}" | base64 | tr -d '\n')"
+          printf '{"auths":{"%s":{"auth":"%s"}}}' "${registry}" "${auth}" > "${DOCKER_CONFIG}/config.json"
+          /kaniko/executor \
+            --context "${git_context}" \
+            --dockerfile containers/kaniko-job/Containerfile \
+            --custom-platform "linux/${ARCH:?}" \
+            --reproducible \
+            --label "org.opencontainers.image.source=${FORGE_CI_REPOSITORY_URL}" \
+            --label "org.opencontainers.image.revision=${FORGE_CI_COMMIT_SHA}" \
+            --destination "${KANIKO_JOB_IMAGE:?}:kaniko-job-${FORGE_CI_COMMIT_SHA}-${ARCH}" \
+            --digest-file digest.txt
+          rm -rf "${DOCKER_CONFIG}"
+          echo "Pushed ${KANIKO_JOB_IMAGE}:kaniko-job-${FORGE_CI_COMMIT_SHA}-${ARCH}@$(cat digest.txt)"
+  # The engine admits each architecture by its labels and assembles the index.
+  merge:
+    name: Merge the architectures into one index
+    needs: build
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Require main for publication
+        env:
+          PUBLICATION_REF: ${{ forgejo.ref }}
+        run: |
+          set -euo pipefail
+          if [ "${PUBLICATION_REF:?}" != refs/heads/main ]; then
+            echo "ERROR: publish the kaniko job image from main only" >&2
+            exit 1
+          fi
+      # The engine's helpers at the pinned commit, fetched without credentials.
+      - name: Checkout the engine at the pinned revision
+        env:
+          ENGINE_REF: PIN_FORGE_CI_SHA
+        run: |
+          set -euo pipefail
+          git init --quiet .
+          git remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          GIT_TERMINAL_PROMPT=0 git -c protocol.version=2 fetch --quiet --no-tags --depth=1 --no-recurse-submodules origin "${ENGINE_REF:?}"
+          git checkout --quiet --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${FORGE_CI_COMMIT_SHA:?}"
+      - name: Log in to the registry
+        env:
+          SIGNER_REGISTRY_USER: ${{ vars.SIGNER_REGISTRY_USER }}
+          SIGNER_REGISTRY_TOKEN: ${{ secrets.SIGNER_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null # the resolver of the engine checkout
+          source .engine/bin/lib-forge-ci.sh
+          printf '%s' "${SIGNER_REGISTRY_TOKEN}" | SIGNER_REGISTRY_TOKEN='' \
+            run_forge_ci container login \
+              --registry "${KANIKO_JOB_IMAGE%%/*}" \
+              --registry-username "${SIGNER_REGISTRY_USER:?}" \
+              --registry-password-file - \
+              --create-auth-file --export-env
+      # A pushed architecture joins the index only if it is the architecture it
+      # claims and was built from the pinned commit.
+      - name: Admit each architecture and merge the index
+        id: index
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null # the resolver of the engine checkout
+          source .engine/bin/lib-forge-ci.sh
+          digests="${RUNNER_TEMP:?}/kaniko-job-digests"
+          mkdir -p "${digests}"
+          for arch in amd64 arm64; do
+            digest=$(run_forge_ci container image usable-digest \
+              --ref "${KANIKO_JOB_IMAGE:?}:kaniko-job-${FORGE_CI_COMMIT_SHA:?}-${arch}" \
+              --arch "${arch}" \
+              --require-label "org.opencontainers.image.revision=${FORGE_CI_COMMIT_SHA}" \
+              --auth-file "${REGISTRY_AUTH_FILE:?}")
+            DIGEST="${digest}" DIGESTS_DIR="${digests}" run_forge_ci container write-digest-marker
+          done
+          run_forge_ci container manifest merge \
+            --image-name "${KANIKO_JOB_IMAGE}" \
+            --tags "${KANIKO_JOB_IMAGE}:kaniko-job-${FORGE_CI_COMMIT_SHA}" \
+            --digests-dir "${digests}"
+          run_forge_ci container manifest inspect \
+            --image-ref "${KANIKO_JOB_IMAGE}:kaniko-job-${FORGE_CI_COMMIT_SHA}"
+      # Step outputs are not shown in the log; print the reference to pin.
+      - name: Print the reference to pin
+        env:
+          IMAGE_DIGEST_REF: ${{ steps.index.outputs.image-digest-ref }}
+        run: |
+          set -euo pipefail
+          echo "CI_IMAGE_BUILDER_JOB_IMAGE=${IMAGE_DIGEST_REF:?}"
+          echo "Set this, with CI_IMAGE_BUILDER=kaniko, on every repository that builds with kaniko."
+      - name: Remove registry auth file
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${REGISTRY_AUTH_FILE:-}" ]; then
+            rm -f "${REGISTRY_AUTH_FILE}"
+          fi

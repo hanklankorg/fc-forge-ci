@@ -1,0 +1,159 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# GitLab CI/CD Catalog component: Android (Gradle) release build.
+#
+# The GitLab counterpart of .github/workflows/build-gradle-android.yml. The whole
+# sequence (artifact-names → keystore → metadata → tasks → secrets → build → SBOM)
+# lives in the binary as `forge-ci build gradle-android run`, so this job is a
+# single line. gradle runs in the job's working directory (we cd in). The signing
+# keystore is decoded outside the project dir; signing passwords stay CI
+# variables the gradle build reads. APK/AAB land under <module>/build/outputs and
+# the SBOM under build/reports/, which the job publishes as artifacts.
+#
+# Signing CI variables (set on the project/group, masked): ANDROID_KEYSTORE_BASE64,
+# ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD,
+# SECRETS_PROPERTIES_BASE64.
+#
+# Consume (pin a released version):
+#   include:
+#     - component: $CI_SERVER_FQDN/diggsweden/forge-ci/build-gradle-android@0.90.0
+#       inputs:
+#         runtime-image: ghcr.io/diggsweden/forge-ci-runtime-android-35@sha256:PIN_DIGEST
+#         build-module: app
+#         enable-signing: true
+spec:
+  inputs:
+    library:
+      type: boolean
+      default: false
+      description: Build an Android library AAR without application keystore signing.
+    export-publications:
+      type: boolean
+      default: false
+      description: Export native Maven publications into .forge-ci/maven-publication.
+    version:
+      default: ""
+      description: Expected release version; optional in snapshot mode.
+    central-publication:
+      type: boolean
+      default: false
+      description: Require Central release metadata and sources/javadoc.
+    snapshot-publication:
+      type: boolean
+      default: false
+      description: Export only resolved Maven snapshot publications.
+    stage:
+      default: build
+      description: Pipeline stage the build runs in.
+    job-name:
+      default: build-gradle-android
+      description: Name of the generated job.
+    working-directory:
+      default: "."
+      description: Directory containing ./gradlew and gradle.properties.
+    build-module:
+      default: app
+      description: Gradle module to build (e.g. app).
+    product-flavor:
+      default: ""
+      description: Android product flavor (empty for none).
+    build-types:
+      default: "debug,release"
+      description: Comma-separated Android build types to assemble.
+    include-aab:
+      type: boolean
+      default: true
+      description: Also build the release AAB.
+    gradle-tasks:
+      default: ""
+      description: Override the derived gradle task list.
+    enable-signing:
+      type: boolean
+      default: false
+      description: Decode the keystore and sign the release build.
+    skip-tests:
+      type: boolean
+      default: false
+      description: Legacy input; true is refused. Admin policy controls findings, and tests still run.
+    enforce-application-tests:
+      type: boolean
+      default: false
+      description: Enforcement setting; false lets recognized test assertion failures be reported without failing the build. Tests still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md.
+    enable-build-sbom:
+      type: boolean
+      default: true
+      description: Generate the cyclonedx-gradle-plugin Build SBOM.
+    sbom-tool-version:
+      # renovate: datasource=maven depName=org.cyclonedx:cyclonedx-gradle-plugin registryUrl=https://plugins.gradle.org/m2/
+      default: "3.5.1"
+      description: Pinned cyclonedx-gradle-plugin version.
+    runtime-image:
+      description: forge-ci runtime image carrying JDK + Gradle + Android SDK, pinned by @sha256.
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    runner-tags:
+      type: array
+      default: []
+      description: Runner tags of the job, all of which one runner must carry; empty, the default, leaves it untagged. Name literal tags only, never a $VARIABLE, which a project variable could set.
+---
+"$[[ inputs.job-name ]]":
+  # One more attempt when the engine found a dependency unavailable, exit
+  # 69, and for no other failure.
+  retry:
+    max: 1
+    exit_codes: 69
+  stage: $[[ inputs.stage ]]
+  tags: $[[ inputs.runner-tags ]]
+  rules:
+    - when: on_success
+  needs: []
+  cache: []
+  image: $[[ inputs.runtime-image ]]
+  variables:
+    GIT_STRATEGY: fetch
+    GIT_CHECKOUT: "true"
+    ANDROID_LIBRARY: "$[[ inputs.library ]]"
+    EXPORT_PUBLICATIONS: "$[[ inputs.export-publications ]]"
+    CENTRAL_PUBLICATION: "$[[ inputs.central-publication ]]"
+    SNAPSHOT_PUBLICATION: "$[[ inputs.snapshot-publication ]]"
+    VERSION: "$[[ inputs.version ]]"
+    RC_PROJECT_DIRECTORY: "$[[ inputs.working-directory ]]"
+    INCLUDE_DATE_STAMP: "true"
+    REPOSITORY_NAME: "$CI_PROJECT_NAME"
+    PRODUCT_FLAVOR: "$[[ inputs.product-flavor ]]"
+    BUILD_TYPES: "$[[ inputs.build-types ]]"
+    INCLUDE_AAB: "$[[ inputs.include-aab ]]"
+    GRADLE_TASKS_OVERRIDE: "$[[ inputs.gradle-tasks ]]"
+    BUILD_MODULE: "$[[ inputs.build-module ]]"
+    ENABLE_SIGNING: "$[[ inputs.enable-signing ]]"
+    SKIP_TESTS: "$[[ inputs.skip-tests ]]"
+    ENABLE_BUILD_SBOM: "$[[ inputs.enable-build-sbom ]]"
+    CYCLONEDX_GRADLE_VERSION: "$[[ inputs.sbom-tool-version ]]"
+    CI_OUTPUT: "$CI_PROJECT_DIR/android-build.env"
+    CI_SUMMARY_FILE: "$CI_PROJECT_DIR/android-build-summary.md"
+  # Explicit gate fields replace earlier same-named values. Other keys still
+  # merge; policy injection, not include ordering, is the authority boundary.
+  allow_failure: false
+  before_script: []
+  after_script: []
+  script:
+    - cd -- "$RC_PROJECT_DIRECTORY"
+    - if [ "$EXPORT_PUBLICATIONS" = "true" ]; then forge-ci build gradle export-publications --project "$BUILD_MODULE" --output .forge-ci/maven-publication --snapshot="$SNAPSHOT_PUBLICATION" --validate-only; fi
+    # The administrator's setting as written, a flag of the engine: no
+    # project variable can supply or change it.
+    - forge-ci build gradle-android run --enforce-application-tests='$[[ inputs.enforce-application-tests ]]'
+    - if [ "$EXPORT_PUBLICATIONS" = "true" ]; then forge-ci build gradle export-publications --project "$BUILD_MODULE" --output .forge-ci/maven-publication --central="$CENTRAL_PUBLICATION" --snapshot="$SNAPSHOT_PUBLICATION"; fi
+  artifacts:
+    # Always, so failed tests still reach the merge request test report.
+    when: always
+    reports:
+      junit:
+        - $[[ inputs.working-directory ]]/**/build/test-results/**/TEST-*.xml
+      dotenv: "$CI_PROJECT_DIR/android-build.env"
+    paths:
+      # Shown in the job log too; GitLab renders no summary file.
+      - android-build-summary.md
+      - $[[ inputs.working-directory ]]/.forge-ci/maven-publication/
+      - $[[ inputs.working-directory ]]/$[[ inputs.build-module ]]/build/outputs/
+      - $[[ inputs.working-directory ]]/build/reports/

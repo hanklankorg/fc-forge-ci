@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# A flavor: it starts from the one base the release authenticated. The plan
+# passes that base as PARENT_IMAGE, pinned by digest; there is no default,
+# so the image cannot be built on anything else.
+ARG PARENT_IMAGE
+FROM ${PARENT_IMAGE}
+COPY debug.txt /usr/share/hello/debug.txt

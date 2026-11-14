@@ -1,0 +1,19 @@
+{
+  "name": "@example-org/hello-npm-package",
+  "version": "0.1.0",
+  "description": "Disposable Forge CI package publication and installation fixture, a workspace root with its member bundled",
+  "license": "CC0-1.0",
+  "type": "module",
+  "exports": "./src/index.js",
+  "files": ["src/"],
+  "workspaces": ["packages/*"],
+  "dependencies": {
+    "@example-org/greeting": "1.0.0"
+  },
+  "bundleDependencies": ["@example-org/greeting"],
+  "scripts": {
+    "build": "node --check src/index.js",
+    "test": "node --test"
+  },
+  "engines": {"node": ">=24"}
+}

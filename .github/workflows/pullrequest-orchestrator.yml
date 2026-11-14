@@ -1,0 +1,273 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Pull Request Orchestrator
+# 
+# Runs the selected lint engine and security checks for pull requests and
+# pushes, then publishes their stage result and available SARIF.
+#
+# How it works:
+# 1. Is called by repository workflows for their configured push/PR triggers
+# 2. Executes enabled linters in parallel for faster feedback
+# 3. Enforces the configured lint floor (secrets and SAST by default)
+# 4. Uploads available results to GitHub Code Scanning for visibility
+#
+# Security controls:
+# - Secret detection and SAST are in the default nanolinter floor
+# - Dependency and license checks depend on the selected engine/project config
+# - Results uploaded to GitHub Code Scanning (requires CODE_SCANNING_TOKEN secret)
+#
+# Required Secrets:
+#   None required - uses GITHUB_TOKEN for operations
+#   Optional: CODE_SCANNING_TOKEN for uploading scan results to Code Scanning
+#             (requires code_scanning_alerts:write — GitHub App or fine-grained PAT);
+#             the caller passes it by name in an explicit `secrets:` mapping
+#   Optional: Organization secrets for private package access
+#
+# Required Permissions:
+#   actions: read          # Download workflow result artifacts
+#   contents: read         # Read source code
+#
+# Configurable Linters:
+#   lint-engine:          general lint engine — nanolinter (default) | megalinter
+#                         | none. Runs the chosen engine as a gate and uploads its
+#                         security findings to Code Scanning as SARIF. Swift/iOS
+#                         linting runs separately (lint-swift.yml).
+name: Orchestrate Pull Request
+on:
+  workflow_call:
+    inputs:
+      enforce-lint:
+        description: "Enforcement setting: false reports lint findings without failing; the checks still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      enforce-vulnerabilities:
+        description: "Enforcement setting: false reports vulnerability findings without failing; the scans still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      # Project configuration
+      project-type:
+        description: "Project type: maven, npm, gradle, gradle-android, xcode-ios, cargo, python, go"
+        required: true
+        type: string
+      base-branch:
+        description: "Base branch (auto-detects PR target if empty)"
+        required: false
+        default: ""
+        type: string
+      # Lint engine — the single general linter for the PR. Mutually exclusive:
+      # at most one engine runs (two would duplicate Code-Scanning findings).
+      # The swift toggles below are orthogonal and layer on top.
+      lint-engine:
+        description: "General lint engine: nanolinter (default), megalinter, or none. The chosen engine runs as a gate and uploads available security findings to Code Scanning as SARIF."
+        required: false
+        default: "nanolinter"
+        type: string
+      linters.swiftformat:
+        description: "Enable swift-format (Google Swift Style Guide) for iOS/macOS projects"
+        required: false
+        default: false
+        type: boolean
+      linters.swiftlint:
+        description: "Enable SwiftLint for iOS/macOS projects"
+        required: false
+        default: false
+        type: boolean
+      runs-on:
+        description: "JSON array of runner labels for the ordinary jobs, read with fromJSON. Signing, promotion and publication jobs stay on GitHub-hosted runners."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      runs-on-darwin-arm64:
+        description: "JSON array of runner labels for the macOS arm64 jobs, read with fromJSON."
+        required: false
+        default: '["macos-26"]'
+        type: string
+      forge-ci-binary-ref:
+        description: "Full approved engine commit (40 hex). The canonical CLI every control-plane job and lint job runs is built from exactly this commit; the stage pins its callees to it."
+        required: true
+        type: string
+      runtime-image:
+        description: "Administrator-pinned forge-ci base runtime image@sha256 digest for the PR control-plane and summary jobs. Tags are refused by canonical admission."
+        required: true
+        type: string
+      canonical-builder-image:
+        description: "Administrator-pinned Go-qualified image@sha256 digest for the canonical CLI build only. No fallback to policy or product runtimes."
+        required: true
+        type: string
+      nanolinter-image:
+        description: "Required when lint-engine=nanolinter: the image the nanolinter lint job runs in, pinned by @sha256:<64 lowercase hex>. Pick the flavour for project-type: go, java (maven), kotlin (gradle, gradle-android), javascript-typescript (npm), rust (cargo), swift (xcode-ios), core otherwise; the plan job refuses a tag."
+        required: false
+        default: ""
+        type: string
+      required-lints:
+        description: "Mandated lint floor for the nanolinter engine — comma-separated check ids forced to run AND block via `nanolinter verify --require`, so a project cannot silently skip them. Default mandates secrets + SAST across all projects. Empty disables the floor."
+        required: false
+        default: "secrets,sast"
+        type: string
+      disable-checks:
+        description: "Nanolinter check ids to leave out of the run (comma-separated), passed to `nanolinter verify --disable-check`; it cannot remove a check required-lints names."
+        required: false
+        default: ""
+        type: string
+      megalinter-image:
+        description: "Required when lint-engine=megalinter: a reviewed MegaLinter image reference pinned by @sha256:<64 lowercase hex>"
+        required: false
+        default: ""
+        type: string
+    secrets:
+      CODE_SCANNING_TOKEN:
+        description: "Token with security-events:write for SARIF upload (lint-engine security findings)"
+        required: false
+permissions:
+  contents: read # Default permission; individual jobs declare additions.
+jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      images: |
+        runtime-image=${{ inputs['runtime-image'] }}
+  canonical-cli:
+    needs: [resolve-bootstrap]
+    permissions:
+      contents: read
+      actions: read
+    # Integrated delivery owner; the approved engine commit must also contain
+    # the consumer action/script used by each receiving job.
+    uses: ./.github/workflows/canonical-cli-bootstrap.yml
+    with:
+      engine-repository: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+      engine-commit: ${{ inputs['forge-ci-binary-ref'] }}
+      runtime-image: ${{ inputs['canonical-builder-image'] }}
+      receive-runtime-image: ${{ inputs['runtime-image'] }}
+
+  # ===== Stage 0: PR Plan =====
+  compose-pr-plan:
+    needs: [resolve-bootstrap, canonical-cli]
+    if: ${{ !failure() && !cancelled() && needs.canonical-cli.result == 'success' }}
+    name: "Check: plan"
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      contents: read
+      actions: read # Canonical metadata/download; intentional read-only increase.
+    outputs:
+      pr-plan-json: ${{ steps.plan.outputs.pr-plan-json }}
+      quality-stage-plan-json: ${{ steps.plan.outputs.quality-stage-plan-json }}
+    steps:
+      - &canonical-context
+        name: Require original canonical success and approved identity
+        shell: /bin/bash --noprofile --norc -peuo pipefail {0}
+        env:
+          ENGINE_REPOSITORY: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          ENGINE_COMMIT: ${{ inputs['forge-ci-binary-ref'] }}
+          ENGINE_ORIGIN: ${{ github.server_url }}/${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          RUNTIME_IMAGE: ${{ inputs['runtime-image'] }}
+          PRODUCER_ARTIFACT_ID: ${{ needs.canonical-cli.outputs.artifact-id }}
+          PRODUCER_ARTIFACT_NAME: ${{ needs.canonical-cli.outputs.artifact-name }}
+          PRODUCER_RUN_ID: ${{ needs.canonical-cli.outputs.producer-run-id }}
+          PRODUCER_RUN_ATTEMPT: ${{ needs.canonical-cli.outputs.producer-run-attempt }}
+          PRODUCER_ENGINE_REPOSITORY: ${{ needs.canonical-cli.outputs.engine-repository }}
+          PRODUCER_ENGINE_COMMIT: ${{ needs.canonical-cli.outputs.engine-commit }}
+          CANONICAL_PRODUCER_RESULT: ${{ needs.canonical-cli.result }}
+        run: |
+          [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ && "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CANONICAL_PRODUCER_RESULT" == success && "$PRODUCER_RUN_ID" == "$GITHUB_RUN_ID" && "$PRODUCER_RUN_ATTEMPT" == "$GITHUB_RUN_ATTEMPT" ]]
+          [[ "$ENGINE_REPOSITORY" =~ ^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*$ && "$ENGINE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PRODUCER_ENGINE_REPOSITORY" == "$ENGINE_REPOSITORY" && "$PRODUCER_ENGINE_COMMIT" == "$ENGINE_COMMIT" ]]
+          [[ "$PRODUCER_ARTIFACT_ID" =~ ^[1-9][0-9]*$ && "$PRODUCER_ARTIFACT_NAME" == "forge-ci-canonical-linux-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ENGINE_COMMIT" ]]
+          [[ "$RUNTIME_IMAGE" =~ ^[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}$ ]]
+          [[ "$GITHUB_SERVER_URL" =~ ^https://[^/?#@[:space:]]+$ && "$ENGINE_ORIGIN" == "$GITHUB_SERVER_URL/$ENGINE_REPOSITORY" ]]
+          for variable in ENGINE_REPOSITORY ENGINE_COMMIT ENGINE_ORIGIN RUNTIME_IMAGE PRODUCER_ARTIFACT_ID PRODUCER_ARTIFACT_NAME PRODUCER_RUN_ID PRODUCER_RUN_ATTEMPT PRODUCER_ENGINE_REPOSITORY PRODUCER_ENGINE_COMMIT CANONICAL_PRODUCER_RESULT; do
+            printf '%s=%s\n' "$variable" "${!variable}" >>"$GITHUB_ENV"
+          done
+      - &canonical-checkout
+        name: Checkout only the approved engine before consumer or private steps
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ env.ENGINE_REPOSITORY }}
+          ref: ${{ env.ENGINE_COMMIT }}
+          path: _forge_ci_bootstrap
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - &canonical-consume
+        name: Consume canonical CLI from the independently pinned engine checkout
+        id: canonical-bootstrap
+        uses: ./_forge_ci_bootstrap/.github/actions/consume-canonical-cli
+        with:
+          tool-profile: runtime # The job container is the approved image.
+      - name: Compose PR control-plane plan
+        id: plan
+        env:
+          PROJECT_TYPE: ${{ inputs['project-type'] }}
+          BASE_BRANCH: ${{ inputs['base-branch'] }}
+          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          LINT_ENGINE: ${{ inputs['lint-engine'] }}
+          NANOLINTER_IMAGE: ${{ inputs['nanolinter-image'] }}
+          LINTER_SWIFTFORMAT: ${{ inputs['linters.swiftformat'] }}
+          LINTER_SWIFTLINT: ${{ inputs['linters.swiftlint'] }}
+        run: forge-ci plan pr
+
+  # ===== Stage 1: Quality =====
+  execute-quality-stage:
+    name: Check
+    needs: [resolve-bootstrap, canonical-cli, compose-pr-plan]
+    permissions:
+      actions: read
+      contents: read
+    secrets:
+      CODE_SCANNING_TOKEN: ${{ secrets.CODE_SCANNING_TOKEN }}
+    uses: ./.github/workflows/pullrequest-quality-stage.yml
+    with:
+      runs-on: ${{ inputs['runs-on'] }}
+      runs-on-darwin-arm64: ${{ inputs['runs-on-darwin-arm64'] }}
+      enforce-lint: ${{ inputs['enforce-lint'] }}
+      enforce-vulnerabilities: ${{ inputs['enforce-vulnerabilities'] }}
+      pr-plan-json: ${{ needs.compose-pr-plan.outputs.pr-plan-json }}
+      quality-stage-plan-json: ${{ needs.compose-pr-plan.outputs.quality-stage-plan-json }}
+      runtime-image: ${{ inputs['runtime-image'] }}
+      required-lints: ${{ inputs['required-lints'] }}
+      disable-checks: ${{ inputs['disable-checks'] }}
+      megalinter-image: ${{ inputs['megalinter-image'] }}
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      canonical-artifact-id: ${{ needs.canonical-cli.outputs.artifact-id }}
+      canonical-artifact-name: ${{ needs.canonical-cli.outputs.artifact-name }}
+      canonical-producer-run-id: ${{ needs.canonical-cli.outputs.producer-run-id }}
+      canonical-producer-run-attempt: ${{ needs.canonical-cli.outputs.producer-run-attempt }}
+      canonical-producer-engine-repository: ${{ needs.canonical-cli.outputs.engine-repository }}
+      canonical-producer-engine-commit: ${{ needs.canonical-cli.outputs.engine-commit }}
+      canonical-producer-result: ${{ needs.canonical-cli.result }}
+
+  # ===== Summary =====
+  pr-summary:
+    name: Summary
+    needs: [resolve-bootstrap, canonical-cli, compose-pr-plan, execute-quality-stage]
+    if: always() && needs.resolve-bootstrap.result == 'success'
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - *canonical-context
+      - *canonical-checkout
+      - *canonical-consume
+      - name: Download quality stage manifests
+        if: always() && steps.canonical-bootstrap.outputs.verified == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: forge-ci artifact download --name ci-results-pr-quality --dir .ci-results
+      - name: Generate PR summary
+        env:
+          PROJECT_TYPE: ${{ fromJson(needs.compose-pr-plan.outputs['pr-plan-json']).context.project_type }}
+          QUALITY_STAGE_RESULT_PATH: .ci-results/pr-quality-result.json
+          HAS_CODE_SCANNING_TOKEN: ${{ secrets.CODE_SCANNING_TOKEN != '' }}
+        run: forge-ci report pr

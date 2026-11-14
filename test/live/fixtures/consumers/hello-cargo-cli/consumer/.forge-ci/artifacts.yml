@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# One Cargo command built artifact-first, without a container: cargo compiles
+# it in the build job and the binary is the release. The library crate under
+# greeting/ is linked into it and declared nowhere: a Cargo artifact is a
+# binary, and a crate without one has nothing to hand over.
+sign:
+  method: sigstore
+artifacts:
+  - name: hello-cargo-cli
+    project-type: cargo
+    working-directory: .
+    config:
+      build-mode: artifact-first
+containers: []

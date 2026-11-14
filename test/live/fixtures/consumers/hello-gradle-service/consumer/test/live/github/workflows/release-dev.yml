@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# A development snapshot of a branch: Forge CI's snapshot orchestrator builds
+# the jar, builds the service image from it and publishes the image to this
+# repository's container package, without a release, a tag or a change to the
+# branch. A hosted trial fixture: the trial stages the declaration it
+# snapshots (artifacts-config below) and dispatches it, named the branch to
+# snapshot.
+name: Development Snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      source-branch:
+        description: "Branch to snapshot; empty snapshots the branch the workflow runs on"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: snapshot-${{ inputs.source-branch || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    uses: diggsweden/forge-ci/.github/workflows/release-snapshot-orchestrator.yml@v0.90.0
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    with:
+      branch: ${{ inputs.source-branch || github.ref_name }}
+      forge-ci-binary-ref: v0.90.0
+      # The service snapshot's declaration the trial stages: the demo's
+      # release declaration overlaid unsigned and native linux/amd64, since
+      # snapshot images are unsigned and this artifacts.yml signs its
+      # containers (docs/workflows.md, snapshot container contract).
+      artifacts-config: .forge-ci/service-development.yml
+      # The trial renders every runtime image named here by the digest the
+      # engine under test published for it, as every workflow admits only
+      # digest-pinned images; the tags only say which image.
+      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0
+      canonical-builder-image: ghcr.io/diggsweden/forge-ci-runtime-go-1.27:v0.90.0
+      runtime-image-full: ghcr.io/diggsweden/forge-ci-runtime:v0.90.0
+      runtime-image-java: ghcr.io/diggsweden/forge-ci-runtime-java-25:v0.90.0

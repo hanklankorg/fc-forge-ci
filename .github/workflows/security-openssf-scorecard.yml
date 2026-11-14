@@ -1,0 +1,131 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Description:
+# This workflow runs OpenSSF Scorecard to analyze your repository for security best practices.
+# It uploads the results as artifacts and integrates with GitHub's code scanning dashboard.
+#
+# How to use:
+# 1. Define triggers in your caller workflow (on.schedule for scheduled runs),
+#    then add this job:
+#    jobs:
+#      scorecard-analysis:
+#        uses: <orgname>/<reponame>/.github/workflows/<workflowname>.yml@v0.90.0
+#        with:
+#          publish-results: true # Optional, default is true
+#
+# 2. Results are saved as an artifact. Supplying CODE_SCANNING_TOKEN also enables
+#    upload to Code Scanning.
+#
+# Note: This workflow is repository-general. runtime-image is the forge-ci
+#       base runtime image digest the SARIF upload job runs in; its baked
+#       forge-ci is the only engine the workflow runs, nothing is installed.
+name: Analyze OpenSSF Scorecard
+on:
+  workflow_call: # yamllint disable-line rule:truthy
+    inputs:
+      publish-results:
+        description: "Whether to publish the results to the OpenSSF Scorecard API (default: true)"
+        required: false
+        default: true
+        type: boolean
+      egress-policy:
+        description: "Egress policy for the Harden Runner step (e.g., audit, block)"
+        required: false
+        default: "audit"
+        type: string
+      runtime-image:
+        description: "Administrator-pinned forge-ci base runtime image@sha256 digest the SARIF upload job runs in (forge-ci baked in)"
+        required: true
+        type: string
+      runs-on:
+        description: "JSON array of runner labels for the ordinary jobs, read with fromJSON. Signing, promotion and publication jobs stay on GitHub-hosted runners."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      forge-ci-binary-ref:
+        description: "Full engine commit (40 hex) the workflow ref names; a tag or branch is refused"
+        required: true
+        type: string
+    secrets:
+      CODE_SCANNING_TOKEN:
+        description: "Token with security-events:write for SARIF upload"
+        required: false
+permissions:
+  contents: read
+jobs:
+  # Admits the engine commit and the runtime image by digest before the job
+  # container starts.
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      images: |
+        runtime-image=${{ inputs['runtime-image'] }}
+  # The scorecard publish webapp rejects any job whose steps aren't all `uses:`.
+  # We keep this job strictly pure-actions and hand off SARIF to a separate
+  # `publish-sarif` job via an artifact.
+  # See https://github.com/ossf/scorecard-action#workflow-restrictions
+  analysis:
+    name: Scorecard Analysis
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # Needed for GitHub OIDC token if publish_results is true
+      id-token: write
+    steps:
+      - name: Harden GitHub runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: ${{ inputs.egress-policy }}
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Run analysis
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: ${{ inputs.publish-results }}
+      - name: Save scorecard SARIF artifact
+        if: always() && hashFiles('results.sarif') != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sarif-scorecard
+          path: results.sarif
+          retention-days: 5
+          if-no-files-found: ignore
+
+  # Runs in a separate job so the `analysis` job stays pure-actions (required
+  # by the scorecard publish webapp). Downloads the SARIF artifact produced
+  # above and uploads it to Code Scanning with the forge-ci baked into the
+  # admitted runtime image.
+  publish-sarif:
+    name: Upload SARIF to Code Scanning
+    needs: [resolve-bootstrap, analysis]
+    if: always() && needs.analysis.result != 'cancelled' && needs.resolve-bootstrap.result == 'success'
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    timeout-minutes: 5
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Download scorecard SARIF artifact
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: forge-ci artifact download --name sarif-scorecard --dir .
+      - name: Upload scorecard results to Code Scanning
+        if: hashFiles('results.sarif') != ''
+        continue-on-error: true
+        env:
+          CODE_SCANNING_TOKEN: ${{ secrets.CODE_SCANNING_TOKEN }}
+          SARIF_FILE: results.sarif
+          SARIF_CATEGORY: scorecard
+        run: forge-ci security report upload-sarif

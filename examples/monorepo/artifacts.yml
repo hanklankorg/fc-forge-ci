@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Example artifacts.yml for monorepo support
+# Place this file in your repository (e.g., .forge-ci/artifacts.yml)
+# and reference it in your release workflow with: artifacts-config: .forge-ci/artifacts.yml
+sign:
+  method: sigstore
+
+artifacts:
+  # Maven backend application
+  - name: backend-api
+    project-type: maven
+    working-directory: services/backend
+    build-type: application
+    config:
+      java-version: 25
+  # NPM frontend application
+  - name: frontend-ui
+    project-type: npm
+    working-directory: packages/frontend
+    publish-to:
+      - forge-packages
+    config:
+      node-version: 24
+      npm-tag: release-{version}
+# Containers are separate - they reference artifacts by name. A release
+# publishes every container to one image repository, so each container
+# needs its own tag-suffix to keep the two images apart there.
+containers:
+  - name: backend-api
+    from: [backend-api]
+    container-file: services/backend/Containerfile
+    context: .
+    tag-suffix: -backend
+    platforms: linux/amd64,linux/arm64
+  - name: frontend-ui
+    from: [frontend-ui]
+    container-file: packages/frontend/Containerfile
+    context: .
+    tag-suffix: -frontend
+    platforms: linux/amd64,linux/arm64

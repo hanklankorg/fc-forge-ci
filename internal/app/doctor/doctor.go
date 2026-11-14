@@ -1,0 +1,1090 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+// SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
+
+// Package doctor implements `forge-ci doctor` — a setup-validation
+// pass for repositories that adopt forge-ci. The goal is the same
+// as `kubectl version --short` or `terraform validate`: a single
+// command that says "your setup is correct" or "here's specifically
+// what's wrong and how to fix it."
+//
+// The check set is deliberately small and grows with adoption pain
+// points. Each check is independent; one failure does not block the
+// others from running, so the operator gets a complete punch-list.
+package doctor
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"io/fs"
+	"net/url"
+	"os"
+	"path/filepath"
+	"runtime/debug"
+	"slices"
+	"strings"
+
+	"golang.org/x/mod/module"
+	"gopkg.in/yaml.v3"
+
+	appconfig "github.com/diggsweden/forge-ci/internal/app/config"
+	appvalidate "github.com/diggsweden/forge-ci/internal/app/validate"
+	"github.com/diggsweden/forge-ci/internal/docslink"
+	"github.com/diggsweden/forge-ci/internal/domain/config"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
+	"github.com/diggsweden/forge-ci/internal/domain/provider"
+	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
+)
+
+// Check names. Each constant is the human-facing identifier of one
+// diagnostic; the same Name is reused across every Check that
+// reports on that aspect (the not-found, wrong-kind, and OK paths
+// for one check all carry the same Name so operator-facing summaries
+// group them correctly).
+const (
+	checkArtifactsYMLPresent = "artifacts.yml present"
+	//nolint:gosec // G101 false positive: this is a human-readable check name; the word "token" refers to the GHA OIDC id-token permission, not a credential literal.
+	checkWorkflowIDToken      = "workflow id-token permission"
+	checkWorkflowsPinReusable = "workflows pin forge-ci to a tag"
+	checkConfigAutoDerives    = "configuration auto-derives"
+	checkSignBlockValid       = "sign block valid"
+)
+
+// Severity categorises a Check result.
+type Severity string
+
+// Recognised Severity values. Ordering: ok < warn < fail (a fail
+// short-circuits the overall exit code; warn doesn't).
+const (
+	SeverityOK   Severity = "ok"
+	SeverityWarn Severity = "warn"
+	SeverityFail Severity = "fail"
+)
+
+// Check is the result of one diagnostic. Name identifies the check
+// in operator-facing output; Message describes what was observed;
+// Remediation is the actionable fix when Severity != ok.
+type Check struct {
+	Name        string   `json:"name"`
+	Severity    Severity `json:"severity"`
+	Message     string   `json:"message"`
+	Remediation string   `json:"remediation,omitempty"`
+}
+
+// Input drives Run.
+type Input struct {
+	// Root is the repository root. Empty defaults to the process cwd.
+	Root string
+	// ArtifactsPath overrides the .forge-ci/artifacts.yml lookup.
+	ArtifactsPath string
+	// RepoSlug is the "owner/repo" this binary belongs to, used by the
+	// workflow-pin check to spot `uses: <slug>@main`. Empty → derived from
+	// the binary's own Go module path at runtime, so a fork that renames its
+	// module checks its own slug without a rebuild. Overridable via the
+	// --forge-ci-repository flag / FORGE_CI_REPO_SLUG for vendored or mirrored
+	// setups.
+	RepoSlug string
+
+	// KeylessAvailable reports whether the detected forge can drive Sigstore
+	// keyless signing (provider.Capabilities.PublicFulcioTrusted). The CLI resolves it
+	// from the active provider; it drives the (non-failing) signing-method
+	// recommendation. False off a keyless-capable forge (or when undetectable
+	// locally) simply suppresses the recommendation.
+	KeylessAvailable bool
+	ForgeAPI         provider.ForgeAPI
+	ServerURL        string
+}
+
+// Run executes every check and returns the result list. The caller
+// formats and decides exit policy. Any error returned from Run is a
+// runtime problem (e.g. cwd unreadable), not a check failure — those
+// are encoded in the returned slice.
+func Run(in Input) ([]Check, error) {
+	root := in.Root
+	if root == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("doctor: resolve cwd: %w", err)
+		}
+
+		root = wd
+	}
+
+	// A mistyped --root must not read as a repository without Forge CI files:
+	// every check would fail and send the person to init.
+	if info, err := os.Stat(root); err != nil || !info.IsDir() {
+		return nil, fmt.Errorf("doctor: repository root %s is not a directory; pass the repository's top directory to --root: %w", root, errs.ErrMissingInput)
+	}
+
+	artifactsPath := in.ArtifactsPath
+	if artifactsPath == "" {
+		artifactsPath = filepath.Join(root, ".forge-ci", "artifacts.yml")
+	}
+
+	checks := make([]Check, 0, 8)
+	cfg, configChecks, parsed := loadDoctorConfig(root, artifactsPath, in.ArtifactsPath == "")
+
+	checks = append(checks, configChecks...)
+	if providerCheck, ok := checkReleaseWorkflowProvider(in.ForgeAPI, in.ServerURL); ok {
+		checks = append(checks, providerCheck)
+	}
+
+	repoSlug := in.RepoSlug
+	if repoSlug == "" {
+		repoSlug = deriveSelfRepoSlug()
+	}
+
+	checks = append(checks, checkAdminPolicyResolves(os.Environ()), checkCIWorkflowsPresent(root))
+	if c, ok := checkPlaceholdersFilled(root, artifactsPath); ok {
+		checks = append(checks, c)
+	}
+
+	checks = append(checks, checkWorkflowVersionRefs(root, repoSlug))
+	if c, ok := checkRequestSignatureVerified(root); ok {
+		checks = append(checks, c)
+	}
+
+	if c, ok := checkGitLabComponentJobNames(root, repoSlug); ok {
+		checks = append(checks, c)
+	}
+
+	if !parsed {
+		return checks, nil
+	}
+
+	checks = append(checks,
+		checkSignBlock(cfg.Sign, in.ForgeAPI),
+		checkArtifactPathsExist(root, cfg.Artifacts),
+		checkAllowedSignersIfRequired(root, cfg.Artifacts),
+		checkWorkflowPermissions(root, cfg.Sign, in.ForgeAPI),
+	)
+
+	if rec, ok := signMethodRecommendation(cfg, in.KeylessAvailable); ok {
+		checks = append(checks, rec)
+	}
+
+	if c, ok := checkGitSigningSSHAllowlist(root, cfg); ok {
+		checks = append(checks, c)
+	}
+
+	return checks, nil
+}
+
+func checkReleaseWorkflowProvider(forge provider.ForgeAPI, serverURL string) (Check, bool) {
+	if provider.ClassifyReleaseWorkflowScope(forge, serverURL) == provider.ReleaseWorkflowNotApplicable {
+		return Check{}, false
+	}
+
+	const name = "release workflow provider support"
+	if err := appvalidate.ReleaseProvider(forge, serverURL); err != nil {
+		return Check{
+			Name:        name,
+			Severity:    SeverityFail,
+			Message:     err.Error(),
+			Remediation: "run the reusable GitHub release workflows on github.com, or use a provider-native release pipeline without actions/upload-artifact@v7",
+		}, true
+	}
+
+	return Check{Name: name, Severity: SeverityOK, Message: "github.com supports the pinned release workflow actions"}, true
+}
+
+//nolint:nestif // the auto-derive branch reports three distinct outcomes (derive failed, derived nothing, derived one artifact); flattening would duplicate the check construction.
+func loadDoctorConfig(root, artifactsPath string, allowAutoDerive bool) (*config.Config, []Check, bool) {
+	if allowAutoDerive {
+		if _, err := os.Stat(artifactsPath); os.IsNotExist(err) {
+			cfg, deriveErr := appconfig.AutoDeriveConfig(nil, root)
+			if deriveErr != nil {
+				return nil, []Check{checkArtifactsExists(artifactsPath), {
+					Name:        checkConfigAutoDerives,
+					Severity:    SeverityFail,
+					Message:     deriveErr.Error(),
+					Remediation: "add a recognised manifest at the repository root, or run `forge-ci init <forge-ci URL> --dry-run` to preview an artifacts.yml",
+				}}, false
+			}
+
+			if err := config.Validate(cfg); err != nil {
+				return cfg, []Check{{
+					Name:        "auto-derived configuration validates",
+					Severity:    SeverityFail,
+					Message:     err.Error(),
+					Remediation: "create .forge-ci/artifacts.yml explicitly; " + docslink.See("artifacts-reference.md"),
+				}}, true
+			}
+
+			artifact := cfg.Artifacts[0]
+
+			return cfg, []Check{{
+				Name:     checkConfigAutoDerives,
+				Severity: SeverityOK,
+				Message: fmt.Sprintf("no %s; using the %s artifact %q derived from the root manifest (write the file to configure more)",
+					relTo(root, artifactsPath), artifact.ProjectType, artifact.Name),
+			}}, true
+		}
+	}
+
+	checks := make([]Check, 0, 2)
+	checks = append(checks, checkArtifactsExists(artifactsPath))
+	cfg, parseCheck, parsed := parseArtifacts(artifactsPath)
+
+	return cfg, append(checks, parseCheck), parsed
+}
+
+// signMethodRecommendation returns a non-failing advisory (and true) when the
+// repo signs artifacts with gpg, the detected forge supports keyless, and no
+// artifact publishes to a PGP-native registry — i.e. when sigstore-keyless
+// would be a strict improvement (no key on the runner) with no downside. It
+// stays silent (false) otherwise: keyless unavailable, already on
+// sigstore/kms, or a Maven Central publish that genuinely needs a PGP .asc.
+//
+// Severity is OK: gpg is a valid choice, so this is guidance, not a warning,
+// and never changes the exit code.
+func signMethodRecommendation(cfg *config.Config, keylessAvailable bool) (Check, bool) {
+	if cfg.Sign.EffectiveMethod() != domainrelease.SignMethodGPG ||
+		!keylessAvailable ||
+		requiresPGPSignature(cfg.Artifacts) {
+		return Check{}, false
+	}
+
+	return Check{
+		Name:     "signing method recommendation",
+		Severity: SeverityOK,
+		Message: "sign.method=gpg, but this forge supports keyless (sigstore) signing — " +
+			"keyless needs no key on the runner. Consider sign.method: sigstore " +
+			"(" + docslink.See("verification.md#choosing-a-method") + "); keep gpg if you later publish to a PGP-native registry.",
+	}, true
+}
+
+// checkGitSigningSSHAllowlist checks for the file, not a signature. Native Git
+// discovers a principal from the allowed-signers entry for the signing key;
+// it does not require that principal to match the tagger or committer email.
+func checkGitSigningSSHAllowlist(root string, cfg *config.Config) (Check, bool) {
+	if cfg.GitSigning.EffectiveMethod() != config.GitSignSSH {
+		return Check{}, false
+	}
+
+	name := CheckSSHAllowlist
+	allowedSigners := filepath.Join(root, ".forge-ci", "allowed_signers")
+
+	if !regularFileExists(allowedSigners) {
+		return Check{
+			Name: name,
+			// A warning: only the release reads the allowlist, so a pull
+			// request passes without it. setup status keeps it as a step.
+			Severity: SeverityWarn,
+			Message: "git-signing.method=ssh, but .forge-ci/allowed_signers is missing — " +
+				"the release refuses a release-request tag whose signer is not listed there",
+			Remediation: "add the release bot's key and the key of each person who requests releases: " +
+				"`forge-ci setup signer --principal <email> --public-key <key>.pub`, then commit .forge-ci/allowed_signers; " +
+				docslink.See("verification.md#release-authorisation"),
+		}, true
+	}
+
+	if err := appvalidate.AllowedSignersFormat(allowedSigners); err != nil {
+		return Check{
+			Name:     name,
+			Severity: SeverityFail,
+			Message:  fmt.Sprintf(".forge-ci/allowed_signers failed entry/key checks: %v", err),
+			Remediation: "fix the entries above — each line must be " +
+				"'principal [options] key-type base64-key'; " +
+				docslink.See("verification.md#release-authorisation"),
+		}, true
+	}
+
+	return Check{
+		Name:     name,
+		Severity: SeverityOK,
+		Message: ".forge-ci/allowed_signers passed basic entry/key checks — OpenSSH evaluates option values; ensure it lists the release signing public key " +
+			"under the intended signer principal",
+	}, true
+}
+
+// requiresPGPSignature reports whether any artifact publishes to a registry
+// that mandates a detached OpenPGP signature (Maven Central), where gpg is the
+// correct backend and the keyless recommendation must not fire.
+func requiresPGPSignature(artifacts []config.Artifact) bool {
+	for _, a := range artifacts {
+		if slices.Contains(a.PublishTo, config.PublishMavenCentral) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Report is the machine-readable doctor result emitted by FormatJSON
+// when --json is passed: the resolved environment plus the check list and
+// a failure count, so a CI gate can parse "is this repo set up correctly?"
+// programmatically instead of scraping the human text.
+type Report struct {
+	Environment  Environment         `json:"environment"`
+	Checks       []Check             `json:"checks"`
+	Failures     int                 `json:"failures"`
+	Requirements *RequirementsReport `json:"requirements,omitempty"`
+}
+
+// FormatJSON writes the report as indented JSON (one document, trailing
+// newline) to w. The structured counterpart to FormatEnvironment +
+// FormatText, selected by the global --json / --format=json flag.
+func FormatJSON(out io.Writer, report Report) error {
+	body, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return fmt.Errorf("doctor: marshal report: %w", err)
+	}
+
+	if _, err := out.Write(append(body, '\n')); err != nil {
+		return fmt.Errorf("doctor: write report: %w", err)
+	}
+
+	return nil
+}
+
+// CountFailures returns how many checks have SeverityFail — the basis
+// for both the report's Failures field and the command's exit code.
+func CountFailures(checks []Check) int {
+	failures := 0
+
+	for _, c := range checks {
+		if c.Severity == SeverityFail {
+			failures++
+		}
+	}
+
+	return failures
+}
+
+// FormatText writes a human-readable check list to w. Lines are
+// prefixed with [OK]/[WARN]/[FAIL]; remediation hints are indented
+// underneath the failing check.
+func FormatText(w io.Writer, checks []Check) {
+	for _, c := range checks {
+		_, _ = fmt.Fprintf(w, "[%s] %s: %s\n", strings.ToUpper(string(c.Severity)), c.Name, c.Message)
+
+		if c.Remediation != "" {
+			_, _ = fmt.Fprintf(w, "       fix: %s\n", c.Remediation)
+		}
+	}
+}
+
+// Environment is the resolved CI runtime the doctor report prints up
+// front: which forge API the binary will call, which runner conventions
+// it will emit, and which optional forge features are available. The CLI
+// resolves these (env detection + provider) and hands them in; this
+// layer only formats, so it stays free of env reads and platform
+// branches.
+type Environment struct {
+	Provider     string                `json:"provider"`  // forge display name, e.g. "Forgejo"
+	ForgeAPI     string                `json:"forge_api"` // e.g. "forgejo"
+	Runner       string                `json:"runner"`    // provider.RunnerKind string, e.g. "github" / "forgejo"
+	Capabilities provider.Capabilities `json:"capabilities"`
+	// Enforcement is what the effective administrator policy blocks, as
+	// enforcement.Summary words it; empty when it was not resolved.
+	Enforcement string `json:"enforcement,omitempty"`
+}
+
+// FormatEnvironment writes the resolved-runtime + capability matrix
+// block. Capabilities that are unavailable carry a one-line hint on how
+// findings/behaviour degrade, so a missing feature (e.g. Forgejo has no
+// SARIF ingestion) is visible before it surprises an adopter.
+//
+// Outside a CI job the forge resolves to local, which has no capability at
+// all; eight alarming "[ no]" rows would then lead the report on every
+// laptop. One line says why they are absent and how to see a forge's table.
+func FormatEnvironment(out io.Writer, env Environment) {
+	_, _ = fmt.Fprintf(out, "Environment:\n")
+	_, _ = fmt.Fprintf(out, "  provider (forge API): %s (%s)\n", env.Provider, env.ForgeAPI)
+	_, _ = fmt.Fprintf(out, "  runner conventions:   %s\n", env.Runner)
+
+	if env.Enforcement != "" {
+		_, _ = fmt.Fprintf(out, "  enforcement:          %s\n", env.Enforcement)
+	}
+
+	if env.ForgeAPI == provider.ForgeLocal.String() {
+		_, _ = fmt.Fprintf(out, "  not in a CI job; capability table skipped, pass --provider github to see it\n")
+
+		return
+	}
+
+	_, _ = fmt.Fprintf(out, "Capabilities:\n")
+
+	rows := []struct {
+		name string
+		on   bool
+		hint string
+	}{
+		{"SARIF / Code Scanning upload", env.Capabilities.SARIFUpload, "findings degrade to the step-summary + uploaded artifact"},
+		{"SLSA build provenance API", env.Capabilities.Attestation, "no forge attestation API; `release provenance` still emits a cosign-signed statement"},
+		{"keyless OIDC signing (public Fulcio)", env.Capabilities.PublicFulcioTrusted, "use key-based signing, or pass --oidc-issuer and --fulcio-url for your own CA"},
+		{"keyless OIDC signing (own Fulcio)", env.Capabilities.MintsOIDCToken, "this forge mints no OIDC id-token; use key-based signing"},
+		{"release asset upload", env.Capabilities.ReleaseAssets, "release assets cannot be attached on this forge"},
+		{"run-artifact store (intra-run hand-off)", env.Capabilities.RunArtifacts, "pass run artifacts via the job template's artifacts:/needs:, not the binary"},
+		{"container tag deletion", env.Capabilities.ContainerTagDeletion, "container cleanup and rollback cannot delete forge-managed tags"},
+		{"container package listing", env.Capabilities.ContainerPackageListing, "container cleanup cannot enumerate stale package versions"},
+	}
+
+	for _, row := range rows {
+		mark := "yes"
+		if !row.on {
+			mark = "no"
+		}
+
+		_, _ = fmt.Fprintf(out, "  [%3s] %s\n", mark, row.name)
+
+		if !row.on {
+			_, _ = fmt.Fprintf(out, "        → %s\n", row.hint)
+		}
+	}
+}
+
+// ExitCode returns 0 when every check is ok or warn; non-zero when
+// any check is fail. Warnings are advisory and do NOT change the
+// exit code — they exist so an operator can fix lower-priority
+// items at their own pace.
+func ExitCode(checks []Check) int {
+	for _, c := range checks {
+		if c.Severity == SeverityFail {
+			return int(errs.ExitCodeValidation)
+		}
+	}
+
+	return 0
+}
+
+func checkArtifactsExists(path string) Check {
+	info, err := os.Stat(path)
+	if err != nil {
+		return Check{
+			Name:     checkArtifactsYMLPresent,
+			Severity: SeverityFail,
+			Message:  path + " not found",
+			Remediation: "preview the files for this repository with `forge-ci init <forge-ci URL> --dry-run`, " +
+				"or write .forge-ci/artifacts.yml by hand",
+		}
+	}
+
+	if info.IsDir() {
+		return Check{
+			Name:        checkArtifactsYMLPresent,
+			Severity:    SeverityFail,
+			Message:     path + " is a directory, expected a file",
+			Remediation: "rename or remove the directory and create artifacts.yml in its place",
+		}
+	}
+
+	return Check{
+		Name:     checkArtifactsYMLPresent,
+		Severity: SeverityOK,
+		Message:  path,
+	}
+}
+
+func parseArtifacts(path string) (*config.Config, Check, bool) {
+	body, err := os.ReadFile(path) //nolint:gosec // operator-supplied repo path; trusted scope.
+	if err != nil {
+		return nil, Check{
+			Name:        "artifacts.yml parses",
+			Severity:    SeverityFail,
+			Message:     fmt.Sprintf("read %s: %v", path, err),
+			Remediation: "ensure the file is readable by the user running doctor",
+		}, false
+	}
+
+	cfg, err := config.Parse(body)
+	if err != nil {
+		return nil, Check{
+			Name:        "artifacts.yml parses",
+			Severity:    SeverityFail,
+			Message:     err.Error(),
+			Remediation: "validate against .forge-ci/artifacts.schema.json or run `forge-ci config parse-artifacts --file " + path + "`",
+		}, false
+	}
+
+	if err := config.Validate(cfg); err != nil {
+		return cfg, Check{
+			Name:        "artifacts.yml validates",
+			Severity:    SeverityFail,
+			Message:     err.Error(),
+			Remediation: docslink.See("artifacts-reference.md") + " for the per-field schema",
+		}, true
+	}
+
+	return cfg, Check{
+		Name:     "artifacts.yml parses + validates",
+		Severity: SeverityOK,
+		Message:  fmt.Sprintf("%d artifact(s), %d container(s), sign.%s", len(cfg.Artifacts), len(cfg.Containers), signMethods(cfg.Sign)),
+	}, true
+}
+
+// signMethods names the declared signing: the method, and the files' own
+// method when the declaration sets one.
+func signMethods(sign config.SignConfig) string {
+	methods := "method=" + string(sign.EffectiveMethod())
+	if sign.FilesMethod != "" {
+		methods += ", files-method=" + string(sign.FilesMethod)
+	}
+
+	return methods
+}
+
+// checkSignBlock validates the sign block. A sign.method, sign.files-method,
+// sign.key or sign.transparency the forge's release does not use is the
+// release plan's warning, and doctor warns the same way.
+func checkSignBlock(sign config.SignConfig, forge provider.ForgeAPI) Check {
+	if err := sign.Validate(); err != nil {
+		return Check{
+			Name:        checkSignBlockValid,
+			Severity:    SeverityFail,
+			Message:     err.Error(),
+			Remediation: docslink.See("verification.md#signing-methods-for-release-artifacts") + " for the per-method invariants",
+		}
+	}
+
+	if warnings := pipeline.ReleaseSigningWarnings(sign, forge); len(warnings) > 0 {
+		return Check{
+			Name:        checkSignBlockValid,
+			Severity:    SeverityWarn,
+			Message:     strings.Join(warnings, "; "),
+			Remediation: docslink.See("verification.md#signing-methods-for-release-artifacts") + " for which release signs with which method",
+		}
+	}
+
+	return Check{
+		Name:     checkSignBlockValid,
+		Severity: SeverityOK,
+		Message:  signMethods(sign),
+	}
+}
+
+func checkAllowedSignersIfRequired(root string, artifacts []config.Artifact) Check {
+	required := false
+
+	for _, a := range artifacts {
+		if a.RequireAuthorization || slices.Contains(a.PublishTo, config.PublishMavenCentral) {
+			required = true
+
+			break
+		}
+	}
+
+	if !required {
+		return Check{
+			Name:     "release-authorization allowlist (n/a)",
+			Severity: SeverityOK,
+			Message:  "no artifact requires release authorization or publishes to Maven Central",
+		}
+	}
+
+	ssh := filepath.Join(root, ".forge-ci", "allowed_signers")
+	gpg := filepath.Join(root, ".forge-ci", "allowed_gpg_keys.asc")
+
+	sshExists := regularFileExists(ssh)
+	gpgExists := regularFileExists(gpg)
+
+	const name = "release-authorization allowlist present"
+
+	if !sshExists && !gpgExists {
+		return Check{
+			Name:     name,
+			Severity: SeverityFail,
+			Message:  "release authorization is required but neither .forge-ci/allowed_signers nor allowed_gpg_keys.asc exists",
+			Remediation: "commit .forge-ci/allowed_signers (SSH OpenSSH format) and/or " +
+				".forge-ci/allowed_gpg_keys.asc (armored GPG public keys of authorised signers); add an SSH key with " +
+				"`forge-ci setup signer`; " + docslink.See("verification.md#release-authorisation"),
+		}
+	}
+
+	var formatErrs []string
+
+	if sshExists {
+		if err := appvalidate.AllowedSignersFormat(ssh); err != nil {
+			formatErrs = append(formatErrs, err.Error())
+		}
+	}
+
+	if gpgExists {
+		if err := appvalidate.GPGKeysFormat(gpg); err != nil {
+			formatErrs = append(formatErrs, err.Error())
+		}
+	}
+
+	if len(formatErrs) > 0 {
+		return Check{
+			Name:     name,
+			Severity: SeverityFail,
+			Message: fmt.Sprintf("%d allowlist file(s) failed validation: %s",
+				len(formatErrs), strings.Join(formatErrs, "; ")),
+			Remediation: "fix the entries above — SSH: 'principal [options] key-type base64-key'; " +
+				"GPG: complete armor blocks containing public keys; " +
+				docslink.See("verification.md#release-authorisation"),
+		}
+	}
+
+	return Check{
+		Name:     name,
+		Severity: SeverityOK,
+		Message:  "found .forge-ci/allowed_signers and/or allowed_gpg_keys.asc",
+	}
+}
+
+func checkWorkflowPermissions(root string, sign config.SignConfig, forge provider.ForgeAPI) Check {
+	if sign.EffectiveMethod() != domainrelease.SignMethodSigstore {
+		return Check{
+			Name:     "workflow id-token permission (n/a)",
+			Severity: SeverityOK,
+			Message:  "sign.method != sigstore; OIDC token not required",
+		}
+	}
+
+	if useGitLabOIDCCheck(root, forge) {
+		return checkGitLabOIDC(root)
+	}
+
+	// Sigstore-keyless needs the workflow to grant the runner an OIDC
+	// id-token, and the grant is forge-specific: GitHub uses
+	// `permissions: id-token: write` under .github/workflows; Forgejo IGNORES
+	// `permissions` and instead uses `enable-openid-connect` under
+	// .forgejo/workflows (https://forgejo.org/docs/v15.0/user/actions/security-openid-connect/).
+	// A repo driven by this forge-neutral tool may target either, and doctor
+	// usually runs locally (forge undetectable), so accept whichever
+	// convention is present.
+	//
+	// The grant is read out of the parsed document, not matched as text. A
+	// substring search got this wrong in both directions: `# id-token: write`
+	// in a comment, or the phrase inside a description, satisfied it; while
+	// `permissions: write-all`, which really does grant the token, and
+	// `id-token:   write` with different spacing, did not. Telling an operator
+	// their setup is fine because of a comment is the worse half — this check
+	// exists to catch the forgotten grant, and a false OK removes the only
+	// warning they were going to get.
+	conventions := []struct {
+		dir, hint string
+		grants    func(*yaml.Node) bool
+	}{
+		{
+			dir:    filepath.Join(".github", "workflows"),
+			hint:   ".github/workflows/ grants `permissions: id-token: write`",
+			grants: workflowGrantsIDToken,
+		},
+		{
+			dir:    filepath.Join(".forgejo", "workflows"),
+			hint:   ".forgejo/workflows/ sets `enable-openid-connect`",
+			grants: workflowEnablesOpenIDConnect,
+		},
+	}
+
+	anyDir := false
+
+	for _, conv := range conventions {
+		dir := filepath.Join(root, conv.dir)
+		if _, statErr := os.Stat(dir); statErr != nil {
+			continue
+		}
+
+		anyDir = true
+
+		found, walkErr := anyWorkflowSatisfies(dir, conv.grants)
+		if walkErr != nil {
+			return Check{
+				Name:     checkWorkflowIDToken,
+				Severity: SeverityWarn,
+				Message:  fmt.Sprintf("could not scan %s: %v", dir, walkErr),
+				Remediation: "manually verify a caller workflow grants the OIDC id-token " +
+					"(GitHub: `permissions: id-token: write`; Forgejo: `enable-openid-connect`)",
+			}
+		}
+
+		if found {
+			return Check{
+				Name:     checkWorkflowIDToken,
+				Severity: SeverityOK,
+				Message:  "a workflow grants the OIDC id-token (" + conv.hint + ")",
+			}
+		}
+	}
+
+	return missingIDTokenCheck(anyDir)
+}
+
+// missingIDTokenCheck builds the failure when no workflow grants the OIDC
+// id-token: distinguishing "no workflows dir at all" from "dir present but no
+// grant", with remediation covering both the GitHub and Forgejo conventions.
+func missingIDTokenCheck(anyDir bool) Check {
+	remediation := "grant the OIDC id-token in the caller workflow — " +
+		"GitHub: `permissions: id-token: write` under .github/workflows/; " +
+		"Forgejo: `enable-openid-connect` under .forgejo/workflows/; " +
+		"see examples/signing/sigstore-keyless/github/release-workflow.yml"
+
+	if !anyDir {
+		return Check{
+			Name:        checkWorkflowIDToken,
+			Severity:    SeverityFail,
+			Message:     "no .github/workflows/ or .forgejo/workflows/ but sign.method=sigstore needs a workflow granting the OIDC id-token",
+			Remediation: remediation,
+		}
+	}
+
+	return Check{
+		Name:        checkWorkflowIDToken,
+		Severity:    SeverityFail,
+		Message:     "sign.method=sigstore but no workflow grants the OIDC id-token",
+		Remediation: remediation,
+	}
+}
+
+// anyWorkflowSatisfies parses every *.yml/*.yaml under workflowsDir and reports
+// whether any of them satisfies grants. Unreadable and unparsable workflows are
+// skipped: this scan is best-effort advice, not authoritative, and a repository
+// with one malformed workflow should still get an answer about the others.
+func anyWorkflowSatisfies(workflowsDir string, grants func(*yaml.Node) bool) (bool, error) {
+	found := false
+
+	walkErr := filepath.WalkDir(workflowsDir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if entry.IsDir() {
+			return nil
+		}
+
+		if !strings.HasSuffix(path, ".yml") && !strings.HasSuffix(path, ".yaml") {
+			return nil
+		}
+
+		body, err := os.ReadFile(path) //nolint:gosec // walked workflow path under a known dir.
+		if err != nil {
+			return nil //nolint:nilerr // unreadable workflow shouldn't fail the whole check.
+		}
+
+		var doc yaml.Node
+		if err := yaml.Unmarshal(body, &doc); err != nil || len(doc.Content) == 0 {
+			return nil //nolint:nilerr // unparsable workflow shouldn't fail the whole check.
+		}
+
+		if grants(doc.Content[0]) {
+			found = true
+		}
+
+		return nil
+	})
+
+	return found, walkErr
+}
+
+// workflowGrantsIDToken reports whether a GitHub workflow grants the OIDC
+// id-token, at the workflow level or in any job.
+//
+// `permissions: write-all` counts: it grants every scope including id-token,
+// and an operator who wrote it has made the grant even though the words
+// "id-token" never appear. A bare `permissions: read-all`, or a permissions
+// block that names other scopes, does not.
+func workflowGrantsIDToken(root *yaml.Node) bool {
+	if permissionsGrantIDToken(yamlChild(root, "permissions")) {
+		return true
+	}
+
+	jobs := yamlChild(root, "jobs")
+	if jobs == nil || jobs.Kind != yaml.MappingNode {
+		return false
+	}
+
+	for i := 1; i < len(jobs.Content); i += 2 {
+		if permissionsGrantIDToken(yamlChild(jobs.Content[i], "permissions")) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// permissionsGrantIDToken reads one `permissions:` value, in either spelling
+// GitHub accepts: the scalar shorthand, or a mapping of scope to level.
+func permissionsGrantIDToken(permissions *yaml.Node) bool {
+	if permissions == nil {
+		return false
+	}
+
+	if permissions.Kind == yaml.ScalarNode {
+		return strings.TrimSpace(permissions.Value) == "write-all"
+	}
+
+	scope := yamlChild(permissions, "id-token")
+
+	return scope != nil && strings.TrimSpace(scope.Value) == "write"
+}
+
+// workflowEnablesOpenIDConnect reports whether a Forgejo workflow sets
+// enable-openid-connect. Forgejo ignores `permissions` entirely, so this is a
+// separate convention rather than a spelling of the same one.
+func workflowEnablesOpenIDConnect(root *yaml.Node) bool {
+	return yamlNodeEnablesKey(root, "enable-openid-connect")
+}
+
+// yamlNodeEnablesKey looks for key anywhere in the document with a value that
+// is not an explicit false. Forgejo accepts the setting at more than one level
+// and the documentation does not fix which, so the search stays broad — but it
+// is a search over parsed keys, so a mention in a comment or a description
+// string is not one.
+func yamlNodeEnablesKey(node *yaml.Node, key string) bool {
+	if node == nil {
+		return false
+	}
+
+	if node.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			if node.Content[i].Value == key {
+				return strings.TrimSpace(node.Content[i+1].Value) != "false"
+			}
+		}
+	}
+
+	for _, child := range node.Content {
+		if yamlNodeEnablesKey(child, key) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// yamlChild returns the value node for key in a mapping, or nil.
+func yamlChild(node *yaml.Node, key string) *yaml.Node {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+
+	return nil
+}
+
+func checkWorkflowVersionRefs(root, repoSlug string) Check {
+	if repoSlug == "" {
+		// We couldn't determine our own module slug, so we can't tell which
+		// `uses:` lines reference this project. Surface it rather than
+		// silently passing a security-relevant check.
+		return Check{
+			Name:        checkWorkflowsPinReusable,
+			Severity:    SeverityWarn,
+			Message:     "could not determine this binary's repo slug; workflow-pin check skipped",
+			Remediation: "set FORGE_CI_REPO_SLUG (or --forge-ci-repository) to your owner/repo so the @main/@master pin check can run",
+		}
+	}
+
+	// The uses:@ref pin matters on any Actions-style forge, so scan both
+	// GitHub's .github/workflows and Forgejo's .forgejo/workflows (same
+	// uses: syntax). GitLab's include: pinning is a separate mechanism.
+	var (
+		scanned  bool
+		floating []string
+	)
+
+	for _, rel := range actionsWorkflowDirRels() {
+		dir := filepath.Join(root, rel)
+		if _, statErr := os.Stat(dir); statErr != nil {
+			continue
+		}
+
+		scanned = true
+
+		found, walkErr := findFloatingForgeCIRefs(dir, repoSlug)
+		if walkErr != nil {
+			return Check{
+				Name:     checkWorkflowsPinReusable,
+				Severity: SeverityWarn,
+				Message:  fmt.Sprintf("could not scan %s: %v", dir, walkErr),
+			}
+		}
+
+		floating = append(floating, found...)
+	}
+
+	if !scanned {
+		// No Actions workflows at all is a valid setup (e.g. a GitLab-only
+		// project) — nothing to pin, so don't warn.
+		return Check{
+			Name:     checkWorkflowsPinReusable,
+			Severity: SeverityOK,
+			Message:  ".github/workflows/ and .forgejo/workflows/ absent; no Actions workflows to scan",
+		}
+	}
+
+	if len(floating) > 0 {
+		return Check{
+			Name:        checkWorkflowsPinReusable,
+			Severity:    SeverityWarn,
+			Message:     "found @main/@master references in " + strings.Join(floating, ", "),
+			Remediation: "pin to a tag (e.g. @v0.90.0) so a re-tagged upstream main can't change your CI without a PR",
+		}
+	}
+
+	return Check{
+		Name:     checkWorkflowsPinReusable,
+		Severity: SeverityOK,
+		Message:  "no @main / @master references found",
+	}
+}
+
+// actionsWorkflowDirRels are the Actions-style workflow directories this
+// tool scans, relative to repo root: GitHub's .github/workflows and
+// Forgejo's .forgejo/workflows. Both use the same uses:@ref / Actions YAML;
+// Forgejo just lives elsewhere. GitLab's include: pinning is checked
+// separately. Shared so the id-token and pin checks never silently skip a
+// Forgejo repo.
+func actionsWorkflowDirRels() []string {
+	return []string{
+		filepath.Join(".github", "workflows"),
+		filepath.Join(".forgejo", "workflows"),
+	}
+}
+
+// findFloatingForgeCIRefs walks workflowsDir and returns the
+// basenames of every YAML file that references repoSlug (this binary's
+// own owner/repo) via @main or @master rather than a tagged version.
+func findFloatingForgeCIRefs(workflowsDir, repoSlug string) ([]string, error) {
+	var floating []string
+
+	walkErr := filepath.WalkDir(workflowsDir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+
+		if !strings.HasSuffix(path, ".yml") && !strings.HasSuffix(path, ".yaml") {
+			return nil
+		}
+
+		body, err := os.ReadFile(path) //nolint:gosec // walked path under .github/workflows.
+		if err != nil {
+			return nil //nolint:nilerr // unreadable workflow shouldn't fail the whole check.
+		}
+
+		floatingRef, parseErr := hasFloatingForgeCIRef(body, repoSlug)
+		if parseErr != nil {
+			return parseErr
+		}
+
+		if floatingRef {
+			floating = append(floating, filepath.Base(path))
+		}
+
+		return nil
+	})
+
+	return floating, walkErr
+}
+
+// hasFloatingForgeCIRef reports whether body contains a
+// `uses: ...<repoSlug>...@main` or `@master` line.
+func hasFloatingForgeCIRef(body []byte, repoSlug string) (bool, error) {
+	var workflow struct {
+		Jobs map[string]struct {
+			Uses  string `yaml:"uses"`
+			Steps []struct {
+				Uses string `yaml:"uses"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(body, &workflow); err != nil {
+		return false, fmt.Errorf("parse workflow uses: %w", err)
+	}
+
+	for _, job := range workflow.Jobs {
+		if floatingReusableRef(job.Uses, repoSlug) {
+			return true, nil
+		}
+
+		for _, step := range job.Steps {
+			if floatingReusableRef(step.Uses, repoSlug) {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+func floatingReusableRef(uses, repoSlug string) bool { //nolint:cyclop // exact ref and normalized repository/path identity checks; no expression or shell interpretation.
+	if strings.HasPrefix(uses, "./") || strings.HasPrefix(uses, "docker://") {
+		return false
+	}
+
+	before, after, ok := strings.CutLast(uses, "@")
+	if !ok {
+		return false
+	}
+
+	name, ref := before, after
+	if ref != "main" && ref != "master" {
+		return false
+	}
+
+	if strings.Contains(name, "://") {
+		parsed, err := url.Parse(name)
+		if err != nil || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return false
+		}
+
+		name = strings.TrimPrefix(parsed.Path, "/")
+	}
+
+	parts := strings.Split(name, "/")
+	if len(parts) < 2 || !strings.EqualFold(strings.Join(parts[:2], "/"), repoSlug) {
+		return false
+	}
+
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
+	}
+
+	return true
+}
+
+// deriveSelfRepoSlug returns the "owner/repo" slug of this binary's own
+// module (e.g. "diggsweden/forge-ci"), read from the build's module path
+// at runtime. A fork that renames its Go module gets its own slug for free;
+// callers override via FORGE_CI_REPO_SLUG when the running repo differs
+// from the module path (vendoring, mirrors). Returns "" when the module path
+// is unavailable, in which case the pin check degrades to a skip rather than
+// asserting someone else's identity.
+func deriveSelfRepoSlug() string {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+
+	return repoSlugFromModulePath(bi.Main.Path)
+}
+
+// repoSlugFromModulePath turns a Go module path into the "owner/repo" slug
+// used in workflow `uses:` lines: it drops the host segment and any trailing
+// "/vN" major-version element. "github.com/diggsweden/forge-ci" →
+// "diggsweden/forge-ci"; "" for paths too short to carry a slug.
+func repoSlugFromModulePath(modPath string) string {
+	prefix, _, ok := module.SplitPathVersion(modPath)
+	if !ok {
+		return ""
+	}
+
+	parts := strings.Split(prefix, "/")
+
+	if len(parts) < 2 {
+		return ""
+	}
+
+	return parts[len(parts)-2] + "/" + parts[len(parts)-1]
+}
+
+func regularFileExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+
+	return info.Mode().IsRegular()
+}

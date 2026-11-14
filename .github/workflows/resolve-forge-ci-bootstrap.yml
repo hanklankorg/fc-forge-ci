@@ -1,0 +1,83 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+name: Resolve forge-ci bootstrap revision
+# The first job of every reusable workflow that runs forge-ci: it names the
+# repository that serves the engine, admits the engine commit, and admits
+# every runtime image the caller's container jobs run, before any of them
+# starts. An image is admitted only as a digest. Nothing here picks an image
+# or a revision: the caller passes both, and a tag, a branch or an empty
+# value is refused.
+on:
+  workflow_call:
+    inputs:
+      forge-ci-binary-ref:
+        description: "Full engine commit (40 hex) the caller's workflow ref names"
+        required: true
+        type: string
+      images:
+        description: >-
+          One `input=reference` line per runtime image the caller's container jobs run, refused unless the reference is `image@sha256:<64 hex>`. `input?=reference` admits an image a job runs only when its plan asks for it: empty is allowed, anything else must be a digest
+        required: false
+        default: ""
+        type: string
+    outputs:
+      forge-ci-repository:
+        description: "owner/name of the forge-ci repository whose engine, bootstrap scripts and signer the caller trusts"
+        value: ${{ jobs.resolve.outputs.forge-ci-repository }}
+permissions:
+  contents: read
+jobs:
+  resolve:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      forge-ci-repository: ${{ steps.repository.outputs.repository }}
+    steps:
+      - name: Resolve forge-ci repository
+        id: repository
+        env:
+          # The repository serving this workflow, unless the caller's variable
+          # names another. GitHub Enterprise Server has no job.workflow_*
+          # context, so there the variable is required.
+          REPOSITORY: ${{ vars.FORGE_CI_REPOSITORY || job.workflow_repository }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$REPOSITORY" ]]; then
+            printf 'ERROR: cannot tell which repository serves forge-ci. Set the FORGE_CI_REPOSITORY variable (owner/name) on the calling repository or its organization.\n' >&2
+            exit 1
+          fi
+          if [[ ! "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ || "/${REPOSITORY}/" == *'/./'* || "/${REPOSITORY}/" == *'/../'* ]]; then
+            printf 'ERROR: FORGE_CI_REPOSITORY must be owner/name, got %q\n' "$REPOSITORY" >&2
+            exit 1
+          fi
+          printf 'repository=%s\n' "$REPOSITORY" >>"$GITHUB_OUTPUT"
+      - name: Admit the engine commit and runtime images
+        id: admit
+        env:
+          ENGINE_COMMIT: ${{ inputs['forge-ci-binary-ref'] }}
+          IMAGES: ${{ inputs.images }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$ENGINE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            printf 'ERROR: forge-ci-binary-ref must be the full engine commit (40 hex) the workflow ref names, got %q\n' "$ENGINE_COMMIT" >&2
+            exit 1
+          fi
+          # The digest form canonical delivery's receivers admit.
+          pinned='^[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}$'
+          refused=0
+          while IFS= read -r line; do
+            [[ -n "$line" ]] || continue
+            if [[ ! "$line" =~ ^([a-z][a-z0-9-]*)(\??)=(.*)$ ]]; then
+              printf 'ERROR: images line %q is not input=reference\n' "$line" >&2
+              exit 1
+            fi
+            input=${BASH_REMATCH[1]} optional=${BASH_REMATCH[2]} reference=${BASH_REMATCH[3]}
+            if [[ -z "$reference" && -n "$optional" ]]; then
+              continue
+            fi
+            if [[ ! "$reference" =~ $pinned ]]; then
+              printf 'ERROR: %s must be a runtime image pinned by digest (image@sha256:<64 hex>), got %q\n' "$input" "$reference" >&2
+              refused=1
+            fi
+          done <<<"$IMAGES"
+          exit "$refused"

@@ -1,0 +1,73 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# Build forge-ci for a macOS runner from the approved engine checkout.
+#
+# Canonical delivery (canonical-cli-bootstrap.yml) builds the two Linux files
+# in a Linux builder image, and its tool profiles are Linux directory layouts,
+# so it serves no darwin job. The macOS lanes (lint-swift.yml,
+# build-xcode-ios.yml, publish-apple-appstore.yml) take this separate path:
+# the workflow checks the engine out at the resolved full commit under
+# _forge_ci_engine and runs this action from that checkout, so the action, the
+# go.mod it reads and the sources it builds are one approved commit. Nothing
+# is downloaded but the Go toolchain that go.mod names, through setup-go.
+#
+#   - uses: actions/checkout@<pin>
+#     with:
+#       repository: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+#       ref: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+#       path: _forge_ci_engine
+#       persist-credentials: false
+#   - uses: ./_forge_ci_engine/.github/actions/build-darwin-cli
+#     with:
+#       engine-commit: ${{ needs.resolve-bootstrap.outputs.forge-ci-binary-ref }}
+name: Build forge-ci for macOS
+description: "Build forge-ci on a macOS runner from the approved engine checkout this action runs from; canonical delivery serves Linux only."
+inputs:
+  engine-commit:
+    description: "Full approved engine commit (40 hex); the checkout this action runs from must be at it."
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Require a macOS runner at the approved engine commit
+      shell: bash
+      env:
+        ENGINE_COMMIT: ${{ inputs.engine-commit }}
+        ENGINE_CHECKOUT: ${{ github.action_path }}/../../..
+      run: |
+        set -euo pipefail
+        if [[ "$RUNNER_OS" != macOS ]]; then
+          printf '::error::build-darwin-cli builds for macOS runners only; a Linux job receives the canonical CLI through consume-canonical-cli\n' >&2
+          exit 1
+        fi
+        if [[ ! "$ENGINE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+          printf '::error::engine-commit must be the full 40-hex approved engine commit, got %s\n' "$ENGINE_COMMIT" >&2
+          exit 1
+        fi
+        head="$(git -C "$ENGINE_CHECKOUT" rev-parse HEAD)"
+        if [[ "$head" != "$ENGINE_COMMIT" ]]; then
+          printf '::error::the engine checkout is at %s, not the approved commit %s\n' "$head" "$ENGINE_COMMIT" >&2
+          exit 1
+        fi
+    - name: Set up the Go toolchain the engine commit names
+      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+      with:
+        go-version-file: ${{ github.action_path }}/../../../go.mod
+        cache: false
+    - name: Build forge-ci from the approved engine checkout
+      shell: bash
+      env:
+        ENGINE_COMMIT: ${{ inputs.engine-commit }}
+        ENGINE_CHECKOUT: ${{ github.action_path }}/../../..
+        CGO_ENABLED: "0"
+        GOFLAGS: ""
+        GOTOOLCHAIN: local
+      run: |
+        set -euo pipefail
+        install_dir="$RUNNER_TEMP/forge-ci-darwin-bin"
+        mkdir -p "$install_dir"
+        (cd "$ENGINE_CHECKOUT" && go build -trimpath -buildvcs=false -ldflags "-s -w -X main.commit=$ENGINE_COMMIT" -o "$install_dir/forge-ci" ./cmd/forge-ci)
+        "$install_dir/forge-ci" --version
+        printf '%s\n' "$install_dir" >>"$GITHUB_PATH"

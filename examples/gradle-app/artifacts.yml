@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Example: Gradle JVM project build. For publication, add build-type: library
+# and publish-to: [forge-packages, maven-central], and configure maven-publish
+# as described in https://github.com/diggsweden/forge-ci/blob/main/docs/publishing.md#gradle-jvm-and-android-libraries.
+# Every publication must use the prepared release version; Gradle never
+# receives release-signing keys.
+#
+# For Android applications, see examples/android-app/ — that path uses
+# `project-type: gradle-android` and routes to build-gradle-android.yml,
+# which understands product flavors, AABs, and Google Play publishing.
+artifacts:
+  - name: my-gradle-lib
+    project-type: gradle
+    working-directory: .
+    config:
+      java-version: 25
+      gradle-tasks: build

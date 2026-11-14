@@ -1,0 +1,152 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# EXPERIMENTAL GITHUB ACTIONS PATTERN; NOT YET EXERCISED IN CI.
+#
+# This reusable workflow accepts a digest-qualified image, runs the forge-ci
+# provenance attestor with a KMS key, and pushes the resulting cosign
+# attestation. It requests contents:read and packages:write, does not request a
+# GitHub OIDC token, and lets the caller select the runner label. The job runs
+# in the administrator-pinned forge-ci base runtime image, where forge-ci and
+# cosign are baked in, so the selected runner must run job containers.
+#
+# This workflow does not establish a SLSA build level or enforce isolation from
+# the build job. The operator must provide separate build/attestor identities,
+# scope KMS and registry credentials, protect the invoking ref or environment,
+# and select an ephemeral runner when those properties are required.
+#
+# VERIFY (the KMS public key verifies the signature; builder.id is caller-supplied):
+#   cosign verify-attestation --key kms-builder.pub \
+#     --type slsaprovenance1 <registry>/<image>@sha256:...
+#
+name: SLSA Attestor (experimental)
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: "Image digest reference to attest (registry/image@sha256:...). Immutable digest only — never a tag."
+        required: true
+        type: string
+      kms-key:
+        description: "cosign KMS key URI (hashivault://…, awskms://…, gcpkms://…, azurekms://…, pkcs11:…)."
+        required: true
+        type: string
+      transparency-log:
+        description: "Cosign transparency: public or none. Omission defaults to public only for public repositories; private or unknown visibility requires explicit public consent. none writes no log entry and requires --insecure-ignore-tlog when verifying. Invalid values are refused before signing."
+        required: false
+        default: ""
+        type: string
+      builder-id:
+        description: "SLSA provenance builder.id — the operator's documented builder identity. Defaults to the KMS key URI."
+        required: false
+        type: string
+        default: ""
+      predicate-type:
+        # Only slsaprovenance1 works here. This job passes no --predicate, and
+        # the CLI generates a predicate from the CI environment for that type
+        # alone; any other value fails at run time with "--predicate is
+        # required". The knob stays so a future SLSA predicate version can be
+        # selected without a workflow change.
+        description: "SLSA predicate version to attest. Only slsaprovenance1 is supported: this job generates the predicate from the CI environment, which no other type can do."
+        required: false
+        type: string
+        default: "slsaprovenance1"
+      registry:
+        description: "Registry host for login (where the attestation is pushed)."
+        required: false
+        type: string
+        default: "ghcr.io"
+      runs-on:
+        description: 'JSON array of runner labels for the attestor job, for example ["self-hosted","linux","x64"]. All labels must match; select an appropriately isolated pool.'
+        required: false
+        type: string
+        default: '["ubuntu-26.04"]'
+      runtime-image:
+        description: "Administrator-pinned forge-ci base runtime image@sha256 digest the attestor runs in: forge-ci and cosign baked in, nothing installed."
+        required: true
+        type: string
+      forge-ci-binary-ref:
+        description: "Full engine commit (40 hex) the workflow ref names; a tag or branch is refused"
+        required: true
+        type: string
+    secrets:
+      registry-password:
+        description: "Registry password/token for pushing the attestation. Falls back to the job's GITHUB_TOKEN on GHCR."
+        required: false
+      kms-auth-env:
+        description: |
+          Operator KMS authentication, as newline-separated KEY=VALUE pairs,
+          appended to the environment before signing — e.g.
+          "VAULT_ADDR=https://bao.example.org\nVAULT_TOKEN=…" for OpenBao/Vault.
+          For cloud KMS prefer OIDC: fork this workflow to add `id-token: write`
+          + your cloud's credential-configuration action instead of a token here.
+        required: false
+
+# No id-token: KMS signing uses the key, not keyless OIDC.
+permissions:
+  contents: read
+  packages: write # push the signed attestation to the registry
+
+jobs:
+  # Admits the engine commit and the runtime image by digest before the job
+  # container starts.
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      images: |
+        runtime-image=${{ inputs['runtime-image'] }}
+  attest:
+    name: Attest provenance (cosign + KMS)
+    needs: [resolve-bootstrap]
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    # The admitted image: forge-ci and the pinned cosign baked in.
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      contents: read
+      packages: write # push the signed attestation to the registry
+    steps:
+      - name: Refuse PR-context trigger (signing and registry secrets in scope)
+        run: forge-ci validate event-context
+      - name: Validate transparency-log
+        # A typo must not publish signatures to the permanent public log by
+        # falling back to the default; the same rule as the Forgejo layer.
+        env:
+          TRANSPARENCY_LOG: ${{ inputs['transparency-log'] }}
+          REPOSITORY_VISIBILITY: ${{ toJSON(github.event.repository.private) == 'true' && 'private' || (toJSON(github.event.repository.private) == 'false' && 'public' || 'unknown') }}
+          SIGN_METHOD: kms
+        run: forge-ci validate signing-privacy
+      - name: Configure KMS authentication
+        env:
+          KMS_AUTH_ENV: ${{ secrets.kms-auth-env }}
+        run: |
+          # Operator-supplied KEY=VALUE lines (e.g. VAULT_ADDR/VAULT_TOKEN).
+          # The value is the operator's own secret — scoped to this isolated job.
+          if [ -n "$KMS_AUTH_ENV" ]; then
+            printf '%s\n' "$KMS_AUTH_ENV" >> "$GITHUB_ENV"
+          fi
+      - name: Log in to registry
+        env:
+          CONTAINER_REGISTRY: ${{ inputs.registry }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.registry-password || github.token }}
+        run: forge-ci container login
+      - name: Attest SLSA provenance (cosign + KMS)
+        env:
+          SIGN_METHOD: kms
+          SIGN_KEY: ${{ inputs.kms-key }}
+          FORGE_CI_COSIGN_TRANSPARENCY: ${{ inputs['transparency-log'] || 'public' }}
+          BUILDER_ID: ${{ inputs.builder-id || inputs.kms-key }}
+          PREDICATE_TYPE: ${{ inputs.predicate-type }}
+          IMAGE_REF: ${{ inputs.image }}
+        run: |
+          forge-ci container attest \
+            --type "$PREDICATE_TYPE" \
+            --method kms \
+            --key "$SIGN_KEY" \
+            --builder-id "$BUILDER_ID" \
+            "$IMAGE_REF"

@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# Native GPG release profile for the same real Go CLI product. This is a
+# separately selected declaration, not a rewrite of the Sigstore example.
+artifacts:
+  - name: my-cli
+    project-type: go
+    working-directory: .
+    config:
+      build-mode: artifact-first
+      main-package: ./cmd/my-cli
+      binary-name: my-cli
+      platforms: linux/amd64
+      skip-tests: false
+containers: []
+sign:
+  method: gpg
+git-signing:
+  method: gpg

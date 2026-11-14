@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# The checks this small demo project keeps; the pull-request gate adds its
+# floor (secrets, sast) whatever this file says.
+[detect]
+auto = true
+
+[verify]
+checks = ["secrets", "sast", "typos", "yaml", "markdown"]
+
+[policy]
+block = ["secrets", "sast", "typos", "yaml", "markdown"]

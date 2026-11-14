@@ -1,0 +1,25 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+// SPDX-License-Identifier: CC0-1.0
+plugins {
+    id 'application'
+}
+
+// The forge's registry is the only repository, so the library can come from
+// nowhere else.
+repositories {
+    maven {
+        url = uri(providers.gradleProperty('registryUrl').get())
+    }
+}
+
+dependencies {
+    implementation "org.example.fixture:hello-gradle-library:${providers.gradleProperty('libraryVersion').get()}"
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+}
+
+application {
+    mainClass = 'org.example.fixture.gradleconsumer.Smoke'
+}

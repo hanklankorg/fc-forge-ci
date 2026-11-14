@@ -1,0 +1,105 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# GitLab CI/CD Catalog component: artifact-first Go release build.
+#
+# The GitLab counterpart of .github/workflows/build-go.yml. Because the whole
+# build sequence (metadata → deps → test → SBOM → compile → summary) lives in the
+# binary as `forge-ci build go run`, this job is a single line — the same
+# sequence GitHub runs, with no re-encoding. GitLab clones the repo for the job,
+# so there is no checkout step; the runtime-go image carries Go + cyclonedx-gomod
+# + forge-ci. Binaries land in dist/ and the Build SBOM under
+# .forge-ci/go-build-sbom/, which the job publishes as artifacts.
+#
+# Consume (pin a released version):
+#   include:
+#     - component: $CI_SERVER_FQDN/diggsweden/forge-ci/build-go@0.90.0
+#       inputs:
+#         runtime-image: ghcr.io/diggsweden/forge-ci-runtime-go-1.27@sha256:PIN_DIGEST
+#         version: "$CI_COMMIT_TAG"
+spec:
+  inputs:
+    stage:
+      default: build
+      description: Pipeline stage the build runs in.
+    job-name:
+      default: build-go
+      description: Name of the generated job.
+    working-directory:
+      default: "."
+      description: Directory containing go.mod.
+    artifact-name:
+      default: ""
+      description: Artifact-name override (also names the SBOM); defaults to the module basename.
+    main-package:
+      default: "."
+      description: Main package to build, relative to working-directory (for example ./cmd/my-cli).
+    platforms:
+      default: "linux/amd64,linux/arm64"
+      description: Comma-separated GOOS/GOARCH targets to cross-compile.
+    version:
+      default: ""
+      description: Release version baked via -ldflags; defaults to the ref name (e.g. the tag).
+    skip-tests:
+      type: boolean
+      default: false
+      description: Legacy input; true is refused. Admin policy controls findings, and tests still run.
+    enforce-application-tests:
+      type: boolean
+      default: false
+      description: Enforcement setting; false lets recognized test assertion failures be reported without failing the build. Tests still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md.
+    enable-build-sbom:
+      type: boolean
+      default: true
+      description: Generate the CycloneDX Build SBOM with cyclonedx-gomod.
+    runtime-image:
+      description: forge-ci runtime image carrying Go + cyclonedx-gomod, pinned by @sha256.
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    runner-tags:
+      type: array
+      default: []
+      description: Runner tags of the job, all of which one runner must carry; empty, the default, leaves it untagged. Name literal tags only, never a $VARIABLE, which a project variable could set.
+---
+"$[[ inputs.job-name ]]":
+  # One more attempt when the engine found a dependency unavailable, exit
+  # 69, and for no other failure.
+  retry:
+    max: 1
+    exit_codes: 69
+  stage: $[[ inputs.stage ]]
+  tags: $[[ inputs.runner-tags ]]
+  rules:
+    - when: on_success
+  needs: []
+  cache: []
+  image: $[[ inputs.runtime-image ]]
+  variables:
+    GIT_STRATEGY: fetch
+    GIT_CHECKOUT: "true"
+    WORKING_DIRECTORY: "$[[ inputs.working-directory ]]"
+    ARTIFACT_NAME: "$[[ inputs.artifact-name ]]"
+    MAIN_PACKAGE: "$[[ inputs.main-package ]]"
+    PLATFORMS: "$[[ inputs.platforms ]]"
+    VERSION: "$[[ inputs.version ]]"
+    SKIP_TESTS: "$[[ inputs.skip-tests ]]"
+    ENABLE_BUILD_SBOM: "$[[ inputs.enable-build-sbom ]]"
+    # Derive the version from the tag/branch when --version is empty, and render
+    # the build summary into the GitLab job summary.
+    REF_NAME: "$CI_COMMIT_REF_NAME"
+    CI_SUMMARY_FILE: "$CI_PROJECT_DIR/go-build-summary.md"
+  # Explicit gate fields replace earlier same-named values. Other keys still
+  # merge; policy injection, not include ordering, is the authority boundary.
+  allow_failure: false
+  before_script: []
+  after_script: []
+  script:
+    # The administrator's setting as written, a flag of the engine: no
+    # project variable can supply or change it.
+    - forge-ci build go run --enforce-application-tests='$[[ inputs.enforce-application-tests ]]'
+  artifacts:
+    paths:
+      # Shown in the job log too; GitLab renders no summary file.
+      - go-build-summary.md
+      - $[[ inputs.working-directory ]]/dist/
+      - $[[ inputs.working-directory ]]/.forge-ci/go-build-sbom/

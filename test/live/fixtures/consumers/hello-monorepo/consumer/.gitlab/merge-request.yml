@@ -1,0 +1,138 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# Example: a monorepo's merge-request gate and plan-driven build fan-out on
+# GitLab CI/CD, from the components under templates/
+# (https://$CI_SERVER_FQDN/itiquette/forge-ci/-/blob/2f4e845cee96973d1082bf00a5a18689c1482148/docs/gitlab.md).
+# Copy
+# to the project's .gitlab-ci.yml and replace the placeholders, all literal
+# so that `git grep` finds them:
+#
+#   gitlab.example.com                        your instance
+#   itiquette/forge-ci (forge-ci-repository)    the project on it that serves
+#                                             forge-ci, including subgroups
+#   2f4e845cee96973d1082bf00a5a18689c1482148                          the engine commit you authenticated:
+#                                             `check` is checksum-bound and must be
+#                                             included by full commit SHA
+#   PIN_DIGEST                                digest of the reviewed lint image
+#   PIN_JAVA_IMAGE_DIGEST                     digests of the reviewed Forge CI
+#   PIN_NODE_IMAGE_DIGEST                     runtime images, or of your mirror
+#   saas-linux-small-amd64                    GitLab.com tags of the amd64 and
+#   saas-linux-medium-arm64                   arm64 image build runners; name
+#                                             your own runners' tags instead
+#
+# GitHub expands the per-artifact build matrix natively, with a matrix over
+# the plan. GitLab cannot expand a matrix from a value computed at run time,
+# so the fan-out is materialised: a prepare job generates a child pipeline
+# from the same plan JSON, one include of a build-<ecosystem> component per
+# artifact of .forge-ci/artifacts.yml, and a trigger job runs it. The
+# generator refuses a plan that names a component that does not exist, so no
+# planned build is silently left out.
+#
+# Releases run from a separate, pinned policy project that includes the
+# `release` component; see
+# https://$CI_SERVER_FQDN/itiquette/forge-ci/-/blob/2f4e845cee96973d1082bf00a5a18689c1482148/docs/gitlab.md#native-release-policy.
+# The policy plans this project's release from .forge-ci/artifacts.yml: a
+# version job and a build job for the java and the node family, the two
+# images and the frontend's package. Its `checks` and `build` inputs name
+# check-release.sh and build-release.sh beside this file, copied to .gitlab/.
+#
+# Once the release policy is the project's CI configuration path, GitLab runs
+# it instead of this file, so the policy includes this gate for merge
+# requests; see
+# https://$CI_SERVER_FQDN/itiquette/forge-ci/-/blob/2f4e845cee96973d1082bf00a5a18689c1482148/docs/gitlab.md#the-merge-request-gate-under-a-policy.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+stages:
+  - test
+  - prepare
+  - build
+
+include:
+  # The lint gate: the project's nanolinter.toml plan, with the secrets,sast
+  # floor. The gate runs at the repository root, where a monorepo has no
+  # project manifest, so the plan lists only tree-wide checks and the core
+  # flavour carries them all; see nanolinter.toml.
+  - component: $CI_SERVER_FQDN/itiquette/forge-ci/nanolinter@0.90.0
+    inputs:
+      forge-ci-repository: itiquette/forge-ci
+      server-url: $CI_SERVER_URL
+      nanolinter-image: $CI_LINT_IMAGE
+
+  # The consumer's own checks at the pipeline commit, one job per part, each
+  # in the Forge CI runtime image of its toolchain, as the images' ordinary
+  # user nonroot (65532:65532).
+  # check is checksum-bound: include it by the engine commit, never a version;
+  # see Checksum-bound engine bootstrap in
+  # https://$CI_SERVER_FQDN/itiquette/forge-ci/-/blob/2f4e845cee96973d1082bf00a5a18689c1482148/docs/gitlab.md.
+  - component: $CI_SERVER_FQDN/itiquette/forge-ci/check@2f4e845cee96973d1082bf00a5a18689c1482148
+    inputs:
+      forge-ci-repository: itiquette/forge-ci
+      server-url: $CI_SERVER_URL
+      job-name: check-backend
+      job-image: $CI_JOB_IMAGE
+      job-user: "65532:65532"
+      commands:
+        - mvn --batch-mode --no-transfer-progress --file services/backend/pom.xml verify
+  - component: $CI_SERVER_FQDN/itiquette/forge-ci/check@2f4e845cee96973d1082bf00a5a18689c1482148
+    inputs:
+      forge-ci-repository: itiquette/forge-ci
+      server-url: $CI_SERVER_URL
+      job-name: check-frontend
+      job-image: $CI_JOB_IMAGE_NODE
+      job-user: "65532:65532"
+      commands:
+        - npm --prefix packages/frontend ci
+        - npm --prefix packages/frontend test
+
+# Compute the build-stage plan from .forge-ci/artifacts.yml, then write the
+# child pipeline: one build-<ecosystem> include per artifact, with its
+# job-name, working-directory, build-type, version and runtime image.
+generate-build-pipeline:
+  stage: prepare
+  image: "ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0"
+  rules:
+    - if: $CI_COMMIT_TAG
+  variables:
+    CI_OUTPUT: plan.env
+  script:
+    - forge-ci config parse-artifacts
+    # The plan refuses a container platform without an image build runner:
+    # name the tags of yours, as the release policy's inputs do; these are
+    # GitLab.com's.
+    - |
+      forge-ci plan release --tag "$CI_COMMIT_TAG" \
+        --runner-input 'runner-tags=[]' \
+        --runner-input 'build-runner-tags-linux-amd64=["saas-linux-small-amd64"]' \
+        --runner-input 'build-runner-tags-linux-arm64=["saas-linux-medium-arm64"]'
+    - |
+      forge-ci plan gitlab-build-pipeline \
+        --component-base "$CI_SERVER_FQDN/itiquette/forge-ci" \
+        --component-ref 0.90.0 \
+        --version "$CI_COMMIT_TAG" \
+        --runtime-image-java $CI_JOB_IMAGE \
+        --runtime-image-node $CI_JOB_IMAGE_NODE \
+        --output build-pipeline.yml
+  artifacts:
+    reports:
+      dotenv: plan.env
+    paths:
+      - build-pipeline.yml
+
+# Run the generated child pipeline: the per-artifact builds.
+build:
+  stage: build
+  rules:
+    - if: $CI_COMMIT_TAG
+  needs:
+    - generate-build-pipeline
+  trigger:
+    include:
+      - artifact: build-pipeline.yml
+        job: generate-build-pipeline
+    strategy: mirror

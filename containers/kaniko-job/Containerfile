@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Job image for container builds with kaniko on a runner pool whose job
+# containers may not create user namespaces (rootless Buildah cannot run
+# there). forge-ci ships this definition and publishes no image: an
+# organization builds it, pushes it to its own registry and pins the digest
+# as the CI_IMAGE_BUILDER_JOB_IMAGE variable, with CI_IMAGE_BUILDER=kaniko.
+#
+# Kaniko runs the Containerfile's steps in this container's own root
+# filesystem, replaces it with the image's, and forge-ci has it delete that
+# after the build (--cleanup), so a second build starts clean. Two things
+# make the job survive that:
+#
+#   - kaniko never touches /kaniko, so the executor, its CA bundle, TMPDIR
+#     and a static shell with a BusyBox toolset, last on PATH, live there and
+#     serve the steps that follow the build (metadata upload, cleanup) and
+#     the next build of the same job;
+#   - the runner's workspace is a mount, and forge-ci itself lives in it.
+#
+# Later steps may therefore use bash, the BusyBox utilities and forge-ci, and
+# nothing else from the original image. Debian's own tools serve the steps
+# before the build: git for the engine fetch, curl for the binary download.
+#
+# Build context: this directory.
+#
+#   forge-ci container build --file containers/kaniko-job/Containerfile \
+#     --context containers/kaniko-job --mode push-by-digest --image-ref <repo>
+
+# Renovate's docker manager updates both digests.
+FROM ghcr.io/osscontainertools/kaniko:v1.28.6@sha256:2fa20b0a4b40c7db72b479d57e55c2cf79f2178533b2d3bcbd129d6bd3c087ed AS kaniko
+
+FROM docker.io/library/debian:13.7-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+
+# Kaniko runs the Containerfile's steps as this container's user and needs
+# root for them (apt-get, adduser, chown); it refuses to start otherwise. The
+# image is a job image, never a published product.
+# hadolint ignore=DL3002
+USER 0:0
+
+# OS packages follow the distribution's update stream when this image is
+# built; the consumers pin the published image by digest.
+# bash-static and busybox-static are the shell and utilities of the steps
+# after the build; everything else is for the steps before it.
+# hadolint ignore=DL3008
+RUN set -eux; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
+    bash-static \
+    busybox-static \
+    ca-certificates \
+    curl \
+    git \
+    jq; \
+  install -d -m 0755 /kaniko/tools; \
+  install -d -m 1777 /kaniko/tmp; \
+  install -m 0755 /bin/busybox /kaniko/tools/busybox; \
+  /kaniko/tools/busybox --install -s /kaniko/tools; \
+  install -m 0755 /bin/bash-static /kaniko/tools/bash; \
+  ln -sf /kaniko/tools/bash /kaniko/tools/sh; \
+  rm -rf /var/lib/apt/lists/*
+
+COPY --from=kaniko /kaniko /kaniko
+
+# PATH: the surviving toolset last. Before the build every step finds Debian's
+# GNU tools; after it, when the image's filesystem has replaced them, the same
+# names resolve to the static bash and BusyBox under /kaniko/tools. SSL_CERT_FILE:
+# kaniko's bundle, which survives, for every TLS client of a later step.
+# DOCKER_CONFIG: where kaniko reads registry credentials; forge-ci stages the
+# layer's auth file there for the build. TMPDIR: /tmp is deleted with the
+# build's filesystem; every temporary file of the job goes where it survives.
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/kaniko/tools:/kaniko \
+    SSL_CERT_FILE=/kaniko/ssl/certs/ca-certificates.crt \
+    TMPDIR=/kaniko/tmp \
+    DOCKER_CONFIG=/kaniko/.docker \
+    KANIKO_EXECUTOR=/kaniko/executor
+
+LABEL org.opencontainers.image.title="forge-ci kaniko job image" \
+      org.opencontainers.image.description="Job image for forge-ci container builds with kaniko on runners without user namespaces"

@@ -1,0 +1,163 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+// SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
+
+package summary
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/diggsweden/forge-ci/internal/domain/ci"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
+	"github.com/diggsweden/forge-ci/internal/domain/provider"
+	domainsummary "github.com/diggsweden/forge-ci/internal/domain/summary"
+)
+
+// ReleaseSummaryInput drives `summary release`. The three stage JSONs
+// are the result-json outputs of summary {prepare,build,publish}-stage-
+// result; the use case extracts each target by name.
+type ReleaseSummaryInput struct {
+	ReleaseVersion      string
+	ReleaseBranch       string
+	ReleaseCommit       string
+	ReleaseActor        string
+	RunURL              string
+	CreateReleaseResult string
+	// Image-promotion ladder job results (success/failure/skipped). Empty/
+	// skipped for releases without a container.
+	PromoteDevResult     string
+	PromoteStagingResult string
+	PromoteReleaseResult string
+	PrepareStageJSON     string
+	BuildStageJSON       string
+	PublishStageJSON     string
+	// Jobs, when set, are the job table's rows in place of GitHub's fixed
+	// stage targets: GitLab and Forgejo name their own release jobs.
+	Jobs       []domainsummary.JobRow
+	URLs       provider.WebURLBuilder // nil when the platform has no web UI
+	ServerURL  string                 // CI_SERVER_URL
+	Repository string                 // CI_REPO
+	Now        time.Time
+}
+
+// ReleaseSummary appends the release summary block to the step summary.
+func ReleaseSummary(ctx context.Context, sink ci.SummarySink, in ReleaseSummaryInput) error {
+	now := in.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+
+	icon := domainsummary.StatusIcon
+
+	prepare, err := stageResultFor(in.PrepareStageJSON, "prepare")
+	if err != nil {
+		return fmt.Errorf("prepare-stage result-json: %w", err)
+	}
+
+	build, err := stageResultFor(in.BuildStageJSON, "build")
+	if err != nil {
+		return fmt.Errorf("build-stage result-json: %w", err)
+	}
+
+	publish, err := stageResultFor(in.PublishStageJSON, "publish")
+	if err != nil {
+		return fmt.Errorf("publish-stage result-json: %w", err)
+	}
+
+	target := func(stage domainsummary.StageResultEnvelope, key string) string {
+		return string(stage.TargetResult(key))
+	}
+
+	// reported renders an unset job result as skipped rather than a failure:
+	// a promotion job that never ran (a release with no container) reports an
+	// empty result here, which is "not applicable", not an error. In a normal
+	// run GHA always supplies success/failure/skipped.
+	reported := func(result string) string {
+		if result == "" {
+			return string(domainsummary.ResultSkipped)
+		}
+
+		return result
+	}
+
+	var builder strings.Builder
+
+	_, _ = fmt.Fprintf(&builder, "# Release Summary\n\n")
+	_, _ = fmt.Fprintf(&builder, "## Release Overview\n")
+	_, _ = fmt.Fprintf(&builder, "| Property | Value |\n")
+	_, _ = fmt.Fprintf(&builder, "|----------|-------|\n")
+	_, _ = fmt.Fprintf(&builder, "| **Version** | `%s` |\n", domainsummary.SanitizeCell(in.ReleaseVersion))
+	// A value the forge cannot report, such as the commit of a release cut
+	// from a request tag, leaves its row out instead of an empty cell.
+	if in.ReleaseBranch != "" {
+		_, _ = fmt.Fprintf(&builder, "| **Branch** | `%s` |\n", domainsummary.SanitizeCell(in.ReleaseBranch))
+	}
+
+	if in.ReleaseCommit != "" {
+		_, _ = fmt.Fprintf(&builder, "| **Commit** | `%s` |\n", domainsummary.SanitizeCell(in.ReleaseCommit))
+	}
+
+	_, _ = fmt.Fprintf(&builder, "| **Released By** | @%s |\n", domainsummary.LiteralText(in.ReleaseActor))
+	_, _ = fmt.Fprintf(&builder, "| **Released At** | %s |\n\n", now.UTC().Format("2006-01-02 15:04:05 UTC"))
+	_, _ = fmt.Fprintf(&builder, "## Job Status\n")
+	_, _ = fmt.Fprintf(&builder, "| Job | Status |\n")
+	_, _ = fmt.Fprintf(&builder, "|-----|--------|\n")
+
+	rows := []struct {
+		label  string
+		result string
+	}{
+		{"Version Bump", target(prepare, pipeline.TargetVersionBump)},
+		{"Build Maven", target(build, pipeline.TargetMaven)},
+		{"Build NPM", target(build, pipeline.TargetNPM)},
+		{"Build Gradle", target(build, pipeline.TargetGradle)},
+		{"Build Go", target(build, pipeline.TargetGo)},
+		{"Build Cargo", target(build, pipeline.TargetCargo)},
+		{"Build Gradle Android", target(build, pipeline.TargetGradleAndroid)},
+		{"Build Xcode", target(build, pipeline.TargetXcodeIOS)},
+		{"Publish Forge Packages", target(publish, pipeline.TargetForgePackages)},
+		{"Publish Maven Central", target(publish, pipeline.TargetMavenCentral)},
+		{"Publish Apple App Store", target(publish, pipeline.TargetXcodeIOS)},
+		{"Publish Google Play", target(publish, pipeline.TargetGooglePlay)},
+		{"Containers", target(publish, pipeline.TargetContainers)},
+		{"Cargo SBOM", target(publish, pipeline.TargetCargoContainerFirst)},
+		{"Go SBOM", target(publish, pipeline.TargetGoContainerFirst)},
+		{"Promote Image → dev", reported(in.PromoteDevResult)},
+		{"Promote Image → staging", reported(in.PromoteStagingResult)},
+		{"Promote Image → release", reported(in.PromoteReleaseResult)},
+		{"Forge Release", in.CreateReleaseResult},
+	}
+	if len(in.Jobs) > 0 {
+		writeJobRows(&builder, in.Jobs)
+	} else {
+		for _, r := range rows {
+			_, _ = fmt.Fprintf(&builder, "| %s | %s |\n", r.label, icon(r.result))
+		}
+	}
+
+	_, _ = fmt.Fprintf(&builder, "\n## Resources\n")
+	builder.WriteString(resourceLine("Release", domainsummary.ReleaseURL(in.URLs, in.ServerURL, in.Repository, in.ReleaseVersion)))
+	builder.WriteString(resourceLine("Packages", domainsummary.PackagesURL(in.URLs, in.ServerURL, in.Repository)))
+	builder.WriteString(resourceLine("Workflow Run", in.RunURL))
+	builder.WriteString("\n")
+
+	return sink.Append(ctx, builder.String())
+}
+
+// Empty slots are intentionally skipped; a supplied envelope must identify the
+// stage whose result the caller is about to display.
+func stageResultFor(value, stage string) (domainsummary.StageResultEnvelope, error) {
+	envelope, err := domainsummary.ParseStageResultEnvelope(value)
+	if err != nil {
+		return envelope, err
+	}
+
+	if strings.TrimSpace(value) != "" && envelope.Stage != stage {
+		return envelope, fmt.Errorf("expected %s stage, received %q: %w", stage, envelope.Stage, errs.ErrMalformedInput)
+	}
+
+	return envelope, nil
+}

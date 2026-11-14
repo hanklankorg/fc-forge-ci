@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# One Android library: its release AAR, and the Maven publication of it in
+# the forge's package registry. GPG signs the release files and the release
+# commit and tag: OpenPGP has no transparency log, so a release writes to no
+# public one, and a hosted trial signs as declared with its disposable key.
+artifacts:
+  - name: hello-android-library
+    project-type: gradle-android
+    build-type: library
+    working-directory: .
+    sboms: build
+    publish-to: [forge-packages]
+    config:
+      build-module: lib
+      gradle-version-file: gradle.properties
+sign:
+  method: gpg
+git-signing:
+  method: gpg

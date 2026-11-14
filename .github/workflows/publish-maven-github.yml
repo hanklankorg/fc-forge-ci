@@ -1,0 +1,208 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# GitHub Packages Publisher
+# 
+# Purpose: Publishes artifacts to GitHub Packages registry. Supports Maven and NPM
+# from a unified interface. Downloads pre-built artifacts from workflow
+# artifacts and publishes them to the appropriate GitHub Packages registry.
+#
+# Package Types Supported:
+#   - maven: Publishes to GitHub Maven registry (maven.pkg.github.com)
+#   - npm: Publishes to GitHub NPM registry (npm.pkg.github.com)
+#
+# Inputs:
+#   - artifactSource: Name of workflow artifact containing built packages
+#   - packageType: Type of package (maven|npm)
+#
+# Required Secrets:
+#   GITHUB_TOKEN: Automatically provided by GitHub Actions
+#
+# Required Permissions:
+#   actions: read    # Download workflow artifacts
+#   contents: read   # Checkout source
+#   packages: write  # Publish to GitHub Packages
+#
+# The job runs inside the forge-ci runtime image the caller selects by
+# package type (Java or Node flavour); forge-ci and the product toolchain
+# are baked in, and nothing is installed on a host.
+#
+name: Publish Maven GitHub
+on:
+  workflow_call:
+    inputs:
+      artifact-source:
+        description: "Name of workflow artifact containing built packages"
+        required: true
+        type: string
+      package-type:
+        description: "Package type: maven, npm, gradle or gradle-android (exported Maven publications)"
+        required: true
+        type: string
+      version:
+        description: "Expected immutable version of exported Gradle publications"
+        required: false
+        default: ""
+        type: string
+      snapshot:
+        description: "Publish only Maven-format snapshots; not applicable to npm."
+        required: false
+        default: false
+        type: boolean
+      profile:
+        description: "Optional Maven profile owning publication attachments; empty preserves application defaults."
+        required: false
+        default: ""
+        type: string
+      from-build:
+        description: "Publish downloaded Maven library POM/main/source/Javadoc bytes without rebuilding."
+        required: false
+        default: false
+        type: boolean
+      npm-tag:
+        description: "Required for npm: release-{version} or release-<packed-version>. No latest, next or movable channel tags."
+        required: false
+        default: ""
+        type: string
+      working-directory:
+        description: "Working directory"
+        required: false
+        default: "."
+        type: string
+      attach-pattern:
+        description: "Pattern for artifacts to attach to release"
+        required: false
+        default: ""
+        type: string
+      branch:
+        description: "Explicit branch, tag, or SHA whose package is published"
+        required: true
+        type: string
+      runtime-image:
+        description: "forge-ci runtime image the publication runs in: the Java image (JDK, Maven and Gradle baked in) for maven, gradle and gradle-android, the Node image for npm. The caller selects it by package type, pinned by digest; the resolver refuses anything else before the job container starts."
+        required: true
+        type: string
+      forge-ci-binary-ref:
+        description: "Full engine commit (40 hex) the workflow ref names; a tag or branch is refused"
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  # Admits the engine commit and the runtime image by digest before the job
+  # container starts.
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      images: |
+        runtime-image=${{ inputs['runtime-image'] }}
+  publish-maven-github:
+    name: Publish to GitHub Packages (${{ inputs['package-type'] }})
+    needs: [resolve-bootstrap]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    env:
+      MAVEN_SNAPSHOT: ${{ inputs.snapshot }}
+    permissions:
+      # Least-privilege: publishes to GitHub Packages via GITHUB_TOKEN
+      # (packages: write), and reads the build artifact; no git write performed.
+      actions: read
+      contents: read
+      packages: write
+    steps:
+      - name: Validate package type before checkout and downloads
+        env:
+          PACKAGE_TYPE: ${{ inputs['package-type'] }}
+        run: |
+          case "$PACKAGE_TYPE" in
+            maven | gradle | gradle-android) ;;
+            npm)
+              if [ "$MAVEN_SNAPSHOT" = true ]; then
+                printf 'snapshot is a Maven-format option, not an npm channel\n' >&2
+                exit 78
+              fi
+              ;;
+            *) printf 'package-type must be maven, npm, gradle or gradle-android\n' >&2; exit 78 ;;
+          esac
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.branch }}
+      # Defense-in-depth: refuse PR-context triggers. GITHUB_PACKAGES
+      # publish uses the auto GITHUB_TOKEN today; the gate prevents
+      # any future secret addition (or a misconfigured direct caller)
+      # from leaking via PR-HEAD code.
+      - name: Refuse PR-context trigger (publish/release secrets in scope)
+        run: forge-ci validate event-context
+      - name: Validate exported publication version before downloading
+        if: ${{ (inputs['package-type'] == 'gradle' || inputs['package-type'] == 'gradle-android') && !inputs.snapshot }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: forge-ci validate tag release-guard --tag "v${VERSION#v}"
+      - name: Validate npm tag before downloading artifacts
+        if: ${{ inputs['package-type'] == 'npm' }}
+        env:
+          NPM_TAG: ${{ inputs['npm-tag'] }}
+        run: forge-ci publish npm validate-tag
+      - name: Download build artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOWNLOAD_NAME: ${{ inputs['artifact-source'] }}
+          DOWNLOAD_DIR: ${{ (inputs['package-type'] == 'gradle' || inputs['package-type'] == 'gradle-android') && '.forge-ci/gradle-publication' || (inputs['package-type'] == 'maven' && inputs['from-build']) && '.forge-ci/maven-build' || format('{0}/', inputs['working-directory']) }}
+        run: forge-ci artifact download --name "$DOWNLOAD_NAME" --dir "$DOWNLOAD_DIR"
+      # Maven publishing. Auth/settings/registry are resolved by the binary
+      - name: Publish exported Gradle publications
+        if: ${{ inputs['package-type'] == 'gradle' || inputs['package-type'] == 'gradle-android' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          MAVEN_SNAPSHOT: ${{ inputs.snapshot }}
+        run: forge-ci publish forge-packages deploy --project-type gradle --working-dir .forge-ci/gradle-publication
+      # Maven publishing. Auth/settings/registry are resolved by the binary
+      # (`publish forge-packages deploy`); the JDK and Maven are the image's.
+      - name: Publish Maven to GitHub Packages
+        if: ${{ inputs['package-type'] == 'maven' && !inputs['from-build'] }}
+        working-directory: ${{ inputs['working-directory'] }}
+        env:
+          # The binary resolves https://maven.pkg.github.com/$GITHUB_REPOSITORY +
+          # a username/password settings.xml from $GITHUB_ACTOR/$GITHUB_TOKEN.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAVEN_PROFILE: ${{ inputs.profile }}
+          # This job has no GPG secrets. Release signatures are produced in the
+          # separate signing boundary; Central publishing retains its own policy.
+          MAVEN_CLI_OPTS: "--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always -Dgpg.skip=true"
+        run: forge-ci publish forge-packages deploy
+      - name: Publish original Maven library build bytes
+        if: ${{ inputs['package-type'] == 'maven' && inputs['from-build'] }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: forge-ci publish forge-packages deploy --project-type maven --from-build --working-dir .forge-ci/maven-build
+      # NPM publishing. The binary resolves the npm registry + .npmrc, finds the
+      # *.tgz, and publishes with the image's Node.
+      - name: Publish NPM to GitHub Packages
+        if: ${{ inputs['package-type'] == 'npm' }}
+        working-directory: ${{ inputs['working-directory'] }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TAG: ${{ inputs['npm-tag'] }}
+        run: forge-ci publish forge-packages deploy --project-type npm
+      # Optional: Attach artifacts to GitHub release
+      - name: Upload artifacts to release
+        if: ${{ inputs['attach-pattern'] != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ATTACH_PATTERN: ${{ inputs['attach-pattern'] }}
+          REF_NAME: ${{ github.ref_name }}
+          WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
+        run: forge-ci release attachments upload
+      - name: Generate publish summary
+        env:
+          REPOSITORY: ${{ github.repository }}
+          PACKAGE_TYPE: ${{ inputs['package-type'] }}
+        run: forge-ci report publish forge-packages

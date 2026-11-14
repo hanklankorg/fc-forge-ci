@@ -1,0 +1,71 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Example: the GoReleaser configuration of a Go CLI whose Forgejo release
+# ships archives and .deb, .rpm and .apk packages.
+#
+# Copy to .goreleaser.yml beside forgejo/release-goreleaser.yml and
+# artifacts-forgejo-packages.yml. The build job runs
+#   goreleaser release --clean --skip=publish,sign,announce
+# so this file has no `signs:`, no `release:` and no publisher: the layer's
+# signer signs and publishes what the build hands over.
+version: 2
+
+project_name: my-cli
+
+builds:
+  - id: my-cli
+    main: ./cmd/my-cli
+    binary: my-cli
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .FullCommit }}
+    # The commit's time, not the build's, so a rebuild gives the same file.
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+
+# One package of each format per architecture. A package is built for its
+# architecture: the Alpine registry files a noarch package under
+# architectures of its own choosing, and the release refuses one.
+nfpms:
+  - id: packages
+    package_name: my-cli
+    formats: [deb, rpm, apk]
+    # Replace the four lines below with your project's own.
+    maintainer: My CLI maintainers <maintainers@example.com>
+    description: A command that greets the name it is given.
+    homepage: https://example.com/my-cli
+    license: EUPL-1.2
+    bindir: /usr/bin
+    mtime: '{{ .CommitDate }}'
+
+checksum:
+  name_template: checksums.txt
+
+# One CycloneDX document per archive, with syft from the job's toolchain.
+sboms:
+  - id: archives
+    artifacts: archive
+    documents:
+      - '${artifact}.cdx.sbom.json'
+    cmd: syft
+    args:
+      - scan
+      - '$artifact'
+      - --output
+      - 'cyclonedx-json=$document'
+
+changelog:
+  disable: true

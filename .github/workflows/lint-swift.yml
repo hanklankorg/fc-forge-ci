@@ -1,0 +1,187 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Swift Lint Workflow
+#
+# Purpose: Runs Swift code linting and formatting checks using swift-format
+# and optionally SwiftLint for iOS/macOS projects.
+#
+# How it works:
+# 1. Checks out the repository
+# 2. Installs swift-format (and optionally SwiftLint)
+# 3. Runs linting via `forge-ci lint swift …` — Go owns the file
+#    enumeration, exit-code handling, and step-summary rendering.
+# 4. Aggregates results via `forge-ci report swift-lint`.
+#
+# Features:
+#   - swift-format linting (Google Swift Style Guide)
+#   - Optional SwiftLint support
+#   - Configurable file patterns
+#   - Detailed error reporting
+#
+# Required Permissions:
+#   contents: read  # Checkout code
+#
+name: Lint Swift
+on:
+  workflow_call:
+    inputs:
+      enforce-lint:
+        description: "Enforcement setting: false reports lint findings without failing; the checks still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      working-directory:
+        description: "Working directory for linting"
+        required: false
+        default: "."
+        type: string
+      enable-swiftformat:
+        description: "Enable swift-format linting"
+        required: false
+        default: true
+        type: boolean
+      swift-format-version:
+        description: "swift-format version (e.g., 510.1.0)"
+        required: false
+        default: ""
+        type: string
+      enable-swiftlint:
+        description: "Enable SwiftLint linting"
+        required: false
+        default: false
+        type: boolean
+      swiftlint-config:
+        description: "Path to SwiftLint configuration file"
+        required: false
+        default: ".swiftlint.yml"
+        type: string
+      file-pattern:
+        description: "File pattern for Swift files to lint (git ls-files pattern)"
+        required: false
+        default: "*.swift"
+        type: string
+      runs-on:
+        description: "JSON array of runner labels for the ordinary jobs, read with fromJSON. Signing, promotion and publication jobs stay on GitHub-hosted runners."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      runs-on-darwin-arm64:
+        description: "JSON array of runner labels for the macOS arm64 jobs, read with fromJSON."
+        required: false
+        default: '["macos-26"]'
+        type: string
+      forge-ci-binary-ref:
+        description: "Full approved engine commit; the macOS jobs build forge-ci from the engine checkout at it (canonical delivery serves Linux only)"
+        required: true
+        type: string
+      runtime-image:
+        description: "forge-ci runtime image used by the Linux summary job, pinned by digest (image@sha256:<64 hex>); the resolver refuses anything else."
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      images: |
+        runtime-image=${{ inputs['runtime-image'] }}
+  swift-format-lint:
+    needs: [resolve-bootstrap]
+    name: Swift Format Lint
+    if: ${{ inputs['enable-swiftformat'] }}
+    runs-on: ${{ fromJSON(inputs['runs-on-darwin-arm64']) }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 1
+      # macOS: canonical delivery builds Linux files only, so this lane builds
+      # forge-ci from the approved engine commit with the engine's own darwin
+      # build action, run from that same checkout.
+      - name: Checkout the approved engine
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          path: _forge_ci_engine
+          persist-credentials: false
+      - name: Build forge-ci for macOS from the approved engine
+        uses: ./_forge_ci_engine/.github/actions/build-darwin-cli
+        with:
+          engine-commit: ${{ inputs['forge-ci-binary-ref'] }}
+      - name: Install swift-format
+        env:
+          SWIFT_FORMAT_VERSION: ${{ inputs['swift-format-version'] }}
+        run: |
+          if [ -n "$SWIFT_FORMAT_VERSION" ]; then
+            brew install "swift-format@$SWIFT_FORMAT_VERSION"
+          else
+            brew install swift-format
+          fi
+          swift-format --version
+      - name: Run swift-format lint
+        env:
+          ADMIN_LINT: ${{ inputs['enforce-lint'] }}
+          WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
+          FILE_PATTERN: ${{ inputs['file-pattern'] }}
+        run: forge-ci lint swift format-lint --enforce-lint="$ADMIN_LINT"
+  swiftlint:
+    needs: [resolve-bootstrap]
+    name: SwiftLint
+    if: ${{ inputs['enable-swiftlint'] }}
+    runs-on: ${{ fromJSON(inputs['runs-on-darwin-arm64']) }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 1
+      # macOS: canonical delivery builds Linux files only, so this lane builds
+      # forge-ci from the approved engine commit with the engine's own darwin
+      # build action, run from that same checkout.
+      - name: Checkout the approved engine
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          path: _forge_ci_engine
+          persist-credentials: false
+      - name: Build forge-ci for macOS from the approved engine
+        uses: ./_forge_ci_engine/.github/actions/build-darwin-cli
+        with:
+          engine-commit: ${{ inputs['forge-ci-binary-ref'] }}
+      - name: Install SwiftLint
+        run: |
+          brew install swiftlint
+          swiftlint version
+      - name: Run SwiftLint
+        env:
+          ADMIN_LINT: ${{ inputs['enforce-lint'] }}
+          WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
+          SWIFTLINT_CONFIG_PATH: ${{ inputs['swiftlint-config'] }}
+        run: forge-ci lint swift swiftlint --enforce-lint="$ADMIN_LINT"
+  summary:
+    name: Lint Summary
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    needs: [resolve-bootstrap, swift-format-lint, swiftlint]
+    if: always() && needs.resolve-bootstrap.result == 'success'
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    steps:
+      - name: Aggregate results
+        env:
+          ENABLE_SWIFTFORMAT: ${{ inputs['enable-swiftformat'] }}
+          SWIFTFORMAT_RESULT: ${{ needs.swift-format-lint.result }}
+          ENABLE_SWIFTLINT: ${{ inputs['enable-swiftlint'] }}
+          SWIFTLINT_RESULT: ${{ needs.swiftlint.result }}
+        run: forge-ci report swift-lint

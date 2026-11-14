@@ -1,0 +1,28 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+// SPDX-License-Identifier: CC0-1.0
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
+// The version is the project's gradle.properties, which the scenario writes:
+// the registry belongs to the owner, so each run publishes a version of its own.
+group = 'org.example.fixture'
+
+java {
+    withSourcesJar()
+}
+
+// The JDK the job runs is the compiler: no toolchain to provision.
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+}
+
+// One publication and no repository: the product adds the export repository.
+publishing {
+    publications {
+        library(MavenPublication) {
+            from components.java
+        }
+    }
+}

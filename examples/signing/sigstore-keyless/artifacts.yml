@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Example: release artifacts signed with Sigstore keyless. What this example
+# adds is the `sign:` and `git-signing:` blocks below; copy them into your
+# artifacts.yml. The artifact entry is the one of examples/go-cli, a
+# placeholder: take yours from your ecosystem example.
+#
+# `sign.method: sigstore` tells `release sign` (and container image
+# signing) to use cosign with the runner's OIDC token, which needs
+# `id-token: write` in the caller workflow. There is no long-lived
+# artifact-signing key: Fulcio issues a short-lived certificate bound to the
+# workflow identity for each release.
+#
+# Git commits and tags are a separate trust domain. This example selects
+# git-native SSH signing, which requires RELEASE_SSH_SIGNING_KEY and a matching
+# principal in .forge-ci/allowed_signers. forge-ci does not currently
+# support keyless Git-object signing.
+#
+# See
+# https://github.com/diggsweden/forge-ci/blob/main/docs/verification.md#signing-methods-for-release-artifacts.
+artifacts:
+  - name: my-cli
+    project-type: go
+    working-directory: .
+    config:
+      build-mode: artifact-first
+      main-package: ./cmd/my-cli
+      binary-name: my-cli
+      platforms: linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
+
+sign:
+  method: sigstore
+  # oidc-issuer is auto-detected from the runner (GitHub Actions →
+  # https://token.actions.githubusercontent.com). Set it explicitly
+  # only for self-hosted Fulcio or non-default platforms.
+
+git-signing:
+  method: ssh

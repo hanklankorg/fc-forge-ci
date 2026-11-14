@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# The same Go service with its release files signed with GPG and its image
+# with a Cosign key: `files-method: gpg` beside a Cosign `method`. This is a
+# separately selected declaration, not a rewrite of the Sigstore example.
+# With transparency disabled nothing is written to a public log.
+sign:
+  method: kms
+  key: env://COSIGN_KEY
+  transparency: none
+  files-method: gpg
+
+artifacts:
+  - name: my-service
+    project-type: go
+    working-directory: .
+    config:
+      build-mode: container-first
+
+containers:
+  - name: my-service
+    from: [my-service]
+    container-file: Containerfile
+    context: .
+    target: runtime
+    platforms: linux/amd64,linux/arm64
+    extract:
+      binary:
+        target: export-binary
+        names: [my-service]

@@ -1,0 +1,105 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# Forge CI pull-request gate for a Gradle service. No job receives a
+# secret or installs anything:
+#
+#   lint            nanolinter.toml's plan with the secrets,sast floor
+#   trust-boundary  statically verifies release.yml's secret boundaries
+#   build           ./gradlew build: the tests and the jar
+#
+# lint and build run in CI_JOB_IMAGE: a nanolinter image of the java flavour
+# (nanolinter, its check tools and a JDK), pinned by digest; the wrapper
+# brings Gradle.
+name: Pull Request
+
+on:
+  pull_request:
+    branches: [main]
+
+env:
+  GIT_CONFIG_COUNT: '1'
+  GIT_CONFIG_KEY_0: safe.directory
+  GIT_CONFIG_VALUE_0: '*'
+
+jobs:
+  lint:
+    name: "Check: lint"
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 15
+    steps:
+      # fetch-base brings the pull request's base branch for the commit-range and diff checks.
+      - name: Checkout repository
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/checkout-consumer@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+        with:
+          fetch-base: ${{ forgejo.base_ref }}
+
+      # nanolinter.toml's plan with the secrets,sast floor. Forgejo ingests no
+      # SARIF, so the findings are in this step's log.
+      - name: Lint
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/lint-nanolinter@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+
+  trust-boundary:
+    name: "Check: release isolation"
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 10
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+
+      - name: Checkout repository
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout --depth 1
+
+      - name: Verify release isolation boundaries
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/check-l3-isolation@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+        with:
+          build-job: handoff
+          dist-digest-output: dist_digest
+
+  build:
+    name: "Check: build and test"
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/checkout-consumer@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+
+      # Tests and the jar. No Build SBOM: nothing is published from here.
+      - name: Build and test
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon build
+
+  # ===========================================================================
+  # JOB: summary — the pull request overview; Forgejo 17 shows it above the
+  # logs, older Forgejo prints it in this job's log.
+  # ===========================================================================
+  summary:
+    name: Summary
+    if: ${{ always() }}
+    needs: [lint, trust-boundary, build]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 5
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+
+      - name: Write the pull request summary
+        env:
+          CI_RUN_URL: ${{ forgejo.server_url }}/${{ forgejo.repository }}/actions/runs/${{ forgejo.run_number }}
+          PROJECT_TYPE: gradle
+          CI_BRANCH: ${{ forgejo.head_ref }}
+          LINT_RESULT: ${{ needs.lint.result }}
+          ISOLATION_RESULT: ${{ needs.trust-boundary.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          forge-ci report pr \
+            --job "Check: lint=${LINT_RESULT}" \
+            --job "Check: release isolation=${ISOLATION_RESULT}" \
+            --job "Check: build and test=${BUILD_RESULT}"

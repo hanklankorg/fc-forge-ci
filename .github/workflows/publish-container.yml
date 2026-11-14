@@ -1,0 +1,1416 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Container Image Publisher
+#
+# Builds and publishes multi-platform OCI images. Depending on inputs, it also
+# runs vulnerability scans, generates SBOMs, signs the image, and attaches
+# cosign provenance and SBOM attestations. Registry support depends on the
+# registry's compatibility with the OCI and cosign operations used below.
+#
+# How it works:
+# 1. prep: compute image coordinate, tags, and labels once via forge-ci.
+#    Validate namespace early.
+# 2. build-arch (matrix, fail-fast: false): per-platform native runner, from
+#    build-runs-on-linux-<arch> (default ubuntu-26.04 / ubuntu-26.04-arm).
+#    Each leg builds to a local layout, runs its configured Trivy gate, and
+#    transfers the recorded layout through the run-scoped artifact store.
+#    Within the same job: per-arch scan reports and binary extraction.
+# 3. publish-images waits for ALL build-arch jobs, checks the complete artifact
+#    set (blob digests, source revision and platforms), then uploads tagless.
+#    image-evidence generates/attests per-arch SBOMs from those published digests.
+#    Builds carry NO BuildKit
+#    in-index attestations (`provenance: false`, `sbom: false`) — the per-arch
+#    push is a plain image, and the CycloneDX SBOM is attached here as a SIGNED
+#    cosign attestation (`container attest --type cyclonedx`)
+#    on each platform digest. The syft SBOM is also uploaded as a release asset.
+# 4. merge: assembles the per-arch digests into a single manifest list
+#    via `forge-ci container manifest merge`, applying all tags from
+#    `forge-ci container metadata`, signs the index with cosign, then
+#    attaches SIGNED SLSA v1.0 provenance to the index with
+#    `forge-ci container attest` — portable and verifiable with
+#    `cosign verify-attestation` on any registry/forge. Single-arch inputs go
+#    through the same pipeline (matrix-of-1 + one-entry manifest list).
+#
+# Signing and attestations use cosign rather than the GitHub attestation API or
+# BuildKit-generated attestations.
+#
+# No QEMU. Each runner builds its own architecture natively.
+#
+# Where forge-ci comes from: prep, publish-images, image-evidence and merge run
+# inside the runtime image digests the caller admits (forge-ci and cosign
+# baked in; Trivy and syft in the full image, which scans every exported
+# layout before publication), so they install nothing. The build-arch
+# legs are host jobs because Buildah needs the host: before the consumer
+# checkout they receive the canonical CLI built in this run from the approved
+# engine commit, through the same consume-canonical-cli action the release
+# jobs use, and run only root-owned system tools beside it.
+#
+# Security controls:
+# - Portable SIGNED SLSA v1.0 provenance via cosign attest on the manifest
+#   list (+ per-arch children); verifiable with cosign verify-attestation on
+#   any registry/forge — no GitHub attestation API required
+# - Portable SIGNED CycloneDX SBOM via cosign attest per-arch; verifiable with
+#   `cosign verify-attestation --type cyclonedx`. Same syft bytes also uploaded
+#   as a downloadable release asset
+# - Per-platform vulnerability scan with Trivy; per-arch SARIF category
+#   suffixing keeps both arches visible in Code Scanning
+# - Signed image + signed attestations attached to image
+# - Security scan results uploaded to Code Scanning (when CODE_SCANNING_TOKEN
+#   is configured)
+# - Namespace validation (enforces ghcr.io/OWNER/REPO pattern)
+#
+# Registry Authentication:
+#   GHCR (default): Uses GITHUB_TOKEN (no secrets needed)
+#   Other registries: Set use-ci-token=false and provide registry-password secret
+#
+# Required Secrets:
+#   registry-password: Required when use-ci-token=false (for Docker Hub, Quay, etc)
+#   CODE_SCANNING_TOKEN: Optional — uploads Trivy scan results to Code Scanning;
+#                        without it, the SARIF artifact is still saved
+#   The caller passes these by name in an explicit `secrets:` mapping.
+#
+# Required Permissions:
+#   actions: read          # Download workflow artifacts and per-arch digests
+#   contents: read         # Read Containerfile and context
+#   packages: write        # Push images + cosign signatures/attestations to registry
+#   id-token: write        # Keyless cosign OIDC for signing + attestations
+#
+# Outputs:
+#   image: Full image name with primary tag
+#   digest: Manifest list digest
+#   metadata: Image metadata JSON (tags + labels)
+#
+# Tagging Strategy (applied to the manifest list, not per-arch):
+#   - semver: Version-based tags (v1.0.0, v1, v1.0)
+#   - branch: Branch-based tags (main, develop)
+#   - sha: SHA-based tags (main-abc1234)
+name: Publish Container
+on:
+  workflow_call: # yamllint disable-line rule:truthy
+    inputs:
+      image-builder:
+        description: "buildah (default) or kaniko. Empty uses CI_IMAGE_BUILDER, then buildah."
+        type: string
+        default: ''
+      image-builder-job-image:
+        description: "Approved digest-pinned containers/kaniko-job image; empty uses CI_IMAGE_BUILDER_JOB_IMAGE."
+        type: string
+        default: ''
+      enforce-vulnerabilities:
+        description: "Enforcement setting: false reports vulnerability findings without failing; the scans still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      container-file:
+        description: "Containerfile path"
+        required: false
+        default: "Containerfile"
+        type: string
+      context:
+        description: "Source-relative build context directory"
+        required: false
+        default: "."
+        type: string
+      branch:
+        description: "Explicit branch, tag, or SHA whose image is built and published"
+        required: true
+        type: string
+      release-tag:
+        description: "Normalized final release tag used for OCI tags and promotion metadata"
+        required: false
+        default: ""
+        type: string
+      release-sha:
+        description: "Prepared release commit used for OCI revision metadata"
+        required: false
+        default: ""
+        type: string
+      source-date-epoch:
+        description: "Prepared release commit timestamp used for deterministic OCI metadata"
+        required: false
+        default: ""
+        type: string
+      platforms:
+        description: "Comma-separated list of platforms to build. Each platform builds natively on a runner of that architecture (linux/amd64 -> ubuntu-26.04, linux/arm64 -> ubuntu-26.04-arm). No QEMU emulation. Multi-platform inputs split across runners and are merged into a single manifest list."
+        required: false
+        default: "linux/amd64"
+        type: string
+      artifact-types:
+        description: "Comma-separated artifact types (maven,npm,gradle,cargo,go)"
+        required: true
+        type: string
+      artifact-types-json:
+        description: "JSON array of artifact types. Prefer this over artifact-types for exact membership checks."
+        required: false
+        default: "[]"
+        type: string
+      gradle-artifact-name:
+        description: "Name of the uploaded Gradle build artifact to download. Default `gradle-build-artifacts`."
+        required: false
+        default: ""
+        type: string
+      gradle-working-directory:
+        description: "The Gradle artifact's working-directory from artifacts.yml. The build output is restored there, so the Containerfile copies it from `<working-directory>/build/libs/`."
+        required: false
+        default: "."
+        type: string
+      maven-artifact-name:
+        description: "Name of the uploaded Maven build artifact to download. Default `maven-build-artifacts`."
+        required: false
+        default: ""
+        type: string
+      maven-working-directory:
+        description: "The Maven artifact's working-directory from artifacts.yml. The build output is restored there, so the Containerfile copies it from `<working-directory>/target/`."
+        required: false
+        default: "."
+        type: string
+      npm-artifact-name:
+        description: "Name of the uploaded NPM build artifact to download. Default `npm-build-artifacts`."
+        required: false
+        default: ""
+        type: string
+      go-artifact-name:
+        description: "Name of the artifact-first Go build artifact to download. Empty means container-first Go, where the Containerfile compiles the binary."
+        required: false
+        default: ""
+        type: string
+      cargo-artifact-name:
+        description: "Name of the artifact-first Cargo build artifact to download. Empty means container-first Cargo, where the Containerfile compiles the binary."
+        required: false
+        default: ""
+        type: string
+      enable-slsa:
+        description: "Generate SLSA provenance"
+        required: false
+        default: true
+        type: boolean
+      enable-analyzed-container-sbom:
+        description: "Run syft on the pushed image and produce the analyzed-container SBOM. Sibling of enable-slsa. When called from release-publish-stage this is derived from source artefacts' sboms; direct callers default to true."
+        required: false
+        default: true
+        type: boolean
+      scan-severity:
+        description: "Blocking threshold for fixable findings, default CRITICAL (a comma-list blocks at its lowest entry, e.g. CRITICAL,HIGH). HIGH is always reported. Admin policy controls enforcement."
+        required: false
+        default: "CRITICAL"
+        type: string
+      registry:
+        description: "Container registry"
+        required: false
+        default: "ghcr.io"
+        type: string
+      image-name:
+        description: "Custom image name (defaults to repository name)"
+        required: false
+        type: string
+      expected-image-repository:
+        description: "Explicit allowed OCI repository base for a source name requiring a mapping. Must remain below registry/enforce-namespace. Set as publication policy, independently of image-name."
+        required: false
+        default: ""
+        type: string
+      build-args:
+        description: "Build arguments (KEY=VALUE format, one per line)"
+        required: false
+        type: string
+      target:
+        description: "Containerfile stage to build for the runtime image. Empty defaults to the last stage (current docker behavior). Useful for multi-stage Containerfiles where the deployable image is not the last stage."
+        required: false
+        default: ""
+        type: string
+      name:
+        description: "Container artefact name from artifacts.yml. Namespaces the optional binary upload artefact (extract-binary) AND the published image — when set, the image becomes <registry>/<repository>/<name>:<tag>, giving each container in a multi-container project its own GitHub Packages page. Empty (or set to the repo's short name — the common single-container case) preserves single-image behaviour (<registry>/<repository>:<tag>). Overridden by `image-name` if both are set."
+        required: false
+        default: ""
+        type: string
+      extract-binary-target:
+        description: "Containerfile stage to extract as a binary CI artefact (typically `FROM scratch AS export-binary` with COPY --from=builder). When set, a second Buildah build runs per arch leg with --output to a local directory and the result is uploaded as ${name}-binaries-${arch}. Used by compiled-native ecosystems (cargo, go) where binaries are byproducts of the container build."
+        required: false
+        default: ""
+        type: string
+      extract-binary-names:
+        description: "Comma-separated binary basenames to suffix with -linux-<arch> before upload. Every listed name must exist as a regular file; missing names fail before any rename. Empty selects every top-level file."
+        required: false
+        default: ""
+        type: string
+      extract-binary-paths:
+        description: "Comma-separated regular executable paths in the retained runtime image. Copies the scanned image bytes without rebuilding. Requires push-image=true; mutually exclusive with extract-binary-target."
+        required: false
+        default: ""
+        type: string
+      build-secrets:
+        description: |
+          Newline/comma/space-separated list of Containerfile secret NAMES
+          declared in containers[].build-secrets. The values are pulled
+          from the FORGE_CI_BUILD_SECRETS_JSON envelope secret and
+          materialized as private files for secret mounts. Only path-based
+          mount specs enter outputs and build arguments. Consuming RUN commands
+          must still avoid printing values or copying them into image files.
+          Pass NAMES only, never KEY=VALUE pairs.
+        required: false
+        default: ""
+        type: string
+      push-image:
+        description: "Push image to registry"
+        required: false
+        default: true
+        type: boolean
+      build-cache:
+        description: "Enable registry layer-cache reads, tag-scoped per container/architecture. Cache export is disabled during staging to preserve the whole-matrix publication barrier."
+        required: false
+        default: true
+        type: boolean
+      egress-policy:
+        description: "Egress policy for the Harden Runner step of the host build legs; the container jobs run no host agent"
+        required: false
+        default: "audit"
+        type: string
+      registry-username:
+        description: "Registry username (defaults to github.actor for GHCR)"
+        required: false
+        type: string
+      use-ci-token:
+        description: "Use GITHUB_TOKEN for authentication (GHCR only)"
+        required: false
+        default: true
+        type: boolean
+      enforce-namespace:
+        description: "Enforce namespace validation (defaults to repository owner)"
+        required: false
+        type: string
+      runs-on:
+        description: "JSON array of runner labels for the ordinary jobs, read with fromJSON. Signing, promotion and publication jobs stay on GitHub-hosted runners."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      build-runs-on-linux-amd64:
+        description: "JSON array of runner labels for the linux/amd64 image builds, read with fromJSON. The runner must permit the user namespaces Buildah needs."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      build-runs-on-linux-arm64:
+        description: "JSON array of runner labels for the linux/arm64 image builds, read with fromJSON. The runner must permit the user namespaces Buildah needs."
+        required: false
+        default: '["ubuntu-26.04-arm"]'
+        type: string
+      forge-ci-binary-ref:
+        description: "Full approved engine commit the canonical CLI was built from; the host build legs receive exactly that build"
+        required: true
+        type: string
+      runtime-image:
+        description: "Administrator-pinned forge-ci base runtime image@sha256 digest for the container jobs that hold registry or signing authority: prep (early Cosign key check), publish-images and merge (manifest, cosign sign and attest). The orchestrator passes the digest its canonical delivery admitted."
+        required: true
+        type: string
+      runtime-image-full:
+        description: "forge-ci full runtime image (Trivy, syft and cosign baked in) for the per-platform layout scan that gates publication and the image evidence job: the analyzed-container SBOM and its attestation."
+        required: true
+        type: string
+      # Canonical delivery of the same run: canonical-cli-bootstrap.yml's
+      # outputs, forwarded by the publish stage. The host build legs admit
+      # them before any consumer checkout.
+      canonical-artifact-id: {type: string, required: true}
+      canonical-artifact-name: {type: string, required: true}
+      canonical-producer-run-id: {type: string, required: true}
+      canonical-producer-run-attempt: {type: string, required: true}
+      canonical-producer-engine-repository: {type: string, required: true}
+      canonical-producer-engine-commit: {type: string, required: true}
+      canonical-producer-result: {type: string, required: true}
+      sign-image:
+        description: "Sign the pushed image with cosign. Method controlled by sign-method (sigstore | kms). false skips the signing step entirely; gpg method is rejected (OpenPGP cannot sign OCI manifests)."
+        required: false
+        default: false
+        type: boolean
+      sign-method:
+        description: "Cosign backend for image signing: sigstore (keyless OIDC) or kms (cosign + sign-key). Required when sign-image=true. gpg is not a valid choice for image signing."
+        required: false
+        default: ""
+        type: string
+      sign-key:
+        description: "cosign --key URI for sign-method=kms (awskms://, gcpkms://, hashivault://, pkcs11:, file:, or exactly env://COSIGN_KEY for the RELEASE_COSIGN_PRIVATE_KEY secret). Forbidden for sign-method=sigstore."
+        required: false
+        default: ""
+        type: string
+      sign-oidc-issuer:
+        description: "OIDC issuer URL for sign-method=sigstore (default: cosign auto-detect). Forbidden for sign-method=kms."
+        required: false
+        default: ""
+        type: string
+      transparency-log:
+        description: "Cosign transparency: public or none. Omission defaults to public only for public repositories; private or unknown visibility requires explicit public consent. none is valid only with sign-method=kms and requires --insecure-ignore-tlog when verifying. Invalid values are refused before signing."
+        required: false
+        default: ""
+        type: string
+      cosign-public-key:
+        description: "The trusted Cosign public key, PEM, when artifacts.yml signs with sign.key env://COSIGN_KEY. Pass the COSIGN_PUBLIC_KEY repository or organization variable: each job that receives the key secret refuses to sign unless the key derives this public key."
+        required: false
+        default: ""
+        type: string
+      cosign-public-key-sha256:
+        description: "SHA-256 of cosign-public-key as `sha256sum cosign.pub` prints it, written out in the calling workflow, so a changed variable alone cannot swap the trusted key."
+        required: false
+        default: ""
+        type: string
+    secrets:
+      registry-password:
+        description: "Registry password/token (required when use-ci-token=false)"
+        required: false
+      CODE_SCANNING_TOKEN:
+        description: "Token with code_scanning_alerts:write for uploading SARIF to Code Scanning"
+        required: false
+      RELEASE_COSIGN_PRIVATE_KEY:
+        description: "Cosign private key, when artifacts.yml signs with sign.key env://COSIGN_KEY. Reaches only the steps that sign with it."
+        required: false
+      RELEASE_COSIGN_PASSPHRASE:
+        description: "Passphrase for RELEASE_COSIGN_PRIVATE_KEY"
+        required: false
+      FORGE_CI_BUILD_SECRETS_JSON:
+        description: |
+          JSON object of {name: value} for every entry in
+          containers[].build-secrets. Stored as a single pre-packed
+          repo/org secret by the adopter (see
+          docs/artifacts-reference.md `build-secrets` for the recipe)
+          so the value stays inside the secrets channel end-to-end.
+          Unpacked into per-secret mode-0600 tmpfiles by `forge-ci
+          container materialize-build-secrets` and mounted into
+          Buildah via --mount=type=secret so values stay out of
+          provenance attestations and step inputs.
+        required: false
+    outputs:
+      image:
+        description: "Full image name with primary tag"
+        value: ${{ jobs.merge.outputs.image }}
+      digest:
+        description: "Manifest list digest"
+        value: ${{ jobs.merge.outputs.digest }}
+      metadata:
+        description: "Image metadata JSON (tags + labels)"
+        value: ${{ jobs.prep.outputs.metadata }}
+permissions:
+  contents: read # Default permission; individual jobs declare additions.
+env:
+  REPOSITORY_VISIBILITY: ${{ toJSON(github.event.repository.private) == 'true' && 'private' || (toJSON(github.event.repository.private) == 'false' && 'public' || 'unknown') }}
+  SIGN_METHOD: ${{ inputs['sign-method'] }}
+  SIGN_ENABLED: ${{ inputs['sign-image'] }}
+  TRANSPARENCY_LOG: ${{ inputs['transparency-log'] }}
+jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      images: |
+        runtime-image=${{ inputs['runtime-image'] }}
+        runtime-image-full=${{ inputs['runtime-image-full'] }}
+  prep:
+    name: Prepare Build${{ inputs.name && format(' ({0})', inputs.name) || '' }}
+    needs: [resolve-bootstrap]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    # The base image the resolver admitted: forge-ci and cosign baked in, so
+    # the early key check installs nothing. A job container starts before any
+    # step.
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      contents: read
+    outputs:
+      image-name: ${{ steps.image-name.outputs.name }}
+      builder: ${{ steps.builder.outputs.builder }}
+      builder-job-image: ${{ steps.builder.outputs.builder-job-image }}
+      tags: ${{ steps.metadata.outputs.tags }}
+      labels: ${{ steps.metadata.outputs.labels }}
+      metadata: ${{ steps.metadata.outputs.json }}
+      source-ref-name: ${{ steps.metadata.outputs.source-ref-name }}
+      # true only on a tag build whose ref is usable verbatim as an OCI tag —
+      # gates the ledger so an unusual tag degrades to "no promotion" instead of
+      # failing the manifest push.
+      ref-clean: ${{ steps.metadata.outputs.ref-clean }}
+      # The promotion candidate tag (<image>:staging-<version>) derived in Go;
+      # empty unless the ref is a clean tag, so the merge step pushes it only
+      # when promotable. Single-sources the staging-tag convention (no YAML).
+      staging-tag: ${{ steps.metadata.outputs.staging-tag }}
+      platforms-json: ${{ steps.platforms.outputs.platforms-json }}
+      # Each platform with its arch suffix: build-arch names its runner input by it.
+      matrix-json: ${{ steps.platforms.outputs.matrix-json }}
+      # Unix-epoch seconds of the resolved HEAD commit. Propagated to
+      # the build job as SOURCE_DATE_EPOCH (reproducible-builds.org
+      # convention) so Buildah pins the image-config `created`
+      # field and every layer entry's mtime. Without this, two
+      # builds of the same source produce different image-config
+      # digests — verifiers comparing tag re-issues would see drift.
+      source-date-epoch: ${{ steps.source-date.outputs.epoch }}
+      source-sha: ${{ steps.source-date.outputs.sha }}
+    steps:
+      - name: Resolve image builder
+        id: builder
+        shell: bash
+        env:
+          BUILDER: ${{ inputs['image-builder'] || vars.CI_IMAGE_BUILDER || 'buildah' }}
+          JOB_IMAGE: ${{ inputs['image-builder-job-image'] || vars.CI_IMAGE_BUILDER_JOB_IMAGE }}
+          BUILD_SECRETS: ${{ inputs['build-secrets'] }}
+        run: |
+          set -euo pipefail
+          case "$BUILDER" in
+            buildah) JOB_IMAGE= ;;
+            kaniko)
+              if [[ ! "$JOB_IMAGE" =~ ^[^[:space:]]+@sha256:[0-9a-f]{64}$ ]]; then
+                echo 'ERROR: kaniko requires a digest-pinned image-builder-job-image' >&2
+                exit 1
+              fi
+              if [[ -n "$BUILD_SECRETS" ]]; then
+                echo 'ERROR: kaniko does not support build-secrets' >&2
+                exit 1
+              fi
+              ;;
+            *) echo 'ERROR: image-builder must be buildah or kaniko' >&2; exit 1 ;;
+          esac
+          printf 'builder=%s\nbuilder-job-image=%s\n' "$BUILDER" "$JOB_IMAGE" >> "$GITHUB_OUTPUT"
+      - name: Validate binary extraction mode
+        shell: bash
+        env:
+          EXTRACT_TARGET: ${{ inputs['extract-binary-target'] }}
+          EXTRACT_PATHS: ${{ inputs['extract-binary-paths'] }}
+          PUSH_IMAGE: ${{ inputs['push-image'] }}
+        run: |
+          if [[ -n "$EXTRACT_PATHS" && ( -n "$EXTRACT_TARGET" || "$PUSH_IMAGE" != true ) ]]; then
+            printf 'image-path extraction requires the retained OCI build and cannot also select an export target\n' >&2
+            exit 78
+          fi
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.branch }}
+      # Defense-in-depth gate: refuse to run when the workflow trigger
+      # exposes adopter-controlled commit context to signing/package
+      # secrets (most importantly pull_request*). All downstream jobs
+      # depend on this prep job via `needs:`, so a refusal here skips
+      # the entire publish.
+      - name: Refuse PR-context trigger (publish/release secrets in scope)
+        run: forge-ci validate event-context
+      - name: Determine Image Name
+        id: image-name
+        env:
+          CONTAINER_REGISTRY: ${{ inputs.registry }}
+          IMAGE_NAME: ${{ inputs['image-name'] }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          CONTAINER_NAME: ${{ inputs.name }}
+        run: forge-ci container ref resolve
+      - name: Validate transparency-log
+        # A typo must not publish signatures to the permanent public log by
+        # falling back to the default; the same rule as the Forgejo layer.
+        env:
+          TRANSPARENCY_LOG: ${{ inputs['transparency-log'] }}
+        run: forge-ci validate signing-privacy
+      # A key that does not derive the trusted public key fails here, before
+      # the build jobs push anything: checked only in the signing jobs, it
+      # would leave pushed image tags without a signature.
+      - name: Bind Cosign signing key to trusted public key
+        if: ${{ inputs['sign-image'] && inputs['sign-key'] == 'env://COSIGN_KEY' }}
+        env:
+          COSIGN_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+          TRUSTED_KEY_INPUT: ${{ inputs['cosign-public-key'] }}
+          TRUSTED_KEY_SHA256_INPUT: ${{ inputs['cosign-public-key-sha256'] }}
+        run: |
+          set -euo pipefail
+          trusted_key="${RUNNER_TEMP:?}/cosign.pub"
+          # $(...) drops the input's trailing newlines in any shell, so the
+          # file is the key and one newline, as `sha256sum cosign.pub` hashed it.
+          trusted_public_key=$(printf '%s' "${TRUSTED_KEY_INPUT}")
+          printf '%s\n' "${trusted_public_key}" >"${trusted_key}"
+          printf '%s\n' "${TRUSTED_KEY_SHA256_INPUT}" >"${trusted_key}.sha256"
+          forge-ci validate signing-key --key env://COSIGN_KEY \
+            --trusted-public-key "${trusted_key}" --trusted-public-key-digest "${trusted_key}.sha256"
+      - name: Validate Image Namespace
+        if: ${{ inputs['push-image'] }}
+        env:
+          IMAGE_NAME: ${{ steps.image-name.outputs.name }}
+          REPOSITORY: ${{ github.repository }}
+          CONTAINER_REGISTRY: ${{ inputs.registry }}
+          ENFORCE_NAMESPACE: ${{ inputs['enforce-namespace'] || github.repository_owner }}
+          ENFORCE_NAMESPACE_ON: ${{ inputs.registry }}
+          EXPECTED_IMAGE_REPOSITORY: ${{ inputs['expected-image-repository'] }}
+        run: forge-ci container validate namespace
+      - name: Compute SOURCE_DATE_EPOCH
+        id: source-date
+        env:
+          RELEASE_SOURCE_DATE_EPOCH: ${{ inputs['source-date-epoch'] }}
+        run: |
+          epoch="$RELEASE_SOURCE_DATE_EPOCH"
+          if [ -z "$epoch" ]; then
+            epoch="$(git log -1 --format=%ct HEAD)"
+          fi
+          printf 'epoch=%s\n' "$epoch" >> "$GITHUB_OUTPUT"
+          printf 'sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          printf '::notice::SOURCE_DATE_EPOCH=%s (commit %s)\n' "$epoch" "$(git rev-parse --short HEAD)"
+      - name: Extract Image Metadata
+        id: metadata
+        env:
+          IMAGE_NAME: ${{ steps.image-name.outputs.name }}
+          FLAVOR: latest=false
+          EMIT_LABELS: "true"
+          SOURCE_REF_NAME: ${{ inputs['release-tag'] || github.ref_name }}
+          SOURCE_REF_TYPE: ${{ inputs['release-tag'] != '' && 'tag' || github.ref_type }}
+          SOURCE_REVISION: ${{ inputs['release-sha'] || steps.source-date.outputs.sha }}
+          SOURCE_DATE_EPOCH: ${{ steps.source-date.outputs.epoch }}
+          TAG_RULES: |
+            # Always include the ref as-is (branch name, tag name, or PR number)
+            type=ref,event=branch
+            type=ref,event=tag
+            type=ref,event=pr
+
+            # For version tags only (v1.0.0, v2.3.4, etc)
+            type=semver,pattern={{version}},enable=${{ inputs['release-tag'] != '' || github.ref_type == 'tag' }}
+
+            # For stable versions only (no dash in tag name like -beta, -rc)
+            type=semver,pattern={{major}}.{{minor}},enable=${{ (inputs['release-tag'] != '' && !contains(inputs['release-tag'], '-')) || (inputs['release-tag'] == '' && github.ref_type == 'tag' && !contains(github.ref_name, '-')) }}
+            type=semver,pattern={{major}},enable=${{ (inputs['release-tag'] != '' && !contains(inputs['release-tag'], '-')) || (inputs['release-tag'] == '' && github.ref_type == 'tag' && !contains(github.ref_name, '-')) }}
+
+            # SHA-based tags for non-tag refs (branches, PRs) for traceability
+            type=sha,prefix={{branch}}-,enable=${{ inputs['release-tag'] == '' && github.ref_type != 'tag' }}
+        run: forge-ci container metadata
+      - name: Compute platforms JSON
+        id: platforms
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+          # The caller's repository variable narrows the declared platforms,
+          # as on the other forges; empty builds them all.
+          RELEASE_PLATFORMS: ${{ vars.RELEASE_PLATFORMS }}
+          RUNNER_ORDINARY: ${{ inputs['runs-on'] }}
+          RUNNER_BUILD_AMD64: ${{ inputs['build-runs-on-linux-amd64'] }}
+          RUNNER_BUILD_ARM64: ${{ inputs['build-runs-on-linux-arm64'] }}
+        # A planned platform whose build runner input has no value is
+        # refused here, before any leg is scheduled.
+        run: |
+          forge-ci container platform-plan \
+            --runner-input "runs-on=$RUNNER_ORDINARY" \
+            --runner-input "build-runs-on-linux-amd64=$RUNNER_BUILD_AMD64" \
+            --runner-input "build-runs-on-linux-arm64=$RUNNER_BUILD_ARM64"
+  build-arch:
+    name: Build${{ inputs.name && format(' ({0})({1})', inputs.name, matrix.platform) || format(' ({0})', matrix.platform) }}
+    needs: [resolve-bootstrap, prep]
+    # Each leg runs on the runner input of the arch prep emits for it: no
+    # platform falls through to another's runner, and an empty input or an
+    # arch with no input fails the leg. No QEMU emulation.
+    runs-on: ${{ fromJSON((matrix.suffix == 'arm64' && inputs['build-runs-on-linux-arm64']) || (matrix.suffix == 'amd64' && inputs['build-runs-on-linux-amd64']) || '') }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: source
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.prep.outputs.matrix-json) }}
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+    steps:
+      - name: Harden GitHub runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: ${{ inputs.egress-policy }}
+      - name: Require original canonical success and approved identity
+        # Before the consumer checkout: the canonical CLI of this run, built
+        # from the approved engine commit, is the only forge-ci this leg runs.
+        working-directory: ${{ github.workspace }}
+        shell: /bin/bash --noprofile --norc -peuo pipefail {0}
+        env:
+          ENGINE_REPOSITORY: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          ENGINE_COMMIT: ${{ inputs['forge-ci-binary-ref'] }}
+          ENGINE_ORIGIN: ${{ github.server_url }}/${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          RUNTIME_IMAGE: ${{ inputs['runtime-image'] }}
+          PRODUCER_ARTIFACT_ID: ${{ inputs['canonical-artifact-id'] }}
+          PRODUCER_ARTIFACT_NAME: ${{ inputs['canonical-artifact-name'] }}
+          PRODUCER_RUN_ID: ${{ inputs['canonical-producer-run-id'] }}
+          PRODUCER_RUN_ATTEMPT: ${{ inputs['canonical-producer-run-attempt'] }}
+          PRODUCER_ENGINE_REPOSITORY: ${{ inputs['canonical-producer-engine-repository'] }}
+          PRODUCER_ENGINE_COMMIT: ${{ inputs['canonical-producer-engine-commit'] }}
+          CANONICAL_PRODUCER_RESULT: ${{ inputs['canonical-producer-result'] }}
+        run: |
+          [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ && "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CANONICAL_PRODUCER_RESULT" == success && "$PRODUCER_RUN_ID" == "$GITHUB_RUN_ID" && "$PRODUCER_RUN_ATTEMPT" == "$GITHUB_RUN_ATTEMPT" ]]
+          [[ "$ENGINE_REPOSITORY" =~ ^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*$ && "$ENGINE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PRODUCER_ENGINE_REPOSITORY" == "$ENGINE_REPOSITORY" && "$PRODUCER_ENGINE_COMMIT" == "$ENGINE_COMMIT" ]]
+          [[ "$PRODUCER_ARTIFACT_ID" =~ ^[1-9][0-9]*$ && "$PRODUCER_ARTIFACT_NAME" == "forge-ci-canonical-linux-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ENGINE_COMMIT" ]]
+          [[ "$RUNTIME_IMAGE" =~ ^[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}$ ]]
+          [[ "$GITHUB_SERVER_URL" =~ ^https://[^/?#@[:space:]]+$ && "$ENGINE_ORIGIN" == "$GITHUB_SERVER_URL/$ENGINE_REPOSITORY" ]]
+          for variable in ENGINE_REPOSITORY ENGINE_COMMIT ENGINE_ORIGIN RUNTIME_IMAGE PRODUCER_ARTIFACT_ID PRODUCER_ARTIFACT_NAME PRODUCER_RUN_ID PRODUCER_RUN_ATTEMPT PRODUCER_ENGINE_REPOSITORY PRODUCER_ENGINE_COMMIT CANONICAL_PRODUCER_RESULT; do
+            printf '%s=%s\n' "$variable" "${!variable}" >>"$GITHUB_ENV"
+          done
+      - name: Checkout only the approved engine before consumer or private steps
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ env.ENGINE_REPOSITORY }}
+          ref: ${{ env.ENGINE_COMMIT }}
+          path: _forge_ci_bootstrap
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - name: Consume canonical CLI from the independently pinned engine checkout
+        id: canonical-bootstrap
+        uses: ./_forge_ci_bootstrap/.github/actions/consume-canonical-cli
+        with:
+          tool-profile: host # Buildah, the registry token and build secrets in scope: root-owned system tools only.
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.prep.outputs.source-sha }}
+          path: source
+          persist-credentials: false
+      - name: Derive arch suffix
+        id: arch
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: forge-ci container platform-plan
+      - name: Verify source-confined build paths
+        id: containerfile
+        env:
+          CONTAINER_FILE: ${{ inputs['container-file'] }}
+          BUILD_CONTEXT: ${{ inputs.context }}
+          # Where the Maven and Gradle downloads below are unpacked.
+          MAVEN_WORKING_DIRECTORY: ${{ inputs['maven-working-directory'] || '.' }}
+          GRADLE_WORKING_DIRECTORY: ${{ inputs['gradle-working-directory'] || '.' }}
+        run: forge-ci container validate containerfile --path "$CONTAINER_FILE" --context "$BUILD_CONTEXT" --source-dir "$MAVEN_WORKING_DIRECTORY" --source-dir "$GRADLE_WORKING_DIRECTORY"
+      - name: Download Maven artifacts
+        if: &if_has_maven_artifacts ${{ contains(fromJson(inputs['artifact-types-json']), 'maven') || contains(format(',{0},', inputs['artifact-types']), ',maven,') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOWNLOAD_NAME: ${{ inputs['maven-artifact-name'] || 'maven-build-artifacts' }}
+          # Restored where it was built, so the Containerfile copies from the
+          # path the build wrote, as on the other forges.
+          MAVEN_WORKING_DIRECTORY: ${{ inputs['maven-working-directory'] }}
+        run: forge-ci artifact download --name "$DOWNLOAD_NAME" --dir "./$MAVEN_WORKING_DIRECTORY"
+      - name: Verify Maven artifacts
+        if: *if_has_maven_artifacts
+        env:
+          MAVEN_WORKING_DIRECTORY: ${{ inputs['maven-working-directory'] }}
+        run: forge-ci container validate artifacts --project-type maven --artifact-dir "./$MAVEN_WORKING_DIRECTORY/target"
+      - name: Download NPM artifacts
+        if: &if_has_npm_artifacts ${{ contains(fromJson(inputs['artifact-types-json']), 'npm') || contains(format(',{0},', inputs['artifact-types']), ',npm,') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOWNLOAD_NAME: ${{ inputs['npm-artifact-name'] || 'npm-build-artifacts' }}
+        run: forge-ci artifact download --name "$DOWNLOAD_NAME" --dir ./
+      - name: Extract NPM tarball
+        if: *if_has_npm_artifacts
+        run: forge-ci container extract-npm-tarball
+      - name: Verify NPM artifacts
+        if: *if_has_npm_artifacts
+        env:
+          CONTAINER_CONTEXT: ${{ inputs.context }}
+          CONTAINER_FILE: ${{ inputs['container-file'] }}
+        run: forge-ci container validate artifacts --project-type npm --artifact-dir dist --containerfile "$CONTAINER_CONTEXT/$CONTAINER_FILE"
+      - name: Download Gradle artifacts
+        if: &if_has_gradle_artifacts ${{ contains(fromJson(inputs['artifact-types-json']), 'gradle') || contains(format(',{0},', inputs['artifact-types']), ',gradle,') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOWNLOAD_NAME: ${{ inputs['gradle-artifact-name'] || 'gradle-build-artifacts' }}
+          # The upload keeps build/libs, so it is restored where it was built,
+          # as the Maven artifact is.
+          GRADLE_WORKING_DIRECTORY: ${{ inputs['gradle-working-directory'] }}
+        run: forge-ci artifact download --name "$DOWNLOAD_NAME" --dir "./$GRADLE_WORKING_DIRECTORY"
+      - name: Verify Gradle artifacts
+        if: *if_has_gradle_artifacts
+        env:
+          GRADLE_WORKING_DIRECTORY: ${{ inputs['gradle-working-directory'] }}
+        run: forge-ci container validate artifacts --project-type gradle --artifact-dir "./$GRADLE_WORKING_DIRECTORY/build/libs"
+      - name: Download Go artifacts
+        if: &if_has_go_artifacts ${{ (contains(fromJson(inputs['artifact-types-json']), 'go') || contains(format(',{0},', inputs['artifact-types']), ',go,')) && inputs['go-artifact-name'] != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOWNLOAD_NAME: ${{ format('{0}-go-build-artifacts', inputs['go-artifact-name']) }}
+          DOWNLOAD_DIR: ${{ inputs.context }}/dist/
+        run: forge-ci artifact download --name "$DOWNLOAD_NAME" --dir "$DOWNLOAD_DIR"
+      - name: Verify Go artifacts
+        if: *if_has_go_artifacts
+        env:
+          CONTAINER_CONTEXT: ${{ inputs.context }}
+          CONTAINER_FILE: ${{ inputs['container-file'] }}
+        run: forge-ci container validate artifacts --project-type go --artifact-dir "$CONTAINER_CONTEXT/dist" --containerfile "$CONTAINER_CONTEXT/$CONTAINER_FILE"
+      - name: Download Cargo artifacts
+        if: &if_has_cargo_artifacts ${{ (contains(fromJson(inputs['artifact-types-json']), 'cargo') || contains(format(',{0},', inputs['artifact-types']), ',cargo,')) && inputs['cargo-artifact-name'] != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOWNLOAD_NAME: ${{ format('{0}-cargo-build-artifacts', inputs['cargo-artifact-name']) }}
+          DOWNLOAD_DIR: ${{ inputs.context }}/dist/
+        run: forge-ci artifact download --name "$DOWNLOAD_NAME" --dir "$DOWNLOAD_DIR"
+      - name: Verify Cargo artifacts
+        if: *if_has_cargo_artifacts
+        env:
+          CONTAINER_CONTEXT: ${{ inputs.context }}
+          CONTAINER_FILE: ${{ inputs['container-file'] }}
+        run: forge-ci container validate artifacts --project-type cargo --artifact-dir "$CONTAINER_CONTEXT/dist" --containerfile "$CONTAINER_CONTEXT/$CONTAINER_FILE"
+      - name: Admit image publication
+        if: ${{ inputs['push-image'] }}
+        run: forge-ci validate event-context
+      - name: Check registry authentication configuration
+        if: &if_push_image ${{ inputs['push-image'] }}
+        env:
+          USE_CI_TOKEN: ${{ inputs['use-ci-token'] }}
+          REGISTRY: ${{ inputs.registry }}
+          CI_REGISTRY: ghcr.io
+          REGISTRY_PASSWORD: ${{ secrets['registry-password'] }}
+        run: forge-ci validate auth registry
+      - name: Log in to Container Registry
+        id: registry-login
+        if: *if_push_image
+        # node-less, forge-neutral registry login (replaces docker/login-action):
+        # writes the shared {"auths":…} config Buildah and cosign read.
+        # Password rides REGISTRY_PASSWORD (a secret), never argv.
+        env:
+          CONTAINER_REGISTRY: ${{ inputs.registry }}
+          REGISTRY_USER: ${{ inputs['registry-username'] || github.actor }}
+          REGISTRY_PASSWORD: ${{ inputs['use-ci-token'] && secrets.GITHUB_TOKEN || secrets['registry-password'] }}
+        run: forge-ci container login --auth-file "${REGISTRY_AUTH_FILE:-${DOCKER_CONFIG:-${HOME:?}/.docker}/config.json}"
+      # Unpacks the FORGE_CI_BUILD_SECRETS_JSON envelope into per-secret
+      # mode-0600 tmpfiles under a unique private $RUNNER_TEMP directory and emits the
+      # compact JSON array of path-only mount specs consumed by `container build`.
+      # Secret values stay out of these outputs and build arguments. Consuming
+      # RUN commands must still avoid logging values or copying them into layers.
+      # Mount IDs are lowercased: `--mount=type=secret,id=<lowercased-name>`.
+      - name: Materialize build secrets
+        id: build-secrets
+        env:
+          BUILD_SECRET_NAMES: ${{ inputs['build-secrets'] }}
+          FORGE_CI_BUILD_SECRETS_JSON: ${{ secrets.FORGE_CI_BUILD_SECRETS_JSON }}
+        run: forge-ci container materialize-build-secrets
+      - name: Ensure buildah + podman
+        if: ${{ needs.prep.outputs.builder == 'buildah' }}
+        # Make the build's buildah dependency explicit + forge-portable: a no-op
+        # on GitHub runners (pre-installed), installs it on other runners. The
+        # helper comes from the approved engine checkout the delivery retained.
+        run: bash "$RUNNER_TEMP/forge-ci-approved-engine/scripts/bootstrap/install-buildah.sh"
+      # Both builders retain a single-platform OCI layout for publish-images. No
+      # registry writes (including cache exports) occur in this matrix.
+      # With push-image=false, Buildah validates in its local store; Kaniko
+      # stages an OCI layout that the scan-layouts job scans without publishing it.
+      # The build's inputs are computed ONCE, in the env block below, which the
+      # Buildah step reuses as its own. The launcher this job installs clears
+      # FORGE_CI_PLAN, so no step can point a command at a plan through the
+      # environment: Buildah reads the inputs from its step env, and the
+      # Kaniko action, which runs in its own container, is handed them as a
+      # plan file named by a literal path. Writing is strict — every --set key
+      # must be a real `container build` flag, so a typo fails here instead of
+      # silently falling through to a default. The env block exists only to
+      # hand the (possibly multiline) values to this one step; the build step
+      # and any future consumer read the plan env-free.
+      - name: Write build plan
+        if: ${{ needs.prep.outputs.builder == 'kaniko' }}
+        env: &build_inputs
+          ADMIN_VULNERABILITIES: ${{ inputs['enforce-vulnerabilities'] }}
+          BUILD_CONTEXT: ${{ inputs.context }}
+          CONTAINER_FILE: ${{ steps.containerfile.outputs.containerfile }}
+          BUILD_TARGET: ${{ inputs.target }}
+          BUILD_PLATFORM: ${{ matrix.platform }}
+          BUILD_MODE: ${{ (inputs['push-image'] || needs.prep.outputs.builder == 'kaniko') && 'oci' || 'load' }}
+          IMAGE_REF: ${{ needs.prep.outputs.image-name }}
+          # SOURCE_DATE_EPOCH (from `prep`) normalizes image/layer timestamps.
+          # Reproducible digests also depend on the other inputs and build output.
+          SOURCE_DATE_EPOCH: ${{ needs.prep.outputs.source-date-epoch }}
+          LABELS: ${{ needs.prep.outputs.labels }}
+          BUILD_ARGS: ${{ inputs['build-args'] }}
+          BUILD_SECRETS: ${{ steps['build-secrets'].outputs['secret-mounts'] }}
+          BUILD_AUTH_FILE: ${{ steps.registry-login.outputs.auth-file }}
+          # Forge-neutral registry layer cache (replaces type=gha): a dedicated
+          # buildcache package in the caller's namespace, shared by every
+          # container and arch (Buildah keys layers by content and takes no
+          # tag). Gated on build-cache AND push-image — that path
+          # logs in (read-write creds) and is a trusted, non-fork context; a
+          # push-image=false PR build (or build-cache=false) builds from scratch.
+          # Lowercased below: an OCI repository path cannot hold the owner's capitals.
+          BUILD_CACHE_REPO: ${{ inputs['push-image'] && inputs['build-cache'] && format('{0}/{1}/buildcache', inputs.registry, github.repository_owner) || '' }}
+          BUILD_CACHE_PUSH: "false"
+          # The build exports its layout unscanned: the scan-layouts job scans
+          # every exported layout in the full runtime image before publication.
+          # Load-only validation exports no layout.
+          BUILD_DEFER_SCAN: "true"
+        # The path is a fixed one in /tmp, outside the workspace and so outside
+        # the build context: --new replaces whatever an earlier job left there
+        # on a runner that keeps its files.
+        run: |
+          forge-ci plan write --new --plan-file /tmp/forge-ci-plan.json --scope "container build" \
+            --set "context=${BUILD_CONTEXT}" \
+            --set "file=${CONTAINER_FILE}" \
+            --set "target=${BUILD_TARGET}" \
+            --set "platform=${BUILD_PLATFORM}" \
+            --set "mode=${BUILD_MODE}" \
+            --set "output-dir=${RUNNER_TEMP}/image-layout" \
+            --set "image-ref=${IMAGE_REF}" \
+            --set "source-date-epoch=${SOURCE_DATE_EPOCH}" \
+            --set "labels=${LABELS}" \
+            --set "build-args=${BUILD_ARGS}" \
+            --set "secrets=${BUILD_SECRETS}" \
+            --set "auth-file=${BUILD_AUTH_FILE}" \
+            --set "cache-repo=${BUILD_CACHE_REPO,,}" \
+            --set "cache-push=${BUILD_CACHE_PUSH}" \
+            --set "defer-scan=${BUILD_DEFER_SCAN}"
+      - name: Build and retain layout
+        id: build
+        if: ${{ needs.prep.outputs.builder == 'buildah' }}
+        # The build flags come from the shared env block. Neither builder emits
+        # no BuildKit in-index attestations (which are unsigned and
+        # proprietary). Every piece of evidence is instead a SIGNED cosign in-toto
+        # attestation: SLSA provenance on the merged index in the `merge` job
+        # (its digest pins every per-arch child), and the CycloneDX SBOM per-arch
+        # below (syft) — verifiable with cosign verify-attestation on any forge.
+        env: *build_inputs
+        run: |
+          forge-ci container build --enforce-vulnerabilities="$ADMIN_VULNERABILITIES" \
+            --output-dir "$RUNNER_TEMP/image-layout" --auth-file "$BUILD_AUTH_FILE" \
+            --cache-repo "${BUILD_CACHE_REPO,,}"
+      - name: Admit and prepare isolated native Kaniko action
+        id: kaniko-action
+        if: ${{ needs.prep.outputs.builder == 'kaniko' }}
+        env:
+          JOB_IMAGE: ${{ needs.prep.outputs.builder-job-image }}
+          ENGINE_REPOSITORY: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          forge-ci container image usable-digest --ref "$JOB_IMAGE" --arch "${PLATFORM#linux/}" \
+            --require-label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$ENGINE_REPOSITORY" \
+            --require-label 'org.opencontainers.image.title=forge-ci kaniko job image'
+          forge-ci container prepare-kaniko-action --job-image "$JOB_IMAGE" --plan /tmp/forge-ci-plan.json
+      - name: Build and retain layout with Kaniko
+        if: ${{ needs.prep.outputs.builder == 'kaniko' }}
+        uses: ./.forge-ci-kaniko-action
+        env:
+          ADMIN_VULNERABILITIES: ${{ inputs['enforce-vulnerabilities'] }}
+          CONTAINER_REGISTRY: ${{ inputs.registry }}
+          REGISTRY_USER: ${{ inputs['registry-username'] || github.actor }}
+          REGISTRY_PASSWORD: ${{ inputs['push-image'] && (inputs['use-ci-token'] && secrets.GITHUB_TOKEN || secrets['registry-password']) || '' }}
+      - name: Restore host ownership of Kaniko layout
+        if: ${{ always() && needs.prep.outputs.builder == 'kaniko' }}
+        env:
+          STAGED_OUTPUT: ${{ steps.kaniko-action.outputs.output-dir }}
+        run: |
+          if [[ -e "$STAGED_OUTPUT" || -L "$STAGED_OUTPUT" ]]; then
+            sudo chown -hRP -- "$(id -u):$(id -g)" "$STAGED_OUTPUT"
+          fi
+      - name: Retain Kaniko layout on the host
+        if: ${{ needs.prep.outputs.builder == 'kaniko' }}
+        env:
+          STAGED_OUTPUT: ${{ steps.kaniko-action.outputs.output-dir }}
+        run: |
+          test ! -e "$RUNNER_TEMP/image-layout"
+          mv -T -- "$STAGED_OUTPUT" "$RUNNER_TEMP/image-layout"
+      - name: Check SLSA compatibility
+        if: ${{ inputs['push-image'] && inputs['enable-slsa'] && inputs.registry != 'ghcr.io' }}
+        env:
+          CONTAINER_REGISTRY: ${{ inputs.registry }}
+        run: |
+          printf "::notice::Portable signed SLSA provenance (cosign attest) runs on %s — verify with cosign verify-attestation. No GitHub attestation API is used.\n" "$CONTAINER_REGISTRY"
+      - name: Record staged image identity
+        if: *if_push_image
+        env:
+          IMAGE_REF: ${{ needs.prep.outputs.image-name }}
+          SOURCE_SHA: ${{ needs.prep.outputs.source-sha }}
+          PLATFORM: ${{ matrix.platform }}
+        run: forge-ci container layout record --layout-dir "$RUNNER_TEMP/image-layout"
+      # Artefact names MUST be unique across the entire workflow run, not
+      # just within this workflow_call invocation: when multiple containers
+      # are matrix-dispatched (release-publish-stage's per-container
+      # matrix), each container's publish-container call shares
+      # github.run_id. Without per-container scoping, worker's
+      # digests-<run_id>-amd64 would collide with api-service's; one upload
+      # silently wins and the merge job downloads the wrong container's
+      # digest. Same root cause applies to SARIF + SBOM uploads below.
+      - name: Upload staged OCI layout
+        if: &if_layout_exported ${{ inputs['push-image'] || needs.prep.outputs.builder == 'kaniko' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: layouts-${{ github.run_id }}-${{ inputs.name || 'container' }}-${{ steps.arch.outputs.suffix }}
+          path: ${{ runner.temp }}/image-layout/
+          compression-level: "0"
+          if-no-files-found: error
+          retention-days: "1"
+      # Optional binary extraction (container-first / compiled-native ecosystems).
+      # Each native arch leg extracts its own binary directly. No QEMU.
+      # Per-arch artefact name avoids upload-artifact collision.
+      # The selected builder exports the target stage's filesystem (local mode)
+      # — the daemonless equivalent of build-push's outputs=type=local. The binary
+      # is a release asset. SOURCE_DATE_EPOCH normalizes image/layer timestamps;
+      # embedded binary content remains the Containerfile/build script's responsibility.
+      - name: Extract binaries${{ inputs.name && format(' ({0})', inputs.name) || '' }}
+        if: ${{ inputs['extract-binary-target'] != '' && needs.prep.outputs.builder == 'buildah' }}
+        env:
+          ADMIN_VULNERABILITIES: ${{ inputs['enforce-vulnerabilities'] }}
+          # A different build from the main one: a local export of the
+          # extract stage, with no push, cache, scan or labels.
+          BUILD_CONTEXT: ${{ inputs.context }}
+          CONTAINER_FILE: ${{ steps.containerfile.outputs.containerfile }}
+          BUILD_TARGET: ${{ inputs['extract-binary-target'] }}
+          BUILD_PLATFORM: ${{ matrix.platform }}
+          BUILD_MODE: local
+          OUTPUT_DIR: ./extracted-binaries
+          SOURCE_DATE_EPOCH: ${{ needs.prep.outputs.source-date-epoch }}
+          BUILD_ARGS: ${{ inputs['build-args'] }}
+          BUILD_SECRETS: ${{ steps['build-secrets'].outputs['secret-mounts'] }}
+        run: forge-ci container build --enforce-vulnerabilities="$ADMIN_VULNERABILITIES"
+      - name: Extract binaries with Kaniko
+        if: ${{ inputs['extract-binary-target'] != '' && needs.prep.outputs.builder == 'kaniko' }}
+        uses: ./.forge-ci-kaniko-action
+        with:
+          operation: extract
+        env:
+          ADMIN_VULNERABILITIES: ${{ inputs['enforce-vulnerabilities'] }}
+          BUILD_CONTEXT: ${{ inputs.context }}
+          CONTAINER_FILE: ${{ steps.containerfile.outputs.containerfile }}
+          BUILD_TARGET: ${{ inputs['extract-binary-target'] }}
+          BUILD_PLATFORM: ${{ matrix.platform }}
+          BUILD_MODE: local
+          SOURCE_DATE_EPOCH: ${{ needs.prep.outputs.source-date-epoch }}
+          BUILD_ARGS: ${{ inputs['build-args'] }}
+          CONTAINER_REGISTRY: ${{ inputs.registry }}
+          REGISTRY_USER: ${{ inputs['registry-username'] || github.actor }}
+          REGISTRY_PASSWORD: ${{ inputs['push-image'] && (inputs['use-ci-token'] && secrets.GITHUB_TOKEN || secrets['registry-password']) || '' }}
+      - name: Restore host ownership of extracted Kaniko binaries
+        if: ${{ always() && inputs['extract-binary-target'] != '' && needs.prep.outputs.builder == 'kaniko' }}
+        env:
+          STAGED_OUTPUT: ${{ steps.kaniko-action.outputs.output-dir }}
+        run: |
+          if [[ -e "$STAGED_OUTPUT" || -L "$STAGED_OUTPUT" ]]; then
+            sudo chown -hRP -- "$(id -u):$(id -g)" "$STAGED_OUTPUT"
+          fi
+      - name: Retain extracted Kaniko binaries on the host
+        if: ${{ inputs['extract-binary-target'] != '' && needs.prep.outputs.builder == 'kaniko' }}
+        env:
+          STAGED_OUTPUT: ${{ steps.kaniko-action.outputs.output-dir }}
+        run: |
+          test ! -e extracted-binaries
+          mv -T -- "$STAGED_OUTPUT" extracted-binaries
+      - name: Extract binaries from retained image filesystem
+        if: ${{ inputs['extract-binary-paths'] != '' }}
+        env:
+          EXTRACT_BINARY_PATHS: ${{ inputs['extract-binary-paths'] }}
+        run: forge-ci container layout extract-files --layout-dir "$RUNNER_TEMP/image-layout" --output-dir ./extracted-binaries
+      - name: Remove materialized build secrets
+        if: ${{ always() }}
+        env:
+          BUILD_SECRETS_DIR: ${{ steps['build-secrets'].outputs['secret-dir'] }}
+        run: |
+          if [[ -n "${BUILD_SECRETS_DIR}" ]]; then
+            rm -rf -- "${BUILD_SECRETS_DIR}"
+          fi
+      # Suffix each extracted binary's basename with -linux-${arch} so that
+      # when the GitHub Release attach step pulls per-arch artefacts together,
+      # they don't collide on the same basename. Convention matches Go's
+      # release-asset naming (e.g., worker-linux-amd64,
+      # worker-linux-arm64).
+      - name: Suffix extracted binaries with arch
+        if: ${{ inputs['extract-binary-target'] != '' || inputs['extract-binary-paths'] != '' }}
+        env:
+          SUFFIX: ${{ steps.arch.outputs.suffix }}
+          EXPECTED_NAMES: ${{ inputs['extract-binary-names'] }}
+        run: |
+          forge-ci container suffix-extracted-binaries \
+            --binaries-dir ./extracted-binaries \
+            --arch "$SUFFIX" \
+            --expected-names "$EXPECTED_NAMES"
+      - name: Upload extracted binaries${{ inputs.name && format(' ({0})', inputs.name) || '' }}
+        if: ${{ inputs['extract-binary-target'] != '' || inputs['extract-binary-paths'] != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.name != '' && format('{0}-binaries-{1}', inputs.name, steps.arch.outputs.suffix) || format('container-binaries-{0}', steps.arch.outputs.suffix) }}
+          path: source/extracted-binaries/**
+          retention-days: "30"
+          if-no-files-found: error
+      - name: Write binary extraction summary
+        if: ${{ inputs['extract-binary-target'] != '' || inputs['extract-binary-paths'] != '' }}
+        env:
+          ARTIFACT_NAME: ${{ inputs.name != '' && format('{0}-binaries-{1}', inputs.name, steps.arch.outputs.suffix) || format('container-binaries-{0}', steps.arch.outputs.suffix) }}
+          DISPLAY_NAME: ${{ inputs.name || 'container' }}
+          EXTRACT_TARGET: ${{ inputs['extract-binary-paths'] != '' && 'retained image filesystem' || inputs['extract-binary-target'] }}
+          EXPECTED_NAMES: ${{ inputs['extract-binary-names'] }}
+          PLATFORM: ${{ matrix.platform }}
+        run: forge-ci report extracted-binaries
+
+  scan-layouts:
+    name: Scan staged layout (${{ matrix.platform }})
+    needs: [prep, build-arch]
+    # Every exported layout is scanned before publication, as the build leg's
+    # in-process scan did; the full image carries Trivy, so the host legs
+    # install no scanner. publish-images needs this job: a blocking finding
+    # leaves every layout of the image unpublished.
+    if: *if_layout_exported
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJson(needs.prep.outputs.platforms-json) }}
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    timeout-minutes: 30
+    container:
+      image: ${{ inputs['runtime-image-full'] }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Derive arch suffix
+        id: arch
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: forge-ci container platform-plan
+      - name: Read scan policy from the frozen source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.prep.outputs.source-sha }}
+          path: scan-policy
+          sparse-checkout: .trivyignore.yaml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Download staged OCI layout
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOWNLOAD_NAME: layouts-${{ github.run_id }}-${{ inputs.name || 'container' }}-${{ steps.arch.outputs.suffix }}
+        run: forge-ci artifact download --name "$DOWNLOAD_NAME" --dir "$RUNNER_TEMP/image-layout"
+      - name: Scan the staged layout before publication
+        working-directory: scan-policy
+        env:
+          ADMIN_VULNERABILITIES: ${{ inputs['enforce-vulnerabilities'] }}
+          IMAGE_REF: ${{ needs.prep.outputs.image-name }}
+          CONTAINER_OCI_LAYOUT: ${{ runner.temp }}/image-layout
+          CONTAINER_PLATFORM: ${{ matrix.platform }}
+          CONTAINER_FAIL_ON_SEVERITY: ${{ inputs['scan-severity'] }}
+        run: forge-ci security scan container --enforce-vulnerabilities="$ADMIN_VULNERABILITIES"
+      # The reports are retained after a blocking scan too. Artefact names
+      # are scoped per container and arch, as the layouts above are.
+      - name: Save container scan SARIF artifact
+        if: ${{ always() && hashFiles('scan-policy/trivy-results.sarif') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sarif-container-scan-${{ inputs.name || 'container' }}-${{ steps.arch.outputs.suffix }}
+          path: scan-policy/trivy-results.sarif
+          retention-days: "5"
+          if-no-files-found: ignore
+      - name: Save GitLab container-scanning report
+        if: ${{ always() && hashFiles('scan-policy/gl-container-scanning-report.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gitlab-container-scanning-report-${{ inputs.name || 'container' }}-${{ steps.arch.outputs.suffix }}
+          path: scan-policy/gl-container-scanning-report.json
+          retention-days: "5"
+          if-no-files-found: ignore
+      - name: Upload container scan results to Code Scanning
+        if: ${{ always() && inputs['push-image'] && hashFiles('scan-policy/trivy-results.sarif') != '' }}
+        working-directory: scan-policy
+        env:
+          CODE_SCANNING_TOKEN: ${{ secrets.CODE_SCANNING_TOKEN }}
+          SARIF_FILE: trivy-results.sarif
+          # Per-(container, arch) category keeps every leg visible in Code
+          # Scanning; GitHub dedupes per (category, file). Without the
+          # per-container scoping, two containers' amd64 scans share a
+          # category and one silently overwrites the other.
+          SARIF_CATEGORY: container-scan-${{ inputs.name || 'container' }}-${{ steps.arch.outputs.suffix }}
+        run: forge-ci security report upload-sarif
+  publish-images:
+    name: Publish verified image layouts
+    needs: [prep, build-arch, scan-layouts]
+    if: ${{ inputs['push-image'] }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    outputs:
+      platform-digests: ${{ steps.publish.outputs.platform-digests }}
+    steps:
+      - name: Download complete layout set
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOWNLOAD_PATTERN: layouts-${{ github.run_id }}-${{ inputs.name || 'container' }}-*
+        run: forge-ci artifact download --pattern "$DOWNLOAD_PATTERN" --dir "$RUNNER_TEMP/image-layouts"
+      - name: Check registry authentication configuration
+        env:
+          USE_CI_TOKEN: ${{ inputs['use-ci-token'] }}
+          REGISTRY: ${{ inputs.registry }}
+          CI_REGISTRY: ghcr.io
+          REGISTRY_PASSWORD: ${{ secrets['registry-password'] }}
+        run: forge-ci validate auth registry
+      - name: Log in to Container Registry
+        id: registry-login
+        env:
+          CONTAINER_REGISTRY: ${{ inputs.registry }}
+          REGISTRY_USER: ${{ inputs['registry-username'] || github.actor }}
+          REGISTRY_PASSWORD: ${{ inputs['use-ci-token'] && secrets.GITHUB_TOKEN || secrets['registry-password'] }}
+        run: forge-ci container login --auth-file "${REGISTRY_AUTH_FILE:-${DOCKER_CONFIG:-${HOME:?}/.docker}/config.json}"
+      - name: Verify all layouts and publish their exact digests
+        id: publish
+        env:
+          IMAGE_REF: ${{ needs.prep.outputs.image-name }}
+          SOURCE_SHA: ${{ needs.prep.outputs.source-sha }}
+          PLATFORMS: ${{ join(fromJson(needs.prep.outputs.platforms-json), ',') }}
+          REGISTRY_AUTH_FILE: ${{ steps.registry-login.outputs.auth-file }}
+        run: forge-ci container layout publish --layouts-dir "$RUNNER_TEMP/image-layouts" --auth-file "${REGISTRY_AUTH_FILE:?}"
+
+  image-evidence:
+    name: Image evidence (${{ matrix.platform }})
+    needs: [prep, publish-images]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    # The full image: syft for the analyzed-container SBOM, cosign for its
+    # attestation.
+    container:
+      image: ${{ inputs['runtime-image-full'] }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJson(needs.prep.outputs.platforms-json) }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      # Preserve the source SHA in SBOM filenames and project-type detection.
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.prep.outputs.source-sha }}
+      - name: Derive arch suffix
+        id: arch
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: forge-ci container platform-plan
+      - name: Log in to Container Registry
+        env:
+          CONTAINER_REGISTRY: ${{ inputs.registry }}
+          REGISTRY_USER: ${{ inputs['registry-username'] || github.actor }}
+          REGISTRY_PASSWORD: ${{ inputs['use-ci-token'] && secrets.GITHUB_TOKEN || secrets['registry-password'] }}
+        run: forge-ci container login
+      - name: Export published digest
+        env:
+          DIGEST: ${{ fromJson(needs.publish-images.outputs.platform-digests)[matrix.platform] }}
+        run: forge-ci container write-digest-marker
+      - name: Upload digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digests-${{ github.run_id }}-${{ inputs.name || 'container' }}-${{ steps.arch.outputs.suffix }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: "1"
+      - name: Generate Container SBOMs (SPDX + CycloneDX)
+        if: &if_sbom_enabled ${{ inputs['enable-analyzed-container-sbom'] }}
+        env:
+          ARTIFACT_TYPES: ${{ inputs['artifact-types'] }}
+          # REF_NAME, not GITHUB_REF_NAME: Actions ignores a step's value for
+          # its own GITHUB_* variables, so the SBOM would name the triggering
+          # ref (release-request/vX.Y.Z) instead of the release.
+          REF_NAME: ${{ inputs['release-tag'] || needs.prep.outputs.source-ref-name }}
+          IMAGE_NAME: ${{ needs.prep.outputs.image-name }}
+          IMAGE_DIGEST: ${{ fromJson(needs.publish-images.outputs.platform-digests)[matrix.platform] }}
+        run: forge-ci sbom assemble
+      - name: Upload Analyzed-Container SBOMs
+        if: *if_sbom_enabled
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: analyzed-container-sbom-${{ github.run_id }}-${{ inputs.name || 'container' }}-${{ steps.arch.outputs.suffix }}
+          path: |
+            *-analyzed-container-sbom.spdx.json
+            *-analyzed-container-sbom.cyclonedx.json
+          retention-days: "30"
+          if-no-files-found: error
+      - name: Bind Cosign signing key to trusted public key
+        # The caller supplies the trust root; the layer ships none. The
+        # engine refuses an empty key, an empty digest and a mismatch, before
+        # the key signs anything in this job.
+        if: ${{ inputs['enable-analyzed-container-sbom'] && inputs['sign-image'] && inputs['sign-key'] == 'env://COSIGN_KEY' }}
+        env:
+          COSIGN_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+          TRUSTED_KEY_INPUT: ${{ inputs['cosign-public-key'] }}
+          TRUSTED_KEY_SHA256_INPUT: ${{ inputs['cosign-public-key-sha256'] }}
+        run: |
+          set -euo pipefail
+          trusted_key="${RUNNER_TEMP:?}/cosign.pub"
+          # $(...) drops the input's trailing newlines in any shell, so the
+          # file is the key and one newline, as `sha256sum cosign.pub` hashed it.
+          trusted_public_key=$(printf '%s' "${TRUSTED_KEY_INPUT}")
+          printf '%s\n' "${trusted_public_key}" >"${trusted_key}"
+          printf '%s\n' "${TRUSTED_KEY_SHA256_INPUT}" >"${trusted_key}.sha256"
+          forge-ci validate signing-key --key env://COSIGN_KEY \
+            --trusted-public-key "${trusted_key}" --trusted-public-key-digest "${trusted_key}.sha256"
+      - name: Attest SBOM (cosign)
+        if: ${{ inputs['enable-analyzed-container-sbom'] && inputs['sign-image'] && inputs['sign-method'] != '' && inputs['sign-method'] != 'gpg' }}
+        env:
+          SIGN_METHOD: ${{ inputs['sign-method'] }}
+          SIGN_KEY: ${{ inputs['sign-key'] }}
+          SIGN_OIDC_ISSUER: ${{ inputs['sign-oidc-issuer'] }}
+          FORGE_CI_COSIGN_TRANSPARENCY: ${{ inputs['transparency-log'] || 'public' }}
+          # The Cosign key secret reaches only a step that signs with it.
+          COSIGN_KEY: ${{ inputs['sign-key'] == 'env://COSIGN_KEY' && secrets.RELEASE_COSIGN_PRIVATE_KEY || '' }}
+          COSIGN_PASSWORD: ${{ inputs['sign-key'] == 'env://COSIGN_KEY' && secrets.RELEASE_COSIGN_PASSPHRASE || '' }}
+          IMAGE_REF: ${{ needs.prep.outputs.image-name }}@${{ fromJson(needs.publish-images.outputs.platform-digests)[matrix.platform] }}
+        run: |
+          set -euo pipefail
+          pred="$(find . -maxdepth 1 -name '*-analyzed-container-sbom.cyclonedx.json' | head -1)"
+          forge-ci validate signing-privacy
+          forge-ci container attest --type cyclonedx --predicate "$pred" "$IMAGE_REF"
+
+  merge:
+    name: Merge Manifest${{ inputs.name && format(' ({0})', inputs.name) || '' }}
+    needs: [prep, image-evidence]
+    if: ${{ inputs['push-image'] }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+      # id-token is required only for the keyless Sigstore signing
+      # step below (--method=sigstore). Granting it here doesn't
+      # leak — the token is only minted when an OIDC-requesting step
+      # actually runs, and the only such step is gated on
+      # sign-image + sign-method == sigstore.
+      id-token: write
+    outputs:
+      image: ${{ steps.outputs.outputs.image }}
+      digest: ${{ steps.outputs.outputs.digest }}
+    steps:
+      - name: Download digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOWNLOAD_PATTERN: digests-${{ github.run_id }}-${{ inputs.name || 'container' }}-*
+        run: forge-ci artifact download --pattern "$DOWNLOAD_PATTERN" --merge-multiple --dir /tmp/digests
+      - name: Check registry authentication configuration
+        env:
+          USE_CI_TOKEN: ${{ inputs['use-ci-token'] }}
+          REGISTRY: ${{ inputs.registry }}
+          CI_REGISTRY: ghcr.io
+          REGISTRY_PASSWORD: ${{ secrets['registry-password'] }}
+        run: forge-ci validate auth registry
+      - name: Log in to Container Registry
+        env:
+          CONTAINER_REGISTRY: ${{ inputs.registry }}
+          REGISTRY_USER: ${{ inputs['registry-username'] || github.actor }}
+          REGISTRY_PASSWORD: ${{ inputs['use-ci-token'] && secrets.GITHUB_TOKEN || secrets['registry-password'] }}
+        run: forge-ci container login
+      - name: Publish candidate manifest list
+        env:
+          IMAGE_NAME: ${{ needs.prep.outputs.image-name }}
+          # This run-scoped transport tag is never a consumer-facing alias.
+          # All signing uses its immutable digest; final tags remain untouched
+          # if signing, key binding or attestation fails.
+          TAGS: ${{ needs.prep.outputs.image-name }}:forge-ci-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          DIGESTS_DIR: /tmp/digests
+        run: forge-ci container manifest merge
+      - name: Inspect candidate manifest
+        id: candidate
+        env:
+          IMAGE_REF: ${{ needs.prep.outputs.image-name }}:forge-ci-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+        run: forge-ci container manifest inspect
+      - name: Bind Cosign signing key to trusted public key
+        # The caller supplies the trust root; the layer ships none. The
+        # engine refuses an empty key, an empty digest and a mismatch, before
+        # the key signs anything in this job.
+        if: ${{ inputs['sign-image'] && inputs['sign-key'] == 'env://COSIGN_KEY' }}
+        env:
+          COSIGN_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+          TRUSTED_KEY_INPUT: ${{ inputs['cosign-public-key'] }}
+          TRUSTED_KEY_SHA256_INPUT: ${{ inputs['cosign-public-key-sha256'] }}
+        run: |
+          set -euo pipefail
+          trusted_key="${RUNNER_TEMP:?}/cosign.pub"
+          # $(...) drops the input's trailing newlines in any shell, so the
+          # file is the key and one newline, as `sha256sum cosign.pub` hashed it.
+          trusted_public_key=$(printf '%s' "${TRUSTED_KEY_INPUT}")
+          printf '%s\n' "${trusted_public_key}" >"${trusted_key}"
+          printf '%s\n' "${TRUSTED_KEY_SHA256_INPUT}" >"${trusted_key}.sha256"
+          forge-ci validate signing-key --key env://COSIGN_KEY \
+            --trusted-public-key "${trusted_key}" --trusted-public-key-digest "${trusted_key}.sha256"
+      - name: Sign image (cosign)
+        # Image signing runs against the manifest list digest produced
+        # by the merge step above. --recursive (default true) walks
+        # the manifest list and signs each per-arch child digest too,
+        # so consumers pulling for any single platform get a verified
+        # signature.
+        #
+        # gpg method is rejected by `container sign` — OpenPGP signs
+        # blobs, not OCI manifests. Use sigstore or kms.
+        if: ${{ inputs['sign-image'] && inputs['sign-method'] != '' && inputs['sign-method'] != 'gpg' }}
+        env:
+          SIGN_METHOD: ${{ inputs['sign-method'] }}
+          SIGN_KEY: ${{ inputs['sign-key'] }}
+          SIGN_OIDC_ISSUER: ${{ inputs['sign-oidc-issuer'] }}
+          FORGE_CI_COSIGN_TRANSPARENCY: ${{ inputs['transparency-log'] || 'public' }}
+          # The Cosign key secret reaches only a step that signs with it.
+          COSIGN_KEY: ${{ inputs['sign-key'] == 'env://COSIGN_KEY' && secrets.RELEASE_COSIGN_PRIVATE_KEY || '' }}
+          COSIGN_PASSWORD: ${{ inputs['sign-key'] == 'env://COSIGN_KEY' && secrets.RELEASE_COSIGN_PASSPHRASE || '' }}
+        run: |
+          forge-ci validate signing-privacy
+          forge-ci container sign "${{ steps.candidate.outputs.image-digest-ref }}"
+      - name: Attest SLSA provenance (cosign)
+        # Portable, SIGNED SLSA v1.0 provenance attached to the manifest-list
+        # digest, which pins every per-arch child. The predicate is
+        # generated by `container attest` from the CI environment. Runs on any
+        # registry/forge, verifiable with `cosign verify-attestation --type
+        # slsaprovenance1` — no GitHub attestation API. Reuses the signing
+        # backend; gpg is rejected (cannot attest OCI manifests).
+        if: ${{ inputs['push-image'] && inputs['enable-slsa'] && inputs['sign-image'] && inputs['sign-method'] != '' && inputs['sign-method'] != 'gpg' }}
+        env:
+          SIGN_METHOD: ${{ inputs['sign-method'] }}
+          SIGN_KEY: ${{ inputs['sign-key'] }}
+          SIGN_OIDC_ISSUER: ${{ inputs['sign-oidc-issuer'] }}
+          FORGE_CI_COSIGN_TRANSPARENCY: ${{ inputs['transparency-log'] || 'public' }}
+          # The Cosign key secret reaches only a step that signs with it.
+          COSIGN_KEY: ${{ inputs['sign-key'] == 'env://COSIGN_KEY' && secrets.RELEASE_COSIGN_PRIVATE_KEY || '' }}
+          COSIGN_PASSWORD: ${{ inputs['sign-key'] == 'env://COSIGN_KEY' && secrets.RELEASE_COSIGN_PASSPHRASE || '' }}
+          # Reproducible build timestamp for the provenance startedOn/finishedOn
+          # (same value Buildah clamped the image to).
+          SOURCE_DATE_EPOCH: ${{ needs.prep.outputs.source-date-epoch }}
+        run: |
+          forge-ci validate signing-privacy
+          forge-ci container attest --type slsaprovenance1 "${{ steps.candidate.outputs.image-digest-ref }}"
+      - name: Expose final manifest aliases
+        # Default success gating is intentional: never run after a failed
+        # signature/attestation. Unsigned builds reach the same promotion step.
+        env:
+          IMAGE_REF: ${{ steps.candidate.outputs.image-digest-ref }}
+          TAGS: |
+            ${{ needs.prep.outputs.tags }}
+            ${{ needs.prep.outputs['staging-tag'] }}
+        run: forge-ci container manifest tag
+      - name: Emit immutable candidate outputs
+        id: outputs
+        env:
+          # Alias read-back above is a check, never a new source of identity.
+          IMAGE_REF: ${{ steps.candidate.outputs.image-digest-ref }}
+        run: forge-ci container manifest inspect
+      # Record the build-once entry in the release-image ledger: the immutable
+      # digest plus its final (:<version>) and staging-candidate tags. The typed
+      # hand-off the promotion ladder (promote-stage.yml) consumes — it never
+      # re-derives a digest from a tag. Tag builds only; a branch/PR build has no
+      # release tag to scope the entry to.
+      #
+      # Deliberately last: the ledger is the mandatory, digest-pinned hand-off
+      # to promotion for orchestrated releases. Direct non-release builds do not
+      # receive a release-tag input and therefore do not emit one.
+      - name: Record release-image ledger
+        if: ${{ inputs['release-tag'] != '' && needs.prep.outputs['ref-clean'] == 'true' }}
+        env:
+          IMAGE_NAME: ${{ needs.prep.outputs.image-name }}
+          RELEASE_TAG: ${{ inputs['release-tag'] }}
+          IMAGE_DIGEST_REF: ${{ steps.candidate.outputs.image-digest-ref }}
+          DIGEST: ${{ steps.candidate.outputs.digest }}
+        run: |
+          forge-ci container ledger add \
+            --tag "$RELEASE_TAG" \
+            --ref "$IMAGE_DIGEST_REF" \
+            --digest "$DIGEST" \
+            --image-name "$IMAGE_NAME"
+      # Run-scoped hand-off to the promotion jobs. The name carries the
+      # container's `name` input so a multi-container release uploads distinct
+      # ledgers; promote-stage downloads them all by pattern and merges them.
+      - name: Upload release-image ledger
+        if: ${{ inputs['release-tag'] != '' && needs.prep.outputs['ref-clean'] == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-images-ledger${{ inputs.name && format('-{0}', inputs.name) || '' }}
+          path: dist/release-images.json
+          if-no-files-found: error

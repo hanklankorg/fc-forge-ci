@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# Forge CI owns the lint gate; the consumer's independent build job runs tests.
+name: Pull Request Workflow
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: "Build and test: Maven"
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    container:
+      image: ghcr.io/diggsweden/forge-ci-runtime-java-25:v0.90.0
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - run: mvn --batch-mode --no-transfer-progress verify
+
+  pr-checks:
+    uses: diggsweden/forge-ci/.github/workflows/pullrequest-orchestrator.yml@v0.90.0
+    permissions:
+      actions: read
+      contents: read
+    with:
+      forge-ci-binary-ref: v0.90.0
+      project-type: maven
+      lint-engine: nanolinter
+      # The trial names a mirror of the Java flavour here.
+      nanolinter-image: codefloe.com/itiquette/nanolinter:java@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0
+      canonical-builder-image: ghcr.io/diggsweden/forge-ci-runtime-go-1.27:v0.90.0

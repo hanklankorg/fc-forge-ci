@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+name: Pull Request Workflow
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    name: "Build and test: Android library"
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    container:
+      image: ghcr.io/diggsweden/forge-ci-runtime-android-35:v0.90.0
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - run: ./gradlew --no-daemon lib:test lib:lintRelease lib:assembleRelease
+
+  pr-checks:
+    uses: diggsweden/forge-ci/.github/workflows/pullrequest-orchestrator.yml@v0.90.0
+    permissions:
+      actions: read
+      contents: read
+    with:
+      forge-ci-binary-ref: v0.90.0
+      project-type: gradle-android
+      lint-engine: nanolinter
+      nanolinter-image: codefloe.com/itiquette/nanolinter:kotlin@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0
+      canonical-builder-image: ghcr.io/diggsweden/forge-ci-runtime-go-1.27:v0.90.0
+
+  # Forge CI's Android builder in library mode, on a branch dispatch: the
+  # module's unit tests, its release AAR and a build SBOM.
+  build:
+    name: "Build: Android library AAR"
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    uses: diggsweden/forge-ci/.github/workflows/build-gradle-android.yml@v0.90.0
+    permissions:
+      contents: read
+      packages: write
+    with:
+      forge-ci-binary-ref: v0.90.0
+      library: true
+      build-module: lib
+      enable-signing: false
+      skip-tests: false
+      artifact-name: hello-android-library
+      include-date-stamp: false
+      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-android-35:v0.90.0

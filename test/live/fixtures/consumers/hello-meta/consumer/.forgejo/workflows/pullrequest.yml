@@ -1,0 +1,134 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# Pin the exact commit of an authenticated forge-ci release. Serve that commit
+# and its checksum-bound engine package on your Forgejo instance before use.
+#
+# PR workflow for a project with nothing to build: scripts and configuration
+# distributed through Git. Copy to your repo as
+# .forgejo/workflows/pullrequest.yml and replace the placeholders with the
+# SAME values as in release.yml: FORGE_HOST (host of your Forgejo instance),
+# OWNER (who hosts forge-ci there) and 2f4e845cee96973d1082bf00a5a18689c1482148:
+#
+#   sed 's/2f4e845cee96973d1082bf00a5a18689c1482148/<sha>/g' .forgejo/workflows/pullrequest.yml \
+#     > .forgejo/workflows/pullrequest.yml.new &&
+#   mv .forgejo/workflows/pullrequest.yml.new .forgejo/workflows/pullrequest.yml
+#
+# Three jobs, none of which receives a secret or installs anything:
+#
+#   lint            the repository's nanolinter plan, with a floor of checks
+#                   its nanolinter.toml cannot switch off
+#   trust-boundary  the release-isolation gate: it statically verifies
+#                   release.yml's secret boundaries on every PR (the build job
+#                   holds no signing keys, the signer call site enumerates its
+#                   secrets, and every forge-ci ref carries one identical
+#                   pin)
+#   build           the project's own checks: nothing is built
+#
+# lint and build run in the image named by the variable CI_JOB_IMAGE: a
+# nanolinter image, pinned by digest; the core flavour serves a project with
+# no toolchain. PR jobs use the runner selected by CI_RUNNER_LABEL and the
+# tools of that image: never pass secrets or rate-limit tokens or install
+# packages here.
+name: Pull Request
+
+on:
+  pull_request:
+    branches: [main]
+
+env:
+  # Trust the checked-out tree whoever owns the job container's workspace
+  # mount: the image runs as its own user.
+  GIT_CONFIG_COUNT: '1'
+  GIT_CONFIG_KEY_0: safe.directory
+  GIT_CONFIG_VALUE_0: '*'
+
+jobs:
+  lint:
+    name: "Check: lint"
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    container:
+      # A nanolinter image, pinned by digest: the lint step runs the
+      # nanolinter it finds in the job image and installs nothing. The build
+      # job below runs in the same image.
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 15
+    steps:
+      # Checkout without Node, which the image does not have. fetch-base
+      # brings the pull request's base branch for the commit-range and diff checks.
+      - name: Checkout repository
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/checkout-consumer@2f4e845cee96973d1082bf00a5a18689c1482148
+        with:
+          fetch-base: ${{ forgejo.base_ref }}
+
+      # The default floor is secrets,sast. Forgejo ingests no SARIF, so the
+      # findings are in this step's log.
+      - name: Lint
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/lint-nanolinter@2f4e845cee96973d1082bf00a5a18689c1482148
+
+  trust-boundary:
+    name: "Check: release isolation"
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 10
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@2f4e845cee96973d1082bf00a5a18689c1482148
+
+      # Engine checkout: sha256-aware, node-free, never persists credentials.
+      - name: Checkout repository
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout --depth 1
+
+      - name: Verify release isolation boundaries
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/check-l3-isolation@2f4e845cee96973d1082bf00a5a18689c1482148
+        with:
+          # The build job hands dist/ (and its digest) to the signer directly
+          # via upload-dist's output in this shape.
+          build-job: build
+          dist-digest-output: dist-digest
+
+  build:
+    name: "Check: scripts"
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/checkout-consumer@2f4e845cee96973d1082bf00a5a18689c1482148
+
+      # FIXME: your project's own checks.
+      - name: Check the syntax
+        run: sh -n install.sh && sh -n lib/greeting.sh
+
+      - name: Run the installer
+        run: sh install.sh
+
+  # ===========================================================================
+  # JOB: summary — the pull request overview; Forgejo 17 shows it above the
+  # logs, older Forgejo prints it in this job's log.
+  # ===========================================================================
+  summary:
+    name: Summary
+    if: ${{ always() }}
+    needs: [lint, trust-boundary, build]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 5
+    steps:
+      - name: Set up forge-ci
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@2f4e845cee96973d1082bf00a5a18689c1482148
+
+      - name: Write the pull request summary
+        env:
+          CI_RUN_URL: ${{ forgejo.server_url }}/${{ forgejo.repository }}/actions/runs/${{ forgejo.run_number }}
+          PROJECT_TYPE: meta
+          CI_BRANCH: ${{ forgejo.head_ref }}
+          LINT_RESULT: ${{ needs.lint.result }}
+          ISOLATION_RESULT: ${{ needs.trust-boundary.result }}
+          CHECK_RESULT: ${{ needs.build.result }}
+        run: |
+          forge-ci report pr \
+            --job "Check: lint=${LINT_RESULT}" \
+            --job "Check: release isolation=${ISOLATION_RESULT}" \
+            --job "Check: scripts=${CHECK_RESULT}"

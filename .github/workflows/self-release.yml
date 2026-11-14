@@ -1,0 +1,352 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# ⚠️ INTERNAL USE ONLY - Release workflow for forge-ci itself
+# This workflow manages forge-ci's own releases using release-orchestrator.
+# For templates to use in YOUR project, see examples/ directory.
+#
+# Nothing here depends on the repository's default branch or a fixed branch
+# name: the release branch is the branch whose head the request tag names
+# (override with the RELEASE_BRANCH variable), the external suite repository
+# can be overridden with FORGE_CI_TESTSUITE_REPOSITORY, and runtime images
+# come from ghcr.io/<owner> (or FORGE_CI_IMAGE_NAMESPACE) at this commit's
+# sha-<short> tags, which Self Runtime Container publishes when the commit lands
+# on the pre-release branch. A fork can therefore release from any branch.
+name: Self Release
+on:
+  push:
+    tags:
+      - "release-request/v*"
+concurrency:
+  group: self-release-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  resolve-branch:
+    name: Resolve release branch
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      branch: ${{ steps.branch.outputs.branch }}
+      image-tag: ${{ steps.branch.outputs.image-tag }}
+      image-namespace: ${{ steps.branch.outputs.image-namespace }}
+    steps:
+      - name: Find the branch whose head is the release request
+        id: branch
+        # The prepare stage re-checks that the request commit is this branch's
+        # head; this step only chooses the branch without assuming one.
+        env:
+          GIT_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          SHA: ${{ github.sha }}
+          RELEASE_BRANCH: ${{ vars.RELEASE_BRANCH }}
+          IMAGE_NAMESPACE: ${{ vars.FORGE_CI_IMAGE_NAMESPACE }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$RELEASE_BRANCH" ]]; then
+            branch="$RELEASE_BRANCH"
+          else
+            hdr="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
+            mapfile -t heads < <(git -c http.extraheader="$hdr" ls-remote --heads "${SERVER_URL}/${REPO}.git" |
+              awk -v sha="$SHA" '$1 == sha { sub("^refs/heads/", "", $2); print $2 }')
+            if [[ "${#heads[@]}" -ne 1 ]]; then
+              printf 'Expected exactly one branch head at %s, found %d; set the RELEASE_BRANCH variable\n' "$SHA" "${#heads[@]}" >&2
+              exit 1
+            fi
+            branch="${heads[0]}"
+          fi
+          if [[ ! "$branch" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            printf 'Release branch is not a plain branch name: %s\n' "$branch" >&2
+            exit 1
+          fi
+          printf 'Release branch: %s\n' "$branch"
+          # GitHub keeps the owner's capitals; an OCI repository path cannot.
+          {
+            printf 'branch=%s\n' "$branch"
+            printf 'image-tag=sha-%s\n' "${SHA:0:7}"
+            printf 'image-namespace=%s\n' "${IMAGE_NAMESPACE:-ghcr.io/${GITHUB_REPOSITORY_OWNER,,}}"
+          } >>"$GITHUB_OUTPUT"
+
+  blackbox:
+    # A release gate: it always runs, and the release needs it. No variable
+    # or input skips it.
+    name: Strict external black-box gate
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          path: forge-ci
+          persist-credentials: false
+      - name: Checkout external testsuite (pinned)
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ vars.FORGE_CI_TESTSUITE_REPOSITORY || 'diggsweden/forge-ci-blackbox-tests' }}
+          ref: ae15191def5eecec7a5efa422ebec7f0d8964e5d
+          path: forge-ci-blackbox-tests
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: forge-ci/go.mod
+          check-latest: true
+          # The checkouts sit in subdirectories, so the cache key needs
+          # their paths; setup-go looks for go.sum at the workspace root.
+          cache-dependency-path: |
+            forge-ci/go.sum
+            forge-ci-blackbox-tests/go.sum
+      - name: Validate strict suite behavioral contract
+        working-directory: forge-ci-blackbox-tests
+        run: ./scripts/validate-strict-profile-contract.sh
+      - name: Ensure distro toolchains
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq buildah
+      - name: Install the suite's pinned Maven
+        # Not Ubuntu's maven package: it is 3.8, which ignores MAVEN_ARGS
+        # (3.9+), so the harness's settings isolation and reproducible-build
+        # checks fail. Only Maven's own bin directory goes on PATH, so the
+        # suite's other mise pins do not shadow setup-go.
+        working-directory: forge-ci-blackbox-tests
+        run: |
+          source ../forge-ci/scripts/bootstrap/install-mise.sh
+          install_mise
+          mise trust .mise.toml
+          if ! mise install maven; then
+            echo "::error title=Release gates could not run::The black-box gate did not run: mise could not install the suite's pinned Maven. This is not a test failure. The release stays blocked until it can be installed."
+            exit 1
+          fi
+          mise bin-paths maven >>"$GITHUB_PATH"
+      - name: Install Rust
+        # ubuntu-26.04 ships rustup without a default toolchain. Its proxy
+        # shims at ~/.cargo/bin shadow /usr/bin even after apt installs the
+        # distro cargo. Install via apt, then remove the shims so the real
+        # binary is found.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rustc cargo
+          rm -f "$HOME/.cargo/bin/cargo" "$HOME/.cargo/bin/rustc"
+          cargo --version
+      - name: Install cargo-cyclonedx
+        run: cargo install --locked cargo-cyclonedx --version 0.5.9
+      - name: Install cyclonedx-gomod
+        run: go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0
+      - name: Install syft and cosign
+        working-directory: forge-ci
+        run: |
+          set -euo pipefail
+          source scripts/bootstrap/install-syft.sh
+          install_syft
+          source scripts/bootstrap/install-cosign.sh
+          install_cosign
+      - name: Run strict black-box release gate
+        working-directory: forge-ci-blackbox-tests
+        env:
+          FORGE_CI_BLACKBOX_PROFILE: strict
+          FORGE_CI_PROC_SWAPS: "/dev/null"
+        run: go test -tags=blackbox -count=1 -timeout 45m ./tests/blackbox/...
+
+  checksums:
+    # Fast gate: fail in ~2 min if the recorded engine binary checksums are
+    # stale, instead of discovering it 12+ min into the evidence job. Mirrors
+    # the engine-binary job in the pull-request workflow.
+    name: Engine binary checksums are fresh
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          # The exact release of go.mod, and no newer one: no check-latest.
+          go-version-file: go.mod
+      - name: Fill the module cache
+        run: go build -o /dev/null ./cmd/forge-ci
+      - name: Check recorded checksums match this tree
+        run: bash scripts/ci/engine-binary.sh check
+
+  evidence:
+    # A release gate: it always runs, and the release needs it. No variable
+    # or input skips it.
+    #
+    # The release-time shape of `just test`. The pull-request gate runs the
+    # integration tier in its default profile on purpose — a contributor
+    # without buildah or trivy still gets a useful run, and what their machine
+    # could not prove is tallied rather than hidden. That allowance has no
+    # place here: at release time "we proved it" has to mean the evidence
+    # actually ran, so FORGE_CI_TEST_PROFILE=strict turns every skipped
+    # prerequisite into an error and a runner missing a tool fails the release
+    # instead of quietly proving less.
+    #
+    # Which is why the tools are installed rather than assumed. mise brings
+    # the pinned trivy and jq, install-buildah.sh brings buildah and podman;
+    # ssh-keygen, gpg, git and coreutils come with the runner image. Under
+    # strict any of them going missing is a failure, so this step list is the
+    # gate's real prerequisite list, not a convenience.
+    needs: checksums
+    name: Strict integration tier
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Install mise and project tools
+        env:
+          # mise verifies attestations and resolves releases through the
+          # GitHub API; anonymous requests share the runner address's small
+          # quota, and running out of it failed the v0.90.0 release gate.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          source ./scripts/bootstrap/install-mise.sh
+          install_mise
+          # A tool that cannot be installed is not a test failure. Say that
+          # the gate did not run and why; nothing here skips it.
+          if ! mise install; then
+            echo "::error title=Release gates could not run::The integration gate did not run: mise could not install the project tools pinned in .mise.toml (see the tool it names above). This is not a test failure. The release stays blocked until the pinned tool can be installed."
+            exit 1
+          fi
+          # Expose mise-managed binaries to subsequent steps.
+          printf '%s\n' "${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims" >>"$GITHUB_PATH"
+          dirname "$(command -v mise)" >>"$GITHUB_PATH"
+      - name: Install buildah and podman
+        run: bash scripts/bootstrap/install-buildah.sh
+      - name: Install Rust
+        # ubuntu-26.04 ships rustup without a default toolchain. Its proxy
+        # shims at ~/.cargo/bin shadow /usr/bin even after apt installs the
+        # distro cargo. Install via apt, then remove the shims so the real
+        # binary is found.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rustc cargo
+          rm -f "$HOME/.cargo/bin/cargo" "$HOME/.cargo/bin/rustc"
+          cargo --version
+      - name: Run the integration tier, refusing to skip evidence
+        run: just test-integration-strict
+
+  wait-for-images:
+    # The release orchestrator runs on the runtime images built from this
+    # commit (sha-<short> tags, published by Self Runtime Container). Those
+    # images are built asynchronously — pushing the release-request tag does
+    # not wait for them. The blackbox and evidence gates run in parallel with
+    # the image build, so by the time they finish the images are usually
+    # ready. This job allows up to 10 minutes for any images still
+    # being published, then fails with an actionable message if they never
+    # appear. Check anonymously so a token cannot hide a private package.
+    name: Wait for runtime images
+    # No condition of its own: it runs only when every gate it needs passed.
+    needs: [resolve-branch, checksums, blackbox, evidence]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      # Every workflow admits its runtime images only as digests; these are
+      # what the registry serves for this commit's tags, read once here and
+      # pinned for the whole release.
+      base-digest: ${{ steps.images.outputs.base-digest }}
+      full-digest: ${{ steps.images.outputs.full-digest }}
+      java-digest: ${{ steps.images.outputs.java-digest }}
+      node-digest: ${{ steps.images.outputs.node-digest }}
+      rust-digest: ${{ steps.images.outputs.rust-digest }}
+      go-digest: ${{ steps.images.outputs.go-digest }}
+      android-digest: ${{ steps.images.outputs.android-digest }}
+    steps:
+      - name: Poll for this commit's runtime images
+        id: images
+        env:
+          NAMESPACE: ${{ needs.resolve-branch.outputs.image-namespace }}
+          IMAGE_TAG: ${{ needs.resolve-branch.outputs.image-tag }}
+        run: |
+          set -euo pipefail
+          timeout=600  # 10 minutes
+          interval=30  # check every 30 seconds
+          elapsed=0
+          while [ "$elapsed" -lt "$timeout" ]; do
+            missing=0
+            for name in base "" java-25 node-24 rust-stable go-1.27 android-35; do
+              image="${NAMESPACE}/forge-ci-runtime${name:+-$name}:${IMAGE_TAG}"
+              if ! docker manifest inspect "$image" >/dev/null 2>&1; then
+                missing=1
+                break
+              fi
+            done
+            if [ "$missing" -eq 0 ]; then
+              printf 'All runtime images are available for %s\n' "$IMAGE_TAG"
+              for pair in base=-base full= java=-java-25 node=-node-24 \
+                rust=-rust-stable go=-go-1.27 android=-android-35; do
+                role="${pair%%=*}"
+                image="${NAMESPACE}/forge-ci-runtime${pair#*=}:${IMAGE_TAG}"
+                digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+                [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { printf '::error::%s has no admissible digest: %s\n' "$image" "$digest" >&2; exit 1; }
+                printf '%s-digest=%s\n' "$role" "$digest" >>"$GITHUB_OUTPUT"
+              done
+              exit 0
+            fi
+            printf 'Waiting for runtime images (%ds / %ds)...\n' "$elapsed" "$timeout"
+            sleep "$interval"
+            elapsed=$((elapsed + interval))
+          done
+          printf '::error::Runtime images for %s not available after %ds of polling.\n' "$IMAGE_TAG" "$timeout" >&2
+          printf '::error::Re-run this job after Self Runtime Container completes for commit %s.\n' "${{ github.sha }}" >&2
+          exit 1
+
+  release:
+    # No condition of its own: a failed, cancelled or skipped gate skips the
+    # release, since GitHub then requires every needed job to have succeeded.
+    needs: [resolve-branch, checksums, blackbox, evidence, wait-for-images]
+    uses: ./.github/workflows/release-orchestrator.yml
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      actions: read
+    # Own-repo orchestrator call (dogfooding the release flow). The
+    # .forge-ci/artifacts.yml release keeps the GPG defaults for artifact
+    # and Git-object signing, so it needs the release token and the GPG key.
+    secrets:
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_GPG_PUBLIC_KEY: ${{ secrets.RELEASE_GPG_PUBLIC_KEY }}
+    with:
+      branch: ${{ needs.resolve-branch.outputs.branch }}
+      runtime-image: ${{ needs.resolve-branch.outputs.image-namespace }}/forge-ci-runtime-base@${{ needs.wait-for-images.outputs.base-digest }}
+      canonical-builder-image: ${{ needs.resolve-branch.outputs.image-namespace }}/forge-ci-runtime-go-1.27@${{ needs.wait-for-images.outputs.go-digest }}
+      runtime-image-full: ${{ needs.resolve-branch.outputs.image-namespace }}/forge-ci-runtime@${{ needs.wait-for-images.outputs.full-digest }}
+      runtime-image-java: ${{ needs.resolve-branch.outputs.image-namespace }}/forge-ci-runtime-java-25@${{ needs.wait-for-images.outputs.java-digest }}
+      runtime-image-node: ${{ needs.resolve-branch.outputs.image-namespace }}/forge-ci-runtime-node-24@${{ needs.wait-for-images.outputs.node-digest }}
+      runtime-image-rust: ${{ needs.resolve-branch.outputs.image-namespace }}/forge-ci-runtime-rust-stable@${{ needs.wait-for-images.outputs.rust-digest }}
+      runtime-image-go: ${{ needs.resolve-branch.outputs.image-namespace }}/forge-ci-runtime-go-1.27@${{ needs.wait-for-images.outputs.go-digest }}
+      runtime-image-android: ${{ needs.resolve-branch.outputs.image-namespace }}/forge-ci-runtime-android-35@${{ needs.wait-for-images.outputs.android-digest }}
+      artifacts-config: .forge-ci/artifacts.yml
+      forge-ci-binary-ref: ${{ github.sha }}
+      changelog-creator: git-cliff
+      changelog.config: templates/gitcliff/default.toml
+      release-publisher: github-cli
+
+  binary:
+    # Builds, signs and attaches the release binaries once the final tag and
+    # GitHub Release exist. Called rather than chained with workflow_run, which
+    # only fires from the default branch.
+    # No condition of its own: it runs only after a successful release.
+    needs: release
+    uses: ./.github/workflows/release-binary.yml
+    permissions:
+      contents: write
+      id-token: write
+    with:
+      release-ref: ${{ github.ref_name }}

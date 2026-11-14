@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Job image for container builds with Buildah on runners whose job containers
+# may create user namespaces. forge-ci ships this definition and publishes no
+# image: an organization builds it, pushes it to its own registry and pins the
+# digest, as the GitLab release policy's builder-job-image with
+# image-builder: buildah. A consumer build that runs `forge-ci container
+# build` itself can take it as build-image.
+#
+# Buildah runs as root inside the job container with chroot isolation, so a
+# RUN step needs no privilege the container lacks. Its storage defaults to
+# vfs, which works on any filesystem under the container;
+# `forge-ci container setup-buildah` replaces it with a job-local
+# configuration and prefers overlay where a probe build passes. Everything
+# Buildah needs comes from Debian's packages, so setup-buildah has nothing to
+# install: netavark for the build container's network, aardvark-dns for its
+# DNS, fuse-overlayfs for overlay storage without kernel overlay. The engine
+# itself is fetched and verified by the job, as everywhere else; git, curl
+# and jq serve that fetch and the release checkout.
+#
+# Build context: this directory.
+#
+#   forge-ci container build --file containers/buildah-job/Containerfile \
+#     --context containers/buildah-job --mode push-by-digest --image-ref <repo>
+
+# Renovate's docker manager updates the digest.
+FROM docker.io/library/debian:13.7-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+
+# Buildah runs the image builds as root. The image is a job image, never a
+# published product.
+# hadolint ignore=DL3002
+USER 0:0
+
+# OS packages follow the distribution's update stream when this image is
+# built; the consumers pin the published image by digest.
+# hadolint ignore=DL3008
+RUN set -eux; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
+    aardvark-dns \
+    bash \
+    buildah \
+    ca-certificates \
+    curl \
+    fuse-overlayfs \
+    git \
+    jq \
+    netavark; \
+  rm -rf /var/lib/apt/lists/*; \
+  printf '[storage]\ndriver = "vfs"\nrunroot = "/run/containers/storage"\ngraphroot = "/var/lib/containers/storage"\n' \
+    >/etc/containers/storage.conf; \
+  buildah --version
+
+ENV BUILDAH_ISOLATION=chroot
+
+LABEL org.opencontainers.image.title="forge-ci buildah job image" \
+      org.opencontainers.image.description="Job image for forge-ci container builds with Buildah"

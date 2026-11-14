@@ -1,0 +1,14 @@
+{
+  "name": "@example-org/greeting",
+  "version": "1.0.0",
+  "description": "Workspace member of the Forge CI npm package fixture",
+  "license": "CC0-1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.js",
+  "files": ["src/"],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {"node": ">=24"}
+}

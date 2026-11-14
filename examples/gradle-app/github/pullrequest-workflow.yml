@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: Pull Request Workflow
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-checks:
+    uses: diggsweden/forge-ci/.github/workflows/pullrequest-orchestrator.yml@PIN_FORGE_CI_SHA # v0.90.0
+    secrets:
+      # Optional: uploads lint security findings (SARIF) to Code Scanning.
+      CODE_SCANNING_TOKEN: ${{ secrets.CODE_SCANNING_TOKEN }}
+    permissions:
+      actions: read
+      contents: read
+    with:
+      # The full commit the uses: ref above names; every job of the route runs
+      # the CLI built in this run from exactly this commit.
+      forge-ci-binary-ref: PIN_FORGE_CI_SHA # v0.90.0
+      project-type: gradle
+      # The lint image, pinned by digest: the plan job refuses a tag.
+      nanolinter-image: ghcr.io/itiquette/nanolinter:kotlin@sha256:PIN_DIGEST
+      # Default lint engine: nanolinter (runs `nanolinter verify` from your nanolinter.toml)
+      lint-engine: nanolinter
+      # Pinned by digest and admitted before any job runs; replace FIXME with
+      # the digests of the release you call (docs/runtime-images.md).
+      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-base@sha256:0000000000000000000000000000000000000000000000000000000000000000 # FIXME v0.90.0 digest
+      canonical-builder-image: ghcr.io/diggsweden/forge-ci-runtime-go-1.27@sha256:0000000000000000000000000000000000000000000000000000000000000000 # FIXME v0.90.0 digest
+
+  # Your tests. The orchestrator above never runs them; require this job and
+  # pr-checks as status checks.
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: gradle
+      - run: ./gradlew test

@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# actionlint reads its configuration from this path only, also for the
+# workflows under .forgejo/workflows. It does not model Forgejo's `forgejo`
+# context, which those workflows use; the ignore is scoped to them so a
+# misspelled context in a GitHub workflow is still reported.
+# Forgejo resolves full-URL action references; GitHub's shorthand-only rule
+# does not apply to these workflow files.
+paths:
+  .forgejo/workflows/**/*.yml:
+    ignore:
+      - 'undefined variable "forgejo"'
+      - 'specifying action "https://[^"]+" in invalid format'
+  # job.workflow_repository names the repository of the reusable workflow a
+  # job runs from; actionlint 1.7.12's job context predates it. Drop this
+  # once a pinned actionlint release knows it.
+  .github/workflows/**/*.yml:
+    ignore:
+      - 'property "workflow_repository" is not defined in object type'
+
+# GitHub's Ubuntu 26.04 hosted images (generally available 2026-09-17) are
+# newer than actionlint 1.7.12's label list. Drop these once a pinned
+# actionlint release knows them.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
+    - ubuntu-26.04-arm

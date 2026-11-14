@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+name: Build unsigned GoReleaser files
+description: >-
+  Package the prepared release without signing, publishing or announcements, then import its unsigned release manifest. Bring GoReleaser and syft in the job toolchain. Follow with upload-dist and pass its digest to the separate sign-and-publish workflow. Product configuration stays in the caller.
+inputs:
+  release-tag:
+    description: Final release tag emitted by prepare-release.
+    required: true
+  release-sha:
+    description: Exact prepared source commit that must already be checked out.
+    required: true
+  config:
+    description: Caller-owned GoReleaser configuration path.
+    default: .goreleaser.yml
+  release-notes:
+    description: Existing rendered release notes, outside the dist directory.
+    required: true
+  dist-directory:
+    description: Must match the dist directory in the GoReleaser configuration.
+    default: dist
+outputs:
+  manifest:
+    description: Unsigned manifest path, relative to the caller's workspace.
+    value: ${{ inputs.dist-directory }}/release-files.json
+runs:
+  using: composite
+  steps:
+    - name: Build unsigned release files
+      shell: bash
+      env:
+        RELEASE_SHA: ${{ inputs.release-sha }}
+        GORELEASER_CURRENT_TAG: ${{ inputs.release-tag }}
+        GORELEASER_CONFIG: ${{ inputs.config }}
+        RELEASE_NOTES: ${{ inputs.release-notes }}
+        GITHUB_TOKEN: ''
+        GH_TOKEN: ''
+      run: |
+        set -euo pipefail
+        test "$(git rev-parse HEAD)" = "${RELEASE_SHA:?}"
+        goreleaser release --clean --skip=publish,sign,announce \
+          --config "${GORELEASER_CONFIG:?}" --release-notes "${RELEASE_NOTES:?}"
+    - name: Import unsigned release hand-off
+      shell: bash
+      env:
+        RELEASE_NOTES: ${{ inputs.release-notes }}
+        DIST_DIRECTORY: ${{ inputs.dist-directory }}
+      run: |
+        set -euo pipefail
+        cp -- "${RELEASE_NOTES:?}" "${DIST_DIRECTORY:?}/release-notes.md"
+        # shellcheck source=.engine/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../../.engine/bin/lib-forge-ci.sh"
+        FORGE_CI_PROVIDER=forgejo run_forge_ci release files import-goreleaser \
+          --dist-dir "$DIST_DIRECTORY" --manifest "$DIST_DIRECTORY/release-files.json"

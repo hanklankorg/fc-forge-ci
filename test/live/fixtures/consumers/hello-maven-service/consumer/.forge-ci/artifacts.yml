@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# One Maven application jar and the runtime image built from it, signed keyless.
+sign:
+  method: sigstore
+artifacts:
+  - name: hello-maven-service
+    project-type: maven
+    working-directory: .
+    build-type: application
+    config:
+      java-version: 25
+containers:
+  - name: hello-maven-service
+    from: [hello-maven-service]
+    container-file: Containerfile
+    context: .
+    # Declared platforms; RELEASE_PLATFORMS narrows them, linux/amd64 by default.
+    platforms: linux/amd64,linux/arm64

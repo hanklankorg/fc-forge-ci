@@ -1,0 +1,318 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# ⚠️ INTERNAL USE ONLY - PR validation workflow for forge-ci itself
+# This workflow validates pull requests to forge-ci using pullrequest-orchestrator.
+# For templates to use in YOUR project, see examples/ directory.
+name: Self Pull Request
+on:
+  # No branch filter: a pull request into any branch is validated, so a fork
+  # can work from whichever branch it treats as primary.
+  pull_request:
+concurrency:
+  group: pr-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  # GitHub keeps the owner's capitals, which an OCI repository path cannot
+  # hold, and expressions cannot lowercase. The PR route admits its
+  # control-plane and canonical builder images only as digests: read what
+  # the registry serves for the rolling pre-release line once, as
+  # self-release.yml does for the commit's own images.
+  image-namespace:
+    name: Resolve runtime image namespace
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      namespace: ${{ steps.namespace.outputs.namespace }}
+      base-digest: ${{ steps.images.outputs.base-digest }}
+      go-digest: ${{ steps.images.outputs.go-digest }}
+    steps:
+      - name: Derive the runtime image namespace
+        id: namespace
+        env:
+          IMAGE_NAMESPACE: ${{ vars.FORGE_CI_IMAGE_NAMESPACE }}
+        run: printf 'namespace=%s\n' "${IMAGE_NAMESPACE:-ghcr.io/${GITHUB_REPOSITORY_OWNER,,}}" >>"$GITHUB_OUTPUT"
+      - name: Resolve the pre-release runtime image digests
+        id: images
+        env:
+          NAMESPACE: ${{ steps.namespace.outputs.namespace }}
+        run: |
+          set -euo pipefail
+          resolve() {
+            digest="$(docker buildx imagetools inspect "$1" --format '{{.Manifest.Digest}}')"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { printf '::error::%s has no admissible digest: %s\n' "$1" "$digest" >&2; exit 1; }
+            printf '%s-digest=%s\n' "$2" "$digest" >>"$GITHUB_OUTPUT"
+          }
+          resolve "${NAMESPACE}/forge-ci-runtime-base:v0.90.0-pre" base
+          resolve "${NAMESPACE}/forge-ci-runtime-go-1.27:v0.90.0-pre" go
+  validate:
+    needs: [image-namespace]
+    uses: ./.github/workflows/pullrequest-orchestrator.yml
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+    with:
+      project-type: npm
+      # The PR head commit is reachable in this repository even for a PR from a
+      # fork (refs/pull/*), unlike the head branch name.
+      forge-ci-binary-ref: ${{ github.event.pull_request.head.sha }}
+      # Released 0.90.0 images do not exist before the first release; use the
+      # repository's rolling pre-release image line, by the digests it serves.
+      runtime-image: ${{ needs.image-namespace.outputs.namespace }}/forge-ci-runtime-base@${{ needs.image-namespace.outputs.base-digest }}
+      canonical-builder-image: ${{ needs.image-namespace.outputs.namespace }}/forge-ci-runtime-go-1.27@${{ needs.image-namespace.outputs.go-digest }}
+      # This repo dogfoods nanolinter via the dedicated `lint` job below,
+      # which sets up Go for the go-* checks. Disable the orchestrator
+      # lint engine so it doesn't run a second, Go-less `nanolinter verify`
+      # that would fail. Consumer projects take the default (lint-engine: nanolinter).
+      lint-engine: none
+  lint:
+    name: Lint (nanolinter verify)
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          # gitleaks and commits checks walk full history; default
+          # shallow checkout would yield false negatives.
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Install mise and project tools
+        env:
+          # mise verifies attestations and resolves releases through the
+          # GitHub API; anonymous requests share the runner address's small
+          # quota, and running out of it failed the v0.90.0 release gate.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          source ./scripts/bootstrap/install-mise.sh
+          install_mise
+          mise install
+          # Expose mise-managed binaries to subsequent steps.
+          printf '%s\n' "${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims" >>"$GITHUB_PATH"
+          dirname "$(command -v mise)" >>"$GITHUB_PATH"
+      - name: nanolinter doctor (tool health)
+        run: nanolinter doctor
+      - name: nanolinter verify (full plan from nanolinter.toml)
+        run: just lint
+      # Not part of `just lint`: deadcode is a Go-only check with no
+      # nanolinter category, pinned in .mise.toml and installed above.
+      - name: Unreachable Go functions (deadcode)
+        run: just lint-go-deadcode
+  test:
+    # Fail fast on stale engine binary checksums before spending minutes
+    # on the full integration suite. The engine-binary job runs the
+    # same check in ~2 min; without this dependency the test job would
+    # also fail, but only after the whole suite ran.
+    needs: engine-binary
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Install mise and project tools
+        env:
+          # mise verifies attestations and resolves releases through the
+          # GitHub API; anonymous requests share the runner address's small
+          # quota, and running out of it failed the v0.90.0 release gate.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          source ./scripts/bootstrap/install-mise.sh
+          install_mise
+          mise install
+          # Expose mise-managed binaries to subsequent steps.
+          printf '%s\n' "${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims" >>"$GITHUB_PATH"
+          dirname "$(command -v mise)" >>"$GITHUB_PATH"
+      - name: Install Rust
+        # ubuntu-26.04 ships rustup without a default toolchain. Its proxy
+        # shims at ~/.cargo/bin shadow /usr/bin even after apt installs the
+        # distro cargo. Install via apt, then remove the shims so the real
+        # binary is found.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rustc cargo
+          rm -f "$HOME/.cargo/bin/cargo" "$HOME/.cargo/bin/rustc"
+          cargo --version
+      - name: Validate reusable workflow input defaults
+        run: go run ./cmd/forge-ci validate workflow input-defaults
+      - name: Run tests
+        run: just test
+  engine-binary:
+    # The engine layer tracks the checksums of its binary, not the binary:
+    # .engine/bin/forge-ci-linux-<arch>.sha256, by which every job downloads it.
+    # TestRecordedEngineChecksumIsABuildOfThisTree is the one check that ties
+    # that line to the sources beside it. The test needs exactly the Go
+    # release go.mod names (another one writes other bytes); without it the
+    # test reports "not proven" and passes, which is right on a workstation
+    # and wrong for a gate. This job gives it that release and runs it in the
+    # strict profile, where "not proven" is a failure.
+    name: Engine binary (the checksum is a build of this tree)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          # The exact release of go.mod, and no newer one: no check-latest.
+          go-version-file: go.mod
+      - name: Fill the module cache
+        # The reproducible build reads the module cache only (GOPROXY=off), so
+        # an ordinary build of the same package fetches what it needs first.
+        run: go build -o /dev/null ./cmd/forge-ci
+      - name: Prove the recorded checksum is a build of this tree
+        env:
+          FORGE_CI_TEST_PROFILE: strict
+        run: go test -count=1 -buildvcs=false -run '^TestRecordedEngineChecksum' ./test/forgejobehavior
+  integration-testsuite:
+    # Gate every engine change on the external black-box suite
+    # (diggsweden/forge-ci-blackbox-tests): real toolchains, real git/gpg/ssh,
+    # externally-observable behaviour. Without this edge the suite only ran
+    # on its own pushes plus a daily drift schedule — an engine commit could
+    # land green here and break the suite a day later.
+    #
+    # The suite is pinned by commit and bumped deliberately (same follow
+    # philosophy as consumers pinning this repo); its own CI keeps floating
+    # against this repo's default branch for drift detection, so the two
+    # directions stay deliberately asymmetric — no circular pin.
+    name: Integration testsuite (black-box)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          path: forge-ci
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Checkout external testsuite (pinned)
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ vars.FORGE_CI_TESTSUITE_REPOSITORY || 'diggsweden/forge-ci-blackbox-tests' }}
+          ref: ae15191def5eecec7a5efa422ebec7f0d8964e5d
+          path: forge-ci-blackbox-tests
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: forge-ci/go.mod
+          check-latest: true
+          # The checkouts sit in subdirectories, so the cache key needs
+          # their paths; setup-go looks for go.sum at the workspace root.
+          cache-dependency-path: |
+            forge-ci/go.sum
+            forge-ci-blackbox-tests/go.sum
+      - name: Validate strict suite behavioral contract
+        working-directory: forge-ci-blackbox-tests
+        run: ./scripts/validate-strict-profile-contract.sh
+
+      - name: Build exact PR candidate
+        working-directory: forge-ci
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SOURCE_SHA:?}"
+          go build -trimpath -buildvcs=false -ldflags "-X main.commit=$EXPECTED_SOURCE_SHA" \
+            -o "${RUNNER_TEMP:?}/forge-ci-candidate" ./cmd/forge-ci
+
+      - name: Ensure distro toolchains
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq buildah
+      - name: Install the suite's pinned Maven
+        # Not Ubuntu's maven package: it is 3.8, which ignores MAVEN_ARGS
+        # (3.9+), so the harness's settings isolation and reproducible-build
+        # checks fail. Only Maven's own bin directory goes on PATH, so the
+        # suite's other mise pins do not shadow setup-go.
+        working-directory: forge-ci-blackbox-tests
+        run: |
+          source ../forge-ci/scripts/bootstrap/install-mise.sh
+          install_mise
+          mise trust .mise.toml
+          mise install maven
+          mise bin-paths maven >>"$GITHUB_PATH"
+
+      - name: Install Rust
+        # ubuntu-26.04 ships rustup without a default toolchain. Its proxy
+        # shims at ~/.cargo/bin shadow /usr/bin even after apt installs the
+        # distro cargo. Install via apt, then remove the shims so the real
+        # binary is found.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rustc cargo
+          rm -f "$HOME/.cargo/bin/cargo" "$HOME/.cargo/bin/rustc"
+          cargo --version
+
+      - name: Install cargo-cyclonedx
+        run: cargo install --locked cargo-cyclonedx --version 0.5.9
+
+      - name: Install cyclonedx-gomod
+        run: go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0
+
+      - name: Install syft and cosign
+        working-directory: forge-ci
+        run: |
+          set -euo pipefail
+          source scripts/bootstrap/install-syft.sh
+          install_syft
+          source scripts/bootstrap/install-cosign.sh
+          install_cosign
+
+      - name: Run the black-box suite against this checkout
+        env:
+          FORGE_CI_BLACKBOX_PROFILE: strict
+          FORGE_CI_PROC_SWAPS: "/dev/null"
+          FORGE_CI_TEST_BINARY: ${{ runner.temp }}/forge-ci-candidate
+        run: go test -tags=blackbox -count=1 -timeout 45m ./tests/blackbox/...
+        working-directory: forge-ci-blackbox-tests
+
+  go:
+    name: Go (build, test, lint)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Install pinned Just
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source scripts/bootstrap/install-mise.sh
+          install_mise
+          mise install aqua:casey/just
+          mise bin-paths aqua:casey/just >>"${GITHUB_PATH:?}"
+      - name: go build
+        run: go build -o /tmp/forge-ci ./cmd/forge-ci
+      - name: go test
+        # The behavior suite rebuilds both native engine architectures. Each
+        # build has its own 10m bound; a cold two-core runner needs more than 120s.
+        run: go test -race -timeout 15m ./...
+      - name: go test smoke
+        run: just test-smoke
+      - name: go test fuzz seed corpora
+        run: just test-fuzz
+      - name: go vet
+        run: go vet ./...
+      - name: smoke — --version
+        run: /tmp/forge-ci --version

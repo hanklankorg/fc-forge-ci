@@ -1,0 +1,655 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# Where forge-ci comes from: plan, prepare-context and collect run inside the
+# base runtime image digest the caller admits, publish inside the full one
+# (Trivy and syft baked in) and the producers inside the toolchain images of
+# their project type, so none of them installs anything. The build legs are
+# host jobs because Buildah needs the host: before the frozen source checkout
+# they receive the canonical CLI built in this run from the approved engine
+# commit, through the same consume-canonical-cli action the release jobs use.
+name: Publish Snapshot Images
+on:
+  workflow_call:
+    inputs:
+      image-builder:
+        description: "buildah (default) or kaniko. Empty uses CI_IMAGE_BUILDER, then buildah."
+        type: string
+        default: ''
+      image-builder-job-image:
+        description: "Approved digest-pinned containers/kaniko-job image; empty uses CI_IMAGE_BUILDER_JOB_IMAGE."
+        type: string
+        default: ''
+      enforce-application-tests:
+        description: "Enforcement setting: false reports recognized test assertion failures without failing; the tests still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      enforce-vulnerabilities:
+        description: "Enforcement setting: false reports vulnerability findings without failing; the scans still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      branch:
+        description: "Logical development branch selected by the caller"
+        required: true
+        type: string
+      source-sha:
+        description: "Already resolved source commit; empty resolves branch once"
+        default: ""
+        type: string
+      artifacts-config:
+        default: ".forge-ci/artifacts.yml"
+        type: string
+      publish-containers:
+        default: true
+        type: boolean
+      publish-files:
+        description: "Keep the built files of every declared artifact its ecosystem builds outside an image (go, cargo, maven, gradle, npm) as unsigned workflow artifacts, named <artifact>-<snapshot version> and kept for 7 days. See docs/workflows.md, Snapshot files."
+        default: false
+        type: boolean
+      use-build-artifacts:
+        description: "Reuse exact current-run build artifacts instead of building required producers"
+        default: false
+        type: boolean
+      runtime-image-go:
+        description: "Go producer runtime image (forge-ci runtime family, forge-ci baked in), pinned by digest; required when the plan builds that family"
+        default: ""
+        type: string
+      runtime-image-java:
+        description: "Maven/Gradle producer runtime image (forge-ci runtime family, forge-ci baked in), pinned by digest; required when the plan builds that family"
+        default: ""
+        type: string
+      runtime-image-node:
+        description: "NPM producer runtime image (forge-ci runtime family, forge-ci baked in), pinned by digest; required when the plan builds that family"
+        default: ""
+        type: string
+      runtime-image-rust:
+        description: "Cargo producer runtime image (forge-ci runtime family, forge-ci baked in), pinned by digest; required when the plan builds that family"
+        default: ""
+        type: string
+      image-repository:
+        description: "Base OCI repository; empty uses <registry>/<owner>/<repository>, lowercased"
+        default: ""
+        type: string
+      registry:
+        description: "Registry host of the default image repository"
+        default: "ghcr.io"
+        type: string
+      registry-user:
+        default: ""
+        type: string
+      runs-on:
+        description: "JSON array of runner labels for the ordinary jobs, read with fromJSON. Signing, promotion and publication jobs stay on GitHub-hosted runners."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      build-runs-on-linux-amd64:
+        description: "JSON array of runner labels for the linux/amd64 image builds, read with fromJSON. The runner must permit the user namespaces Buildah needs."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      build-runs-on-linux-arm64:
+        description: "JSON array of runner labels for the linux/arm64 image builds, read with fromJSON. The runner must permit the user namespaces Buildah needs."
+        required: false
+        default: '["ubuntu-26.04-arm"]'
+        type: string
+      forge-ci-binary-ref:
+        description: "Full approved engine commit the canonical CLI was built from; the host build legs receive exactly that build"
+        required: true
+        type: string
+      runtime-image:
+        description: "Administrator-pinned forge-ci base runtime image@sha256 digest for the plan, context and collect jobs; the orchestrator passes the digest its canonical delivery admitted"
+        required: true
+        type: string
+      runtime-image-full:
+        description: "forge-ci full runtime image (Trivy and syft baked in) for the publish job: every published image is scanned there, and its SBOM taken when configured"
+        required: true
+        type: string
+      # Canonical delivery of the same run: canonical-cli-bootstrap.yml's
+      # outputs, forwarded by the snapshot orchestrator or a direct caller.
+      # The host build legs admit them before the frozen source checkout.
+      canonical-artifact-id: {type: string, required: true}
+      canonical-artifact-name: {type: string, required: true}
+      canonical-producer-run-id: {type: string, required: true}
+      canonical-producer-run-attempt: {type: string, required: true}
+      canonical-producer-engine-repository: {type: string, required: true}
+      canonical-producer-engine-commit: {type: string, required: true}
+      canonical-producer-result: {type: string, required: true}
+      artifact-name:
+        description: "Distinct artifact namespace when calling more than once"
+        default: snapshot-images
+        type: string
+    secrets:
+      registry-password:
+        required: false
+    outputs:
+      source-sha:
+        value: ${{ jobs.plan.outputs.source-sha }}
+      container-images-json:
+        value: ${{ jobs.collect.outputs.container-images-json }}
+permissions:
+  contents: read
+jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      images: |
+        runtime-image=${{ inputs['runtime-image'] }}
+        runtime-image-full=${{ inputs['runtime-image-full'] }}
+        runtime-image-go?=${{ inputs['runtime-image-go'] }}
+        runtime-image-rust?=${{ inputs['runtime-image-rust'] }}
+        runtime-image-node?=${{ inputs['runtime-image-node'] }}
+        runtime-image-java?=${{ inputs['runtime-image-java'] }}
+  plan:
+    needs: [resolve-bootstrap]
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    timeout-minutes: 20
+    # The admitted base image: forge-ci baked in, so the plan installs nothing.
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      source-sha: ${{ steps.source.outputs.sha }}
+      builds: ${{ steps.plan.outputs.builds }}
+      images: ${{ steps.plan.outputs.images }}
+      engine-repository: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+      artifact-transfers: ${{ steps.plan.outputs.artifact-transfer-plan-json }}
+      artifacts: ${{ steps.plan.outputs.artifacts }}
+      files: ${{ steps.plan.outputs.files }}
+      builder: ${{ steps.builder.outputs.builder }}
+      builder-job-image: ${{ steps.builder.outputs.builder-job-image }}
+    steps:
+      - name: Resolve image builder
+        id: builder
+        shell: bash
+        env:
+          BUILDER: ${{ inputs['image-builder'] || vars.CI_IMAGE_BUILDER || 'buildah' }}
+          JOB_IMAGE: ${{ inputs['image-builder-job-image'] || vars.CI_IMAGE_BUILDER_JOB_IMAGE }}
+        run: |
+          set -euo pipefail
+          case "$BUILDER" in
+            buildah) JOB_IMAGE= ;;
+            kaniko)
+              if [[ ! "$JOB_IMAGE" =~ ^[^[:space:]]+@sha256:[0-9a-f]{64}$ ]]; then
+                echo 'ERROR: kaniko requires a digest-pinned image-builder-job-image' >&2
+                exit 1
+              fi
+              ;;
+            *) echo 'ERROR: image-builder must be buildah or kaniko' >&2; exit 1 ;;
+          esac
+          printf 'builder=%s\nbuilder-job-image=%s\n' "$BUILDER" "$JOB_IMAGE" >> "$GITHUB_OUTPUT"
+      - name: Admit development publication
+        env:
+          SOURCE_BRANCH: ${{ inputs.branch }}
+        run: |
+          forge-ci validate event-context
+          git check-ref-format "refs/heads/${SOURCE_BRANCH}"
+      - name: Checkout selected source once
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs['source-sha'] || format('refs/heads/{0}', inputs.branch) }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Freeze source commit
+        id: source
+        working-directory: source
+        run: printf 'sha=%s\n' "$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+      - name: Plan declared snapshot images
+        id: plan
+        shell: bash
+        working-directory: source
+        env:
+          SOURCE_BRANCH: ${{ inputs.branch }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          CONFIG_FILE: ${{ inputs['artifacts-config'] }}
+          IMAGE_REPOSITORY: ${{ inputs['image-repository'] }}
+          REGISTRY: ${{ inputs.registry }}
+          PUBLISH_CONTAINERS: ${{ inputs['publish-containers'] }}
+          PUBLISH_FILES: ${{ inputs['publish-files'] }}
+          ARTIFACT_NAMESPACE: ${{ inputs['artifact-name'] }}
+          RUNNER_ORDINARY: ${{ inputs['runs-on'] }}
+          RUNNER_BUILD_AMD64: ${{ inputs['build-runs-on-linux-amd64'] }}
+          RUNNER_BUILD_ARM64: ${{ inputs['build-runs-on-linux-arm64'] }}
+        # A planned build whose runner input has no value is refused here,
+        # before the plan is written.
+        run: |
+          set -euo pipefail
+          # A file output is kept as <artifact-name>-files-<artifact>-<version>,
+          # of which the planner bounds what follows the namespace to 200
+          # characters; 48 for the namespace keeps the name within 255.
+          if [[ "$PUBLISH_FILES" == true && "${#ARTIFACT_NAMESPACE}" -gt 48 ]]; then
+            echo "::error::artifact-name is longer than 48 characters, which a file output name has no room for; shorten it"
+            exit 1
+          fi
+          mkdir -p "${RUNNER_TEMP}/snapshot-inputs"
+          if [[ -z "$IMAGE_REPOSITORY" ]]; then IMAGE_REPOSITORY="${REGISTRY}/${GITHUB_REPOSITORY,,}"; fi
+          forge-ci container snapshot-images plan --file "$CONFIG_FILE" \
+            --branch "$SOURCE_BRANCH" --source-sha "$SOURCE_SHA" \
+            --image-repository "$IMAGE_REPOSITORY" --publish="$PUBLISH_CONTAINERS" \
+            --publish-files="$PUBLISH_FILES" \
+            --output "${RUNNER_TEMP}/snapshot-inputs/snapshot-plan.json" \
+            --runner-input "runs-on=$RUNNER_ORDINARY" \
+            --runner-input "build-runs-on-linux-amd64=$RUNNER_BUILD_AMD64" \
+            --runner-input "build-runs-on-linux-arm64=$RUNNER_BUILD_ARM64"
+      - name: Require the toolchain image of every planned artifact
+        # The resolver admitted each family image that was passed as a digest;
+        # a family the plan builds, for an image or as a file output, must
+        # also have been passed, or its build job would get no image at all.
+        shell: bash
+        env:
+          ARTIFACTS: ${{ steps.plan.outputs.artifacts }}
+          FILES: ${{ steps.plan.outputs.files }}
+          IMAGE_GO: ${{ inputs['runtime-image-go'] }}
+          IMAGE_RUST: ${{ inputs['runtime-image-rust'] }}
+          IMAGE_NODE: ${{ inputs['runtime-image-node'] }}
+          IMAGE_JAVA: ${{ inputs['runtime-image-java'] }}
+        run: |
+          set -euo pipefail
+          missing=0
+          while IFS= read -r type; do
+            case "$type" in
+              go) input=runtime-image-go image=$IMAGE_GO ;;
+              cargo) input=runtime-image-rust image=$IMAGE_RUST ;;
+              npm) input=runtime-image-node image=$IMAGE_NODE ;;
+              *) input=runtime-image-java image=$IMAGE_JAVA ;;
+            esac
+            if [[ -z "$image" ]]; then
+              printf 'ERROR: the plan builds a %s artifact; pass %s as its digest-pinned runtime image\n' "$type" "$input" >&2
+              missing=1
+            fi
+          done < <(jq -r '.[].project_type' <<<"$ARTIFACTS $FILES" | sort -u)
+          exit "$missing"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs['artifact-name'] }}-inputs
+          path: ${{ runner.temp }}/snapshot-inputs/
+          if-no-files-found: error
+          retention-days: 7
+  build-artifacts:
+    needs: [resolve-bootstrap, plan]
+    if: ${{ !inputs['use-build-artifacts'] && needs.plan.outputs.artifacts != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        artifact: ${{ fromJson(needs.plan.outputs.artifacts) }}
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    timeout-minutes: 45
+    container:
+      image: >-
+        ${{ matrix.artifact.project_type == 'go' && inputs['runtime-image-go'] ||
+            matrix.artifact.project_type == 'cargo' && inputs['runtime-image-rust'] ||
+            matrix.artifact.project_type == 'npm' && inputs['runtime-image-node'] ||
+            inputs['runtime-image-java'] }}
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs['artifact-name'] }}-inputs
+          path: ${{ runner.temp }}/snapshot-inputs
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.plan.outputs.source-sha }}
+          path: source
+          persist-credentials: false
+      - name: Build the planned dependency without publication credentials
+        working-directory: source
+        env:
+          ARTIFACT_NAME: ${{ matrix.artifact.name }}
+          ADMIN_APPLICATION_TESTS: ${{ inputs['enforce-application-tests'] }}
+        run: |
+          env -u GH_TOKEN -u GITHUB_TOKEN -u REGISTRY_TOKEN -u REGISTRY_PASSWORD \
+            forge-ci container snapshot-images build-artifact --enforce-application-tests="$ADMIN_APPLICATION_TESTS" \
+              --plan "${RUNNER_TEMP}/snapshot-inputs/snapshot-plan.json" \
+              --name "$ARTIFACT_NAME" --output-dir _snapshot-artifacts
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs['artifact-name'] }}-dependency-${{ matrix.artifact.name }}
+          path: source/_snapshot-artifacts/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+  # A file output is built on its own and kept as a workflow artifact of this
+  # run. The job reads the repository and writes nothing but that artifact:
+  # no packages or release permission, and the build gets no token at all.
+  build-files:
+    needs: [resolve-bootstrap, plan]
+    if: ${{ inputs['publish-files'] && needs.plan.outputs.files != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        file: ${{ fromJson(needs.plan.outputs.files) }}
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    timeout-minutes: 45
+    container:
+      image: >-
+        ${{ matrix.file.project_type == 'go' && inputs['runtime-image-go'] ||
+            matrix.file.project_type == 'cargo' && inputs['runtime-image-rust'] ||
+            matrix.file.project_type == 'npm' && inputs['runtime-image-node'] ||
+            inputs['runtime-image-java'] }}
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs['artifact-name'] }}-inputs
+          path: ${{ runner.temp }}/snapshot-inputs
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.plan.outputs.source-sha }}
+          path: source
+          persist-credentials: false
+      - name: Build the file output without publication credentials
+        working-directory: source
+        env:
+          FILE_NAME: ${{ matrix.file.name }}
+          ADMIN_APPLICATION_TESTS: ${{ inputs['enforce-application-tests'] }}
+        run: |
+          env -u GH_TOKEN -u GITHUB_TOKEN -u REGISTRY_TOKEN -u REGISTRY_PASSWORD \
+            forge-ci container snapshot-images build-files --enforce-application-tests="$ADMIN_APPLICATION_TESTS" \
+              --plan "${RUNNER_TEMP}/snapshot-inputs/snapshot-plan.json" \
+              --name "$FILE_NAME" --output-dir snapshot-files
+      # The plan's name carries the snapshot version:
+      # <artifact>-<version>-snapshot-<branch>-<commit>.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs['artifact-name'] }}-files-${{ matrix.file.artifact_name }}
+          path: source/snapshot-files/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+  prepare-context:
+    needs: [plan, build-artifacts]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.build-artifacts.result == 'success' || needs.build-artifacts.result == 'skipped') }}
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    timeout-minutes: 20
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs['artifact-name'] }}-inputs
+          path: ${{ runner.temp }}/snapshot-inputs
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.plan.outputs.source-sha }}
+          path: source
+          persist-credentials: false
+      - name: Download exact existing dependency artifacts from this run
+        if: ${{ inputs['use-build-artifacts'] }}
+        working-directory: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_TRANSFER_PLAN_JSON: ${{ needs.plan.outputs.artifact-transfers }}
+        run: forge-ci release download-artifacts --run-id "$GITHUB_RUN_ID" --repository "$GITHUB_REPOSITORY"
+      - name: Prepare existing build artifacts without rebuilding
+        if: ${{ inputs['use-build-artifacts'] }}
+        working-directory: source
+        run: |
+          forge-ci container snapshot-images prepare-inputs \
+            --plan "${RUNNER_TEMP}/snapshot-inputs/snapshot-plan.json" \
+            --artifact-dir _snapshot-downloads --output-dir _snapshot-artifacts
+      - name: Download all planned producers from this run
+        if: ${{ !inputs['use-build-artifacts'] && needs.plan.outputs.artifacts != '[]' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ${{ inputs['artifact-name'] }}-dependency-*
+          path: source/_snapshot-artifacts
+          merge-multiple: true
+      - name: Gather and verify the complete frozen context
+        working-directory: source
+        run: |
+          forge-ci container snapshot-images gather-context \
+            --plan "${RUNNER_TEMP}/snapshot-inputs/snapshot-plan.json" \
+            --input-dir _snapshot-artifacts --output snapshot-context
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs['artifact-name'] }}-context
+          path: source/snapshot-context/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+  build:
+    needs: [resolve-bootstrap, plan, prepare-context]
+    if: ${{ !failure() && !cancelled() && needs.prepare-context.result == 'success' && needs.plan.outputs.builds != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        build: ${{ fromJson(needs.plan.outputs.builds) }}
+    # The runner input of the leg's own arch, never another's: an empty input
+    # or an arch with no input fails the leg.
+    runs-on: ${{ fromJSON((matrix.build.arch == 'arm64' && inputs['build-runs-on-linux-arm64']) || (matrix.build.arch == 'amd64' && inputs['build-runs-on-linux-amd64']) || '') }}
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Require original canonical success and approved identity
+        # Before the frozen source checkout: the canonical CLI of this run,
+        # built from the approved engine commit for both native
+        # architectures, is the only forge-ci this leg runs.
+        shell: /bin/bash --noprofile --norc -peuo pipefail {0}
+        env:
+          ENGINE_REPOSITORY: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          ENGINE_COMMIT: ${{ inputs['forge-ci-binary-ref'] }}
+          ENGINE_ORIGIN: ${{ github.server_url }}/${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          RUNTIME_IMAGE: ${{ inputs['runtime-image'] }}
+          PRODUCER_ARTIFACT_ID: ${{ inputs['canonical-artifact-id'] }}
+          PRODUCER_ARTIFACT_NAME: ${{ inputs['canonical-artifact-name'] }}
+          PRODUCER_RUN_ID: ${{ inputs['canonical-producer-run-id'] }}
+          PRODUCER_RUN_ATTEMPT: ${{ inputs['canonical-producer-run-attempt'] }}
+          PRODUCER_ENGINE_REPOSITORY: ${{ inputs['canonical-producer-engine-repository'] }}
+          PRODUCER_ENGINE_COMMIT: ${{ inputs['canonical-producer-engine-commit'] }}
+          CANONICAL_PRODUCER_RESULT: ${{ inputs['canonical-producer-result'] }}
+        run: |
+          [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ && "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CANONICAL_PRODUCER_RESULT" == success && "$PRODUCER_RUN_ID" == "$GITHUB_RUN_ID" && "$PRODUCER_RUN_ATTEMPT" == "$GITHUB_RUN_ATTEMPT" ]]
+          [[ "$ENGINE_REPOSITORY" =~ ^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*$ && "$ENGINE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PRODUCER_ENGINE_REPOSITORY" == "$ENGINE_REPOSITORY" && "$PRODUCER_ENGINE_COMMIT" == "$ENGINE_COMMIT" ]]
+          [[ "$PRODUCER_ARTIFACT_ID" =~ ^[1-9][0-9]*$ && "$PRODUCER_ARTIFACT_NAME" == "forge-ci-canonical-linux-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ENGINE_COMMIT" ]]
+          [[ "$RUNTIME_IMAGE" =~ ^[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}$ ]]
+          [[ "$GITHUB_SERVER_URL" =~ ^https://[^/?#@[:space:]]+$ && "$ENGINE_ORIGIN" == "$GITHUB_SERVER_URL/$ENGINE_REPOSITORY" ]]
+          for variable in ENGINE_REPOSITORY ENGINE_COMMIT ENGINE_ORIGIN RUNTIME_IMAGE PRODUCER_ARTIFACT_ID PRODUCER_ARTIFACT_NAME PRODUCER_RUN_ID PRODUCER_RUN_ATTEMPT PRODUCER_ENGINE_REPOSITORY PRODUCER_ENGINE_COMMIT CANONICAL_PRODUCER_RESULT; do
+            printf '%s=%s\n' "$variable" "${!variable}" >>"$GITHUB_ENV"
+          done
+      - name: Checkout only the approved engine before consumer or private steps
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ env.ENGINE_REPOSITORY }}
+          ref: ${{ env.ENGINE_COMMIT }}
+          path: _forge_ci_bootstrap
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - name: Consume canonical CLI from the independently pinned engine checkout
+        id: canonical-bootstrap
+        uses: ./_forge_ci_bootstrap/.github/actions/consume-canonical-cli
+        with:
+          tool-profile: host # Buildah and the frozen source in scope: root-owned system tools only.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs['artifact-name'] }}-inputs
+          path: ${{ runner.temp }}/snapshot-inputs
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.plan.outputs.source-sha }}
+          path: source
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs['artifact-name'] }}-context
+          path: ${{ runner.temp }}/snapshot-context
+      - name: Restore and verify the frozen dependency context
+        working-directory: source
+        run: |
+          forge-ci container snapshot-images restore-context \
+            --plan "${RUNNER_TEMP}/snapshot-inputs/snapshot-plan.json" \
+            --input "${RUNNER_TEMP}/snapshot-context"
+      - name: Prepare native image builder
+        if: ${{ needs.plan.outputs.builder == 'buildah' }}
+        run: forge-ci container setup-buildah --install-packages=true --probe-build=true --print-store=false --summary=false
+      - name: Admit and prepare isolated native Kaniko action
+        id: kaniko-action
+        if: ${{ needs.plan.outputs.builder == 'kaniko' }}
+        env:
+          JOB_IMAGE: ${{ needs.plan.outputs.builder-job-image }}
+          ENGINE_REPOSITORY: ${{ needs.plan.outputs.engine-repository }}
+          IMAGE_ARCH: ${{ matrix.build.arch }}
+        run: |
+          forge-ci container image usable-digest --ref "$JOB_IMAGE" --arch "$IMAGE_ARCH" \
+            --require-label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$ENGINE_REPOSITORY" \
+            --require-label 'org.opencontainers.image.title=forge-ci kaniko job image'
+          forge-ci container prepare-kaniko-action --snapshot --job-image "$JOB_IMAGE" \
+            --plan "$RUNNER_TEMP/snapshot-inputs/snapshot-plan.json"
+      - name: Stage native snapshot layout without publication credentials
+        if: ${{ needs.plan.outputs.builder == 'buildah' }}
+        working-directory: source
+        env:
+          IMAGE_NAME: ${{ matrix.build.name }}
+          IMAGE_ARCH: ${{ matrix.build.arch }}
+        run: |
+          env -u GH_TOKEN -u GITHUB_TOKEN -u REGISTRY_TOKEN -u REGISTRY_PASSWORD \
+            forge-ci container snapshot-images build \
+              --plan "${RUNNER_TEMP}/snapshot-inputs/snapshot-plan.json" \
+              --dependencies-file snapshot-dependencies.json \
+              --name "$IMAGE_NAME" --arch "$IMAGE_ARCH" --metadata-dir snapshot-layouts \
+              --server-url "$GITHUB_SERVER_URL" --repository "$GITHUB_REPOSITORY"
+      - name: Stage native snapshot layout with Kaniko
+        if: ${{ needs.plan.outputs.builder == 'kaniko' }}
+        uses: ./.forge-ci-kaniko-action
+        with:
+          operation: snapshot
+        env:
+          IMAGE_NAME: ${{ matrix.build.name }}
+          IMAGE_ARCH: ${{ matrix.build.arch }}
+      - name: Restore host ownership of Kaniko layout
+        if: ${{ always() && needs.plan.outputs.builder == 'kaniko' }}
+        env:
+          STAGED_OUTPUT: ${{ steps.kaniko-action.outputs.output-dir }}
+        run: |
+          if [[ -e "$STAGED_OUTPUT" || -L "$STAGED_OUTPUT" ]]; then
+            sudo chown -hRP -- "$(id -u):$(id -g)" "$STAGED_OUTPUT"
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs['artifact-name'] }}-layout-${{ matrix.build.name }}-${{ matrix.build.arch }}
+          path: source/snapshot-layouts/
+          if-no-files-found: error
+          retention-days: 7
+  publish:
+    needs: [plan, build]
+    if: ${{ !failure() && !cancelled() && needs.build.result == 'success' && needs.plan.outputs.images != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJson(needs.plan.outputs.images) }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    # The full image: Trivy for the scan every published image gets, syft
+    # for the configured SBOMs. forge-ci is baked in.
+    container:
+      image: ${{ inputs['runtime-image-full'] }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs['artifact-name'] }}-inputs
+          path: ${{ runner.temp }}/snapshot-inputs
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ${{ inputs['artifact-name'] }}-layout-${{ matrix.image.name }}-*
+          path: ${{ runner.temp }}/snapshot-layouts
+          merge-multiple: true
+      - name: Refuse pull-request publication
+        run: forge-ci validate event-context
+      - name: Read scan policy from the frozen source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.plan.outputs.source-sha }}
+          path: scan-policy
+          sparse-checkout: .trivyignore.yaml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Verify all native layouts and publish snapshot
+        working-directory: scan-policy
+        env:
+          IMAGE_NAME: ${{ matrix.image.name }}
+          REGISTRY_USER: ${{ inputs['registry-user'] || github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.registry-password || github.token }}
+          ADMIN_VULNERABILITIES: ${{ inputs['enforce-vulnerabilities'] }}
+        run: |
+          mkdir -p snapshot-receipts
+          printf '%s' "$REGISTRY_PASSWORD" | forge-ci container snapshot-images publish --enforce-vulnerabilities="$ADMIN_VULNERABILITIES" \
+            --plan "${RUNNER_TEMP}/snapshot-inputs/snapshot-plan.json" \
+            --name "$IMAGE_NAME" --metadata-dir "${RUNNER_TEMP}/snapshot-layouts" \
+            --registry-username "$REGISTRY_USER" --registry-password-file - \
+            --server-url "$GITHUB_SERVER_URL" --repository "$GITHUB_REPOSITORY" \
+            --output "snapshot-receipts/${IMAGE_NAME}.json" --evidence-dir "snapshot-evidence/${IMAGE_NAME}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs['artifact-name'] }}-receipt-${{ matrix.image.name }}
+          path: scan-policy/snapshot-receipts/
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: ${{ inputs['artifact-name'] }}-evidence-${{ matrix.image.name }}
+          path: scan-policy/snapshot-evidence/
+          if-no-files-found: ignore
+          retention-days: 7
+  collect:
+    needs: [plan, prepare-context, build, publish]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.prepare-context.result == 'success' && ((needs.build.result == 'success' && needs.publish.result == 'success') || (needs.plan.outputs.images == '[]' && needs.build.result == 'skipped' && needs.publish.result == 'skipped')) }}
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      contents: read
+    outputs:
+      container-images-json: ${{ steps.collect.outputs.container-images-json }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs['artifact-name'] }}-inputs
+          path: ${{ runner.temp }}/snapshot-inputs
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: ${{ needs.publish.result == 'success' }}
+        with:
+          pattern: ${{ inputs['artifact-name'] }}-receipt-*
+          path: snapshot-receipts
+          merge-multiple: true
+      - name: Collect complete digest inventory
+        id: collect
+        run: |
+          mkdir -p snapshot-receipts
+          forge-ci container snapshot-images collect --plan "${RUNNER_TEMP}/snapshot-inputs/snapshot-plan.json" \
+            --receipts-dir snapshot-receipts --output container-images.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs['artifact-name'] }}
+          path: container-images.json
+          if-no-files-found: error
+          retention-days: 7

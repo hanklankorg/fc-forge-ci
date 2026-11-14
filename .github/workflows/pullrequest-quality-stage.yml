@@ -1,0 +1,191 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+name: Pull Request Quality Stage
+on:
+  workflow_call:
+    inputs:
+      enforce-lint:
+        description: "Enforcement setting: false reports lint findings without failing; the checks still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      enforce-vulnerabilities:
+        description: "Enforcement setting: false reports vulnerability findings without failing; the scans still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      pr-plan-json:
+        required: true
+        type: string
+      quality-stage-plan-json:
+        required: true
+        type: string
+      runtime-image:
+        description: "Administrator-pinned forge-ci base runtime image@sha256 digest for the status/summary jobs and the lint jobs' canonical admission; the orchestrator passes the digest its delivery admitted"
+        required: true
+        type: string
+      required-lints:
+        description: "Mandated lint floor passed to `nanolinter verify --require` (comma-separated check ids forced to run + block)."
+        required: false
+        default: "secrets,sast"
+        type: string
+      disable-checks:
+        description: "Nanolinter check ids to leave out of the run (comma-separated), passed to `nanolinter verify --disable-check`; it cannot remove a check required-lints names."
+        required: false
+        default: ""
+        type: string
+      megalinter-image:
+        description: "Required for a planned MegaLinter job: reviewed image reference pinned by @sha256:<64 lowercase hex>"
+        required: false
+        default: ""
+        type: string
+      runs-on:
+        description: "JSON array of runner labels for the ordinary jobs, read with fromJSON. Signing, promotion and publication jobs stay on GitHub-hosted runners."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      runs-on-darwin-arm64:
+        description: "JSON array of runner labels for the macOS arm64 jobs, read with fromJSON."
+        required: false
+        default: '["macos-26"]'
+        type: string
+      forge-ci-binary-ref:
+        description: "Full approved engine commit the canonical CLI of this run was built from; the lint jobs receive that build"
+        required: true
+        type: string
+      # Canonical delivery of the same run, forwarded to the lint jobs that
+      # run on the runner.
+      canonical-artifact-id: {type: string, required: true}
+      canonical-artifact-name: {type: string, required: true}
+      canonical-producer-run-id: {type: string, required: true}
+      canonical-producer-run-attempt: {type: string, required: true}
+      canonical-producer-engine-repository: {type: string, required: true}
+      canonical-producer-engine-commit: {type: string, required: true}
+      canonical-producer-result: {type: string, required: true}
+    # Aggregator: forwards CODE_SCANNING_TOKEN to the nanolinter job for
+    # its security-SARIF upload; other lint jobs use the auto GITHUB_TOKEN.
+    secrets:
+      CODE_SCANNING_TOKEN:
+        description: "Token with security-events:write for SARIF upload"
+        required: false
+permissions:
+  contents: read
+jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      images: |
+        runtime-image=${{ inputs['runtime-image'] }}
+  nanolinter:
+    needs: [resolve-bootstrap]
+    name: "Check: lint"
+    if: ${{ fromJson(inputs['quality-stage-plan-json']).targets.nanolinter.runs }}
+    permissions:
+      contents: read
+      actions: read # The lint job downloads the canonical CLI.
+    secrets:
+      CODE_SCANNING_TOKEN: ${{ secrets.CODE_SCANNING_TOKEN }}
+    uses: ./.github/workflows/lint-nanolinter.yml
+    with:
+      runs-on: ${{ inputs['runs-on'] }}
+      enforce-lint: ${{ inputs['enforce-lint'] }}
+      enforce-vulnerabilities: ${{ inputs['enforce-vulnerabilities'] }}
+      # Resolved by `forge-ci plan pr`: the caller's override or the
+      # flavour matching the project type.
+      nanolinter-image: ${{ fromJson(inputs['pr-plan-json']).policy.nanolinter_image }}
+      required-lints: ${{ inputs['required-lints'] }}
+      disable-checks: ${{ inputs['disable-checks'] }}
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      runtime-image: ${{ inputs['runtime-image'] }}
+      canonical-artifact-id: ${{ inputs['canonical-artifact-id'] }}
+      canonical-artifact-name: ${{ inputs['canonical-artifact-name'] }}
+      canonical-producer-run-id: ${{ inputs['canonical-producer-run-id'] }}
+      canonical-producer-run-attempt: ${{ inputs['canonical-producer-run-attempt'] }}
+      canonical-producer-engine-repository: ${{ inputs['canonical-producer-engine-repository'] }}
+      canonical-producer-engine-commit: ${{ inputs['canonical-producer-engine-commit'] }}
+      canonical-producer-result: ${{ inputs['canonical-producer-result'] }}
+  megalinter:
+    needs: [resolve-bootstrap]
+    name: "Check: lint (MegaLinter)"
+    if: ${{ fromJson(inputs['quality-stage-plan-json']).targets.megalinter.runs }}
+    permissions:
+      contents: read
+      actions: read # The lint job downloads the canonical CLI.
+    secrets:
+      CODE_SCANNING_TOKEN: ${{ secrets.CODE_SCANNING_TOKEN }}
+    uses: ./.github/workflows/lint-megalinter.yml
+    with:
+      runs-on: ${{ inputs['runs-on'] }}
+      megalinter-image: ${{ inputs['megalinter-image'] }}
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      runtime-image: ${{ inputs['runtime-image'] }}
+      canonical-artifact-id: ${{ inputs['canonical-artifact-id'] }}
+      canonical-artifact-name: ${{ inputs['canonical-artifact-name'] }}
+      canonical-producer-run-id: ${{ inputs['canonical-producer-run-id'] }}
+      canonical-producer-run-attempt: ${{ inputs['canonical-producer-run-attempt'] }}
+      canonical-producer-engine-repository: ${{ inputs['canonical-producer-engine-repository'] }}
+      canonical-producer-engine-commit: ${{ inputs['canonical-producer-engine-commit'] }}
+      canonical-producer-result: ${{ inputs['canonical-producer-result'] }}
+  swift:
+    needs: [resolve-bootstrap]
+    name: "Check: lint (Swift)"
+    if: ${{ fromJson(inputs['quality-stage-plan-json']).targets.swift.runs }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/lint-swift.yml
+    with:
+      runs-on: ${{ inputs['runs-on'] }}
+      runs-on-darwin-arm64: ${{ inputs['runs-on-darwin-arm64'] }}
+      enforce-lint: ${{ inputs['enforce-lint'] }}
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      enable-swiftformat: ${{ fromJson(inputs['pr-plan-json']).policy.swift_format }}
+      enable-swiftlint: ${{ fromJson(inputs['pr-plan-json']).policy.swift_lint }}
+      runtime-image: ${{ inputs['runtime-image'] }}
+  quality-status:
+    name: "Check: status"
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    if: always() && needs.resolve-bootstrap.result == 'success'
+    needs: [resolve-bootstrap, nanolinter, megalinter, swift]
+    steps:
+      - name: Check quality results
+        env:
+          CHECK_NANOLINTER: Nanolinter|${{ fromJson(inputs['quality-stage-plan-json']).targets.nanolinter.runs }}|${{ needs.nanolinter.result }}
+          CHECK_MEGALINTER: MegaLinter|${{ fromJson(inputs['quality-stage-plan-json']).targets.megalinter.runs }}|${{ needs.megalinter.result }}
+          CHECK_SWIFT: Swift Lint|${{ fromJson(inputs['quality-stage-plan-json']).targets.swift.runs }}|${{ needs.swift.result }}
+        run: |
+          forge-ci report status quality-check \
+            "$CHECK_NANOLINTER" \
+            "$CHECK_MEGALINTER" \
+            "$CHECK_SWIFT"
+  summarize-quality-stage:
+    name: Summary
+    needs: [resolve-bootstrap, nanolinter, megalinter, swift, quality-status]
+    if: always() && needs.resolve-bootstrap.result == 'success'
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Normalize PR quality stage result
+        id: summary
+        env:
+          STAGE_PLAN_JSON: ${{ inputs['quality-stage-plan-json'] }}
+          JOB_RESULTS: ${{ toJson(needs) }}
+        run: forge-ci report stage-result
+      - name: Upload quality stage manifests
+        if: always() && hashFiles('.ci-results/*.json') != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-results-pr-quality
+          path: .ci-results/*.json
+          include-hidden-files: "true"
+          retention-days: "5"
+          if-no-files-found: ignore

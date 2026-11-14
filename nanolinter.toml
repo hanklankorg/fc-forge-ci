@@ -1,0 +1,91 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# nanolinter verify plan.
+#
+# Generated via `nanolinter init --profile strict`. Strict means every
+# check listed in [verify].checks also appears in [policy].block — any
+# failure fails `nanolinter verify` (and therefore `just verify`) — except
+# links, commits and sast, which are advisory (see [policy]).
+#
+# Re-derive with: `nanolinter init --profile strict --print`
+# Inspect plan:   `nanolinter dry-run-plan`
+# Tool health:    `nanolinter doctor`
+
+[detect]
+auto = true
+
+[verify]
+checks = [
+  "version-control",
+  "commits",
+  "secrets",
+  "osv",
+  "sast",
+  "typos",
+  "toml",
+  "links",
+  "yaml",
+  "markdown",
+  "license",
+  "container",
+  "xml",
+  "go-vulncheck",
+  "go-golangci",
+  "go-format",
+  "shell",
+  "shell-format",
+  "actions",
+  "trivy-fs",
+  "security-scorecard",
+]
+
+# Links reports but does not block: lychee probes external sites, so an
+# outage or rate limit elsewhere would fail an unchanged tree. Real broken
+# links are still listed and fixed; known-good URLs go in .lycheeignore.
+#
+# Commits reports but does not block until the pinned nanolinter passes
+# gommitlint 0.93's --config flag (0.8.6 passes --gommitconfig); run
+# `gommitlint validate --base-branch main` to check commits meanwhile. Sast
+# reports but does not block: its opengrep findings are triaged by hand, not
+# gated. Until nanolinter's next release it also fails to start: 0.8.6 passes
+# --no-secrets-validation, which opengrep removed in 1.27.1, so no opengrep
+# pin can fix it short of an older scanner; run `opengrep scan --config p/default .`
+# meanwhile. docs/DEVELOPMENT.md lists both.
+[policy]
+block = [
+  "version-control",
+  "secrets",
+  "osv",
+  "typos",
+  "toml",
+  "yaml",
+  "markdown",
+  "license",
+  "container",
+  "xml",
+  "go-vulncheck",
+  "go-golangci",
+  "go-format",
+  "shell",
+  "shell-format",
+  "actions",
+  "trivy-fs",
+  "security-scorecard",
+]
+
+# A build-context ignore file named after its Containerfile is discovered as a
+# Containerfile (the name starts with "Containerfile."), and is not one.
+[verify.filters.container]
+exclude = '\.containerignore$'
+
+# Match development/golangci-lint/golangci.yml's bounded fifteen-minute budget for cold-cache analysis.
+# The wrapper's default 60 seconds otherwise kills it before it can report.
+[linters.go-golangci]
+timeout_secs = 900
+
+# Shell sources indent with two spaces; stated so the result does not
+# depend on the tool's bundled default.
+[linters.shell-format.settings]
+"shfmt.indent" = 2

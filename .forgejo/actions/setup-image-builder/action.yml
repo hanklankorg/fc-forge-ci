@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: Setup image builder
+description: Prepare the image builder CI_IMAGE_BUILDER selects, buildah (default) or kaniko by its digest-pinned job image.
+
+inputs:
+  extra-packages:
+    description: Buildah only. Whitespace-separated additional apt packages to install with Buildah.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare the image builder
+      shell: bash
+      env:
+        SETUP_BUILDAH_EXTRA_PACKAGES: ${{ inputs.extra-packages }}
+      run: |
+        set -euo pipefail
+        bash "${GITHUB_ACTION_PATH}/../../bin/setup-image-builder.sh"

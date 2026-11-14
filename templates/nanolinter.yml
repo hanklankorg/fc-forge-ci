@@ -1,0 +1,235 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# GitLab CI/CD Catalog component: the default PR lint gate (nanolinter).
+#
+# nanolinter is the project lint gate used on the GitHub pull-request quality
+# stage; it bakes a whole check toolchain (opengrep SAST, osv-scanner, secrets,
+# trivy-fs, ecosystem linters) into a flavour image and runs `nanolinter verify`.
+# We do NOT run opengrep standalone — it ships inside nanolinter.
+#
+# This is the thin GitLab adapter around that gate (the analog of
+# .github/workflows/lint-nanolinter.yml). Two things happen:
+#   1. `nanolinter verify` runs the full toolchain and fails the job on blocking
+#      findings — that exit IS the lint gate.
+#   2. The security SARIF is converted to the GitLab SAST schema and published as
+#      `artifacts:reports:sast`, so blocking findings land on the merge-request
+#      Security tab (the GitLab analog of GitHub Code Scanning). The conversion
+#      uses `forge-ci security report to-gitlab-sast`; forge-ci is not baked
+#      into the flavour image, so the job checks out forge-ci-repository at this
+#      component's commit and runs the engine binary that commit records,
+#      downloaded from that project's generic packages and checked against the
+#      recorded checksum, as the check component does.
+#
+# Consume (pin a released version):
+#   include:
+#     - component: $CI_SERVER_FQDN/diggsweden/forge-ci/nanolinter@0.90.0
+#       inputs:
+#         forge-ci-repository: diggsweden/forge-ci
+#         server-url: https://gitlab.example.com
+#         nanolinter-image: "ghcr.io/itiquette/nanolinter:java@sha256:PIN_DIGEST"
+spec:
+  component: [sha]
+  inputs:
+    stage:
+      default: test
+      description: Pipeline stage the lint gate runs in.
+    job-name:
+      default: nanolinter
+      description: Name of the generated job.
+    nanolinter-image:
+      description: >-
+        nanolinter flavour image matching the project's ecosystem, pinned by @sha256: core, go, java, kotlin, javascript-typescript, rust or swift. The core flavour carries only the ecosystem-neutral checks.
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    required-lints:
+      default: "secrets,sast"
+      description: >-
+        Mandated lint floor — comma-separated check ids passed to `nanolinter verify --require`. These checks are forced to run AND block regardless of the project's nanolinter.toml, so they cannot be silently skipped. Empty disables the floor.
+      regex: '^[A-Za-z0-9_.,-]*$'
+    disable-checks:
+      default: ""
+      description: >-
+        Comma-separated check ids to leave out of this run, passed to `nanolinter verify --disable-check`, for example the network-backed scans a separate job owns. It cannot remove a check required-lints names. A security check the job cannot run fails it when skipped, once the linter reports skipped checks (Nanolinter 0.8.6 does not): name it here.
+      regex: '^[A-Za-z0-9_.,-]*$'
+    enable-gitlab-sast:
+      type: boolean
+      default: true
+      description: >-
+        Convert nanolinter's SARIF to a GitLab SAST report and publish it as artifacts:reports:sast (populates the MR Security tab; display needs GitLab Ultimate). When false, the SARIF is kept as a plain artifact only.
+    enforce-lint:
+      type: boolean
+      default: false
+      description: >-
+        Enforcement setting: false reports lint findings without failing the job. Set it only in the administrator's own policy include; the checks still run. See docs/admin-policy.md.
+    enforce-vulnerabilities:
+      type: boolean
+      default: false
+      description: >-
+        Enforcement setting: false reports vulnerability findings (osv, trivy-fs and the like) without failing the job. Set it only in the administrator's own policy include. See docs/admin-policy.md.
+    server-url:
+      description: >-
+        This GitLab instance's URL as CI_SERVER_URL reads, https://host[:port] without a path, for example https://gitlab.example.com. The job token goes only there: each job refuses to run when CI_SERVER_URL, which a project or pipeline variable can set, differs.
+      regex: '^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'
+    forge-ci-repository:
+      description: >-
+        Project serving this component and its public engine package, including any subgroups. The SARIF to GitLab-SAST conversion runs the engine binary that this component's commit records, downloaded from that project's generic packages and checked against the recorded checksum. May name $CI_PROJECT_PATH: lib-forge-ci.sh refuses an expanded path that is not a project on server-url before any download.
+    runner-tags:
+      type: array
+      default: []
+      description: Runner tags of the job, all of which one runner must carry; empty, the default, leaves it untagged. Name literal tags only, never a $VARIABLE, which a project variable could set.
+---
+"$[[ inputs.job-name ]]":
+  # One more attempt when the engine found a dependency unavailable, exit
+  # 69, and for no other failure.
+  retry:
+    max: 1
+    exit_codes: 69
+  stage: $[[ inputs.stage ]]
+  tags: $[[ inputs.runner-tags ]]
+  rules:
+    - when: on_success
+  needs: []
+  cache: []
+  # The image starts its tool as its entrypoint; the script runs the tool
+  # itself. The Docker executor would run the job's shell through that
+  # entrypoint; the Kubernetes one ignores it.
+  image:
+    name: $[[ inputs.nanolinter-image ]]
+    entrypoint: [""]
+  variables:
+    GIT_STRATEGY: fetch
+    GIT_CHECKOUT: "true"
+    # The whole history, for the comparison with the merge request's target.
+    GIT_DEPTH: "0"
+    RC_FORGE_CI_REPOSITORY: "$[[ inputs.forge-ci-repository ]]"
+    SARIF_FILE: nanolinter-security.sarif
+    GL_SAST_FILE: gl-sast-report.json
+  # Explicit gate fields replace earlier same-named values. Other keys still
+  # merge; policy injection, not include ordering, is the authority boundary.
+  allow_failure: false
+  before_script: []
+  after_script: []
+  script:
+    - |
+      set -uo pipefail
+      # The floor, the report and the administrator's settings as written: a
+      # project variable outranks a job's own, so none is one. The settings
+      # reach the engine as its flags, never through the environment.
+      readonly REQUIRED_LINTS='$[[ inputs.required-lints ]]' DISABLE_CHECKS='$[[ inputs.disable-checks ]]' ENABLE_GITLAB_SAST='$[[ inputs.enable-gitlab-sast ]]' \
+        RC_ADMIN_LINT='$[[ inputs.enforce-lint ]]' RC_ADMIN_VULNERABILITIES='$[[ inputs.enforce-vulnerabilities ]]'
+      # The instance as written: a project or pipeline variable outranks
+      # the predefined CI_SERVER_URL and CI_API_V4_URL, and the job token
+      # goes where they point. Hold the one to the literal, derive the other.
+      readonly RC_SERVER_URL='$[[ inputs.server-url ]]'
+      if [ "${CI_SERVER_URL-}" != "${RC_SERVER_URL}" ]; then
+        echo "ERROR: CI_SERVER_URL is '${CI_SERVER_URL-}', not server-url '${RC_SERVER_URL}'; remove the variable that sets it." >&2
+        exit 1
+      fi
+      export CI_API_V4_URL="${RC_SERVER_URL}/api/v4"
+
+      # opengrep (inside nanolinter) hardcodes paths under the image's home; the
+      # flavour image's /home/nanolinter is writable, so cosign's sigstore cache
+      # needs no redirection either. Set here, not as a job variable: GitLab
+      # gives job variables to the helper container that fetches the source
+      # too, and that has no such directory.
+      export HOME=/home/nanolinter
+
+      # --- Merge-request base -----------------------------------------------
+      # Trust the checkout, then fetch the merge request's target.
+      # --- Checkout trust ---------------------------------------------------
+      # The runner's user owns the checkout, and a lint image may run as
+      # another user, so git refuses the checkout as dubious ownership.
+      # Trust this one directory for every git call of the job, the linter's
+      # own included, through the environment: no config file is written,
+      # and the consumer's own GIT_CONFIG_* entries stay in force.
+      git_config_count="${GIT_CONFIG_COUNT:-0}"
+      case "$git_config_count" in
+        ''|*[!0-9]*) echo "GIT_CONFIG_COUNT is not a number: ${git_config_count}" >&2; exit 1 ;;
+      esac
+      export "GIT_CONFIG_KEY_${git_config_count}=safe.directory"
+      export "GIT_CONFIG_VALUE_${git_config_count}=${CI_PROJECT_DIR:?}"
+      export GIT_CONFIG_COUNT=$((git_config_count + 1))
+
+      # --- Target fetch -----------------------------------------------------
+      # Diff-based checks (secret scanning, commit checks, changed-file
+      # linting) compare the merge request with its target branch, and GitLab
+      # fetches only the merge request's head: fetch the target as
+      # origin/<target>. GIT_DEPTH 0 gives the head its whole history so the
+      # two meet; a depth the consumer set is deepened here.
+      # The job token reaches git through a credential helper, never argv.
+      target="${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-}"
+      if [ -n "$target" ]; then
+        fetch_options=(-c core.hooksPath=/dev/null
+          -c 'credential.helper=!f() { echo username=gitlab-ci-token; echo "password=${CI_JOB_TOKEN}"; }; f')
+        if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+          fetch_options+=(-c "http.sslCAInfo=${CI_SERVER_TLS_CA_FILE}")
+        fi
+        depth=()
+        if [ "$(git rev-parse --is-shallow-repository)" = true ]; then depth=(--unshallow); fi
+        if ! GIT_TERMINAL_PROMPT=0 git "${fetch_options[@]}" fetch --quiet --no-tags "${depth[@]}" \
+          "${RC_SERVER_URL}/${CI_PROJECT_PATH:?}.git" "+refs/heads/${target}:refs/remotes/origin/${target}"; then
+          echo "cannot fetch the merge request's target branch ${target} (a pipeline error, not a lint finding)" >&2
+          exit 1
+        fi
+      fi
+
+      # The checksum-bound engine owns admin policy even when SAST upload is
+      # disabled. Bootstrap failure stops before any consumer lint command.
+      (
+          set -euo pipefail
+          expected='$[[ component.sha ]]'
+          export FORGE_CI_PACKAGE_PROVIDER=gitlab
+          export FORGE_CI_REPOSITORY_URL="${RC_SERVER_URL}/${RC_FORGE_CI_REPOSITORY:?}.git"
+          helpers=$(mktemp -d /tmp/forge-ci-helpers.XXXXXXXX)
+          trap 'rm -rf -- "${helpers}"' EXIT
+          git_options=(-c core.hooksPath=/dev/null -c credential.helper=)
+          if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+            git_options+=(-c "http.sslCAInfo=${CI_SERVER_TLS_CA_FILE}")
+          fi
+          object_format=sha1
+          if [ "${#expected}" -eq 64 ]; then object_format=sha256; fi
+          git init --quiet --object-format="${object_format}" "${helpers}"
+          git -C "${helpers}" remote add origin "${FORGE_CI_REPOSITORY_URL}"
+          GIT_TERMINAL_PROMPT=0 git "${git_options[@]}" -C "${helpers}" \
+            fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin "${expected}"
+          git "${git_options[@]}" -C "${helpers}" checkout --quiet --detach "${expected}"
+          test "$(git -C "${helpers}" rev-parse HEAD)" = "${expected}"
+          # shellcheck source=.engine/bin/lib-forge-ci.sh
+          source "${helpers}/.engine/bin/lib-forge-ci.sh"
+          if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+            CURL_CA_BUNDLE="${CI_SERVER_TLS_CA_FILE}" fetch_forge_ci
+          else
+            fetch_forge_ci
+          fi
+          SIGNER_STRICT=1 verify_forge_ci
+
+          # --require runs the trusted caller's floor regardless of consumer
+          # configuration. Admin policy decides enforcement after execution.
+          require_args=()
+          if [ -n "$REQUIRED_LINTS" ]; then require_args=(--require "$REQUIRED_LINTS"); fi
+          if [ -n "$DISABLE_CHECKS" ]; then require_args+=(--disable-check "$DISABLE_CHECKS"); fi
+          gate=0
+          LANG=C.UTF-8 LC_ALL=C.UTF-8 run_forge_ci policy nanolinter \
+            --enforce-lint="$RC_ADMIN_LINT" --enforce-vulnerabilities="$RC_ADMIN_VULNERABILITIES" --sarif-file "$SARIF_FILE" -- \
+            nanolinter verify "${require_args[@]}" --report sarif --out - || gate=$?
+          if [ "$gate" -ne 0 ]; then
+            echo "nanolinter gate failed — see the per-check output for findings or a tool/runtime failure."
+          fi
+
+          # The SAST report is what the merge request shows: a conversion that
+          # fails, fails the job, after the gate has printed its verdict.
+          if [ "$ENABLE_GITLAB_SAST" = "true" ] && [ -f "$SARIF_FILE" ]; then
+            if ! run_forge_ci security report to-gitlab-sast --input "$SARIF_FILE" --output "$GL_SAST_FILE"; then
+              echo "ERROR: the GitLab SAST report could not be written; the SARIF is kept as a plain artifact (a pipeline error, not a lint finding)." >&2
+              if [ "$gate" -eq 0 ]; then gate=1; fi
+            fi
+          fi
+          exit "$gate"
+      )
+  artifacts:
+    when: always
+    paths:
+      - nanolinter-security.sarif
+    reports:
+      sast: gl-sast-report.json

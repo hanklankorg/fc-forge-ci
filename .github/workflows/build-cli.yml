@@ -1,0 +1,204 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# build-cli — build source for runtime images and the rolling CLI pre-release.
+#
+# Builds linux/amd64, linux/arm64 and darwin/arm64 with goreleaser (cosign-signed, SBOMs,
+# SLSA build-provenance) ONCE and uploads the dist/ artifact for callers to
+# consume in the SAME run. The rolling pre-release publisher uploads these
+# stamped tarballs; runtime images instead consume the separately verified
+# canonical delivery CLIs built by engine-binary.sh. It deliberately does NOT publish
+# (--skip=publish); publishing is the caller's job. Tagged releases currently
+# rebuild in release-binary.yml pending the build-once cutover.
+#
+# Reproducibility: SOURCE_DATE_EPOCH + goreleaser's {{.CommitDate}} normalize
+# timestamps. Byte identity also requires equal toolchain, version and resolved
+# build inputs; newly signed bundles are separate evidence.
+name: Build CLI
+on: # yamllint disable-line rule:truthy
+  workflow_call:
+    inputs:
+      version-tag:
+        description: "Version tag goreleaser stamps (e.g. v0.90.0-pre or vX.Y.Z); the leading v is stripped in archive names."
+        required: true
+        type: string
+      artifact-name:
+        description: "Name for the uploaded dist/ artifact (intra-run handoff to the image + publish jobs)."
+        required: false
+        default: cli-dist
+        type: string
+      artifact-retention-days:
+        description: "Retention for the dist/ artifact."
+        required: false
+        default: 1
+        type: number
+      sign:
+        description: "Cosign-sign + SBOM + attest (true for publishable builds; false for PR build-only feedback, needs no OIDC)."
+        required: false
+        default: true
+        type: boolean
+    outputs:
+      version:
+        description: "Resolved version (version-tag without the leading v), e.g. 0.90.0-pre."
+        value: ${{ jobs.build.outputs.version }}
+      artifact-name:
+        description: "Echoes the dist/ artifact name for callers to download."
+        value: ${{ inputs.artifact-name }}
+      engine-cli-artifact-id:
+        description: "Original immutable canonical upload ID (legacy two-architecture artifact)"
+        value: ${{ jobs.build.outputs.engine-cli-artifact-id }}
+      engine-cli-producer-run-id:
+        value: ${{ jobs.build.outputs.engine-cli-producer-run-id }}
+      engine-cli-producer-run-attempt:
+        value: ${{ jobs.build.outputs.engine-cli-producer-run-attempt }}
+permissions:
+  contents: read
+jobs:
+  build:
+    name: GoReleaser (build only)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write # Sigstore keyless OIDC (cosign sign-blob: checksums + provenance)
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+      engine-cli-artifact-id: ${{ steps.engine-cli.outputs.artifact-id }}
+      engine-cli-producer-run-id: ${{ steps.canonical.outputs.run-id }}
+      engine-cli-producer-run-attempt: ${{ steps.canonical.outputs.run-attempt }}
+    steps:
+      - name: Harden runner
+        # audit (not block), consistent with every other job in
+        # self-runtime-container.yml. The CLI's supply-chain trust is cosign
+        # keyless signing + SLSA build-provenance + the consumer-side identity
+        # pin — not egress. A block-list here is brittle: tool downloads
+        # (cosign, syft, goreleaser, GitHub release-asset S3 redirects) hit
+        # shifting CDN/host endpoints. harden-runner still records all egress.
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Install forge-ci signing CLI
+        # The explicit checksum-signing step uses this checkout's signing adapter.
+        # The distributed binaries are still built by GoReleaser below.
+        if: ${{ inputs.sign }}
+        run: |
+          set -euo pipefail
+          go build -o "$RUNNER_TEMP/forge-ci-bin/forge-ci" ./cmd/forge-ci
+          printf '%s\n' "$RUNNER_TEMP/forge-ci-bin" >>"$GITHUB_PATH"
+      - name: Install cosign and syft
+        # The same checksum-verified pins as release-binary.yml and the runtime
+        # images. Build-only PR runs need neither signing nor SBOM tooling.
+        if: ${{ inputs.sign }}
+        run: |
+          set -euo pipefail
+          source scripts/bootstrap/install-cosign.sh
+          install_cosign
+          source scripts/bootstrap/install-syft.sh
+          install_syft
+      - name: Set SOURCE_DATE_EPOCH from commit
+        # Normalize the embedded date and tarball mtimes to the commit timestamp.
+        # Other resolved build inputs must also match for byte-identical payloads.
+        run: printf 'SOURCE_DATE_EPOCH=%s\n' "$(git log -1 --format=%ct HEAD)" >> "$GITHUB_ENV"
+      - name: Validate signing prerequisites
+        # sign=true is only valid for the rolling pre-release channel (-pre tag).
+        # Version-tag releases use release-binary.yml, which creates the
+        # FORGE_CI_RELEASE_REFERENCE that sign-reproducible-release.sh requires.
+        # Fail early with a clear message before packaging and signing.
+        if: ${{ inputs.sign }}
+        env:
+          TAG: ${{ inputs.version-tag }}
+        run: |
+          if [[ "$TAG" != *-pre ]]; then
+            echo "::error::sign=true requires a -pre tag for the rolling pre-release channel."
+            echo "::error::Version-tag releases use release-binary.yml, which creates FORGE_CI_RELEASE_REFERENCE."
+            exit 1
+          fi
+      - name: Resolve version
+        id: version
+        env:
+          TAG: ${{ inputs.version-tag }}
+        run: printf 'value=%s\n' "${TAG#v}" >> "$GITHUB_OUTPUT"
+      - name: Run goreleaser
+        # skip=publish: this workflow only produces dist/; its current caller
+        #   publishes the rolling pre-release. Tagged releases use release-binary.yml.
+        # skip=validate: pre-release runs have no real git tag on HEAD; the version is
+        #   forced via GORELEASER_CURRENT_TAG instead.
+        # Signing belongs to the explicit step below, not the shared GoReleaser
+        # config (also used by key-based release boundaries). Build-only runs
+        # additionally skip SBOMs, so no cosign/syft/OIDC is needed.
+        # Both branches of the expression are
+        # non-empty on purpose: an empty string is falsy in GitHub Actions, so
+        # `sign && '' || ...` would wrongly take the fallback and skip signing.
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
+        with:
+          distribution: goreleaser
+          # An exact version: the binaries are reproducible only from a known
+          # GoReleaser, and a range makes the action resolve it through
+          # goreleaser.com, which the release job's egress allowlist refuses.
+          version: 'v2.18.2'
+          args: release --clean --skip=${{ inputs.sign && 'publish,validate,sign' || 'publish,validate,sign,sbom' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ inputs.version-tag }}
+      - name: Build canonical delivery CLIs for runtime images
+        id: canonical
+        run: |
+          set -euo pipefail
+          mkdir -p engine-cli
+          for arch in amd64 arm64; do
+            bash scripts/ci/engine-binary.sh build "$arch" "$PWD/engine-cli/forge-ci-linux-$arch"
+            bash scripts/ci/engine-binary.sh verify "$arch" "engine-cli/forge-ci-linux-$arch"
+          done
+          printf 'run-id=%s\nrun-attempt=%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >>"$GITHUB_OUTPUT"
+      - name: Upload canonical delivery CLIs
+        id: engine-cli
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: engine-cli
+          path: engine-cli/
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact-retention-days }}
+      - name: Verify payload and sign checksum manifest
+        # GoReleaser intentionally produces unsigned archives. The GitHub
+        # boundary owns keyless signing; the handoff must include this bundle.
+        if: ${{ inputs.sign }}
+        env:
+          GORELEASER_CURRENT_TAG: ${{ inputs.version-tag }}
+        run: bash scripts/ci/sign-reproducible-release.sh release sign --method=sigstore --no-checksums-file --no-release-artifacts-dir --file dist/checksums.txt
+      - name: Generate + sign SLSA provenance (cosign sign-blob, keyless)
+        # Portable, forge-neutral replacement for actions/attest-build-provenance
+        # (see release-binary.yml for the full rationale + verify recipe).
+        # forge-ci generates the SLSA-v1.0 statement from checksums and signs
+        # it keyless with cosign sign-blob → a Sigstore bundle. No GitHub
+        # attestation API. The statement + bundle ride in dist/ (uploaded below);
+        # the publishing job attaches them to the release. Uses the binary
+        # goreleaser just built (self-consistent).
+        if: ${{ inputs.sign }}
+        env:
+          SIGN_METHOD: sigstore
+        run: |
+          set -euo pipefail
+          archive="$(find dist -name 'forge-ci_*_linux_amd64.tar.gz' | head -1)"
+          tar -xzf "$archive" -C "$RUNNER_TEMP" forge-ci
+          "$RUNNER_TEMP/forge-ci" release provenance \
+            --checksums-file dist/checksums.txt \
+            --output dist/forge-ci.intoto.json \
+            --bundle dist/forge-ci.intoto.jsonl
+      - name: Upload dist artifact
+        # Run-scoped handoff: the image build and the publish job download this.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact-retention-days }}

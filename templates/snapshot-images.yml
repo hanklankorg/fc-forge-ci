@@ -1,0 +1,170 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+# Include from a trusted pinned policy. Manual callers pass branch explicitly;
+# source checkout and image identity never use the policy pipeline's ref name.
+spec:
+  component: [sha]
+  inputs:
+    branch:
+      description: Logical source branch to resolve exactly once.
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_./-]*$'
+    publish-containers:
+      type: boolean
+      default: true
+    publish-files:
+      type: boolean
+      default: false
+      description: >-
+        Keep the built files of every declared artifact its ecosystem builds outside an image (go, cargo, maven, gradle, npm) as unsigned job artifacts of the snapshot pipeline, named <artifact>-<snapshot version> and kept for 7 days. See docs/workflows.md, Snapshot files.
+    artifacts-config:
+      default: .forge-ci/artifacts.yml
+      regex: '^[A-Za-z0-9_.][A-Za-z0-9_./-]*$'
+    image-repository:
+      description: Trusted full base OCI repository. Empty for a project that publishes no snapshot image; a plan with an image is then refused.
+      default: ''
+      regex: '^[^[:space:]''@]*$'
+    forge-ci-repository:
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
+    server-url:
+      description: >-
+        This GitLab instance's URL as CI_SERVER_URL reads, https://host[:port] without a path, for example https://gitlab.example.com. The job token goes only there: each job refuses to run when CI_SERVER_URL, which a project or pipeline variable can set, differs.
+      regex: '^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'
+    registry:
+      description: >-
+        This instance's container registry as CI_REGISTRY reads, host[:port], for example registry.gitlab.example.com, or empty when the project has none. GitLab configures it apart from the web host, so it is stated, not derived; each job refuses to run when CI_REGISTRY differs, and kaniko's job token read goes to it.
+      regex: '^$|^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'
+    job-image:
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    build-image:
+      description: Native build tools; for kaniko this must be builder-job-image.
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    artifact-job-image-go:
+      description: Trusted Go toolchain image; empty uses job-image, which must supply its tools.
+      default: ''
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    artifact-job-image-java:
+      description: Trusted Maven/Gradle JVM toolchain image; empty uses job-image.
+      default: ''
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    artifact-job-image-node:
+      description: Trusted npm toolchain image; empty uses job-image.
+      default: ''
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    artifact-job-image-rust:
+      description: Trusted Cargo toolchain image; empty uses job-image.
+      default: ''
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    image-builder:
+      options: [buildah, kaniko]
+      default: buildah
+    builder-job-image:
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+      default: ''
+    runner-tags:
+      type: array
+      default: []
+    build-runner-tags-linux-amd64:
+      type: array
+      description: Runner tags of the amd64 image builds; required, and a snapshot that builds for amd64 is refused without tags.
+    build-runner-tags-linux-arm64:
+      type: array
+      description: Runner tags of a native arm64 runner; required, [] when there is none, and a snapshot that builds for arm64 is then refused.
+    enforce-application-tests:
+      type: boolean
+      default: false
+      description: Enforcement setting; false lets the snapshot artifact builds report recognized test assertion failures without failing. Tests still run. See docs/admin-policy.md.
+    enforce-vulnerabilities:
+      type: boolean
+      default: false
+      description: Enforcement setting; false lets publication report image vulnerability findings without failing. Every image is still scanned. See docs/admin-policy.md.
+    context-job:
+      description: Advanced prepared-context override. Parent producer needs Snapshot plan and exports _snapshot-context. Default builds required artifacts automatically.
+      default: 'Snapshot: plan'
+      regex: '^[^''[:cntrl:]]+$'
+---
+include:
+  - project: $[[ inputs.forge-ci-repository ]]
+    ref: $[[ component.sha ]]
+    file: /templates/snapshot-image-jobs.yml
+    inputs:
+      engine-sha: $[[ component.sha ]]
+      forge-ci-repository: $[[ inputs.forge-ci-repository ]]
+      server-url: $[[ inputs.server-url ]]
+      registry: $[[ inputs.registry ]]
+      job-image: $[[ inputs.job-image ]]
+      build-image: $[[ inputs.build-image ]]
+      image-builder: $[[ inputs.image-builder ]]
+      builder-job-image: $[[ inputs.builder-job-image ]]
+      runner-tags: $[[ inputs.runner-tags ]]
+      enforce-application-tests: $[[ inputs.enforce-application-tests ]]
+      enforce-vulnerabilities: $[[ inputs.enforce-vulnerabilities ]]
+"Snapshot: plan":
+  extends: .forge-ci-snapshot
+  stage: .pre
+  # One more attempt when the engine found a dependency unavailable, exit
+  # 69, and for no other failure; the job writes nothing outside its own
+  # files.
+  retry:
+    max: 1
+    exit_codes: 69
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" || $CI_MERGE_REQUEST_ID || $CI_MERGE_REQUEST_IID'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "push" || $CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api" || $CI_PIPELINE_SOURCE == "schedule"'
+      when: on_success
+    - when: never
+  script:
+    # The policy as written, read only: a project variable outranks a job's
+    # own. The tags are JSON arrays, which jq reads.
+    - |
+      readonly SNAPSHOT_BRANCH='$[[ inputs.branch ]]' \
+        SNAPSHOT_PUBLISH='$[[ inputs.publish-containers ]]' \
+        SNAPSHOT_PUBLISH_FILES='$[[ inputs.publish-files ]]' \
+        SNAPSHOT_CONFIG='$[[ inputs.artifacts-config ]]' \
+        SNAPSHOT_IMAGE_REPOSITORY='$[[ inputs.image-repository ]]' \
+        SNAPSHOT_JOB_IMAGE='$[[ inputs.job-image ]]' \
+        SNAPSHOT_BUILD_IMAGE='$[[ inputs.build-image ]]' \
+        SNAPSHOT_ARTIFACT_IMAGE_GO='$[[ inputs.artifact-job-image-go ]]' \
+        SNAPSHOT_ARTIFACT_IMAGE_JAVA='$[[ inputs.artifact-job-image-java ]]' \
+        SNAPSHOT_ARTIFACT_IMAGE_NODE='$[[ inputs.artifact-job-image-node ]]' \
+        SNAPSHOT_ARTIFACT_IMAGE_RUST='$[[ inputs.artifact-job-image-rust ]]' \
+        SNAPSHOT_CONTEXT_JOB='$[[ inputs.context-job ]]' \
+        SNAPSHOT_RUNNER_TAGS='$[[ inputs.runner-tags ]]' \
+        SNAPSHOT_AMD64_TAGS='$[[ inputs.build-runner-tags-linux-amd64 ]]' \
+        SNAPSHOT_ARM64_TAGS='$[[ inputs.build-runner-tags-linux-arm64 ]]'
+    - command -v jq >/dev/null || { echo 'GitLab snapshot job-image requires jq for native child-pipeline generation' >&2; exit 78; }
+    # A planned build whose runner tags are empty is refused here.
+    - |
+      snapshot_plan "" --runner-input "runner-tags=${SNAPSHOT_RUNNER_TAGS}" \
+        --runner-input "build-runner-tags-linux-amd64=${SNAPSHOT_AMD64_TAGS}" \
+        --runner-input "build-runner-tags-linux-arm64=${SNAPSHOT_ARM64_TAGS}"
+    - snapshot_gitlab_generate snapshot-plan.json snapshot-child.yml
+  artifacts:
+    expire_in: 1 day
+    paths: [snapshot-plan.json, snapshot-child.yml]
+"Snapshot: execute":
+  stage: deploy
+  # A trigger names no retry: GitLab refuses the key on a trigger job, and
+  # with it the whole configuration.
+  inherit:
+    variables: false
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" || $CI_MERGE_REQUEST_ID || $CI_MERGE_REQUEST_IID'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "push" || $CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api" || $CI_PIPELINE_SOURCE == "schedule"'
+      when: on_success
+    - when: never
+  needs:
+    # When a context producer is selected, wait for it before creating the
+    # child pipeline: needs:pipeline:job fetches artifacts but is not a
+    # cross-pipeline scheduling dependency. That producer itself needs plan.
+    - job: $[[ inputs.context-job ]]
+      artifacts: false
+  trigger:
+    strategy: mirror
+    forward:
+      yaml_variables: false
+      pipeline_variables: false
+    include:
+      - artifact: snapshot-child.yml
+        job: "Snapshot: plan"

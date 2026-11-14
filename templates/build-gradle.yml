@@ -1,0 +1,140 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# GitLab CI/CD Catalog component: Gradle (JVM) release build.
+#
+# The GitLab counterpart of .github/workflows/build-gradle-app.yml. The whole
+# sequence (gradlew chmod → metadata → tasks → SBOM → summaries) lives in the
+# binary as `forge-ci build gradle run`, so this job is a single line — the
+# same sequence GitHub runs. gradle runs in the job's working directory (we cd
+# into it). GitLab clones the repo for the job; the runtime-java image carries a
+# JDK + forge-ci. JARs land under build/libs/ and the Build SBOM under
+# build/reports/, which the job publishes as artifacts.
+#
+# Consume (pin a released version):
+#   include:
+#     - component: $CI_SERVER_FQDN/diggsweden/forge-ci/build-gradle@0.90.0
+#       inputs:
+#         runtime-image: ghcr.io/diggsweden/forge-ci-runtime-java-25@sha256:PIN_DIGEST
+#         gradle-tasks: "build"
+spec:
+  inputs:
+    stage:
+      default: build
+      description: Pipeline stage the build runs in.
+    job-name:
+      default: build-gradle
+      description: Name of the generated job.
+    working-directory:
+      default: "."
+      description: Directory containing ./gradlew and gradle.properties.
+    gradle-tasks:
+      default: "assemble"
+      description: Whitespace-separated gradle tasks to run.
+    private-dependencies:
+      type: boolean
+      default: false
+      description: "Let project repository declarations read DEPENDENCY_TOKEN/DEPENDENCY_USERNAME; disables reusable daemons."
+    export-publications:
+      type: boolean
+      default: false
+      description: Export immutable JVM Maven publications under .forge-ci/maven-publication.
+    version:
+      default: ""
+      description: Expected release version; required for publication export.
+    central-publication:
+      type: boolean
+      default: false
+      description: Require Central metadata, sources and javadoc during export.
+    snapshot-publication:
+      type: boolean
+      default: false
+      description: Export resolved Maven snapshots instead of an immutable release.
+    skip-tests:
+      type: boolean
+      default: false
+      description: Legacy input; true is refused. Admin policy controls findings, and tests still run.
+    enforce-application-tests:
+      type: boolean
+      default: false
+      description: Enforcement setting; false lets recognized test assertion failures be reported without failing the build. Tests still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md.
+    enable-build-sbom:
+      type: boolean
+      default: true
+      description: Generate the cyclonedx-gradle-plugin Build SBOM.
+    sbom-tool-version:
+      # renovate: datasource=maven depName=org.cyclonedx:cyclonedx-gradle-plugin registryUrl=https://plugins.gradle.org/m2/
+      default: "3.5.1"
+      description: Pinned cyclonedx-gradle-plugin version.
+    java-version:
+      default: "25"
+      description: JDK major version, reported in the build summary.
+    runtime-image:
+      description: forge-ci runtime image carrying a JDK + gradle wrapper support, pinned by @sha256.
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    runner-tags:
+      type: array
+      default: []
+      description: Runner tags of the job, all of which one runner must carry; empty, the default, leaves it untagged. Name literal tags only, never a $VARIABLE, which a project variable could set.
+---
+"$[[ inputs.job-name ]]":
+  # One more attempt when the engine found a dependency unavailable, exit
+  # 69, and for no other failure.
+  retry:
+    max: 1
+    exit_codes: 69
+  stage: $[[ inputs.stage ]]
+  tags: $[[ inputs.runner-tags ]]
+  rules:
+    - when: on_success
+  needs: []
+  cache: []
+  image: $[[ inputs.runtime-image ]]
+  variables:
+    GIT_STRATEGY: fetch
+    GIT_CHECKOUT: "true"
+    RC_PROJECT_DIRECTORY: "$[[ inputs.working-directory ]]"
+    GRADLE_TASKS: "$[[ inputs.gradle-tasks ]]"
+    PRIVATE_DEPENDENCIES: "$[[ inputs.private-dependencies ]]"
+    EXPORT_PUBLICATIONS: "$[[ inputs.export-publications ]]"
+    CENTRAL_PUBLICATION: "$[[ inputs.central-publication ]]"
+    SNAPSHOT_PUBLICATION: "$[[ inputs.snapshot-publication ]]"
+    VERSION: "$[[ inputs.version ]]"
+    SKIP_TESTS: "$[[ inputs.skip-tests ]]"
+    ENABLE_BUILD_SBOM: "$[[ inputs.enable-build-sbom ]]"
+    CYCLONEDX_GRADLE_VERSION: "$[[ inputs.sbom-tool-version ]]"
+    JAVA_VERSION: "$[[ inputs.java-version ]]"
+    CI_SUMMARY_FILE: "$CI_PROJECT_DIR/gradle-build-summary.md"
+  # Explicit gate fields replace earlier same-named values. Other keys still
+  # merge; policy injection, not include ordering, is the authority boundary.
+  allow_failure: false
+  before_script: []
+  after_script: []
+  script:
+    # gradle runs in the current directory, so cd into the project first.
+    - cd -- "$RC_PROJECT_DIRECTORY"
+    - if [ "$EXPORT_PUBLICATIONS" = "true" ]; then forge-ci build gradle export-publications --output .forge-ci/maven-publication --snapshot="$SNAPSHOT_PUBLICATION" --validate-only; fi
+    # The administrator's setting as written, a flag of the engine: no
+    # project variable can supply or change it.
+    - forge-ci build gradle run --enforce-application-tests='$[[ inputs.enforce-application-tests ]]'
+    - if [ "$EXPORT_PUBLICATIONS" = "true" ]; then forge-ci build gradle export-publications --output .forge-ci/maven-publication --central="$CENTRAL_PUBLICATION" --snapshot="$SNAPSHOT_PUBLICATION"; fi
+  artifacts:
+    # Always, so failed tests still reach the merge request test report.
+    when: always
+    reports:
+      junit:
+        - $[[ inputs.working-directory ]]/**/build/test-results/**/TEST-*.xml
+    paths:
+      # Shown in the job log too; GitLab renders no summary file.
+      - gradle-build-summary.md
+      - $[[ inputs.working-directory ]]/build/libs/
+      - $[[ inputs.working-directory ]]/**/build/libs/
+      - $[[ inputs.working-directory ]]/build/reports/
+      - $[[ inputs.working-directory ]]/.forge-ci/maven-publication/
+    # buildSrc builds the build itself and is no module of the product, so
+    # its jar is left out, as the snapshot leaves it out. An exclusion is a
+    # path from the project root; without the working-directory prefix it
+    # does not rest on how GitLab reads the default's leading `./`.
+    exclude:
+      - "**/buildSrc/**"

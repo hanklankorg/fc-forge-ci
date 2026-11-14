@@ -1,0 +1,242 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+// SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
+
+package build
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+
+	appenforcement "github.com/diggsweden/forge-ci/internal/app/enforcement"
+	appsummary "github.com/diggsweden/forge-ci/internal/app/summary"
+	"github.com/diggsweden/forge-ci/internal/domain/build"
+	"github.com/diggsweden/forge-ci/internal/domain/ci"
+	"github.com/diggsweden/forge-ci/internal/domain/enforcement"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
+)
+
+// Maven build-type values.
+const (
+	mavenBuildTypeApp = "app"
+	mavenBuildTypeLib = "lib"
+)
+
+// unsignedMavenOps enforces the library producer's key-free boundary on every
+// native run, including reactor bootstrap install (which traverses verify).
+// Project profiles still own attached sources/javadoc and all quality gates;
+// release signatures belong to the isolated signing job, not this producer.
+type unsignedMavenOps struct{ MavenOps }
+
+func (ops unsignedMavenOps) RunInherit(ctx context.Context, out, stderr io.Writer, args ...string) error {
+	unsigned := make([]string, 0, len(args)+1)
+	unsigned = append(unsigned, args...)
+	unsigned = append(unsigned, "-Dgpg.skip=true")
+
+	return ops.MavenOps.RunInherit(ctx, out, stderr, unsigned...)
+}
+
+func unsignedMaven(ops MavenOps) MavenOps {
+	if _, ok := ops.(unsignedMavenOps); ok {
+		return ops
+	}
+
+	return unsignedMavenOps{MavenOps: ops}
+}
+
+// MavenReleaseBuildInput drives MavenReleaseBuild. It embeds the shared
+// ReleaseBuildOptions and adds the Maven-specific knobs as configuration: build
+// type, CLI opts, profile, and the pinned cyclonedx plugin version.
+type MavenReleaseBuildInput struct {
+	ReleaseBuildOptions
+
+	// BuildType selects the lifecycle: "app" (clean package) or "lib"
+	// (compile/test/package with an optional project-owned profile).
+	BuildType string
+	// CLIOpts is $MAVEN_CLI_OPTS already split into argv.
+	CLIOpts []string
+	// Profile activates a Maven profile (library builds).
+	Profile string
+	// SBOMToolVersion pins the cyclonedx-maven-plugin; required when
+	// EnableBuildSBOM. Renovate-managed in the calling workflow.
+	SBOMToolVersion string
+	// JavaVersion is reported in the build summary only.
+	JavaVersion string
+	// ExpectVersion, when set, is the version the project must already
+	// declare (with or without a leading v): a release builds the version its
+	// release commit carries and never rewrites it.
+	ExpectVersion string
+}
+
+// MavenInstall installs the project (and its modules) to the local repository
+// so multi-module builds resolve sibling modules: `mvn $CLI_OPTS install
+// -DskipTests`.
+func MavenInstall(ctx context.Context, ops MavenOps, cliOpts []string, w, stderr io.Writer) error {
+	args := make([]string, 0, len(cliOpts)+2)
+	args = append(args, cliOpts...)
+	args = append(args, "install", "-DskipTests")
+
+	return ops.RunInherit(ctx, w, stderr, args...)
+}
+
+// MavenBuildSBOM generates an aggregate Build SBOM via the pinned
+// cyclonedx-maven-plugin.
+func MavenBuildSBOM(ctx context.Context, ops MavenOps, cliOpts []string, toolVersion string, out, stderr io.Writer) error {
+	if toolVersion == "" {
+		return fmt.Errorf("SBOM tool version is required (set --sbom-tool-version or $CYCLONEDX_MAVEN_VERSION): %w", errs.ErrUsage)
+	}
+
+	args := make([]string, 0, len(cliOpts)+1)
+	args = append(args, cliOpts...)
+	args = append(args, "org.cyclonedx:cyclonedx-maven-plugin:"+toolVersion+":makeAggregateBom")
+
+	return ops.RunInherit(ctx, out, stderr, args...)
+}
+
+// mavenDeps is the collaborator set the maven build steps share: the summary
+// sink they report status to, the maven tool they drive, and the two writers
+// they narrate on. All travel unchanged from MavenReleaseBuild down to the
+// leaves, so passing them positionally added four parameters to every
+// signature and forced a varnamelen waiver (w, stderr) onto each.
+//
+// summary rides along although mavenBuildArtifact does not report status,
+// rather than threading a second struct through one call.
+type mavenDeps struct {
+	summary ci.SummarySink
+	ops     MavenOps
+	w       io.Writer // progress, user-facing
+	stderr  io.Writer // underlying tool output
+}
+
+// MavenReleaseBuild runs the whole Maven release build as one step: install
+// modules, resolve metadata, build the app or library, generate the Build SBOM
+// (unless disabled), and write the SBOM-status + build summaries.
+//
+// It is the Maven sibling of GoReleaseBuild — the binary-owned build sequence
+// (Design Rule 1). The CLI binds MavenOps to the same project as in.Dir, without
+// changing process cwd. When enabled, the Build SBOM is a
+// mandatory release deliverable and generation failure fails the build.
+func MavenReleaseBuild(ctx context.Context, summarySink ci.SummarySink, ops MavenOps, out, stderr io.Writer, in MavenReleaseBuildInput) error {
+	if err := validateMavenReleaseBuildInput(ctx, in); err != nil {
+		return err
+	}
+
+	pom, err := loadMavenPOM(MavenMetadataInput{Dir: in.Dir})
+	if err != nil {
+		return err
+	}
+
+	if in.BuildType == mavenBuildTypeLib {
+		ops = unsignedMaven(ops)
+	}
+
+	if installErr := MavenInstall(ctx, ops, in.CLIOpts, out, stderr); installErr != nil {
+		return fmt.Errorf("mvn install: %w", installErr)
+	}
+
+	// Expansion stays after install so Maven can resolve sibling modules. Keep
+	// the preflight's selected local coordinates rather than reading a new POM.
+	meta, err := resolveMavenMetadata(ctx, ops, pom)
+	if err != nil {
+		return err
+	}
+
+	if want := strings.TrimPrefix(in.ExpectVersion, "v"); want != "" && meta.version != want {
+		return fmt.Errorf("the project declares version %q, but the release is %q; the release commit must carry the release version: %w",
+			meta.version, want, errs.ErrValidation)
+	}
+
+	_, _ = fmt.Fprintf(out, "Maven release build (%s): %s:%s:%s\n", in.BuildType, meta.groupID, meta.artifactID, meta.version)
+
+	deps := mavenDeps{summary: summarySink, ops: ops, w: out, stderr: stderr}
+
+	if err := mavenBuildArtifact(ctx, deps, in); err != nil {
+		return err
+	}
+
+	if err := mavenSBOMStep(ctx, deps, in); err != nil {
+		return err
+	}
+
+	if err := appsummary.MavenBuild(ctx, summarySink, appsummary.MavenBuildInput{
+		BuildType:   in.BuildType,
+		GroupID:     meta.groupID,
+		ArtifactID:  meta.artifactID,
+		Version:     meta.version,
+		JavaVersion: in.JavaVersion,
+		SkipTests:   in.SkipTests,
+		IsSnapshot:  build.IsSnapshot(meta.version),
+	}); err != nil {
+		return fmt.Errorf("write build summary: %w", err)
+	}
+
+	return nil
+}
+
+// validateMavenReleaseBuildInput refuses a release build request before any
+// Maven invocation: tests must run, the build type must be known, the CLI
+// options must keep the test gate, and an enabled SBOM needs a tool version.
+func validateMavenReleaseBuildInput(ctx context.Context, in MavenReleaseBuildInput) error {
+	if err := appenforcement.RequireTests(ctx, in.SkipTests); err != nil {
+		return err
+	}
+
+	if in.BuildType != mavenBuildTypeApp && in.BuildType != mavenBuildTypeLib {
+		return fmt.Errorf("build-type must be %q or %q, got %q: %w", mavenBuildTypeApp, mavenBuildTypeLib, in.BuildType, errs.ErrUsage)
+	}
+
+	if err := enforcement.MavenTestArguments(in.CLIOpts); err != nil {
+		return err
+	}
+
+	if in.EnableBuildSBOM && strings.TrimSpace(in.SBOMToolVersion) == "" {
+		return fmt.Errorf("SBOM tool version is required: %w", errs.ErrUsage)
+	}
+
+	return nil
+}
+
+func mavenBuildArtifact(ctx context.Context, deps mavenDeps, in MavenReleaseBuildInput) error {
+	switch in.BuildType {
+	case mavenBuildTypeApp:
+		if err := MavenApplication(ctx, deps.ops, deps.w, deps.stderr, MavenApplicationInput{CLIOpts: in.CLIOpts, SkipTests: in.SkipTests}); err != nil {
+			return fmt.Errorf("mvn application build: %w", err)
+		}
+	case mavenBuildTypeLib:
+		if err := MavenLibrary(ctx, deps.ops, deps.w, deps.stderr, MavenLibraryInput{CLIOpts: in.CLIOpts, Profile: in.Profile, SkipTests: in.SkipTests}); err != nil {
+			return fmt.Errorf("mvn library build: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func mavenSBOMStep(ctx context.Context, deps mavenDeps, in MavenReleaseBuildInput) error {
+	outcome := outcomeSkipped
+
+	var generationErr error
+
+	if in.EnableBuildSBOM {
+		outcome = outcomeSuccess
+		if err := MavenBuildSBOM(ctx, deps.ops, in.CLIOpts, in.SBOMToolVersion, deps.w, deps.stderr); err != nil {
+			outcome = outcomeFailure
+			generationErr = fmt.Errorf("maven Build SBOM generation failed: %w", err)
+		}
+	}
+
+	if err := appsummary.BuildSBOMStatus(ctx, deps.summary, appsummary.BuildSBOMStatusInput{
+		Ecosystem: "maven",
+		Outcome:   outcome,
+		WorkDir:   defaultDir(in.Dir),
+	}); err != nil {
+		return errors.Join(generationErr, fmt.Errorf("write SBOM status: %w", err))
+	}
+
+	if generationErr != nil {
+		return generationErr
+	}
+
+	return nil
+}

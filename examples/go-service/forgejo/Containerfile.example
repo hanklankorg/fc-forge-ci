@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# Copy to Containerfile.forgejo; replace FIXME-service with ARTIFACT_NAME.
+# release-images overlays the image-context artifact on the release checkout.
+# The binaries already carry the prepared release's version and commit.
+# The build context must include dist/linux-*/: a .containerignore that
+# excludes dist/ (as one for Containerfile.example might) needs
+# "!dist/linux-*/" after that line, or the COPY below finds nothing.
+FROM gcr.io/distroless/static-debian12:nonroot
+ARG TARGETARCH
+COPY dist/linux-${TARGETARCH}/FIXME-service-linux-${TARGETARCH} /usr/local/bin/my-service
+ENTRYPOINT ["/usr/local/bin/my-service"]

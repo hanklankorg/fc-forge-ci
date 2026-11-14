@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+sign:
+  method: sigstore
+artifacts:
+  - name: hello-cargo-workspace
+    project-type: cargo
+    working-directory: .
+    config:
+      build-mode: container-first
+containers:
+  - name: hello-worker
+    from: [hello-cargo-workspace]
+    container-file: Containerfile
+    context: .
+    target: runtime-worker
+    platforms: linux/amd64
+    extract:
+      binary:
+        target: export-worker
+        names: [hello-worker]
+  - name: hello-keytool
+    from: [hello-cargo-workspace]
+    container-file: Containerfile
+    context: .
+    target: runtime-keytool
+    platforms: linux/amd64
+    extract:
+      binary:
+        target: export-keytool
+        names: [hello-keytool]

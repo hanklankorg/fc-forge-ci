@@ -1,0 +1,352 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Version Bump
+#
+# Purpose: Automates version management for releases. Updates version files,
+# downloads generated changelogs, and commits all changes back to the repository
+# with proper signing.
+#
+# Runs inside a runtime image chosen by the caller per project-type:
+# Maven/Gradle workflows pass runtime-java-25; NPM passes runtime-node-24;
+# cargo passes runtime-rust-stable; others (xcode-ios, gradle-android) use
+# the base image since their bumps are sed-only.
+#
+# Toolchain caches are warmed by the actual build workflows (build-maven,
+# build-npm, …) on the next stage. Pre-warming here was nice-to-have under
+# the old setup-java/setup-node model; with images, the build workflows
+# get the cache hit themselves.
+#
+# How it works:
+# 1. Detects current version from pom.xml or package.json
+# 2. Determines new version based on tag and release type
+# 3. Downloads pre-generated changelogs (full and minimal)
+# 4. Updates version in project files
+# 5. Commits and signs changes with GPG
+# 6. Pushes changes back to repository
+#
+# Required Secrets:
+#   GITHUB_TOKEN: For repository operations (or custom bot token)
+#   RELEASE_GPG_PRIVATE_KEY / RELEASE_GPG_PASSPHRASE: GPG key for signing commits
+#
+# Required Permissions:
+#   actions: read   # Download generated changelog artifacts
+#   contents: write  # Update version files and push commits
+name: Bump Version
+on:
+  workflow_call: # yamllint disable-line rule:truthy
+    outputs:
+      bump-sha:
+        description: "Informational: the bump commit SHA this leg produced. The release tag is NOT created here — release-prepare-stage.yml's tag-release job creates it once, after the whole matrix, at the branch HEAD carrying every artifact's bump."
+        value: ${{ jobs.bump-version.outputs.bump-sha }}
+    inputs:
+      branch:
+        description: "Explicit branch to checkout, update, and push"
+        required: true
+        type: string
+      project-type:
+        description: "Project type: maven, npm, gradle, gradle-android, xcode-ios, cargo"
+        required: true
+        type: string
+      gradle-version-file:
+        description: "Path to Gradle version file (default: gradle.properties)"
+        required: false
+        default: 'gradle.properties'
+        type: string
+      xcode-version-file:
+        description: "Path to Xcode version xcconfig file (default: versions.xcconfig)"
+        required: false
+        default: 'versions.xcconfig'
+        type: string
+      working-directory:
+        description: "Working directory for the project"
+        required: false
+        default: '.'
+        type: string
+      file-pattern:
+        description: 'Files to commit during version bump (auto-detected based on project-type if not provided)'
+        required: false
+        type: string
+        default: ""
+      runtime-image:
+        description: "forge-ci runtime image to run inside. Caller picks based on project-type — runtime-java-25 for maven/gradle/gradle-android, runtime-node-24 for npm, runtime-rust-stable for cargo, runtime-base for xcode-ios. Pinned by digest (image@sha256:<64 hex>); the resolver refuses anything else."
+        required: true
+        type: string
+      runs-on:
+        description: "JSON array of runner labels for the ordinary jobs, read with fromJSON. Signing, promotion and publication jobs stay on GitHub-hosted runners."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      forge-ci-binary-ref:
+        description: "Full engine commit (40 hex) the workflow ref names; a tag or branch is refused"
+        required: true
+        type: string
+      git-signing-method:
+        description: "How to sign the release commit + tag: gpg (default; imports RELEASE_GPG_PRIVATE_KEY) or ssh (RELEASE_SSH_SIGNING_KEY, no OpenPGP key on the runner). Caller passes fromJSON(config-plan-json).git_signing.method."
+        required: false
+        default: "gpg"
+        type: string
+      bot-name:
+        description: "Release bot display name for the bump commit when git-signing-method=ssh (cosmetic). Unused for gpg, which derives the identity from the key's UID."
+        required: false
+        default: ""
+        type: string
+      bot-email:
+        description: "Release bot email recorded in the bump commit when git-signing-method=ssh. Unused for gpg, which derives the identity from the key's UID."
+        required: false
+        default: ""
+        type: string
+    # All `required: false` — callers using `secrets: inherit`
+    # continue to work. Declarations exist for discoverability +
+    # tooling validation.
+    secrets:
+      RELEASE_GPG_PRIVATE_KEY:
+        description: "Armored OpenPGP private key for signing the version-bump commit"
+        required: false
+      RELEASE_GPG_PASSPHRASE:
+        description: "Passphrase for RELEASE_GPG_PRIVATE_KEY"
+        required: false
+      RELEASE_TOKEN:
+        description: "Token with contents:write permission for pushing the version-bump commit"
+        required: false
+      RELEASE_SSH_SIGNING_KEY:
+        description: "OpenSSH private key for signing the release commit + tag when git-signing-method=ssh"
+        required: false
+permissions:
+  contents: read # Default permission; the job uses RELEASE_TOKEN for pushes.
+jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      images: |
+        runtime-image=${{ inputs['runtime-image'] }}
+  # Generate full changelog for committing to repository
+  generate-full-changelog:
+    needs: [resolve-bootstrap]
+    name: "Prepare: changelog"
+    permissions:
+      contents: read
+    uses: ./.github/workflows/generate-changelog.yml
+    with:
+      runs-on: ${{ inputs['runs-on'] }}
+      branch: ${{ github.sha }}
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      runtime-image: ${{ inputs['runtime-image'] }}
+      upload-as-artifact: true
+      changelog-config: "/opt/forge-ci/templates/gitcliff/keepachangelog.toml"
+      git-cliff-args: "" # Empty means full history
+      output-file: "CHANGELOG.md"
+      artifact-name: "full-changelog"
+  # Generate minimal changelog for commit message
+  generate-minimal-changelog:
+    needs: [resolve-bootstrap]
+    name: "Prepare: commit message"
+    permissions:
+      contents: read
+    uses: ./.github/workflows/generate-changelog.yml
+    with:
+      runs-on: ${{ inputs['runs-on'] }}
+      branch: ${{ github.sha }}
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      runtime-image: ${{ inputs['runtime-image'] }}
+      upload-as-artifact: true
+      changelog-config: "/opt/forge-ci/templates/gitcliff/minimal.toml"
+      git-cliff-args: "--latest --strip header"
+      output-file: "minimal-changelog.txt"
+      artifact-name: "minimal-changelog"
+  prepare-version-files:
+    needs: [resolve-bootstrap]
+    name: "Prepare: native version files without signing keys"
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      contents: read
+    outputs:
+      patch-digest: ${{ steps.patch.outputs.digest }}
+      patch-artifact: ${{ steps.patch.outputs.artifact }}
+    steps:
+      - name: Refuse PR-context trigger
+        run: forge-ci validate event-context
+      - name: Checkout immutable request source
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CHECKOUT_REF: ${{ github.sha }}
+          CHECKOUT_FETCH_ALL_REFS: "true"
+        run: forge-ci platform checkout
+      - name: Derive release context
+        id: relctx
+        run: forge-ci version derive-release
+      - name: Bump native project version
+        if: ${{ contains(fromJSON('["maven","npm","cargo"]'), inputs['project-type']) }}
+        env:
+          PROJECT_TYPE: ${{ inputs['project-type'] }}
+          VERSION: ${{ steps.relctx.outputs.version }}
+          WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
+          MAVEN_CLI_OPTS: "--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always"
+        run: forge-ci version bump
+      - name: Upload native version changes
+        id: patch
+        env:
+          PROJECT_TYPE: ${{ inputs['project-type'] }}
+          WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
+        run: |
+          set -euo pipefail
+          handoff="${RUNNER_TEMP:?}/prepared-version-bump"
+          mkdir -p "${handoff}"
+          git -c core.quotePath=true diff --binary --no-ext-diff --no-textconv --no-color --no-renames \
+            --src-prefix=a/ --dst-prefix=b/ >"${handoff}/native.patch"
+          digest=$(sha256sum "${handoff}/native.patch")
+          scope=$(printf '%s\n%s\n' "${PROJECT_TYPE:?}" "${WORKING_DIRECTORY:?}" | sha256sum)
+          artifact="version-bump-${scope%% *}"
+          printf 'digest=%s\nartifact=%s\n' "${digest%% *}" "${artifact}" >>"${GITHUB_OUTPUT:?}"
+      - name: Upload version patch artifact
+        # GitHub exposes the runtime upload token to actions, not run steps.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.patch.outputs.artifact }}
+          path: ${{ runner.temp }}/prepared-version-bump/native.patch
+          retention-days: "1"
+          if-no-files-found: error
+  bump-version:
+    name: "Prepare: version and release commit"
+    needs: [resolve-bootstrap, generate-full-changelog, generate-minimal-changelog, prepare-version-files]
+    runs-on: ubuntu-26.04
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      actions: read
+      contents: write
+    outputs:
+      bump-sha: ${{ steps.bump-sha.outputs.sha }}
+    steps:
+      # Defense-in-depth: refuse PR-context triggers. RELEASE_TOKEN and
+      # RELEASE_GPG_PRIVATE_KEY are consumed by this job; must never run
+      # with PR-HEAD code. forge-ci is pre-baked in the runtime image.
+      - name: Refuse PR-context trigger (publish/release secrets in scope)
+        run: forge-ci validate event-context
+      - name: Checkout repository
+        env:
+          # Keep checkout on the read-only job token. The bump commit and release
+          # tag use RELEASE_TOKEN; its repository and operation scope are the
+          # operator's responsibility.
+          GITHUB_TOKEN: ${{ github.token }}
+          CHECKOUT_REF: ${{ github.sha }}
+          CHECKOUT_FETCH_ALL_REFS: "true"
+        run: forge-ci platform checkout
+      - name: Derive release context from request tag
+        id: relctx
+        # The human pushed a signed `release-request/vX.Y.Z` tag (the
+        # immutable, allowlist-verified anchor). The CLI derives the final
+        # release tag/version and the original-tagger commit trailers — no ref
+        # parsing in bash. The request tag is never moved or deleted.
+        run: forge-ci version derive-release
+      - name: Import GPG key
+        id: import-gpg
+        if: ${{ inputs['git-signing-method'] != 'ssh' }}
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+          GIT_USER_SIGNINGKEY: "true"
+          GIT_COMMIT_GPGSIGN: "true"
+          FORGE_CI_GIT_CONFIG_GLOBAL: "true"
+        run: forge-ci release gpg import
+      - name: Set up SSH signing
+        if: ${{ inputs['git-signing-method'] == 'ssh' }}
+        env:
+          SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
+          COMMIT_AUTHOR_NAME: ${{ inputs['bot-name'] }}
+          COMMIT_AUTHOR_EMAIL: ${{ inputs['bot-email'] }}
+          GIT_COMMIT_GPGSIGN: "true"
+          FORGE_CI_GIT_CONFIG_GLOBAL: "true"
+        run: forge-ci release ssh setup
+      - name: Bump project version
+        if: ${{ !contains(fromJSON('["maven","npm","cargo"]'), inputs['project-type']) }}
+        env:
+          PROJECT_TYPE: ${{ inputs['project-type'] }}
+          MAVEN_CLI_OPTS: "--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always"
+          WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
+          GRADLE_VERSION_FILE: ${{ inputs['gradle-version-file'] }}
+          XCODE_VERSION_FILE: ${{ inputs['xcode-version-file'] }}
+        run: |
+          VERSION="${{ steps.relctx.outputs.version }}" forge-ci version bump
+      - name: Verify native version changes
+        if: ${{ contains(fromJSON('["maven","npm","cargo"]'), inputs['project-type']) }}
+        env:
+          PATCH_DIGEST: ${{ needs.prepare-version-files.outputs.patch-digest }}
+          PATCH_ARTIFACT: ${{ needs.prepare-version-files.outputs.patch-artifact }}
+          PROJECT_TYPE: ${{ inputs['project-type'] }}
+          VERSION: ${{ steps.relctx.outputs.version }}
+          WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          handoff=$(mktemp -d "${RUNNER_TEMP:?}/version-bump.XXXXXX")
+          forge-ci artifact download --name "${PATCH_ARTIFACT:?}" --dir "${handoff}"
+          test -f "${handoff}/native.patch" && test ! -L "${handoff}/native.patch"
+          forge-ci version apply-bump --project-type "${PROJECT_TYPE:?}" --version "${VERSION:?}" \
+            --working-dir "${WORKING_DIRECTORY:?}" --patch "${handoff}/native.patch" \
+            --sha256 "${PATCH_DIGEST:?}" --paths-file "${handoff}/paths.txt"
+      - name: Download Full Changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: forge-ci artifact download --name full-changelog --dir "$RUNNER_TEMP/version-full-changelog"
+      - name: Verify Full Changelog
+        working-directory: ${{ inputs['working-directory'] }}
+        run: |
+          set -euo pipefail
+          source_file="${RUNNER_TEMP:?}/version-full-changelog/CHANGELOG.md"
+          test -f "${source_file}" && test ! -L "${source_file}"
+          cp --remove-destination -- "${source_file}" CHANGELOG.md
+          forge-ci validate changelog --path CHANGELOG.md --required
+      - name: Download Minimal Changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: forge-ci artifact download --name minimal-changelog --dir "$RUNNER_TEMP/version-minimal-changelog"
+      - name: Read Minimal Changelog
+        id: minimal-changelog
+        working-directory: ${{ inputs['working-directory'] }}
+        run: forge-ci validate changelog --path "$RUNNER_TEMP/version-minimal-changelog/minimal-changelog.txt"
+      - name: Determine file pattern
+        id: file-pattern
+        env:
+          EXPLICIT_FILE_PATTERN: ${{ inputs['file-pattern'] }}
+          PROJECT_TYPE: ${{ inputs['project-type'] }}
+        run: forge-ci version file-pattern
+      - name: Commit and Push Changes
+        env:
+          BRANCH: ${{ inputs.branch }}
+          AUTHORIZED_SOURCE_SHA: ${{ github.sha }}
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          # gpg derives the committer from the imported key; ssh has no key
+          # identity, so fall back to the caller-supplied bot inputs.
+          COMMIT_AUTHOR_NAME: ${{ steps.import-gpg.outputs.name || inputs['bot-name'] }}
+          COMMIT_AUTHOR_EMAIL: ${{ steps.import-gpg.outputs.email || inputs['bot-email'] }}
+          COMMIT_MESSAGE: |
+            chore(release): ${{ steps.relctx.outputs.release-tag }}
+
+            ${{ steps.minimal-changelog.outputs.content }}
+
+            ${{ steps.relctx.outputs.commit-trailers }}
+            [skip ci]
+          FILE_PATTERN: ${{ steps.file-pattern.outputs.pattern }}
+        run: forge-ci version commit-push --branch "$BRANCH"
+      # The release tag is NOT created here. In a multi-artifact release each
+      # matrix leg bumps a different artifact; tagging per leg would either
+      # fail (tag exists) or point at an early leg's commit, missing later
+      # bumps. release-prepare-stage.yml's tag-release job creates the tag
+      # once, after the whole matrix, at the branch HEAD carrying every bump.
+      - name: Capture bump commit SHA (informational)
+        id: bump-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Cleanup GPG key
+        if: ${{ always() && inputs['git-signing-method'] != 'ssh' }}
+        env:
+          GPG_FINGERPRINT: ${{ steps.import-gpg.outputs.fingerprint }}
+        run: forge-ci release gpg cleanup
+      - name: Cleanup SSH signing key
+        if: ${{ always() && inputs['git-signing-method'] == 'ssh' }}
+        run: forge-ci release ssh cleanup

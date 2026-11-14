@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Example: scripts and configuration distributed through Git. With
+# `project-type: meta` Forge CI builds, bumps and scans nothing: the release
+# is a changelog, a signed tag and whatever the project itself hands over.
+artifacts:
+  - name: scripts
+    project-type: meta
+    working-directory: .
+containers: []

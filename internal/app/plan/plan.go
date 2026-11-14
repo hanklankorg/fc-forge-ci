@@ -1,0 +1,362 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+// SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
+
+// Package plan orchestrates the `forge-ci plan ...` subcommands.
+// Pure-domain plan composition lives in internal/domain/pipeline; this
+// layer drives it, writes outputs, and surfaces SBOM-conflict warnings.
+package plan
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"strings"
+
+	"github.com/diggsweden/forge-ci/internal/domain/ci"
+	"github.com/diggsweden/forge-ci/internal/domain/config"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/output"
+	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
+	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
+	"github.com/diggsweden/forge-ci/internal/domain/runners"
+	domainversion "github.com/diggsweden/forge-ci/internal/domain/version"
+)
+
+// ReleaseInput drives `plan release`.
+type ReleaseInput struct {
+	RepositoryVisibility            string
+	ConfigPlanJSON                  string
+	Branch                          string
+	RefName                         string
+	FilePattern                     string
+	ReleasePolicy                   string
+	ReleasePublisher                string
+	ReleaseRequireAllowlistedSigner bool
+	ReleaseDraft                    bool
+	ReleaseSBOMs                    string
+	ReleaseSignArtifacts            bool
+	ChangelogCreator                string
+	ChangelogSkipVersionBump        bool
+	ReleasePlatforms                string
+	// Runners is the runner inputs the forge layer passed; see
+	// pipeline.ReleasePlanInput.Runners.
+	Runners *runners.Inputs
+}
+
+// Release composes the typed release plan outputs consumed by release workflows.
+func Release(ctx context.Context, sink ci.OutputSink, summary ci.SummarySink, in ReleaseInput) (*pipeline.ReleasePlan, error) {
+	if strings.TrimSpace(in.ConfigPlanJSON) == "" {
+		return nil, fmt.Errorf("config-plan-json is required: %w", errs.ErrUsage)
+	}
+
+	configPlan, err := pipeline.DecodeConfigPlan(in.ConfigPlanJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	releasePlan, err := pipeline.NewReleasePlan(pipeline.ReleasePlanInput{
+		RepositoryVisibility:            in.RepositoryVisibility,
+		ConfigPlan:                      configPlan,
+		Branch:                          in.Branch,
+		RefName:                         in.RefName,
+		FilePattern:                     in.FilePattern,
+		ReleasePolicy:                   in.ReleasePolicy,
+		ReleasePublisher:                in.ReleasePublisher,
+		ReleaseRequireAllowlistedSigner: in.ReleaseRequireAllowlistedSigner,
+		ReleaseDraft:                    in.ReleaseDraft,
+		ReleaseSBOMs:                    in.ReleaseSBOMs,
+		ReleaseSignArtifacts:            in.ReleaseSignArtifacts,
+		ChangelogCreator:                in.ChangelogCreator,
+		ChangelogSkipVersionBump:        in.ChangelogSkipVersionBump,
+		ReleasePlatforms:                in.ReleasePlatforms,
+		Runners:                         in.Runners,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := emitJSONOutput(ctx, sink, "release-plan-json", releasePlan); err != nil {
+		return nil, err
+	}
+
+	if err := emitJSONOutput(ctx, sink, "prepare-stage-plan-json", releasePlan.Stages.Prepare); err != nil {
+		return nil, err
+	}
+
+	if err := emitJSONOutput(ctx, sink, "build-stage-plan-json", releasePlan.Stages.Build); err != nil {
+		return nil, err
+	}
+
+	if err := emitJSONOutput(ctx, sink, "publish-stage-plan-json", releasePlan.Stages.Publish); err != nil {
+		return nil, err
+	}
+
+	if err := emitJSONOutput(ctx, sink, "artifact-transfer-plan-json", releasePlan.ArtifactTransfers); err != nil {
+		return nil, err
+	}
+
+	if releasePlan.Policy.SBOMConflict != nil {
+		warnSBOMConflict(ctx, summary, releasePlan.Policy.SBOMConflict.ReleaseSBOMs, releasePlan.Policy.SBOMConflict.PipelineSBOMs)
+	}
+
+	return &releasePlan, nil
+}
+
+func warnSBOMConflict(ctx context.Context, summary ci.SummarySink, releaseSBOMs, pipelineSBOMs string) {
+	slog.Warn("sbom misconfiguration: release cap and artifact config have no overlap — no SBOMs will be generated",
+		"release_sboms", releaseSBOMs,
+		"pipeline_sboms", pipelineSBOMs,
+	)
+
+	if summary != nil {
+		block := fmt.Sprintf(
+			"\n### ⚠️ SBOM misconfiguration\nsboms: release cap %q has no overlap with artifact config %q — no SBOMs will be generated.\nSet the release-level `sboms` input and the per-artifact `sboms` field so they share at least one CISA layer, or use `sboms: none` if intentional.\n",
+			releaseSBOMs, pipelineSBOMs,
+		)
+		_ = summary.Append(ctx, block)
+	}
+}
+
+// SnapshotReleaseInput drives `plan snapshot-release`.
+type SnapshotReleaseInput struct {
+	Runners               *runners.Inputs
+	ConfigPlanJSON        string
+	ProjectType           string
+	Branch                string
+	ReleaseSHA            string
+	ReleaseActor          string
+	ReleaseRepository     string
+	WorkingDirectory      string
+	JavaVersion           string
+	NodeVersion           string
+	RustToolchain         string
+	Registry              string
+	ForgeCIBinaryRef      string
+	NPMRegistry           string
+	PackageScope          string
+	SBOMs                 string
+	PublishNPM            bool
+	PublishMavenSnapshots bool
+	UseCIToken            bool
+}
+
+// SnapshotRelease composes the typed snapshot-release plan outputs.
+func SnapshotRelease(ctx context.Context, sink ci.OutputSink, in SnapshotReleaseInput) (*pipeline.SnapshotReleasePlan, error) {
+	if strings.TrimSpace(in.ConfigPlanJSON) == "" {
+		return nil, fmt.Errorf("config-plan-json is required: %w", errs.ErrUsage)
+	}
+
+	configPlan, err := pipeline.DecodeConfigPlan(in.ConfigPlanJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	devPlan, err := pipeline.NewSnapshotReleasePlan(pipeline.SnapshotReleasePlanInput{
+		Runners:               in.Runners,
+		ConfigPlan:            configPlan,
+		ProjectType:           projecttype.Type(in.ProjectType),
+		Branch:                in.Branch,
+		ReleaseSHA:            in.ReleaseSHA,
+		ReleaseActor:          in.ReleaseActor,
+		ReleaseRepository:     in.ReleaseRepository,
+		WorkingDirectory:      in.WorkingDirectory,
+		JavaVersion:           in.JavaVersion,
+		NodeVersion:           in.NodeVersion,
+		RustToolchain:         in.RustToolchain,
+		Registry:              in.Registry,
+		ForgeCIBinaryRef:      in.ForgeCIBinaryRef,
+		NPMRegistry:           in.NPMRegistry,
+		PackageScope:          in.PackageScope,
+		SBOMs:                 in.SBOMs,
+		PublishNPM:            in.PublishNPM,
+		PublishMavenSnapshots: in.PublishMavenSnapshots,
+		UseCIToken:            in.UseCIToken,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := emitJSONOutput(ctx, sink, "snapshot-release-plan-json", devPlan); err != nil {
+		return nil, err
+	}
+
+	if err := emitJSONOutput(ctx, sink, "snapshot-build-stage-plan-json", devPlan.Stages.Build); err != nil {
+		return nil, err
+	}
+
+	if err := emitJSONOutput(ctx, sink, "snapshot-publish-stage-plan-json", devPlan.Stages.Publish); err != nil {
+		return nil, err
+	}
+
+	if err := emitJSONOutput(ctx, sink, "artifact-transfer-plan-json", devPlan.ArtifactTransfers); err != nil {
+		return nil, err
+	}
+
+	return &devPlan, nil
+}
+
+func emitJSONOutput[T any](ctx context.Context, sink ci.OutputSink, key string, value T) error {
+	b, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+
+	return sink.Set(ctx, key, string(b))
+}
+
+// PRInput drives `plan pr`.
+type PRInput struct {
+	ProjectType      string
+	BaseBranch       string
+	ForgeCIBinaryRef string
+	LintEngine       string
+	NanolinterImage  string
+	SwiftFormat      bool
+	SwiftLint        bool
+}
+
+// PR composes typed pull-request quality plan outputs.
+func PR(ctx context.Context, sink ci.OutputSink, in PRInput) (*pipeline.PRPlan, error) {
+	if in.ProjectType == "" {
+		return nil, fmt.Errorf("project type is required: pass --project-type <type> or set $PROJECT_TYPE, one of %v: %w",
+			config.ValidProjectTypes, errs.ErrUsage)
+	}
+
+	pt := projecttype.Type(in.ProjectType)
+	if !projecttype.IsIn(pt, config.ValidProjectTypes) {
+		return nil, fmt.Errorf("unknown project-type %q, want one of %v: %w", in.ProjectType, config.ValidProjectTypes, errs.ErrUsage)
+	}
+
+	engine, err := pipeline.ParseLintEngine(in.LintEngine)
+	if err != nil {
+		return nil, err
+	}
+
+	// Refused here, in the plan job: the lint job would otherwise run a tag.
+	nanolinterImage := strings.TrimSpace(in.NanolinterImage)
+	if engine == pipeline.LintEngineNanolinter {
+		if nanolinterImage, err = pipeline.NanolinterImage(in.NanolinterImage, pt); err != nil {
+			return nil, err
+		}
+	}
+
+	if engine == pipeline.LintEngineNone {
+		slog.WarnContext(ctx, "no supported lint engine is enabled; PR general lint checks will not run (select nanolinter or megalinter with lint-engine)")
+	}
+
+	plan := pipeline.NewPRPlan(pipeline.PRPlanInput{
+		ProjectType:      pt,
+		BaseBranch:       in.BaseBranch,
+		ForgeCIBinaryRef: in.ForgeCIBinaryRef,
+		Engine:           engine,
+		NanolinterImage:  nanolinterImage,
+		SwiftFormat:      in.SwiftFormat,
+		SwiftLint:        in.SwiftLint,
+	})
+	if err := emitJSONOutput(ctx, sink, "pr-plan-json", plan); err != nil {
+		return nil, err
+	}
+
+	if err := emitJSONOutput(ctx, sink, "quality-stage-plan-json", plan.Stages.Quality); err != nil {
+		return nil, err
+	}
+
+	return &plan, nil
+}
+
+// GetFilePatternInput drives `version file-pattern`.
+type GetFilePatternInput struct {
+	ProjectType   string
+	CustomPattern string // when set, used verbatim (caller override)
+	WriteToOutput bool   // when true, also emits sink["pattern"]
+	Format        output.Format
+}
+
+// GetFilePattern returns the pathspec for the project type's version-bump
+// commit. Custom override wins. Returns the resolved pattern + emits to
+// w (caller's writer) and optionally to the OutputSink.
+func GetFilePattern(ctx context.Context, sink ci.OutputSink, out io.Writer, in GetFilePatternInput) (string, error) {
+	pattern, err := resolveFilePattern(in)
+	if err != nil {
+		return "", err
+	}
+
+	format := in.Format
+	if format == "" || format == output.FormatAuto {
+		format = output.FormatText
+	}
+
+	format, err = output.Parse(string(format))
+	if err != nil {
+		return "", fmt.Errorf("file-pattern format: %w: %w", err, errs.ErrUsage)
+	}
+
+	if (in.WriteToOutput || format == output.FormatGitHub || format == output.FormatGitLab) && sink == nil {
+		return "", fmt.Errorf("output sink is required: %w", errs.ErrUsage)
+	}
+
+	// Human output commits first; only a successful write may publish the
+	// optional machine value. A sink failure cannot roll back an arbitrary writer.
+	if err := emitFilePattern(ctx, sink, out, pattern, format); err != nil {
+		return "", err
+	}
+
+	if in.WriteToOutput && format != output.FormatGitHub && format != output.FormatGitLab {
+		if err := sink.Set(ctx, "pattern", pattern); err != nil {
+			return "", err
+		}
+	}
+
+	return pattern, nil
+}
+
+func resolveFilePattern(in GetFilePatternInput) (string, error) {
+	if in.ProjectType == "" && in.CustomPattern == "" {
+		return "", fmt.Errorf("project type is required: pass --project-type <type> or set $PROJECT_TYPE: %w", errs.ErrUsage)
+	}
+
+	if in.CustomPattern != "" {
+		return in.CustomPattern, nil
+	}
+
+	pt := projecttype.Type(in.ProjectType)
+	if !projecttype.IsIn(pt, config.ValidProjectTypes) {
+		return "", fmt.Errorf("unknown project-type %q: %w", in.ProjectType, errs.ErrUsage)
+	}
+
+	return domainversion.FilePattern(pt), nil
+}
+
+func emitFilePattern(ctx context.Context, sink ci.OutputSink, out io.Writer, pattern string, format output.Format) error {
+	switch format {
+	case output.FormatJSON:
+		if out == nil {
+			return nil
+		}
+
+		body, err := json.Marshal(struct {
+			Pattern string `json:"pattern"`
+		}{Pattern: pattern})
+		if err != nil {
+			return err
+		}
+
+		if _, err := fmt.Fprintln(out, string(body)); err != nil {
+			return err
+		}
+	case output.FormatGitHub, output.FormatGitLab:
+		if err := sink.Set(ctx, "pattern", pattern); err != nil {
+			return err
+		}
+	default:
+		if out != nil {
+			if _, err := fmt.Fprintln(out, pattern); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}

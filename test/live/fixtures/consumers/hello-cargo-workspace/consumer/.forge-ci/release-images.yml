@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# The Forgejo and GitLab releases' runtime images. Both binaries are exported
+# by the release's own export jobs; this declaration builds only the two
+# runtime images from the same prepared release source, one native build per
+# platform the release selects. A release publishes to one repository, so the
+# two images are tag variants there: <release tag>-worker and -keytool.
+# The artifact is the release plan's: the GitLab release bumps its
+# Cargo version from it. Built container-first, it adds no build job.
+artifacts:
+  - name: hello-cargo-workspace
+    project-type: cargo
+    working-directory: .
+    config:
+      build-mode: container-first
+containers:
+  - name: hello-worker
+    container-file: Containerfile
+    context: .
+    target: runtime-worker
+    tag-suffix: -worker
+    platforms: linux/amd64,linux/arm64
+  - name: hello-keytool
+    container-file: Containerfile
+    context: .
+    target: runtime-keytool
+    tag-suffix: -keytool
+    platforms: linux/amd64,linux/arm64

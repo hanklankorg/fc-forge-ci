@@ -1,0 +1,311 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "local>diggsweden/.github:renovate-base"
+  ],
+  "enabledManagers": [
+    "github-actions",
+    "mise",
+    "dockerfile",
+    "gomod",
+    "custom.regex"
+  ],
+  "packageRules": [
+    {
+      "description": "Supply-chain guard: wait 7 days before proposing updates to newly published versions",
+      "matchPackageNames": [
+        "*"
+      ],
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Pin external runtime Containerfile base images; the dockerfile manager updates both the tag and digest.",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "pinDigests": true,
+      "addLabels": [
+        "containers"
+      ],
+      "groupName": "container base images",
+      "groupSlug": "container-base-images",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Group all mise tool dependencies",
+      "matchManagers": [
+        "mise"
+      ],
+      "addLabels": [
+        "tools"
+      ],
+      "groupName": "mise tools",
+      "groupSlug": "mise-tools",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Security and compliance tools",
+      "matchManagers": [
+        "mise"
+      ],
+      "matchPackageNames": [
+        "aqua:zricethezav/gitleaks",
+        "forgejo:itiquette/gommitlint",
+        "aqua:rhysd/actionlint"
+      ],
+      "addLabels": [
+        "security-tools"
+      ],
+      "groupName": "security tools",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Documentation and build tools",
+      "matchManagers": [
+        "mise"
+      ],
+      "matchPackageNames": [
+        "aqua:google/yamlfmt",
+        "aqua:rvben/rumdl",
+        "github:italia/publiccode-parser-go",
+        "aqua:casey/just"
+      ],
+      "addLabels": [
+        "documentation"
+      ],
+      "groupName": "documentation tools",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Group Go module patch bumps so routine x/* and patch-level updates land in one PR per cycle. Major/minor stay individual so they get explicit review.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchUpdateTypes": [
+        "patch",
+        "digest"
+      ],
+      "addLabels": [
+        "go-deps"
+      ],
+      "groupName": "go module patch updates",
+      "groupSlug": "gomod-patch",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Label and surface Go module minor/major bumps individually for review.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "major"
+      ],
+      "addLabels": [
+        "go-deps"
+      ],
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Hold each runtime image toolchain on the line its published image name or docs promise (containers/runtime/images.json: go-1.27, node-24, java-25, android-35; Maven 3.x, Gradle 8.x). Moving a line is a deliberate change, not a Renovate update.",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchFileNames": [
+        "containers/runtime/Containerfile"
+      ],
+      "matchDepNames": [
+        "golang"
+      ],
+      "allowedVersions": "/^1\\.27\\./"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "containers/runtime/Containerfile"
+      ],
+      "matchDepNames": [
+        "node"
+      ],
+      "allowedVersions": "/^24\\./"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "containers/runtime/Containerfile"
+      ],
+      "matchDepNames": [
+        "temurin"
+      ],
+      "allowedVersions": "/^25\\./"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "containers/runtime/Containerfile"
+      ],
+      "matchDepNames": [
+        "org.apache.maven:apache-maven"
+      ],
+      "allowedVersions": "/^3\\.\\d+\\.\\d+$/"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "containers/runtime/Containerfile"
+      ],
+      "matchDepNames": [
+        "gradle"
+      ],
+      "allowedVersions": "/^8\\./"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "containers/runtime/Containerfile"
+      ],
+      "matchDepNames": [
+        "android-build-tools"
+      ],
+      "allowedVersions": "/^35\\./"
+    },
+    {
+      "description": "Android command-line tools versions are archive build numbers, which grow by millions between releases.",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "android-cmdline-tools"
+      ],
+      "maxMajorIncrement": 0
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "description": "Update Docker image references in GitHub Actions",
+      "matchStrings": [
+        "uses:\\s+docker://(?<depName>[^:]+):(?<currentValue>[^@]+)@(?<currentDigest>sha256:[a-f0-9]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/\\.forgejo/actions/.+/versions\\.env$/"
+      ],
+      "description": "Propose version bumps of the Forgejo layer's pinned tools. The archive checksums beside each version are updated by hand in the same pull request.",
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\w+_VERSION=\"(?<currentValue>[0-9.]+)\""
+      ],
+      "extractVersionTemplate": "^v?(?<version>.+)$",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)scripts/bootstrap/install-[^/]+\\.sh$/"
+      ],
+      "description": "Propose version bumps of the bootstrap helpers' pinned tools, which the runtime image installs. Renovate cannot update the SHA-256 constants beside each version: in the same pull request, replace them from the release's published checksums file (verify by downloading where cheap); scripts/bootstrap/installers_test.go holds the same pins and must change with them.",
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: registryUrl=(?<registryUrl>\\S+))?(?: extractVersion=(?<extractVersion>\\S+))?\\s*\\n(?:#.*\\n)*readonly \\w+_VERSION=\"(?<currentValue>[^\"]+)\""
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)containers/runtime/Containerfile$/"
+      ],
+      "description": "Update the runtime image's toolchain ARGs (Rust, Node, JDK, Maven, Gradle, Android, SBOM generators). The debian and golang image ARGs carry a digest and are left to the dockerfile manager. Keep CARGO_CYCLONEDX_VERSION and CYCLONEDX_GOMOD_VERSION in step with their bootstrap helpers (TestSBOMGeneratorPinsMatchTheRuntimeImage).",
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: extractVersion=(?<extractVersion>\\S+))?\\s*\\nARG \\w+=(?<currentValue>[^\\s@]+)\\n"
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)templates/[^/]+\\.ya?ml$/"
+      ],
+      "description": "Update pinned tool versions in GitLab component input defaults",
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: registryUrl=(?<registryUrl>\\S+))?\\s*\\n\\s+default:\\s*\"(?<currentValue>[^\"]+)\""
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "description": "Update Just version in workflow inputs",
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)[\\s\\n]+just-version:[\\s\\S]*?default:\\s*\"(?<currentValue>[0-9.]+)\""
+      ],
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "description": "Update Just version in action with: blocks",
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\s+just-version:\\s*(?<currentValue>[0-9.]+)"
+      ],
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "description": "Update env versions in workflow files",
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\s+\\w+:\\s*\"(?<currentValue>v?[0-9.]+)\""
+      ],
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "description": "Update env versions with registryUrl (Codeberg/Gitea releases)",
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+) registryUrl=(?<registryUrl>\\S+)\\s*\\n\\s+\\w+:\\s*\"(?<currentValue>v?[0-9.]+)\""
+      ],
+      "versioningTemplate": "semver"
+    }
+  ],
+  "customDatasources": {
+    "android-build-tools": {
+      "description": "Stable Android SDK build-tools releases from Google's SDK repository index",
+      "defaultRegistryUrlTemplate": "https://dl.google.com/android/repository/repository2-3.xml",
+      "format": "plain",
+      "transformTemplates": [
+        "{\"releases\": [releases.version[$contains($, /path=\"build-tools;[0-9]+\\.[0-9]+\\.[0-9]+\"/)].{\"version\": $match($, /build-tools;([0-9]+\\.[0-9]+\\.[0-9]+)\"/).groups[0]}]}"
+      ]
+    },
+    "android-cmdline-tools": {
+      "description": "Android command-line tools archive build numbers from Google's SDK repository index. Preview builds share the list: check the cmdline-tools;<version> package of a proposed build before merging.",
+      "defaultRegistryUrlTemplate": "https://dl.google.com/android/repository/repository2-3.xml",
+      "format": "plain",
+      "transformTemplates": [
+        "{\"releases\": [releases.version[$contains($, /commandlinetools-linux-[0-9]+_latest\\.zip/)].{\"version\": $match($, /commandlinetools-linux-([0-9]+)_latest/).groups[0]}]}"
+      ]
+    }
+  }
+}

@@ -1,0 +1,8 @@
+*
+!Containerfile
+!target/
+!target/release/
+!target/release/worker
+!target/release/key-tool
+!target/release/api-service
+!target/release/load-generator

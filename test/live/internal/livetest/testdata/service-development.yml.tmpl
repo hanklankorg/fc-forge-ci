@@ -1,0 +1,104 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# The harness's consumer-side development workflow of a service snapshot, for
+# a consumer of any snapshot family: the snapshot-images workflow plans the
+# staged declaration, builds the producers it names in the family's image,
+# which the repository's SNAPSHOT_ARTIFACT_JOB_IMAGE_<FAMILY> variable names
+# (none for a container-first service), builds the image and publishes it;
+# readiness then runs the published digest with Podman on the container
+# runner. The snapshot's own producer build is the build; nothing is built
+# twice. A snapshot-only event writes the snapshot job alone; only the
+# lifecycle event probes service readiness.
+name: Service development
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    uses: @WORKFLOWS@snapshot-images.yml@@PIN@
+    with:
+      branch: @BRANCH@
+      artifacts-config: .forge-ci/service-development.yml
+      forge-ci-repository: ${{ vars.FORGE_CI_REPOSITORY }}
+      forge-ci-sha: @PIN@
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      build-runs-on-linux-amd64: ${{ vars.CI_RUNNER_LABEL_CONTAINER }}
+      image-repository: ${{ vars.SERVICE_IMAGE_REPOSITORY }}
+      registry-user: ${{ vars.DEVELOPMENT_REGISTRY_USERNAME }}
+    secrets:
+      SNAPSHOT_REGISTRY_PASSWORD: ${{ secrets.DEVELOPMENT_REGISTRY_TOKEN }}
+  readiness:
+    needs: snapshot
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL_CONTAINER) }}
+    steps:
+      - uses: @ACTIONS@setup-forge-ci@@PIN@
+      - uses: @ACTIONS@checkout-consumer@@PIN@
+        with:
+          ref: ${{ needs.snapshot.outputs.source-sha }}
+      - name: Prepare isolated runtime tools
+        run: forge-ci container setup-buildah --extra-packages "podman jq nftables" --print-store=false --summary=false
+      - name: Pull the immutable published digest
+        env:
+          IMAGES_JSON: ${{ needs.snapshot.outputs.container-images-json }}
+          REGISTRY_USERNAME: ${{ vars.DEVELOPMENT_REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.DEVELOPMENT_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          command -v podman
+          mkdir -p service-evidence
+          printf '%s\n' "$IMAGES_JSON" > service-evidence/container-images.json
+          ref=$(jq -er 'if length == 1 then .[0].ref else error("one image required") end' service-evidence/container-images.json)
+          [[ "$ref" =~ @sha256:[0-9a-f]{64}$ ]]
+          # A private consumer's image need not be anonymously readable. Pull with
+          # the development credential in a job-local auth file and drop both
+          # before any later step, the operator's fixture included, runs.
+          auth=$(mktemp)
+          trap 'rm -f -- "$auth"' EXIT
+          forge-ci container login --registry "${ref%@*}" --registry-username "$REGISTRY_USERNAME" --auth-file "$auth"
+          unset REGISTRY_PASSWORD
+          podman pull --authfile "$auth" "$ref"
+          rm -f -- "$auth"
+      - name: Produce the nonsecret runtime fixture at the selected source
+        env:
+          SOURCE_SHA: ${{ needs.snapshot.outputs.source-sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          mkdir -p trial-runtime
+          touch trial-runtime/runtime.env
+          bash .forge-ci/service-fixture.sh
+          chmod -R a+rX trial-runtime
+      - name: Start the pulled digest and probe its readiness
+        env:
+          SOURCE_SHA: ${{ needs.snapshot.outputs.source-sha }}
+          IMAGES_JSON: ${{ needs.snapshot.outputs.container-images-json }}
+          READINESS_URL: @URL@
+        run: |
+          set -euo pipefail
+          command -v curl
+          ref=$(jq -er 'if length == 1 then .[0].ref else error("one image required") end' <<<"$IMAGES_JSON")
+          [[ "$ref" =~ @sha256:[0-9a-f]{64}$ ]]
+          cid=
+          cleanup() { if [ -n "$cid" ]; then podman rm -f "$cid" >/dev/null; fi; }
+          trap cleanup EXIT
+          port_path=${READINESS_URL#http://127.0.0.1:}
+          port=${port_path%%/*}
+          cid=$(podman run -d --pull=never -p "127.0.0.1::$port" --env-file trial-runtime/runtime.env -v "$PWD/trial-runtime:/trial:ro" "$ref")
+          binding=$(podman port "$cid" "$port/tcp")
+          [[ "$binding" =~ ^127\.0\.0\.1:[0-9]+$ ]]
+          probe_url="http://$binding/${port_path#*/}"
+          ready=false
+          for attempt in $(seq 1 60); do
+            test "$(podman inspect --format '{{.State.Running}}' "$cid")" = true || break
+            code=$(curl --noproxy '*' --silent --show-error --max-time 2 --max-filesize 65536 --output service-evidence/readiness-body.txt --write-out '%{http_code}' "$probe_url") || code=000
+            if [ "$code" = 200 ]; then ready=true; break; fi
+            sleep 2
+          done
+          test "$ready" = true
+          printf '%s\n' "$SOURCE_SHA" > service-evidence/source-sha.txt
+          printf '%s\n' "$ref" > service-evidence/image-ref.txt
+          printf '%s\n' "$READINESS_URL" > service-evidence/readiness-url.txt
+          forge-ci artifact upload --name "service-evidence-$SOURCE_SHA" --dir service-evidence --if-no-files error
+          echo "SERVICE_READINESS_OK:$SOURCE_SHA:$ref"

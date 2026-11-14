@@ -1,0 +1,571 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+// SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
+
+// Package pipeline contains typed, provider-neutral pipeline contracts.
+package pipeline
+
+import (
+	"cmp"
+	"maps"
+	"path"
+	"slices"
+
+	"github.com/diggsweden/forge-ci/internal/domain/build"
+	"github.com/diggsweden/forge-ci/internal/domain/config"
+	domaincontainer "github.com/diggsweden/forge-ci/internal/domain/container"
+	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
+	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
+)
+
+// ConfigPlanVersion is the current config-plan contract version.
+const ConfigPlanVersion = 1
+
+// ConfigPlan is the typed contract emitted by `config parse-artifacts` for
+// later stage planning. It intentionally uses snake_case JSON and does not
+// reuse config.Artifact/config.Container, whose JSON tags preserve legacy
+// workflow array shapes.
+type ConfigPlan struct {
+	Version                 int               `json:"version"`
+	Artifacts               ArtifactSets      `json:"artifacts"`
+	Containers              ContainerSets     `json:"containers"`
+	AnyRequireAuthorization bool              `json:"any_require_authorization"`
+	PipelineSBOMs           string            `json:"pipeline_sboms"`
+	FallbackProjectType     projecttype.Type  `json:"fallback_project_type,omitempty"`
+	Sign                    PlannedSign       `json:"sign"`
+	GitSigning              PlannedGitSigning `json:"git_signing"`
+	// DistroPackages is the distro-packages block with every place resolved
+	// to its default. Absent, the release publishes no package to a registry.
+	DistroPackages *config.DistroPackages `json:"distro_packages,omitempty"`
+}
+
+// PlannedSign is the resolved signing-backend choice. Always present in
+// the plan (Method defaults to gpg when artifacts.yml has no sign:
+// block, so downstream workflow code can read sign.method
+// unconditionally without nil checks). RequiresIDToken is precomputed
+// for the orchestrator workflow's `permissions:` decision — keyless
+// Sigstore is the only method that needs id-token: write.
+type PlannedSign struct {
+	Method domainrelease.SignMethod `json:"method"`
+	// FilesMethod is sign.files-method as declared: gpg when the release
+	// files are signed with OpenPGP and Method signs the images alone, empty
+	// when Method signs both.
+	FilesMethod domainrelease.SignMethod `json:"files_method,omitempty"`
+	Key         string                   `json:"key,omitempty"`
+	OIDCIssuer  string                   `json:"oidc_issuer,omitempty"`
+	// RequiresIDToken: keyless Sigstore is the only method needing
+	// `id-token: write`, and only while it signs something: with FilesMethod
+	// and no container it signs nothing.
+	RequiresIDToken bool `json:"requires_id_token"`
+	// ImportsGPGKey is true when the release files are signed with gpg, by
+	// Method or by FilesMethod, so the release workflow gates the "import GPG
+	// key" step on this precomputed flag instead of comparing the method
+	// string in YAML.
+	ImportsGPGKey bool `json:"imports_gpg_key"`
+	// SignsContainers is true for the cosign-based methods (sigstore, kms),
+	// which can sign OCI manifests; gpg cannot. The container publish stage
+	// gates image signing/attestation on this instead of `method != 'gpg'`.
+	// It follows Method alone: FilesMethod never signs an image.
+	SignsContainers bool `json:"signs_containers"`
+	// UsesKeySecret is true for kms with exactly config.CosignKeyEnvRef:
+	// the signing steps then receive the Cosign key and its passphrase as
+	// secrets. The workflows gate that mapping on this flag, so a run that
+	// signs another way never holds the key.
+	UsesKeySecret bool `json:"uses_key_secret"`
+	// Transparency is the resolved transparency-log choice. Always
+	// concrete for the cosign methods (public when artifacts.yml omits
+	// it); empty for gpg, which never invokes cosign.
+	Transparency domainrelease.Transparency `json:"transparency,omitempty"`
+	// TransparencyExplicit preserves consent before the default is resolved.
+	TransparencyExplicit bool `json:"transparency_explicit,omitempty"`
+	// RequiresSigstoreEgress precomputes "does this run talk to public
+	// Sigstore infrastructure?" so a caller's egress allowlist is
+	// derived from the plan rather than hand-maintained prose. It is
+	// true for keyless (which must reach Fulcio, Rekor and TUF) and for
+	// kms publishing to the public log (Rekor + TUF). It is false for
+	// gpg, and for kms with transparency=none — those runs need no
+	// sigstore.dev endpoint at all.
+	//
+	// Harden Runner's egress-policy=block makes this load-bearing: a
+	// missing endpoint fails the signing step hard, at release time.
+	RequiresSigstoreEgress bool `json:"requires_sigstore_egress"`
+}
+
+// PlannedGitSigning is the resolved git-object (release commit + tag) signing
+// choice. Always present (Method defaults to gpg when artifacts.yml has no
+// git-signing: block), so the orchestrator can read git_signing.method
+// unconditionally to choose `release ssh setup` vs `release gpg import`.
+type PlannedGitSigning struct {
+	Method        config.GitSignMethod `json:"method"`
+	ImportsGPGKey bool                 `json:"imports_gpg_key"`
+}
+
+// ArtifactSets groups artifacts by project type, Go build mode, and supported
+// publish target.
+type ArtifactSets struct {
+	All                 []PlannedArtifact `json:"all"`
+	Maven               []PlannedArtifact `json:"maven"`
+	NPM                 []PlannedArtifact `json:"npm"`
+	Gradle              []PlannedArtifact `json:"gradle"`
+	GradleAndroid       []PlannedArtifact `json:"gradle_android"`
+	XcodeIOS            []PlannedArtifact `json:"xcode_ios"`
+	Python              []PlannedArtifact `json:"python"`
+	Go                  []PlannedArtifact `json:"go"`
+	Cargo               []PlannedArtifact `json:"cargo"`
+	Meta                []PlannedArtifact `json:"meta"`
+	GoArtifactFirst     []PlannedArtifact `json:"go_artifact_first"`
+	GoContainerFirst    []PlannedArtifact `json:"go_container_first"`
+	CargoArtifactFirst  []PlannedArtifact `json:"cargo_artifact_first"`
+	CargoContainerFirst []PlannedArtifact `json:"cargo_container_first"`
+	ForgePackages       []PlannedArtifact `json:"forge_packages"`
+	MavenCentral        []PlannedArtifact `json:"maven_central"`
+	GooglePlay          []PlannedArtifact `json:"google_play"`
+	NPMJS               []PlannedArtifact `json:"npmjs"`
+}
+
+// PlannedArtifact is the plan-facing artifact shape.
+//
+// Per-ecosystem config is exposed via the typed sub-struct fields
+// below. Exactly one is non-nil per artifact, matching ProjectType.
+// Workflow consumers read them as `matrix.artifact.go.binary_name`,
+// `matrix.artifact.gradle_android.include_aab`, etc. — the JSON tags
+// (snake_case) align with GitHub Actions expression syntax.
+type PlannedArtifact struct {
+	Name                    string                 `json:"name"`
+	ProjectType             projecttype.Type       `json:"project_type"`
+	WorkingDirectory        string                 `json:"working_directory"`
+	BuildType               config.BuildType       `json:"build_type,omitempty"`
+	PublishTo               []config.PublishTarget `json:"publish_to,omitempty"`
+	SBOMs                   string                 `json:"sboms,omitempty"`
+	EffectiveSBOMs          []config.SBOMLayer     `json:"effective_sboms,omitempty"`
+	RequireAuthorization    bool                   `json:"require_authorization,omitempty"`
+	GoBuildMode             config.GoBuildMode     `json:"go_build_mode,omitempty"`
+	CargoBuildMode          config.CargoBuildMode  `json:"cargo_build_mode,omitempty"`
+	BuildArtifactName       string                 `json:"build_artifact_name,omitempty"`
+	BuildSBOMArtifactName   string                 `json:"build_sbom_artifact_name,omitempty"`
+	PublicationArtifactName string                 `json:"publication_artifact_name,omitempty"`
+
+	Maven         *config.MavenConfig         `json:"maven,omitempty"`
+	NPM           *config.NPMConfig           `json:"npm,omitempty"`
+	Gradle        *config.GradleConfig        `json:"gradle,omitempty"`
+	GradleAndroid *config.GradleAndroidConfig `json:"gradle_android,omitempty"`
+	XcodeIOS      *config.XcodeIOSConfig      `json:"xcode_ios,omitempty"`
+	Go            *config.GoConfig            `json:"go,omitempty"`
+	Cargo         *config.CargoConfig         `json:"cargo,omitempty"`
+	Python        *config.PythonConfig        `json:"python,omitempty"`
+}
+
+// ContainerSets groups planned containers and carries the common has-containers
+// gate currently computed in workflow shell.
+type ContainerSets struct {
+	All           []PlannedContainer `json:"all"`
+	HasContainers bool               `json:"has_containers"`
+}
+
+// PlannedContainer is the plan-facing container shape.
+type PlannedContainer struct {
+	Name                        string             `json:"name"`
+	From                        []string           `json:"from,omitempty"`
+	ArtifactTypes               []projecttype.Type `json:"artifact_types,omitempty"`
+	ContainerFile               string             `json:"container_file"`
+	Context                     string             `json:"context"`
+	Target                      string             `json:"target,omitempty"`
+	Platforms                   string             `json:"platforms"`
+	ImageName                   string             `json:"image_name,omitempty"`
+	TagSuffix                   string             `json:"tag_suffix,omitempty"`
+	EnableAnalyzedContainerSBOM bool               `json:"enable_analyzed_container_sbom"`
+	EnableSLSA                  bool               `json:"enable_slsa"`
+	ScanSeverity                string             `json:"scan_severity,omitempty"`
+	BuildSecrets                []string           `json:"build_secrets,omitempty"`
+	BuildArgs                   map[string]string  `json:"build_args,omitempty"`
+	BuildArgsString             string             `json:"build_args_string,omitempty"`
+	GoArtifactName              string             `json:"go_artifact_name,omitempty"`
+	CargoArtifactName           string             `json:"cargo_artifact_name,omitempty"`
+	MavenArtifactName           string             `json:"maven_artifact_name,omitempty"`
+	// MavenWorkingDirectory and GradleWorkingDirectory are where that
+	// artifact was built, when not the repository root: the image build
+	// restores it there, so a Containerfile copies from the same path on
+	// every forge.
+	MavenWorkingDirectory  string   `json:"maven_working_directory,omitempty"`
+	NPMArtifactName        string   `json:"npm_artifact_name,omitempty"`
+	GradleArtifactName     string   `json:"gradle_artifact_name,omitempty"`
+	GradleWorkingDirectory string   `json:"gradle_working_directory,omitempty"`
+	ExtractBinaryTarget    string   `json:"extract_binary_target,omitempty"`
+	ExtractBinaryNames     []string `json:"extract_binary_names,omitempty"`
+	ExtractBinaryPaths     []string `json:"extract_binary_paths,omitempty"`
+}
+
+// NewConfigPlan builds a plan from an already validated and derived config.
+func NewConfigPlan(cfg *config.Config) ConfigPlan {
+	if cfg == nil {
+		return ConfigPlan{Version: ConfigPlanVersion}
+	}
+
+	artifacts := planArtifacts(cfg.Artifacts)
+	containers := planContainers(cfg.Artifacts, cfg.Containers)
+
+	plan := ConfigPlan{
+		Version:   ConfigPlanVersion,
+		Artifacts: newArtifactSets(artifacts),
+		Containers: ContainerSets{
+			All:           containers,
+			HasContainers: len(containers) > 0,
+		},
+		AnyRequireAuthorization: config.AnyRequireAuthorization(cfg.Artifacts),
+		PipelineSBOMs:           config.PipelineSBOMs(cfg.Artifacts),
+		Sign:                    planSign(cfg.Sign, len(containers) > 0),
+		GitSigning:              planGitSigning(cfg.GitSigning),
+		DistroPackages:          cfg.DistroPackages.Resolved(),
+	}
+	if len(artifacts) > 0 {
+		plan.FallbackProjectType = artifacts[0].ProjectType
+	}
+
+	return plan
+}
+
+// newArtifactSets preserves All order in every projection, including the
+// singleton snapshot inputs. Copies must agree; consumers cannot pick a winner.
+func newArtifactSets(artifacts []PlannedArtifact) ArtifactSets {
+	return ArtifactSets{
+		All:           artifacts,
+		Maven:         filterArtifacts(artifacts, func(a PlannedArtifact) bool { return a.ProjectType == projecttype.Maven }),
+		NPM:           filterArtifacts(artifacts, func(a PlannedArtifact) bool { return a.ProjectType == projecttype.NPM }),
+		Gradle:        filterArtifacts(artifacts, func(a PlannedArtifact) bool { return a.ProjectType == projecttype.Gradle }),
+		GradleAndroid: filterArtifacts(artifacts, func(a PlannedArtifact) bool { return a.ProjectType == projecttype.GradleAndroid }),
+		XcodeIOS:      filterArtifacts(artifacts, func(a PlannedArtifact) bool { return a.ProjectType == projecttype.XcodeIOS }),
+		Python:        filterArtifacts(artifacts, func(a PlannedArtifact) bool { return a.ProjectType == projecttype.Python }),
+		Go:            filterArtifacts(artifacts, func(a PlannedArtifact) bool { return a.ProjectType == projecttype.Go }),
+		Cargo:         filterArtifacts(artifacts, func(a PlannedArtifact) bool { return a.ProjectType == projecttype.Cargo }),
+		Meta:          filterArtifacts(artifacts, func(a PlannedArtifact) bool { return a.ProjectType == projecttype.Meta }),
+		GoArtifactFirst: filterArtifacts(artifacts, func(a PlannedArtifact) bool {
+			return a.ProjectType == projecttype.Go && a.GoBuildMode == config.GoBuildModeArtifactFirst
+		}),
+		GoContainerFirst: filterArtifacts(artifacts, func(a PlannedArtifact) bool {
+			return a.ProjectType == projecttype.Go && a.GoBuildMode == config.GoBuildModeContainerFirst
+		}),
+		CargoArtifactFirst: filterArtifacts(artifacts, func(a PlannedArtifact) bool {
+			return a.ProjectType == projecttype.Cargo && a.CargoBuildMode == config.CargoBuildModeArtifactFirst
+		}),
+		CargoContainerFirst: filterArtifacts(artifacts, func(a PlannedArtifact) bool {
+			return a.ProjectType == projecttype.Cargo && a.CargoBuildMode == config.CargoBuildModeContainerFirst
+		}),
+		ForgePackages: filterArtifactsByPublishTarget(artifacts, config.PublishForgePackages),
+		MavenCentral:  filterArtifactsByPublishTarget(artifacts, config.PublishMavenCentral),
+		GooglePlay:    filterArtifactsByPublishTarget(artifacts, config.PublishGooglePlay),
+		NPMJS:         filterArtifactsByPublishTarget(artifacts, config.PublishNPMJS),
+	}
+}
+
+func planGitSigning(signing config.GitSigningConfig) PlannedGitSigning {
+	method := signing.EffectiveMethod()
+
+	return PlannedGitSigning{
+		Method:        method,
+		ImportsGPGKey: method == config.GitSignGPG,
+	}
+}
+
+// planSign resolves the signing block. The Method always carries a
+// concrete value in the output (gpg when artifacts.yml omits the
+// block), so the orchestrator workflow can read it without branching
+// on emptiness. RequiresIDToken precomputes the "do we need
+// `id-token: write` permission?" decision for the caller workflow —
+// only keyless Sigstore needs it; gpg signs from a secret and kms
+// authenticates to the KMS provider out-of-band.
+//
+// Transparency is resolved only for the cosign methods and left empty
+// for gpg, which never runs cosign — carrying a transparency value there
+// would imply a choice that has no effect.
+//
+// With FilesMethod the cosign method signs the images alone, so a
+// declaration without a container signs nothing with Cosign: it needs no
+// id-token, no Cosign key secret and no Sigstore endpoint.
+func planSign(sign config.SignConfig, hasContainers bool) PlannedSign {
+	method := sign.EffectiveMethod()
+	signsWithCosign := method == domainrelease.SignMethodSigstore || method == domainrelease.SignMethodKMS
+	cosignRuns := signsWithCosign && (sign.FilesMethod == "" || hasContainers)
+
+	var transparency domainrelease.Transparency
+	if signsWithCosign {
+		transparency = sign.EffectiveTransparency()
+	}
+
+	return PlannedSign{
+		Method:               method,
+		FilesMethod:          sign.FilesMethod,
+		Key:                  sign.Key,
+		OIDCIssuer:           sign.OIDCIssuer,
+		RequiresIDToken:      cosignRuns && method == domainrelease.SignMethodSigstore,
+		ImportsGPGKey:        sign.EffectiveFilesMethod() == domainrelease.SignMethodGPG,
+		SignsContainers:      signsWithCosign,
+		UsesKeySecret:        cosignRuns && method == domainrelease.SignMethodKMS && sign.Key == config.CosignKeyEnvRef,
+		Transparency:         transparency,
+		TransparencyExplicit: sign.Transparency != "",
+		// Keyless always reaches Sigstore (Fulcio + Rekor + TUF). kms
+		// reaches it only to publish. gpg never does.
+		RequiresSigstoreEgress: cosignRuns && (method == domainrelease.SignMethodSigstore ||
+			(method == domainrelease.SignMethodKMS && transparency.PublishesToLog())),
+	}
+}
+
+func publicationArtifactName(a config.Artifact) string {
+	if (a.ProjectType == projecttype.Gradle || a.ProjectType == projecttype.GradleAndroid) && (slices.Contains(a.PublishTo, config.PublishForgePackages) || slices.Contains(a.PublishTo, config.PublishMavenCentral)) {
+		return a.Name + "-maven-publications"
+	}
+
+	return ""
+}
+
+func planArtifacts(in []config.Artifact) []PlannedArtifact {
+	out := make([]PlannedArtifact, 0, len(in))
+	for _, a := range in { //nolint:varnamelen // idiomatic short name (testing/http/io conventions).
+		out = append(out, PlannedArtifact{
+			Name:                    a.Name,
+			ProjectType:             a.ProjectType,
+			WorkingDirectory:        cmp.Or(a.WorkingDirectory, "."),
+			BuildType:               a.BuildType,
+			PublishTo:               slices.Clone(a.PublishTo),
+			SBOMs:                   a.SBOMs,
+			EffectiveSBOMs:          slices.Clone(a.EffectiveSBOMs),
+			RequireAuthorization:    a.RequireAuthorization,
+			GoBuildMode:             config.GoArtifactBuildMode(a),
+			CargoBuildMode:          config.CargoArtifactBuildMode(a),
+			BuildArtifactName:       buildArtifactName(a),
+			BuildSBOMArtifactName:   buildSBOMArtifactName(a),
+			PublicationArtifactName: publicationArtifactName(a),
+
+			Maven:         a.Maven,
+			NPM:           a.NPM,
+			Gradle:        a.Gradle,
+			GradleAndroid: a.GradleAndroid,
+			XcodeIOS:      a.XcodeIOS,
+			Go:            a.Go,
+			Cargo:         a.Cargo,
+			Python:        a.Python,
+		})
+	}
+
+	return out
+}
+
+func planContainers(artifacts []config.Artifact, containers []config.Container) []PlannedContainer {
+	byName := make(map[string]config.Artifact, len(artifacts))
+	for _, a := range artifacts {
+		byName[a.Name] = a
+	}
+
+	out := make([]PlannedContainer, 0, len(containers))
+	for _, c := range containers { //nolint:varnamelen // idiomatic short name (testing/http/io conventions).
+		pc := PlannedContainer{
+			Name:                        c.Name,
+			From:                        slices.Clone(c.From),
+			ArtifactTypes:               slices.Clone(c.ArtifactTypes),
+			ContainerFile:               cmp.Or(c.ContainerFile, config.DefaultContainerFile),
+			Context:                     cmp.Or(c.Context, "."),
+			Target:                      c.Target,
+			Platforms:                   cmp.Or(c.Platforms, build.DefaultPlatform),
+			ImageName:                   c.ImageName,
+			TagSuffix:                   c.TagSuffix,
+			EnableAnalyzedContainerSBOM: c.EnableAnalyzedContainerSBOM,
+			EnableSLSA:                  c.EnableSLSAEffective(),
+			ScanSeverity:                c.ScanSeverity,
+			BuildSecrets:                slices.Clone(c.BuildSecrets),
+			BuildArgs:                   cloneStringMap(c.BuildArgs),
+			BuildArgsString:             c.BuildArgsString,
+			GoArtifactName:              c.GoArtifactName,
+			CargoArtifactName:           c.CargoArtifactName,
+		}
+		pc.takeBuildArtifactNames(c.From, byName)
+		pc.takeExtractedBinary(c.Extract)
+
+		out = append(out, pc)
+	}
+
+	return out
+}
+
+// takeBuildArtifactNames names the build artifact of each ecosystem the
+// container is built from: the first declared artifact of that ecosystem
+// among from, and for Maven its working directory too. Other project types
+// fill no slot here; Go and Cargo are named by the container itself.
+func (pc *PlannedContainer) takeBuildArtifactNames(from []string, byName map[string]config.Artifact) {
+	for _, dep := range from {
+		artifact, ok := byName[dep]
+		if !ok {
+			continue
+		}
+
+		switch artifact.ProjectType {
+		case projecttype.Maven:
+			if pc.MavenArtifactName == "" {
+				pc.MavenArtifactName = buildArtifactName(artifact)
+				if dir := path.Clean(artifact.WorkingDirectory); dir != "." {
+					pc.MavenWorkingDirectory = dir
+				}
+			}
+		case projecttype.NPM:
+			if pc.NPMArtifactName == "" {
+				pc.NPMArtifactName = buildArtifactName(artifact)
+			}
+		case projecttype.Gradle:
+			if pc.GradleArtifactName == "" {
+				pc.GradleArtifactName = buildArtifactName(artifact)
+				if dir := path.Clean(artifact.WorkingDirectory); dir != "." {
+					pc.GradleWorkingDirectory = dir
+				}
+			}
+		default:
+			// Other types (Go, Cargo, Python, GradleAndroid, XcodeIOS,
+			// Meta, Auto, Unknown) don't contribute to the container's
+			// build-artifact-name slots — they're handled elsewhere
+			// in the plan (Go via GoArtifactName, etc.).
+		}
+	}
+}
+
+// takeExtractedBinary plans the binaries the container's build extracts
+// from its image, named by the declaration or after the declared paths.
+func (pc *PlannedContainer) takeExtractedBinary(extract *config.ContainerExtract) {
+	if extract == nil || extract.Binary == nil {
+		return
+	}
+
+	pc.ExtractBinaryTarget = extract.Binary.Target
+	pc.ExtractBinaryNames = slices.Clone(extract.Binary.Names)
+
+	pc.ExtractBinaryPaths = slices.Clone(extract.Binary.Paths)
+	if len(pc.ExtractBinaryPaths) != 0 {
+		pc.ExtractBinaryNames, _ = domaincontainer.ImageFileNames(pc.ExtractBinaryPaths) // Config validation already checked these paths.
+	}
+}
+
+func buildArtifactName(art config.Artifact) string {
+	switch art.ProjectType {
+	case projecttype.Maven, projecttype.NPM, projecttype.Gradle:
+		return domainrelease.ResolveArtifactNames(art.ProjectType, art.Name).BuildArtifact
+	case projecttype.Go:
+		return artifactFirstGoName(art)
+	case projecttype.Cargo:
+		return artifactFirstCargoName(art)
+	case projecttype.GradleAndroid:
+		if art.BuildType == config.BuildTypeLibrary {
+			return art.Name
+		}
+
+		return androidReleaseAABName(art)
+	case projecttype.XcodeIOS:
+		if !art.EnableCodeSigning() {
+			return art.Name + "-archive"
+		}
+
+		return art.Name
+	default:
+		// Python, Meta, Auto, Unknown: no build-artifact name (Python
+		// produces SBOMs only; Meta is a pure orchestration marker).
+		return ""
+	}
+}
+
+// artifactFirstGoName returns the build-stage artifact name for a Go
+// artifact, empty when the artifact uses container-first build mode.
+func artifactFirstGoName(art config.Artifact) string {
+	if config.GoArtifactBuildMode(art) != config.GoBuildModeArtifactFirst {
+		return ""
+	}
+
+	return domainrelease.ResolveArtifactNames(art.ProjectType, art.Name).BuildArtifact
+}
+
+// artifactFirstCargoName mirrors artifactFirstGoName for Cargo: only
+// artifact-first cargo produces a binary upload at build-stage.
+// Container-first cargo's binary stays inside the container build and
+// (optionally) ships via extract.binary, not as a build-artifact.
+func artifactFirstCargoName(art config.Artifact) string {
+	if config.CargoArtifactBuildMode(art) != config.CargoBuildModeArtifactFirst {
+		return ""
+	}
+
+	return domainrelease.ResolveArtifactNames(art.ProjectType, art.Name).BuildArtifact
+}
+
+// androidReleaseAABName returns the AAB upload name when both
+// IncludeAAB and the release build-type are enabled. Empty otherwise.
+// IncludeAAB defaults to true (handled by the typed accessor on
+// Artifact); BuildTypes defaults to "debug,release", so an explicit
+// "debug"-only value drops the release artifact.
+func androidReleaseAABName(art config.Artifact) string {
+	if !art.IncludeAAB() {
+		return ""
+	}
+
+	buildTypes, err := build.ParseAndroidBuildTypes(art.AndroidBuildTypes())
+	if err != nil || !buildTypes.Release {
+		return ""
+	}
+
+	return art.Name
+}
+
+func buildSBOMArtifactName(a config.Artifact) string {
+	switch a.ProjectType {
+	case projecttype.Maven, projecttype.NPM, projecttype.Gradle, projecttype.Go, projecttype.Cargo:
+		return domainrelease.ResolveArtifactNames(a.ProjectType, a.Name).SBOMArtifact
+	case projecttype.GradleAndroid:
+		return artifactUploadName(a.Name, "gradle-android-build-sbom", "sbom")
+	default:
+		// XcodeIOS, Python, Meta, Auto, Unknown: no build-SBOM artifact
+		// (Xcode flows produce IPA/archive only; Python and Meta are
+		// outside the SBOM pipeline).
+		return ""
+	}
+}
+
+func artifactUploadName(name, fallback, suffix string) string {
+	if name == "" {
+		return fallback
+	}
+
+	return name + "-" + suffix
+}
+
+func filterArtifacts(in []PlannedArtifact, keep func(PlannedArtifact) bool) []PlannedArtifact {
+	out := make([]PlannedArtifact, 0, len(in))
+	for _, a := range in {
+		if keep(a) {
+			out = append(out, a)
+		}
+	}
+
+	return out
+}
+
+func filterArtifactsByPublishTarget(in []PlannedArtifact, target config.PublishTarget) []PlannedArtifact {
+	return filterArtifacts(in, func(a PlannedArtifact) bool {
+		for _, t := range a.PublishTo {
+			if t == target && config.SupportedPublishTarget(config.Artifact{
+				Name:        a.Name,
+				ProjectType: a.ProjectType,
+				BuildType:   a.BuildType,
+			}, target) {
+				if target == config.PublishForgePackages && a.ProjectType == projecttype.Maven && a.BuildType == config.BuildTypeApplication {
+					return false
+				}
+
+				return true
+			}
+		}
+
+		return false
+	})
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make(map[string]string, len(in))
+	maps.Copy(out, in)
+
+	return out
+}

@@ -1,0 +1,9 @@
+[
+  {"target":"base","name":"forge-ci-runtime-base","archs":["amd64","arm64"]},
+  {"target":"full","name":"forge-ci-runtime","archs":["amd64","arm64"]},
+  {"target":"go","name":"forge-ci-runtime-go-1.27","archs":["amd64","arm64"]},
+  {"target":"rust","name":"forge-ci-runtime-rust-stable","archs":["amd64","arm64"]},
+  {"target":"node","name":"forge-ci-runtime-node-24","archs":["amd64","arm64"]},
+  {"target":"java","name":"forge-ci-runtime-java-25","archs":["amd64","arm64"]},
+  {"target":"android","name":"forge-ci-runtime-android-35","archs":["amd64"]}
+]

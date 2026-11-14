@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Offline fixture of the consumer planning tests in consumer_internal_test.go.
+# It stands for the pull-request workflow of an organization's Go CLI that
+# has adopted the layer: every reference names the organization's copy of the
+# layer, at one commit, and the workflow calls no workflow of the layer and
+# passes no binary digest. Nothing runs it.
+name: Pull Request
+
+on:
+  pull_request:
+    branches: [main]
+
+env:
+  GIT_CONFIG_COUNT: '1'
+  GIT_CONFIG_KEY_0: safe.directory
+  GIT_CONFIG_VALUE_0: '*'
+
+jobs:
+  lint:
+    name: "Check: lint"
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: https://forge.example/examplescope/forge-ci/.forgejo/actions/checkout-consumer@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          fetch-base: ${{ forgejo.base_ref }}
+
+      - name: Lint
+        uses: https://forge.example/examplescope/forge-ci/.forgejo/actions/lint-nanolinter@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+
+  # The release workflow beside this file is held to the isolation rules on
+  # every pull request, so a change that moves a signing secret into the build
+  # job is refused before it merges.
+  trust-boundary:
+    name: "Check: release isolation"
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 10
+    steps:
+      - name: Set up forge-ci
+        uses: https://forge.example/examplescope/forge-ci/.forgejo/actions/setup-forge-ci@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+
+      - name: Checkout repository
+        run: |
+          set -euo pipefail
+          forge-ci platform checkout --depth 1
+
+      - name: Verify release isolation boundaries
+        uses: https://forge.example/examplescope/forge-ci/.forgejo/actions/check-l3-isolation@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          build-job: build
+          dist-digest-output: dist-digest
+
+  build:
+    name: "Check: build and test"
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: https://forge.example/examplescope/forge-ci/.forgejo/actions/checkout-consumer@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+
+      - name: Build and test
+        uses: https://forge.example/examplescope/forge-ci/.forgejo/actions/build-go@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
+        with:
+          version: 0.0.0-pr
+          commit: ${{ forgejo.sha }}
+          main-package: ./cmd/hello-cli
+          enable-build-sbom: 'false'

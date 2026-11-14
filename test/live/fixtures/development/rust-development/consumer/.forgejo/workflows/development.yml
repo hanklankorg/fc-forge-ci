@@ -1,0 +1,39 @@
+# Neutral coordinates are rebound to the tested engine by the live controller.
+name: Development
+on:
+  push:
+    branches: [development]
+jobs:
+  development:
+    name: 'Check: Rust development'
+    runs-on: ${{ fromJSON(vars.CI_CONTAINER_RUNNER_LABEL) }}
+    container:
+      image: ${{ vars.CI_RUST_BUILD_IMAGE }}
+    timeout-minutes: 45
+    env:
+      FORGE_CI_PROVIDER: forgejo
+      CI_IMAGE_BUILDER: ${{ vars.CI_IMAGE_BUILDER }}
+      CI_IMAGE_BUILDER_JOB_IMAGE: ${{ vars.CI_IMAGE_BUILDER_JOB_IMAGE }}
+    steps:
+      - name: Set up engine
+        uses: https://forge.example/engine/forge-ci/.forgejo/actions/setup-forge-ci@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - name: Checkout source
+        run: forge-ci platform checkout --depth 1
+      - name: Prepare builder
+        uses: https://forge.example/engine/forge-ci/.forgejo/actions/setup-image-builder@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - name: Build, scan and publish
+        env:
+          SOURCE_SHA: ${{ forgejo.sha }}
+          SERVER_URL: ${{ forgejo.server_url }}
+          REPOSITORY: ${{ forgejo.repository }}
+          REGISTRY_USER: ${{ vars.DEVELOPMENT_REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.DEVELOPMENT_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          server=${SERVER_URL#*://}
+          export IMAGE_REF="${server%/}/${REPOSITORY,,}"
+          bash ci/produce.sh
+      - name: Upload development evidence
+        env:
+          SOURCE_SHA: ${{ forgejo.sha }}
+        run: forge-ci artifact upload --name "fc-rust-dev-$SOURCE_SHA" --dir development-artifacts

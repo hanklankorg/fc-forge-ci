@@ -1,0 +1,207 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Cargo Builder
+#
+# Builds artifact-first Rust binaries and uploads them for release / container
+# consumption. Output filenames carry the platform suffix so GitHub Release
+# assets have unique basenames. Mirrors build-go.yml structurally so callers
+# can reason about both ecosystems uniformly. Build-layer SBOM (cargo-cyclonedx)
+# runs inline; container-first Rust crates remain on sbom-cargo.yml at publish
+# stage, exactly as before.
+name: Build Cargo
+on:
+  workflow_call: # yamllint disable-line rule:truthy
+    inputs:
+      test-selection-json:
+        description: "Administrator-owned individual Cargo executables, each with application/policy gate. Policy failures always block. Empty retains the legacy all-targets default: unsafe for hosted exclusions. Never source from consumer artifacts or dispatch inputs. Each run requires fresh native evidence."
+        type: string
+        required: false
+        default: ""
+      enforce-application-tests:
+        description: "Enforcement setting: false reports recognized test assertion failures without failing; the tests still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      working-directory:
+        description: "Working directory"
+        required: false
+        default: "."
+        type: string
+      branch:
+        description: "Branch, tag, or SHA to checkout. Empty uses the triggering ref."
+        required: false
+        default: ""
+        type: string
+      artifact-name:
+        description: "Artifact name for uploads (defaults to 'cargo-build-artifacts')"
+        required: false
+        default: ""
+        type: string
+      binary-name:
+        description: "Output binary name (defaults to the Cargo.toml [[bin]] target or package name)"
+        required: false
+        default: ""
+        type: string
+      platforms:
+        description: "Comma-separated GOOS/GOARCH targets. Each must map to a Rust target triple supported by the runtime image."
+        required: false
+        default: "linux/amd64"
+        type: string
+      version:
+        description: "Release version baked into the binary (defaults to github.ref_name without leading v)"
+        required: false
+        default: ""
+        type: string
+      commit:
+        description: "Prepared release commit SHA exposed to the Cargo build"
+        required: false
+        default: ""
+        type: string
+      source-date-epoch:
+        description: "Prepared release commit timestamp used for deterministic build metadata"
+        required: false
+        default: ""
+        type: string
+      skip-tests:
+        description: "Legacy input; true is refused. Admin policy controls findings, and tests still run."
+        required: false
+        default: false
+        type: boolean
+      enable-build-sbom:
+        description: "Generate CycloneDX Build SBOM with cargo-cyclonedx"
+        required: false
+        default: true
+        type: boolean
+      runtime-image:
+        description: "forge-ci runtime image carrying the Rust toolchain., pinned by digest (image@sha256:<64 hex>); the resolver refuses anything else before the job container starts."
+        required: true
+        type: string
+      runs-on:
+        description: "JSON array of runner labels for the ordinary jobs, read with fromJSON. Signing, promotion and publication jobs stay on GitHub-hosted runners."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      forge-ci-binary-ref:
+        description: "Full engine commit (40 hex) the workflow ref names; a tag or branch is refused"
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      images: |
+        runtime-image=${{ inputs['runtime-image'] }}
+  build-cargo:
+    needs: [resolve-bootstrap]
+    name: Build Cargo Project
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    timeout-minutes: 30
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      contents: read
+    steps:
+      - name: Guard working-directory stays inside the workspace
+        # Every upload below is rooted at this caller-supplied value. An
+        # absolute path or a parent step would take the artifact from outside
+        # the workspace, so it is refused here, before any step consumes it.
+        env:
+          WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
+        run: |
+          case "$WORKING_DIRECTORY" in
+            "") echo "working-directory must not be empty" >&2; exit 1 ;;
+            /*) echo "working-directory must be workspace-relative: $WORKING_DIRECTORY" >&2; exit 1 ;;
+          esac
+          case "/$WORKING_DIRECTORY/" in
+            */../*) echo "working-directory must not contain parent-directory steps: $WORKING_DIRECTORY" >&2; exit 1 ;;
+          esac
+      - name: Checkout repository
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CHECKOUT_REF: ${{ inputs.branch }}
+          CHECKOUT_FETCH_ALL_REFS: "true"
+        run: forge-ci platform checkout
+      # The image decides where cargo keeps crates; an image older or newer
+      # than this workflow then still restores them.
+      - name: Locate the cargo home
+        id: cargo-home
+        run: printf 'path=%s\n' "${CARGO_HOME:-$HOME/.cargo}" >>"$GITHUB_OUTPUT"
+      - name: Cache cargo registry and target dir
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ steps.cargo-home.outputs.path }}/registry/index
+            ${{ steps.cargo-home.outputs.path }}/registry/cache
+            ${{ steps.cargo-home.outputs.path }}/git/db
+            ${{ inputs['working-directory'] }}/target
+          key: cargo-build-${{ runner.os }}-${{ hashFiles(format('{0}/Cargo.lock', inputs['working-directory'])) }}
+          restore-keys: |
+            cargo-build-${{ runner.os }}-
+      - name: Checkout selected-test engine checksum policy
+        if: ${{ inputs['test-selection-json'] != '' }}
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          ref: ${{ inputs['forge-ci-binary-ref'] }}
+          path: .forge-ci-contract-engine
+          sparse-checkout: .engine
+          persist-credentials: false
+      - name: Verify the native test engine collaborator
+        if: ${{ inputs['test-selection-json'] != '' }}
+        id: contract-engine
+        shell: bash
+        env:
+          FORGE_CI_BIN: /usr/local/bin/forge-ci
+          SIGNER_STRICT: "1"
+        run: |
+          set -euo pipefail
+          source .forge-ci-contract-engine/.engine/bin/lib-forge-ci.sh
+          verify_forge_ci
+          printf 'binary-path=%s\n' "$HELPERS_ENGINE_VERIFIED" >>"$GITHUB_OUTPUT"
+      - name: Build Cargo project
+        # One step owns the whole build sequence (metadata → fetch → test → SBOM
+        # → compile → status); the binary threads metadata internally and the
+        # same `build cargo run` runs identically on GitLab. cargo-cyclonedx is
+        # baked into the runtime image. Only platform-transport steps (checkout,
+        # cache, upload) wrap it.
+        # It runs from the workspace root: the binary resolves
+        # WORKING_DIRECTORY itself, as on Forgejo and GitLab. A step-level
+        # working-directory as well would apply the directory twice.
+        env:
+          ADMIN_APPLICATION_TESTS: ${{ inputs['enforce-application-tests'] }}
+          ADMIN_TEST_SELECTION_JSON: ${{ inputs['test-selection-json'] }}
+          FORGE_CI_CONTRACT_BIN: ${{ steps.contract-engine.outputs.binary-path }}
+          WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
+          ARTIFACT_NAME: ${{ inputs['artifact-name'] }}
+          BINARY_NAME: ${{ inputs['binary-name'] }}
+          VERSION: ${{ inputs.version }}
+          CI_COMMIT: ${{ inputs.commit }}
+          SOURCE_DATE_EPOCH: ${{ inputs['source-date-epoch'] }}
+          REF_NAME: ${{ github.ref_name }}
+          PLATFORMS: ${{ inputs.platforms }}
+          SKIP_TESTS: ${{ inputs['skip-tests'] }}
+          ENABLE_BUILD_SBOM: ${{ inputs['enable-build-sbom'] }}
+        run: forge-ci build cargo run --enforce-application-tests="$ADMIN_APPLICATION_TESTS" --test-selection-json="$ADMIN_TEST_SELECTION_JSON"
+      - name: Upload Cargo artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs['artifact-name'] != '' && format('{0}-cargo-build-artifacts', inputs['artifact-name']) || 'cargo-build-artifacts' }}
+          path: ${{ inputs['working-directory'] }}/dist/**
+          retention-days: "7"
+          if-no-files-found: error
+      - name: Upload Cargo Build SBOM
+        if: ${{ inputs['enable-build-sbom'] }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs['artifact-name'] != '' && format('{0}-cargo-build-sbom', inputs['artifact-name']) || 'cargo-build-sbom' }}
+          path: |
+            ${{ inputs['working-directory'] }}/bom.json
+            ${{ inputs['working-directory'] }}/**/bom.json
+          retention-days: "7"
+          if-no-files-found: error

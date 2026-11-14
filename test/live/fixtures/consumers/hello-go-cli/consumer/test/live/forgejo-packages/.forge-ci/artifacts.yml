@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Example: a Go CLI whose Forgejo release also publishes its .deb, .rpm and
+# .apk packages to the owner's Debian, RPM and Alpine registries.
+#
+# Copy to .forge-ci/artifacts.yml beside forgejo/release-goreleaser.yml and
+# .goreleaser.yml, whose `nfpms:` builds the packages. That workflow sets
+# sign-distro-packages: 'true' in both calls, so each package also gets the
+# release's OpenPGP `.sig` file.
+#
+# The Forgejo release alone publishes distro packages: the GitHub and GitLab
+# releases refuse this block when they are planned.
+artifacts:
+  - name: my-cli
+    project-type: go
+    working-directory: .
+    config:
+      build-mode: artifact-first
+      main-package: ./cmd/my-cli
+      binary-name: my-cli
+      platforms: linux/amd64,linux/arm64
+
+git-signing:
+  method: ssh
+
+# The block is the opt-in: every .deb, .rpm and .apk file of the release
+# goes, unchanged, to the registry of its format. The places below are the
+# defaults, so `distro-packages: {}` says the same. An RPM group may have
+# several steps, such as rocky/el9.
+distro-packages:
+  debian:
+    distribution: stable
+    component: main
+  rpm:
+    group: stable
+  alpine:
+    branch: stable
+    repository: main

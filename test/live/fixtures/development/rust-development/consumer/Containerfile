@@ -1,0 +1,17 @@
+# Static native binaries are built and tested once by ci/build.sh.
+# Each runtime target has distinct contents and is scanned before publication.
+FROM scratch AS worker
+COPY target/release/worker /worker
+COPY target/release/key-tool /usr/local/bin/key-tool
+USER 65532:65532
+ENTRYPOINT ["/worker"]
+
+FROM scratch AS api-service
+COPY target/release/api-service /api-service
+USER 65532:65532
+ENTRYPOINT ["/api-service"]
+
+FROM scratch AS load-generator
+COPY target/release/load-generator /usr/local/bin/load-generator
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/load-generator"]

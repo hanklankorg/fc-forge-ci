@@ -1,0 +1,232 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# GolangCI-Lint baseline adapted from the shared Gommitlint configuration.
+# Project-specific settings belong in the sections marked local, with
+# each line explaining its reason. A project that enables a disabled linter removes it
+# from `disable` and lists it under a local `enable:` (golangci-lint refuses a
+# linter that is both), and deletes any marker it leaves empty: yamlfmt
+# re-indents a marker that follows a list.
+# Review it alongside changes to the golangci-lint pin.
+#
+# Every linter golangci-lint ships is on unless it is disabled below with a
+# reason, so a linter a new release adds is evaluated at the next bump rather
+# than silently skipped.
+version: "2"
+run:
+  # Local to this project: a cold-cache run of the live-tagged tree at
+  # concurrency 2 takes about six minutes; a timeout reports only part of
+  # the tree, so the budget leaves room for a slow host.
+  timeout: 15m
+  # Keep paths stable when this file moves within development/.
+  relative-path-mode: gomod
+  # Local to this project: include the live conformance tier in static
+  # analysis; default build constraints otherwise exclude every //go:build live file.
+  build-tags:
+    - live
+output:
+  formats:
+    text:
+      path: stdout
+      print-linter-name: true
+      print-issued-lines: true
+# Local to this project: report every finding in one run. A per-linter or
+# per-text cap, or one finding per line, hides the rest until the first ones
+# are fixed, so successive runs would report different sets.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: false
+linters:
+  default: all
+  disable:
+    - canonicalheader # net/http canonicalises names on Get/Set; provider docs spell headers such as PRIVATE-TOKEN.
+    - dupword # Repeated words are mostly false positives in prose doc comments.
+    - exhaustruct # Deprecated; replaced by exhaustruct_v5.
+    - exhaustruct_v5 # Most structs are deliberately partially initialised.
+    - forbidigo # Forbidden calls are per project; a project with rules enables it locally.
+    - funlen # cyclop, gocognit and maintidx already bound function size.
+    - gochecknoglobals # Package-level regexps, lookup tables and sentinel values are idiomatic Go.
+    - gomodguard # Deprecated; replaced by gomodguard_v2.
+    - gosmopolitan # Times show in the user's zone on purpose, and non-Latin literals are deliberate Unicode test data.
+    - ireturn # Factories and adapters legitimately return interfaces.
+    - lll # Long lines are prose and URLs; gofmt owns layout.
+    - mnd # Sizes, modes and statuses are named where the name adds meaning.
+    - noinlineerr # `if err := f(); err != nil` is idiomatic Go.
+    - paralleltest # Parallelism is chosen per test; t.Setenv and t.Chdir forbid it. tparallel keeps it consistent.
+    - tagliatelle # JSON and YAML tag names are external contracts.
+    - testpackage # Tests live in the package to exercise unexported seams.
+    - wrapcheck # Errors are wrapped where a caller gains context, not at every boundary.
+    - wsl # Deprecated; replaced by wsl_v5.
+    # Local to this project:
+  settings:
+    depguard:
+      rules:
+        # ADR 0004: every import arrow points inward at domain,
+        #
+        #   cli  -->  app  -->  domain  <--  adapters
+        #
+        # stated as the outward edges that must not exist. Each layer is the
+        # package itself or anything under it, hence a "$" (exact) and a "/"
+        # (subtree) entry per denied layer, so internal/clicolor is not cli.
+        # Test files are composition roots and exempt: app tests may wire the
+        # real git adapter. internal/testutil and test/live/internal/livetest are test
+        # infrastructure and bound by none of these (testutil may import
+        # adapters/git, livetest may import cli). Every other internal package
+        # is a utility, stated with negated globs so a new package is covered
+        # without being listed. Pure OpenPGP verification lives in internal/pgp,
+        # a utility, which is why app/validate may import it while
+        # adapters/openpgp stays out of reach.
+        layer-domain:
+          files:
+            - "**/internal/domain/**"
+            - "!$test"
+          deny:
+            - pkg: "github.com/diggsweden/forge-ci/internal/app$"
+              desc: domain holds rules, not sequencing; move the orchestration into internal/app and leave the rule behind
+            - pkg: github.com/diggsweden/forge-ci/internal/app/
+              desc: domain holds rules, not sequencing; move the orchestration into internal/app and leave the rule behind
+            - pkg: "github.com/diggsweden/forge-ci/internal/adapters$"
+              desc: domain must not know a concrete tool; declare a small interface (a port) in domain and let the adapter satisfy it
+            - pkg: github.com/diggsweden/forge-ci/internal/adapters/
+              desc: domain must not know a concrete tool; declare a small interface (a port) in domain and let the adapter satisfy it
+            - pkg: "github.com/diggsweden/forge-ci/internal/cli$"
+              desc: domain must not know it is driven by a CLI; pass the value in as a parameter instead
+            - pkg: github.com/diggsweden/forge-ci/internal/cli/
+              desc: domain must not know it is driven by a CLI; pass the value in as a parameter instead
+        layer-adapters:
+          files:
+            - "**/internal/adapters/**"
+            - "!$test"
+          deny:
+            - pkg: "github.com/diggsweden/forge-ci/internal/app$"
+              desc: an adapter is driven by a use case, never the reverse; invert the call, or move the shared logic into domain
+            - pkg: github.com/diggsweden/forge-ci/internal/app/
+              desc: an adapter is driven by a use case, never the reverse; invert the call, or move the shared logic into domain
+            - pkg: "github.com/diggsweden/forge-ci/internal/cli$"
+              desc: an adapter must not read flags; take the value as a struct field or parameter and let cmd/ wire it
+            - pkg: github.com/diggsweden/forge-ci/internal/cli/
+              desc: an adapter must not read flags; take the value as a struct field or parameter and let cmd/ wire it
+        layer-app:
+          files:
+            - "**/internal/app/**"
+            - "!$test"
+          deny:
+            - pkg: "github.com/diggsweden/forge-ci/internal/adapters$"
+              desc: a use case depends on a port, not a concrete tool; declare the interface it needs (see gitOps in app/validate/tags.go) and construct the adapter in internal/cli
+            - pkg: github.com/diggsweden/forge-ci/internal/adapters/
+              desc: a use case depends on a port, not a concrete tool; declare the interface it needs (see gitOps in app/validate/tags.go) and construct the adapter in internal/cli
+            - pkg: "github.com/diggsweden/forge-ci/internal/cli$"
+              desc: a use case must not parse flags or own stdout; accept an io.Writer and plain inputs and wire it in internal/cli
+            - pkg: github.com/diggsweden/forge-ci/internal/cli/
+              desc: a use case must not parse flags or own stdout; accept an io.Writer and plain inputs and wire it in internal/cli
+        layer-utility:
+          files:
+            - "**/internal/**"
+            - "!**/internal/domain/**"
+            - "!**/internal/adapters/**"
+            - "!**/internal/app/**"
+            - "!**/internal/cli/**"
+            - "!**/internal/testutil/**"
+            - "!**/test/live/internal/livetest/**"
+            - "!$test"
+          deny:
+            - pkg: "github.com/diggsweden/forge-ci/internal/app$"
+              desc: a shared utility must not orchestrate use cases; move orchestration into app or cli
+            - pkg: github.com/diggsweden/forge-ci/internal/app/
+              desc: a shared utility must not orchestrate use cases; move orchestration into app or cli
+            - pkg: "github.com/diggsweden/forge-ci/internal/adapters$"
+              desc: a shared utility must not construct concrete adapters; accept a narrow interface or move composition into cli
+            - pkg: github.com/diggsweden/forge-ci/internal/adapters/
+              desc: a shared utility must not construct concrete adapters; accept a narrow interface or move composition into cli
+            - pkg: "github.com/diggsweden/forge-ci/internal/cli$"
+              desc: a shared utility receives values, not CLI flags or composition code
+            - pkg: github.com/diggsweden/forge-ci/internal/cli/
+              desc: a shared utility receives values, not CLI flags or composition code
+        # The live tier's oracle only means anything if it shares no code with
+        # what it observes. An adapter that misread its own writes would
+        # otherwise agree with itself and the scenario would pass while the
+        # forge held something else. Keeping the import out makes that
+        # independence a build failure rather than a habit.
+        # golang.org/x/crypto/openpgp is frozen and unsafe by design
+        # (GO-2026-5932, which no x/crypto release fixes), yet stays in the
+        # module this tree needs for other packages. OpenPGP goes through
+        # ProtonMail's maintained fork, in internal/pgp and the adapters.
+        no-frozen-openpgp:
+          files:
+            - $all
+          deny:
+            - pkg: golang.org/x/crypto/openpgp
+              desc: frozen and unsafe by design (GO-2026-5932); use github.com/ProtonMail/go-crypto/openpgp
+        rawref-stays-independent:
+          files:
+            - "**/test/live/internal/livetest/rawref/**"
+          deny:
+            - pkg: github.com/diggsweden/forge-ci/internal/adapters
+              desc: the raw oracle must not use the adapters it is the oracle for
+            - pkg: github.com/diggsweden/forge-ci/internal/domain
+              desc: keep the oracle on wire types, so a domain change cannot reshape what the forge is said to hold
+    cyclop:
+      # CLI and configuration boundaries branch by explicit error class.
+      max-complexity: 15
+    exhaustive:
+      default-signifies-exhaustive: true
+    nolintlint:
+      # A suppression that silences nothing is noise the next change copies;
+      # one without a named linter and a reason cannot be reviewed.
+      allow-unused: false
+      require-specific: true
+      require-explanation: true
+    # govet's shadow analyzer stays off: it flags the idiomatic scoped rebind
+    # `if err := f(); err != nil` and `if _, ok := m[k]; !ok`.
+    varnamelen:
+      min-name-length: 2
+      max-distance: 15
+    revive:
+      severity: "warning"
+      confidence: 0.8
+      # Local to this project: Name() implements an interface whose contract
+      # documents it; no superfluous else after a returning branch keeps the
+      # happy path on the left edge.
+      rules:
+        - name: exported
+          disabled: false
+          exclude: ["Name"]
+        - name: indent-error-flow
+          disabled: false
+        - name: superfluous-else
+          disabled: false
+  exclusions:
+    generated: lax
+    paths:
+      - generated
+    rules:
+      - path: "_test\\.go"
+        linters:
+          - cyclop # A test walks one behavioural contract end to end; splitting it hides the sequence being proved.
+          - dupl # Parallel table cases look alike by design.
+          - err113 # Fakes fabricate the failure under test, often carrying a canary that must not leak.
+          - forcetypeassert # A wrong type in a fixture tree panics, which fails the test as plainly as t.Fatal.
+          - gocognit # As cyclop.
+          - goconst # Repeated literals keep table-driven fixtures readable.
+          - gocyclo # As cyclop.
+          - gosec # Tests deliberately exercise paths, URLs and secret-shaped values.
+          - maintidx # Parent tests group related subtests as one readable contract.
+          - nestif # Table cases nest their expectations under the case they belong to.
+      # Local to this project: live conformance scenarios run one after
+      # another while their per-forge subtests run in parallel, so each lab
+      # forge and its single runner serve one scenario at a time
+      # (docs/live-runs.md, "Within one scenario").
+      - path: "test/live/conformance/.*_test\\.go"
+        linters:
+          - tparallel
+      # Local to this project: the prepared case and lane tables, the list of
+      # the hosted cells and the table of the rows a changed path can affect
+      # are data. A demo name or a version repeated down a table is the table
+      # itself; every other literal in these files stays under goconst.
+      - path: "test/live/internal/livetest/(prepared(cases|lanes)|githubcells|affectedrows)\\.go"
+        text: "string `(hello-[a-z-]+|[0-9]+\\.[0-9]+\\.[0-9]+)` has"
+        linters:
+          - goconst

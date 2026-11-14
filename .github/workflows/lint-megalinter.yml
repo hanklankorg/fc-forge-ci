@@ -1,0 +1,196 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Description:
+# Alternative PR lint surface - runs MegaLinter against the consumer repository
+# and uploads its security findings to GitHub Code Scanning as SARIF. The peer
+# of lint-nanolinter.yml: selected by `lint-engine: megalinter` on the
+# pullrequest orchestrator. nanolinter and megalinter are mutually exclusive
+# (the PR plan runs at most one), so this never runs alongside nanolinter.
+#
+# MegaLinter runs its bundled linters using the caller-selected image and reads
+# the repository's `.mega-linter.yml`. The image reference must be pinned by
+# digest.
+#
+# The container acts as repository code: it receives a read token, a writable
+# checkout, and a read-write Docker socket. The socket permits control of the
+# host daemon, including containers and mounted host paths. Callers must review
+# and trust the exact image digest before selecting this engine.
+#
+# The job uses MegaLinter's exit status as the lint gate, emits SARIF, and uses
+# forge-ci to enrich and upload available findings to Code Scanning. That
+# forge-ci is the canonical CLI of the run, built by the caller's
+# canonical-cli-bootstrap.yml from the approved engine commit and received
+# before the consumer checkout; nothing is installed.
+name: Lint MegaLinter
+on:
+  workflow_call: # yamllint disable-line rule:truthy
+    inputs:
+      megalinter-image:
+        description: "Required trusted MegaLinter image reference pinned by @sha256:<64 lowercase hex>"
+        required: true
+        type: string
+      runs-on:
+        description: "JSON array of runner labels for the ordinary jobs, read with fromJSON. Signing, promotion and publication jobs stay on GitHub-hosted runners."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      forge-ci-binary-ref:
+        description: "Full approved engine commit the canonical CLI of this run was built from; the lint job receives exactly that build for its checkout, policy and SARIF commands"
+        required: true
+        type: string
+      runtime-image:
+        description: "Administrator-pinned forge-ci base runtime image@sha256 digest the canonical delivery of this run admitted; the job runs on the runner and checks the pin"
+        required: true
+        type: string
+      # Canonical delivery of the same run: canonical-cli-bootstrap.yml's
+      # outputs, forwarded by the quality stage or a direct caller. The job
+      # admits them before it checks anything out.
+      canonical-artifact-id: {type: string, required: true}
+      canonical-artifact-name: {type: string, required: true}
+      canonical-producer-run-id: {type: string, required: true}
+      canonical-producer-run-attempt: {type: string, required: true}
+      canonical-producer-engine-repository: {type: string, required: true}
+      canonical-producer-engine-commit: {type: string, required: true}
+      canonical-producer-result: {type: string, required: true}
+      upload-sarif:
+        description: "Upload MegaLinter's security SARIF to GitHub Code Scanning"
+        required: false
+        default: true
+        type: boolean
+      sarif-category:
+        description: "Code Scanning category label for the MegaLinter security SARIF"
+        required: false
+        default: "megalinter-security"
+        type: string
+    secrets:
+      CODE_SCANNING_TOKEN:
+        description: "Token with security-events:write for SARIF upload"
+        required: false
+permissions:
+  contents: read
+jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+  megalinter-lint:
+    needs: [resolve-bootstrap]
+    name: MegaLinter
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read # Canonical metadata/download; intentional read-only increase.
+    env:
+      # MegaLinter writes its SARIF here under the mounted workspace.
+      SARIF_FILE: megalinter-reports/megalinter-report.sarif
+    steps:
+      - name: Validate trusted MegaLinter image digest
+        env:
+          MEGALINTER_IMAGE: ${{ inputs['megalinter-image'] }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$MEGALINTER_IMAGE" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$ ]]; then
+            printf '::error::megalinter-image must be a reviewed image reference pinned by sha256 digest\n'
+            exit 64
+          fi
+      - name: Require original canonical success and approved identity
+        # Before the consumer checkout: the canonical CLI of this run, built
+        # from the approved engine commit, is the only forge-ci this job runs.
+        shell: /bin/bash --noprofile --norc -peuo pipefail {0}
+        env:
+          ENGINE_REPOSITORY: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          ENGINE_COMMIT: ${{ inputs['forge-ci-binary-ref'] }}
+          ENGINE_ORIGIN: ${{ github.server_url }}/${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          RUNTIME_IMAGE: ${{ inputs['runtime-image'] }}
+          PRODUCER_ARTIFACT_ID: ${{ inputs['canonical-artifact-id'] }}
+          PRODUCER_ARTIFACT_NAME: ${{ inputs['canonical-artifact-name'] }}
+          PRODUCER_RUN_ID: ${{ inputs['canonical-producer-run-id'] }}
+          PRODUCER_RUN_ATTEMPT: ${{ inputs['canonical-producer-run-attempt'] }}
+          PRODUCER_ENGINE_REPOSITORY: ${{ inputs['canonical-producer-engine-repository'] }}
+          PRODUCER_ENGINE_COMMIT: ${{ inputs['canonical-producer-engine-commit'] }}
+          CANONICAL_PRODUCER_RESULT: ${{ inputs['canonical-producer-result'] }}
+        run: |
+          [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ && "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CANONICAL_PRODUCER_RESULT" == success && "$PRODUCER_RUN_ID" == "$GITHUB_RUN_ID" && "$PRODUCER_RUN_ATTEMPT" == "$GITHUB_RUN_ATTEMPT" ]]
+          [[ "$ENGINE_REPOSITORY" =~ ^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*$ && "$ENGINE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PRODUCER_ENGINE_REPOSITORY" == "$ENGINE_REPOSITORY" && "$PRODUCER_ENGINE_COMMIT" == "$ENGINE_COMMIT" ]]
+          [[ "$PRODUCER_ARTIFACT_ID" =~ ^[1-9][0-9]*$ && "$PRODUCER_ARTIFACT_NAME" == "forge-ci-canonical-linux-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ENGINE_COMMIT" ]]
+          [[ "$RUNTIME_IMAGE" =~ ^[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}$ ]]
+          [[ "$GITHUB_SERVER_URL" =~ ^https://[^/?#@[:space:]]+$ && "$ENGINE_ORIGIN" == "$GITHUB_SERVER_URL/$ENGINE_REPOSITORY" ]]
+          for variable in ENGINE_REPOSITORY ENGINE_COMMIT ENGINE_ORIGIN RUNTIME_IMAGE PRODUCER_ARTIFACT_ID PRODUCER_ARTIFACT_NAME PRODUCER_RUN_ID PRODUCER_RUN_ATTEMPT PRODUCER_ENGINE_REPOSITORY PRODUCER_ENGINE_COMMIT CANONICAL_PRODUCER_RESULT; do
+            printf '%s=%s\n' "$variable" "${!variable}" >>"$GITHUB_ENV"
+          done
+      - name: Checkout only the approved engine before consumer or private steps
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ env.ENGINE_REPOSITORY }}
+          ref: ${{ env.ENGINE_COMMIT }}
+          path: _forge_ci_bootstrap
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - name: Consume canonical CLI from the independently pinned engine checkout
+        id: canonical-bootstrap
+        uses: ./_forge_ci_bootstrap/.github/actions/consume-canonical-cli
+        with:
+          tool-profile: host # Docker and the consumer checkout in scope: root-owned system tools only.
+      - name: Checkout repository
+        # Full history so MegaLinter can scope to the PR diff against the base.
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+      - name: Run MegaLinter (security gate)
+        # Runs the validated digest-pinned MegaLinter container over the workspace. SARIF_REPORTER
+        # emits the SARIF the steps below upload; DISABLE_ERRORS=false makes a
+        # blocking finding fail the container (the lint gate). The step fails
+        # directly so the red lands HERE; the SARIF steps still run via
+        # `if: always()`, so findings reach Code Scanning even on a failed gate.
+        env:
+          MEGALINTER_IMAGE: ${{ inputs['megalinter-image'] }}
+          GITHUB_TOKEN: ${{ github.token }}
+          # A pull request's diff-mode comparison (VALIDATE_ALL_CODEBASE:
+          # false) is with its base; MegaLinter otherwise takes the default
+          # branch. The full-history checkout holds origin/<base>.
+          PR_BASE_REF: ${{ github.base_ref }}
+        run: |
+          # Pull first: a failed pull is the workflow's image, not a lint
+          # finding, and must not be reported as one.
+          if ! docker pull --quiet "$MEGALINTER_IMAGE" >/dev/null; then
+            printf '::error::cannot pull the MegaLinter image %s; set megalinter-image to an image this runner can pull (this is not a lint finding).\n' "$MEGALINTER_IMAGE"
+            exit 1
+          fi
+          base=()
+          if [ -n "$PR_BASE_REF" ]; then base=(-e "DEFAULT_BRANCH=${PR_BASE_REF}"); fi
+          set +e
+          docker run --rm --pull never \
+            -v /var/run/docker.sock:/var/run/docker.sock:rw \
+            -v "${GITHUB_WORKSPACE}:/tmp/lint:rw" \
+            -e SARIF_REPORTER=true \
+            -e DISABLE_ERRORS=false \
+            -e GITHUB_TOKEN \
+            "${base[@]}" \
+            "$MEGALINTER_IMAGE"
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            printf '::error::MegaLinter found blocking lint issues — see the MegaLinter summary above (this is a lint gate on your code, not a workflow error).\n'
+          fi
+          exit "$rc"
+      - name: Enrich + upload MegaLinter SARIF to Code Scanning
+        # Gated on the canonical receive: without the verified CLI this skips
+        # honestly rather than faking success. continue-on-error so a
+        # transient Code Scanning API failure doesn't turn the lint gate red —
+        # the gate is the "Run MegaLinter" step above.
+        if: always() && inputs.upload-sarif && steps.canonical-bootstrap.outputs.verified == 'true'
+        continue-on-error: true
+        env:
+          CODE_SCANNING_TOKEN: ${{ secrets.CODE_SCANNING_TOKEN }}
+          SARIF_CATEGORY: ${{ inputs.sarif-category }}
+        run: |
+          set -euo pipefail
+          [ -f "$SARIF_FILE" ] || exit 0
+          forge-ci security report enrich-sarif
+          forge-ci security report upload-sarif

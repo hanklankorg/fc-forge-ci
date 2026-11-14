@@ -1,0 +1,190 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Maven Builder
+# 
+# Purpose: Builds Maven projects (applications or libraries) and uploads artifacts
+# for subsequent publishing steps. Separates build logic from registry-specific publishing.
+#
+# Build Types:
+#   - app: Application lifecycle (normally a main JAR)
+#   - lib: Library lifecycle with an optional profile
+# The project POM/profile owns all attached sources and javadoc artifacts.
+#
+# Outputs:
+#   - Artifacts uploaded as '<artifact-name>-build-artifacts' or 'maven-build-artifacts' for use by publish-* workflows
+#
+# Required Permissions:
+#   contents: read  # Checkout code
+#
+name: Build Maven
+on:
+  workflow_call:
+    inputs:
+      enforce-application-tests:
+        description: "Enforcement setting: false reports recognized test assertion failures without failing; the tests still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      build-type:
+        description: "Lifecycle: app (clean package) or lib (compile/test/package with optional profile; POM owns attached artifacts)"
+        required: true
+        type: string
+      working-directory:
+        description: "Working directory"
+        required: false
+        default: "."
+        type: string
+      private-dependencies:
+        description: "Allow read-only private package access for Maven; requires settings-path and refuses fork pull requests."
+        required: false
+        default: false
+        type: boolean
+      settings-path:
+        description: "Consumer settings.xml; reference env.DEPENDENCY_TOKEN and env.DEPENDENCY_USERNAME for private repositories."
+        required: false
+        default: ""
+        type: string
+      skip-tests:
+        description: "Legacy input; true is refused. Admin policy controls findings, and tests still run."
+        required: false
+        default: false
+        type: boolean
+      branch:
+        description: "Branch, tag, or SHA to checkout. Empty uses the triggering ref."
+        required: false
+        default: ""
+        type: string
+      profile:
+        description: "Maven profile to activate (e.g., central-release for libraries)"
+        required: false
+        default: ""
+        type: string
+      artifact-name:
+        description: "Logical artifact name for upload naming (defaults to 'maven-build-artifacts' when empty)"
+        required: false
+        default: ""
+        type: string
+      enable-build-sbom:
+        description: "Run the cyclonedx plugin step (false skips Build SBOM generation entirely; derived from per-artefact 'sboms' when called from release-build-stage)"
+        required: false
+        default: true
+        type: boolean
+      runtime-image:
+        description: "forge-ci runtime image carrying JDK + Maven., pinned by digest (image@sha256:<64 hex>); the resolver refuses anything else before the job container starts."
+        required: true
+        type: string
+      runs-on:
+        description: "JSON array of runner labels for the ordinary jobs, read with fromJSON. Signing, promotion and publication jobs stay on GitHub-hosted runners."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      forge-ci-binary-ref:
+        description: "Full engine commit (40 hex) the workflow ref names; a tag or branch is refused"
+        required: true
+        type: string
+permissions:
+  contents: read
+env:
+  MAVEN_CLI_OPTS: "--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always"
+jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      images: |
+        runtime-image=${{ inputs['runtime-image'] }}
+  build-maven:
+    needs: [resolve-bootstrap]
+    name: Build Maven Project
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    timeout-minutes: 30
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Refuse private dependency access from fork pull requests
+        if: ${{ inputs['private-dependencies'] && startsWith(github.event_name, 'pull_request') && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: forge-ci validate event-context
+      - name: Guard working-directory stays inside the workspace
+        # Every upload below is rooted at this caller-supplied value. An
+        # absolute path or a parent step would take the artifact from outside
+        # the workspace, so it is refused here, before any step consumes it.
+        env:
+          WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
+        run: |
+          case "$WORKING_DIRECTORY" in
+            "") echo "working-directory must not be empty" >&2; exit 1 ;;
+            /*) echo "working-directory must be workspace-relative: $WORKING_DIRECTORY" >&2; exit 1 ;;
+          esac
+          case "/$WORKING_DIRECTORY/" in
+            */../*) echo "working-directory must not contain parent-directory steps: $WORKING_DIRECTORY" >&2; exit 1 ;;
+          esac
+      - name: Checkout repository
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CHECKOUT_REF: ${{ inputs.branch }}
+        run: forge-ci platform checkout
+      - name: Cache Maven dependencies
+        if: ${{ !inputs['private-dependencies'] }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ hashFiles(format('{0}/pom.xml', inputs['working-directory']), format('{0}/**/pom.xml', inputs['working-directory'])) }}
+          restore-keys: maven-
+      - name: Build Maven project
+        # One step owns the whole build sequence (install → metadata → app/lib
+        # build → SBOM → summaries); the binary threads metadata internally and
+        # branches on --build-type, so the same `build maven run` runs
+        # identically on GitLab. The per-step variations (build type, profile,
+        # SBOM plugin version, skip-tests) are configuration here. The CLI binds
+        # metadata and every Maven subprocess to the selected project directory.
+        env:
+          WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
+          ADMIN_APPLICATION_TESTS: ${{ inputs['enforce-application-tests'] }}
+          BUILD_TYPE: ${{ inputs['build-type'] }}
+          MAVEN_PROFILE: ${{ inputs['profile'] }}
+          SKIP_TESTS: ${{ inputs['skip-tests'] }}
+          ENABLE_BUILD_SBOM: ${{ inputs['enable-build-sbom'] }}
+          JAVA_VERSION: "25"
+          PRIVATE_DEPENDENCIES: ${{ inputs['private-dependencies'] }}
+          MAVEN_SETTINGS_PATH: ${{ inputs['settings-path'] }}
+          DEPENDENCY_USERNAME: ${{ github.actor }}
+          DEPENDENCY_TOKEN: ${{ inputs['private-dependencies'] && github.token || '' }}
+          # renovate: datasource=maven depName=org.cyclonedx:cyclonedx-maven-plugin
+          CYCLONEDX_MAVEN_VERSION: "2.9.3"
+        run: forge-ci build maven run --enforce-application-tests="$ADMIN_APPLICATION_TESTS"
+      - name: Upload Maven artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs['artifact-name'] && format('{0}-build-artifacts', inputs['artifact-name']) || 'maven-build-artifacts' }}
+          path: |
+            ${{ inputs['working-directory'] }}/pom.xml
+            ${{ inputs['working-directory'] }}/**/pom.xml
+            ${{ inputs['working-directory'] }}/target/*.jar
+            ${{ inputs['working-directory'] }}/target/*.war
+            ${{ inputs['working-directory'] }}/target/*.pom
+            ${{ inputs['working-directory'] }}/**/target/*.jar
+            ${{ inputs['working-directory'] }}/**/target/*.war
+            ${{ inputs['working-directory'] }}/**/target/*.pom
+            !${{ inputs['working-directory'] }}/target/original-*.jar
+            !${{ inputs['working-directory'] }}/**/target/original-*.jar
+          retention-days: 7
+          if-no-files-found: error
+      # Build SBOM is a separate compliance deliverable; keeping it in its
+      # own artifact means a broken SBOM plugin can't take down the code
+      # artifact and downstream consumers can fetch just what they need.
+      - name: Upload Maven Build SBOM
+        if: ${{ inputs['enable-build-sbom'] }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs['artifact-name'] && format('{0}-build-sbom', inputs['artifact-name']) || 'maven-build-sbom' }}
+          path: |
+            ${{ inputs['working-directory'] }}/target/bom.json
+            ${{ inputs['working-directory'] }}/**/target/bom.json
+          retention-days: 7
+          if-no-files-found: error

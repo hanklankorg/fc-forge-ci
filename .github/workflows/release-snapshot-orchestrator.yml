@@ -1,0 +1,544 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Release Snapshot Orchestrator
+# 
+# Purpose: Lightweight orchestrator for development builds. Provides fast
+# feedback loops by keeping the production control-plane shape while skipping
+# release-only features such as signing and GitHub Release creation.
+#
+# How it works:
+# 1. Triggers on pushes to development branches (develop, feature/*)
+# 2. Builds configured artifact-first ecosystems
+# 3. Optionally publishes NPM package to GitHub Packages (snapshot tag)
+# 4. Optionally generates SBOMs when the `sboms` input opts in
+# 5. Skips release-only features (SLSA, signing, GitHub releases)
+#
+# Declared containers publish by default from the same resolved commit as the
+# artifact builds. Snapshot image tags end in -snapshot and never move release
+# aliases or the production promotion ladder. Scanning and image SBOMs follow
+# each container's configuration; package SBOM selection is independent.
+#
+# Security controls:
+# - Refuse pull-request publication; isolate image builds from registry secrets
+# - Packages clearly marked with -snap namespace / snapshot tag
+# - No production attestations or signing
+#
+# Registry Authentication:
+#   GitHub Packages (default): Uses GITHUB_TOKEN (no secrets needed)
+#   Other registries: Set use-ci-token=false and provide registry-password secret
+#
+# Required Secrets:
+#   registry-password: Required when use-ci-token=false (for npmjs.org, etc)
+#
+# Required Permissions:
+#   actions: read    # Download workflow artifacts
+#   contents: read   # Read source code
+#   packages: write  # Publish snapshots to GitHub Packages
+#
+# Differences from Production:
+#   - Snapshot tags (0.5.9-snapshot-feat-name-abc1234) vs version tags
+#   - No SLSA attestation
+#   - SBOM generation defaults to none; opt in with `sboms`
+#   - Container scanning follows configuration
+#   - No artifact signing
+#   - No GitHub release
+#   - ~3-5 min vs ~12-15 min build time
+name: Orchestrate Snapshot Release
+on:
+  workflow_call: # yamllint disable-line rule:truthy
+    inputs:
+      enforce-application-tests:
+        description: "Enforcement setting: false reports recognized test assertion failures without failing; the tests still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      enforce-vulnerabilities:
+        description: "Enforcement setting: false reports vulnerability findings without failing; the scans still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      branch:
+        description: "Explicit branch, tag, or SHA used for the snapshot build and publish"
+        required: true
+        type: string
+      artifacts-config:
+        description: "Path to the artifacts config file. Defaults to .forge-ci/artifacts.yml. The snapshot release reads containers and per-artefact configuration from this file; auto-derives when the file is absent and the repo has exactly one root manifest."
+        required: false
+        default: ".forge-ci/artifacts.yml"
+        type: string
+      project-type:
+        description: "Project type override. Optional — defaults to the first artefact's project-type from artifacts.yml."
+        required: false
+        default: ""
+        type: string
+      registry:
+        description: "Snapshot container registry (default ghcr.io)"
+        required: false
+        default: "ghcr.io"
+        type: string
+      publish-containers:
+        description: "Publish declared snapshot containers; false is an explicit opt-out"
+        default: true
+        type: boolean
+      publish-files:
+        description: "Keep the built files of every declared artifact its ecosystem builds outside an image (go, cargo, maven, gradle, npm) as unsigned workflow artifacts, named <artifact>-<snapshot version> and kept for 7 days. See docs/workflows.md, Snapshot files."
+        default: false
+        type: boolean
+      container-image-repository:
+        description: "Base image repository override; empty uses <registry>/<owner>/<repository>"
+        default: ""
+        type: string
+      container-registry-user:
+        default: ""
+        type: string
+      working-directory:
+        description: "Working directory"
+        required: false
+        default: "."
+        type: string
+      java-version:
+        description: "Java version (for maven/gradle)"
+        required: false
+        default: "25"
+        type: string
+      node-version:
+        description: "Node.js version (for npm)"
+        required: false
+        default: "24"
+        type: string
+      rust-toolchain:
+        description: "Rust toolchain (for cargo). Ignored when working-directory contains rust-toolchain.toml."
+        required: false
+        default: "stable"
+        type: string
+      publish-npm:
+        description: "Publish NPM package to registry (npm projects only)"
+        required: false
+        default: true
+        type: boolean
+      publish-maven-snapshots:
+        description: "Opt into Maven-format snapshot publication for Maven, Gradle JVM and Android libraries."
+        required: false
+        default: false
+        type: boolean
+      npm-registry:
+        description: "NPM registry URL"
+        required: false
+        default: "https://npm.pkg.github.com"
+        type: string
+      package-scope:
+        description: "Required NPM package scope, e.g. @<github-repository-owner>"
+        required: false
+        default: ""
+        type: string
+      use-ci-token:
+        description: "Use GITHUB_TOKEN for GitHub Packages authentication. Set false for external NPM registries."
+        required: false
+        default: true
+        type: boolean
+      runs-on:
+        description: "JSON array of runner labels for the ordinary jobs, read with fromJSON. Signing, promotion and publication jobs stay on GitHub-hosted runners."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      runs-on-darwin-arm64:
+        description: "JSON array of runner labels for the macOS arm64 jobs, read with fromJSON."
+        required: false
+        default: '["macos-26"]'
+        type: string
+      build-runs-on-linux-amd64:
+        description: "JSON array of runner labels for the linux/amd64 image builds, read with fromJSON. The runner must permit the user namespaces Buildah needs."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      build-runs-on-linux-arm64:
+        description: "JSON array of runner labels for the linux/arm64 image builds, read with fromJSON. The runner must permit the user namespaces Buildah needs."
+        required: false
+        default: '["ubuntu-26.04-arm"]'
+        type: string
+      forge-ci-binary-ref:
+        description: "Full approved engine commit (40 hex). The canonical CLI every control-plane job and host build leg runs is built from exactly this commit; the stages pin their callees to it."
+        required: true
+        type: string
+      runtime-image:
+        description: "Administrator-pinned forge-ci base runtime image@sha256 digest for control-plane, canonical receive and snapshot-image plan, context and collect jobs. Tags are refused by canonical admission."
+        required: true
+        type: string
+      canonical-builder-image:
+        description: "Administrator-pinned Go-qualified image@sha256 digest for the canonical CLI build only. No fallback to policy or product runtimes."
+        required: true
+        type: string
+      runtime-image-full:
+        description: "Administrator-pinned forge-ci full runtime image@sha256 digest: the snapshot publish stage and image publication run in it on every snapshot."
+        required: true
+        type: string
+      runtime-image-java:
+        description: "forge-ci Java runtime image for Maven/Gradle jobs. Pinned by digest (image@sha256:<64 hex>); required when the plan runs a job in it, which refuses an empty or unpinned value before its container starts."
+        required: false
+        default: ""
+        type: string
+      runtime-image-node:
+        description: "forge-ci Node runtime image for NPM jobs. Pinned by digest (image@sha256:<64 hex>); required when the plan runs a job in it, which refuses an empty or unpinned value before its container starts."
+        required: false
+        default: ""
+        type: string
+      runtime-image-rust:
+        description: "forge-ci Rust runtime image for Cargo build + SBOM jobs (build-cargo.yml for artefact-first, sbom-cargo.yml for container-first). Pinned by digest (image@sha256:<64 hex>); required when the plan runs a job in it, which refuses an empty or unpinned value before its container starts."
+        required: false
+        default: ""
+        type: string
+      runtime-image-go:
+        description: "forge-ci Go runtime image for Go build/SBOM jobs. Pinned by digest (image@sha256:<64 hex>); required when the plan runs a job in it, which refuses an empty or unpinned value before its container starts."
+        required: false
+        default: ""
+        type: string
+      runtime-image-android:
+        description: "forge-ci Android runtime image for Gradle Android jobs. Pinned by digest (image@sha256:<64 hex>); required when the plan runs a job in it, which refuses an empty or unpinned value before its container starts."
+        required: false
+        default: ""
+        type: string
+      sboms:
+        description: "SBOMs to generate: all | none | comma-list of build,analyzed-artifact,analyzed-container (default: none for snapshot speed; set to 'all' to test SBOM wiring)"
+        required: false
+        default: "none"
+        type: string
+    # Snapshot orchestrator: forwards to release-snapshot-build-stage (which
+    # may need Android/iOS signing secrets via gradle-android /
+    # xcode-ios leaves) and release-snapshot-publish-stage (only needs
+    # GITHUB_TOKEN auto-provided + the external registry-password).
+    # All `required: false` — `secrets: inherit` callers unchanged.
+    secrets:
+      container-registry-password:
+        description: "OCI registry credential; GitHub token is used for GHCR when omitted"
+        required: false
+      MAVEN_CENTRAL_USERNAME:
+        required: false
+      MAVEN_CENTRAL_PASSWORD:
+        required: false
+      registry-password:
+        description: "External NPM registry token (required when use-ci-token=false)"
+        required: false
+      ANDROID_KEYSTORE:
+        description: "Base64-encoded Android signing keystore"
+        required: false
+      ANDROID_KEYSTORE_PASSWORD:
+        description: "Password for ANDROID_KEYSTORE"
+        required: false
+      ANDROID_KEY_ALIAS:
+        description: "Alias of the signing key inside ANDROID_KEYSTORE"
+        required: false
+      ANDROID_KEY_PASSWORD:
+        description: "Password for the key referenced by ANDROID_KEY_ALIAS"
+        required: false
+      SECRETS_PROPERTIES_BASE64:
+        description: "Base64-encoded Android secrets.properties"
+        required: false
+      IOS_SIGNING_CERTIFICATE_BASE64:
+        description: "Base64-encoded .p12 code-signing certificate"
+        required: false
+      IOS_SIGNING_CERTIFICATE_PASSPHRASE:
+        description: "Passphrase for IOS_SIGNING_CERTIFICATE_BASE64"
+        required: false
+      PROVISIONING_PROFILE_BASE64:
+        description: "Base64-encoded provisioning profile"
+        required: false
+      XCCONFIG_BASE64:
+        description: "Base64-encoded xcconfig file"
+        required: false
+    outputs:
+      container-images-json:
+        description: "Complete source-bound snapshot image inventory with immutable digest refs"
+        value: ${{ jobs.execute-snapshot-images.outputs.container-images-json }}
+      npm-package-name:
+        description: "Published NPM package name (if published)"
+        value: ${{ fromJson(jobs.execute-snapshot-publish-stage.outputs['artifacts-json'] || '{}').npm_package_name }}
+      npm-package-version:
+        description: "Published NPM package version (if published)"
+        value: ${{ fromJson(jobs.execute-snapshot-publish-stage.outputs['artifacts-json'] || '{}').npm_package_version }}
+permissions:
+  contents: read # Default permission; individual jobs declare additions.
+jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      images: |
+        runtime-image=${{ inputs['runtime-image'] }}
+  canonical-cli:
+    needs: [resolve-bootstrap]
+    permissions:
+      contents: read
+      actions: read
+    # Integrated delivery owner; the approved engine commit must also contain
+    # the consumer action/script used by each receiving job.
+    uses: ./.github/workflows/canonical-cli-bootstrap.yml
+    with:
+      engine-repository: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+      engine-commit: ${{ inputs['forge-ci-binary-ref'] }}
+      runtime-image: ${{ inputs['canonical-builder-image'] }}
+      receive-runtime-image: ${{ inputs['runtime-image'] }}
+
+  # ===== Stage 0: Configuration And Policy =====
+  # Single Setup job mirroring release-orchestrator.yml's parse-config shape.
+  # Conditionally parses artifacts.yml when `artifacts-config` is set
+  # (multi-artefact path); always composes the snapshot control-plane interface
+  # consumed by every later stage.
+  setup-snapshot:
+    needs: [resolve-bootstrap, canonical-cli]
+    if: ${{ !failure() && !cancelled() && needs.canonical-cli.result == 'success' }}
+    name: Prepare
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      contents: read
+      actions: read # Canonical metadata/download; intentional read-only increase.
+    outputs:
+      config-plan-json: ${{ steps.parse.outputs.config-plan-json }}
+      snapshot-release-plan-json: ${{ steps.plan.outputs.snapshot-release-plan-json }}
+      snapshot-build-stage-plan-json: ${{ steps.plan.outputs.snapshot-build-stage-plan-json }}
+      snapshot-publish-stage-plan-json: ${{ steps.plan.outputs.snapshot-publish-stage-plan-json }}
+      artifact-transfer-plan-json: ${{ steps.plan.outputs.artifact-transfer-plan-json }}
+    steps:
+      - &canonical-context
+        name: Require original canonical success and approved identity
+        shell: /bin/bash --noprofile --norc -peuo pipefail {0}
+        env:
+          ENGINE_REPOSITORY: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          ENGINE_COMMIT: ${{ inputs['forge-ci-binary-ref'] }}
+          ENGINE_ORIGIN: ${{ github.server_url }}/${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          RUNTIME_IMAGE: ${{ inputs['runtime-image'] }}
+          PRODUCER_ARTIFACT_ID: ${{ needs.canonical-cli.outputs.artifact-id }}
+          PRODUCER_ARTIFACT_NAME: ${{ needs.canonical-cli.outputs.artifact-name }}
+          PRODUCER_RUN_ID: ${{ needs.canonical-cli.outputs.producer-run-id }}
+          PRODUCER_RUN_ATTEMPT: ${{ needs.canonical-cli.outputs.producer-run-attempt }}
+          PRODUCER_ENGINE_REPOSITORY: ${{ needs.canonical-cli.outputs.engine-repository }}
+          PRODUCER_ENGINE_COMMIT: ${{ needs.canonical-cli.outputs.engine-commit }}
+          CANONICAL_PRODUCER_RESULT: ${{ needs.canonical-cli.result }}
+        run: |
+          [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ && "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CANONICAL_PRODUCER_RESULT" == success && "$PRODUCER_RUN_ID" == "$GITHUB_RUN_ID" && "$PRODUCER_RUN_ATTEMPT" == "$GITHUB_RUN_ATTEMPT" ]]
+          [[ "$ENGINE_REPOSITORY" =~ ^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*$ && "$ENGINE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PRODUCER_ENGINE_REPOSITORY" == "$ENGINE_REPOSITORY" && "$PRODUCER_ENGINE_COMMIT" == "$ENGINE_COMMIT" ]]
+          [[ "$PRODUCER_ARTIFACT_ID" =~ ^[1-9][0-9]*$ && "$PRODUCER_ARTIFACT_NAME" == "forge-ci-canonical-linux-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ENGINE_COMMIT" ]]
+          [[ "$RUNTIME_IMAGE" =~ ^[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}$ ]]
+          [[ "$GITHUB_SERVER_URL" =~ ^https://[^/?#@[:space:]]+$ && "$ENGINE_ORIGIN" == "$GITHUB_SERVER_URL/$ENGINE_REPOSITORY" ]]
+          for variable in ENGINE_REPOSITORY ENGINE_COMMIT ENGINE_ORIGIN RUNTIME_IMAGE PRODUCER_ARTIFACT_ID PRODUCER_ARTIFACT_NAME PRODUCER_RUN_ID PRODUCER_RUN_ATTEMPT PRODUCER_ENGINE_REPOSITORY PRODUCER_ENGINE_COMMIT CANONICAL_PRODUCER_RESULT; do
+            printf '%s=%s\n' "$variable" "${!variable}" >>"$GITHUB_ENV"
+          done
+      - &canonical-checkout
+        name: Checkout only the approved engine before consumer or private steps
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ env.ENGINE_REPOSITORY }}
+          ref: ${{ env.ENGINE_COMMIT }}
+          path: _forge_ci_bootstrap
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - &canonical-consume
+        name: Consume canonical CLI from the independently pinned engine checkout
+        id: canonical-bootstrap
+        uses: ./_forge_ci_bootstrap/.github/actions/consume-canonical-cli
+        with:
+          tool-profile: runtime # The job container is the approved image.
+      # Defense-in-depth gate at the top of the snapshot-release pipeline.
+      # Every downstream job depends on setup-snapshot via `needs:`, so
+      # refusal here aborts the whole snapshot release. forge-ci is
+      # pre-baked in the runtime image; no install step needed.
+      - name: Refuse PR-context trigger (publish/release secrets in scope)
+        run: forge-ci validate event-context
+      - name: Checkout caller repository
+        id: checkout
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CHECKOUT_REF: ${{ inputs.branch }}
+        run: forge-ci platform checkout
+      - name: Parse artifacts.yml
+        id: parse
+        run: forge-ci config parse-artifacts
+        env:
+          ARTIFACTS_CONFIG: ${{ inputs['artifacts-config'] }}
+      - name: Plan snapshot release
+        id: plan
+        env:
+          RUNNER_ORDINARY: ${{ inputs['runs-on'] }}
+          RUNNER_BUILD_AMD64: ${{ inputs['build-runs-on-linux-amd64'] }}
+          RUNNER_BUILD_ARM64: ${{ inputs['build-runs-on-linux-arm64'] }}
+          RUNNER_DARWIN_ARM64: ${{ inputs['runs-on-darwin-arm64'] }}
+          CONFIG_PLAN_JSON: ${{ steps.parse.outputs.config-plan-json }}
+          PROJECT_TYPE: ${{ inputs['project-type'] }}
+          BRANCH: ${{ inputs.branch }}
+          RELEASE_SHA: ${{ steps.checkout.outputs['checkout-sha'] }}
+          RELEASE_ACTOR: ${{ github.actor }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
+          JAVA_VERSION: ${{ inputs['java-version'] }}
+          NODE_VERSION: ${{ inputs['node-version'] }}
+          RUST_TOOLCHAIN: ${{ inputs['rust-toolchain'] }}
+          REGISTRY: ${{ inputs.registry }}
+          FORGE_CI_BINARY_REF: ${{ inputs['forge-ci-binary-ref'] }}
+          NPM_REGISTRY: ${{ inputs['npm-registry'] }}
+          PACKAGE_SCOPE: ${{ inputs['package-scope'] }}
+          SBOMS: ${{ inputs.sboms }}
+          PUBLISH_NPM: ${{ inputs['publish-npm'] }}
+          PUBLISH_MAVEN_SNAPSHOTS: ${{ inputs['publish-maven-snapshots'] }}
+          USE_CI_TOKEN: ${{ inputs['use-ci-token'] }}
+        run: |
+          forge-ci plan snapshot-release \
+            --runner-input "runs-on=$RUNNER_ORDINARY" \
+            --runner-input "build-runs-on-linux-amd64=$RUNNER_BUILD_AMD64" \
+            --runner-input "build-runs-on-linux-arm64=$RUNNER_BUILD_ARM64" \
+            --runner-input "runs-on-darwin-arm64=$RUNNER_DARWIN_ARM64"
+
+  # ===== Stage 1: Build =====
+  execute-snapshot-build-stage:
+    name: Build
+    needs: [resolve-bootstrap, setup-snapshot]
+    if: ${{ !failure() && !cancelled() }}
+    permissions:
+      contents: read
+      packages: read
+    secrets:
+      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      SECRETS_PROPERTIES_BASE64: ${{ secrets.SECRETS_PROPERTIES_BASE64 }}
+      IOS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.IOS_SIGNING_CERTIFICATE_BASE64 }}
+      IOS_SIGNING_CERTIFICATE_PASSPHRASE: ${{ secrets.IOS_SIGNING_CERTIFICATE_PASSPHRASE }}
+      PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+      XCCONFIG_BASE64: ${{ secrets.XCCONFIG_BASE64 }}
+    uses: ./.github/workflows/release-snapshot-build-stage.yml
+    with:
+      runs-on: ${{ inputs['runs-on'] }}
+      runs-on-darwin-arm64: ${{ inputs['runs-on-darwin-arm64'] }}
+      enforce-application-tests: ${{ inputs['enforce-application-tests'] }}
+      snapshot-release-plan-json: ${{ needs.setup-snapshot.outputs.snapshot-release-plan-json }}
+      snapshot-build-stage-plan-json: ${{ needs.setup-snapshot.outputs.snapshot-build-stage-plan-json }}
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      runtime-image: ${{ inputs['runtime-image'] }}
+      runtime-image-java: ${{ inputs['runtime-image-java'] }}
+      runtime-image-node: ${{ inputs['runtime-image-node'] }}
+      runtime-image-go: ${{ inputs['runtime-image-go'] }}
+      runtime-image-android: ${{ inputs['runtime-image-android'] }}
+      runtime-image-rust: ${{ inputs['runtime-image-rust'] }}
+      sboms: ${{ inputs.sboms }}
+
+  # ===== Stage 2: Publish =====
+  execute-snapshot-publish-stage:
+    name: Publish
+    needs: [resolve-bootstrap, setup-snapshot, execute-snapshot-build-stage]
+    if: ${{ !failure() && !cancelled() }}
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    # release-snapshot-publish-stage forwards only to leaves using auto-
+    # provided GITHUB_TOKEN; the optional external registry-password
+    # is the only declared secret on the snapshot-publish stage. Bracket
+    # notation is required because GHA expressions parse `-` as
+    # subtraction in dotted references.
+    secrets:
+      registry-password: ${{ secrets['registry-password'] }}
+      MAVEN_CENTRAL_USERNAME: ${{ inputs['publish-maven-snapshots'] && secrets.MAVEN_CENTRAL_USERNAME || '' }}
+      MAVEN_CENTRAL_PASSWORD: ${{ inputs['publish-maven-snapshots'] && secrets.MAVEN_CENTRAL_PASSWORD || '' }}
+    uses: ./.github/workflows/release-snapshot-publish-stage.yml
+    with:
+      runs-on: ${{ inputs['runs-on'] }}
+      snapshot-release-plan-json: ${{ needs.setup-snapshot.outputs.snapshot-release-plan-json }}
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      runtime-image: ${{ inputs['runtime-image-full'] }}
+      runtime-image-java: ${{ inputs['runtime-image-java'] }}
+      runtime-image-node: ${{ inputs['runtime-image-node'] }}
+      runtime-image-rust: ${{ inputs['runtime-image-rust'] }}
+      runtime-image-go: ${{ inputs['runtime-image-go'] }}
+      snapshot-publish-stage-plan-json: ${{ needs.setup-snapshot.outputs.snapshot-publish-stage-plan-json }}
+      artifact-transfer-plan-json: ${{ needs.setup-snapshot.outputs.artifact-transfer-plan-json }}
+      build-result-json: ${{ needs.execute-snapshot-build-stage.outputs.result-json }}
+      sboms: ${{ inputs.sboms }}
+
+  execute-snapshot-images:
+    name: "Publish: snapshot images"
+    needs: [resolve-bootstrap, canonical-cli, setup-snapshot, execute-snapshot-build-stage]
+    if: ${{ !failure() && !cancelled() }}
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    uses: ./.github/workflows/snapshot-images.yml
+    with:
+      runs-on: ${{ inputs['runs-on'] }}
+      build-runs-on-linux-amd64: ${{ inputs['build-runs-on-linux-amd64'] }}
+      build-runs-on-linux-arm64: ${{ inputs['build-runs-on-linux-arm64'] }}
+      enforce-application-tests: ${{ inputs['enforce-application-tests'] }}
+      enforce-vulnerabilities: ${{ inputs['enforce-vulnerabilities'] }}
+      branch: ${{ fromJson(needs.setup-snapshot.outputs.snapshot-release-plan-json).context.branch }}
+      source-sha: ${{ fromJson(needs.setup-snapshot.outputs.snapshot-release-plan-json).context.release_sha }}
+      artifacts-config: ${{ inputs['artifacts-config'] }}
+      publish-containers: ${{ inputs['publish-containers'] }}
+      publish-files: ${{ inputs['publish-files'] }}
+      image-repository: ${{ inputs['container-image-repository'] }}
+      registry: ${{ inputs.registry }}
+      registry-user: ${{ inputs['container-registry-user'] }}
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      runtime-image: ${{ inputs['runtime-image'] }}
+      runtime-image-full: ${{ inputs['runtime-image-full'] }}
+      canonical-artifact-id: ${{ needs.canonical-cli.outputs.artifact-id }}
+      canonical-artifact-name: ${{ needs.canonical-cli.outputs.artifact-name }}
+      canonical-producer-run-id: ${{ needs.canonical-cli.outputs.producer-run-id }}
+      canonical-producer-run-attempt: ${{ needs.canonical-cli.outputs.producer-run-attempt }}
+      canonical-producer-engine-repository: ${{ needs.canonical-cli.outputs.engine-repository }}
+      canonical-producer-engine-commit: ${{ needs.canonical-cli.outputs.engine-commit }}
+      canonical-producer-result: ${{ needs.canonical-cli.result }}
+      use-build-artifacts: true
+      runtime-image-go: ${{ inputs['runtime-image-go'] }}
+      runtime-image-java: ${{ inputs['runtime-image-java'] }}
+      runtime-image-node: ${{ inputs['runtime-image-node'] }}
+      runtime-image-rust: ${{ inputs['runtime-image-rust'] }}
+    secrets:
+      registry-password: ${{ secrets['container-registry-password'] }}
+
+  # ===== Stage 3: Summary =====
+  snapshot-release-summary:
+    name: Summary
+    needs:
+      - execute-snapshot-images
+      - canonical-cli
+      - resolve-bootstrap
+      - setup-snapshot
+      - execute-snapshot-build-stage
+      - execute-snapshot-publish-stage
+    if: always() && needs.resolve-bootstrap.result == 'success'
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - *canonical-context
+      - *canonical-checkout
+      - *canonical-consume
+      - name: Generate Snapshot Release Summary
+        env:
+          # Snapshot release context.
+          # `|| '{}'` so an upstream (setup-snapshot) failure — which leaves this
+          # output empty — produces an empty PROJECT_TYPE instead of a fromJson
+          # template crash. This job is `if: always()`; it must summarize failures.
+          PROJECT_TYPE: ${{ fromJson(needs.setup-snapshot.outputs['snapshot-release-plan-json'] || '{}').context.project_type }}
+          RELEASE_REF: ${{ fromJson(needs.setup-snapshot.outputs['snapshot-release-plan-json'] || '{}').context.branch }}
+          RELEASE_SHA: ${{ fromJson(needs.setup-snapshot.outputs['snapshot-release-plan-json'] || '{}').context.release_sha }}
+          RELEASE_ACTOR: ${{ github.actor }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+
+          # Stage results and published artifacts.
+          BUILD_STAGE_RESULT_JSON: ${{ needs.execute-snapshot-build-stage.outputs.result-json }}
+          PUBLISH_STAGE_RESULT_JSON: ${{ needs.execute-snapshot-publish-stage.outputs.result-json }}
+          SNAPSHOT_ARTIFACTS_JSON: ${{ needs.execute-snapshot-publish-stage.outputs.artifacts-json }}
+          SNAPSHOT_IMAGE_RESULT: ${{ needs.execute-snapshot-images.result }}
+          CONTAINER_IMAGES_JSON: ${{ needs.execute-snapshot-images.outputs.container-images-json }}
+        run: forge-ci report snapshot-release

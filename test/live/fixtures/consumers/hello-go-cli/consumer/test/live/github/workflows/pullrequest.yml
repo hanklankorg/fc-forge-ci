@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: Pull Request Workflow
+
+# This workflow runs the forge-ci lint and security checks, and your Go tests
+# in the test job below. Require both jobs as status checks before merging.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-checks:
+    uses: diggsweden/forge-ci/.github/workflows/pullrequest-orchestrator.yml@2f4e845cee96973d1082bf00a5a18689c1482148 # v0.90.0
+    secrets:
+      # Optional: uploads lint security findings (SARIF) to Code Scanning.
+      CODE_SCANNING_TOKEN: ${{ secrets.CODE_SCANNING_TOKEN }}
+    permissions:
+      actions: read
+      contents: read
+    with:
+      # The full commit the uses: ref above names; every job of the route runs
+      # the CLI built in this run from exactly this commit.
+      forge-ci-binary-ref: 2f4e845cee96973d1082bf00a5a18689c1482148 # v0.90.0
+      project-type: go
+      # The lint image, pinned by digest: the plan job refuses a tag.
+      nanolinter-image: codefloe.com/itiquette/nanolinter:go@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      lint-engine: nanolinter
+      # Pinned by digest and admitted before any job runs; replace FIXME with
+      # the digests of the release you call (docs/runtime-images.md).
+      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-base@sha256:0000000000000000000000000000000000000000000000000000000000000000 # FIXME v0.90.0 digest
+      canonical-builder-image: ghcr.io/diggsweden/forge-ci-runtime-go-1.27@sha256:0000000000000000000000000000000000000000000000000000000000000000 # FIXME v0.90.0 digest
+
+  # Your tests. The orchestrator above never runs them; require this job and
+  # pr-checks as status checks. Add govulncheck or your own policy here.
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+      - run: go vet ./... && go test ./...

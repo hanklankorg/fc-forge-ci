@@ -1,0 +1,89 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: 'Build Cargo'
+description: >-
+  The build step of a consumer's own job for a Cargo project: one `forge-ci build cargo run`, which fetches the locked crates, runs `cargo test --locked --all-targets`, writes the CycloneDX Build SBOM and compiles one release binary per platform. Binaries land in <working-directory>/dist/<os>-<arch>/, and the SBOM as bom.json beside each Cargo.toml. The job brings the toolchain: cargo with the Rust target and linker of every platform (see setup-toolchain). The step installs its pinned cargo-cyclonedx for the Build SBOM unless enable-build-sbom is 'false' or the job already has one on PATH; that download is .tar.xz, so the runner needs xz. The step holds no secret.
+inputs:
+  version:
+    description: >-
+      Release version exposed to the build as FORGE_CI_VERSION, with or without a leading v. Required: in a release it is the prepare job's release-tag, which the runner's ref name (the request tag) is not.
+    required: true
+  commit:
+    description: >-
+      Commit exposed to the build as FORGE_CI_COMMIT. Required: in a release it is the prepare job's release-sha, which the event commit is not.
+    required: true
+  working-directory:
+    description: Directory containing Cargo.toml.
+    required: false
+    default: '.'
+  platforms:
+    description: Comma-separated os/arch targets; each maps to a Rust target triple.
+    required: false
+    default: linux/amd64
+  artifact-name:
+    description: Name of the build. Empty takes the binary name.
+    required: false
+    default: ''
+  binary-name:
+    description: Name of the binary. Empty takes the Cargo.toml bin target, then the package name.
+    required: false
+    default: ''
+  skip-tests:
+    description: "Legacy input; true is refused. Admin policy controls findings, and tests still run."
+    required: false
+    default: 'false'
+  enforce-application-tests:
+    description: "Enforcement setting, true or false: false reports recognized test assertion failures without failing; the tests still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+    required: false
+    default: 'false'
+  enable-build-sbom:
+    description: "'false' skips the Build SBOM, and with it the cargo-cyclonedx install."
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    # The Build SBOM generator is forge-ci's, pinned by version and checksum
+    # in its install script, as the runtime image carries it on GitHub and
+    # GitLab. One the job already has on PATH is used as it is.
+    - name: Install cargo-cyclonedx
+      if: ${{ inputs.enable-build-sbom != 'false' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        export CI_TEMP_DIR="${RUNNER_TEMP:?}"
+        # shellcheck source=scripts/bootstrap/install-cargo-cyclonedx.sh
+        source "${GITHUB_ACTION_PATH}/../../../scripts/bootstrap/install-cargo-cyclonedx.sh"
+        install_cargo_cyclonedx
+
+    - name: Build Cargo project
+      shell: bash
+      env:
+        BUILD_CARGO_VERSION: ${{ inputs.version }}
+        BUILD_CARGO_COMMIT: ${{ inputs.commit }}
+        BUILD_CARGO_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        BUILD_CARGO_PLATFORMS: ${{ inputs.platforms }}
+        BUILD_CARGO_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        BUILD_CARGO_BINARY_NAME: ${{ inputs.binary-name }}
+        BUILD_CARGO_SKIP_TESTS: ${{ inputs.skip-tests }}
+        BUILD_CARGO_ADMIN_APPLICATION_TESTS: ${{ inputs.enforce-application-tests }}
+        BUILD_CARGO_BUILD_SBOM: ${{ inputs.enable-build-sbom }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=.engine/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../../.engine/bin/lib-forge-ci.sh"
+        if [ -z "${FORGE_CI_BIN:-}" ]; then fetch_forge_ci; fi
+        SIGNER_STRICT=1 verify_forge_ci
+        run_forge_ci build cargo run \
+          --enforce-application-tests="${BUILD_CARGO_ADMIN_APPLICATION_TESTS:?enforce-application-tests is required}" \
+          --version "${BUILD_CARGO_VERSION:?version is required}" \
+          --commit "${BUILD_CARGO_COMMIT:?commit is required}" \
+          --working-dir "${BUILD_CARGO_WORKING_DIRECTORY:?working-directory is required}" \
+          --platforms "${BUILD_CARGO_PLATFORMS:?platforms is required}" \
+          --artifact-name "${BUILD_CARGO_ARTIFACT_NAME}" \
+          --binary-name "${BUILD_CARGO_BINARY_NAME}" \
+          --skip-tests="${BUILD_CARGO_SKIP_TESTS:?skip-tests is required}" \
+          --build-sbom="${BUILD_CARGO_BUILD_SBOM:?enable-build-sbom is required}"

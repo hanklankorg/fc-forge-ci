@@ -1,0 +1,245 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Description:
+# Default PR lint surface — runs `nanolinter verify` against the consumer
+# repository and uploads nanolinter's security findings (OpenGrep SAST, OSV
+# dependency scan, secrets, trivy-fs) to GitHub Code Scanning as SARIF.
+#
+# Runs the nanolinter FLAVOUR image (e.g. ghcr.io/itiquette/nanolinter:java),
+# which bakes nanolinter and its whole check toolchain (opengrep, osv-scanner,
+# java checkstyle/pmd/spotbugs, ...), the way nanolinter documents it: the
+# checkout mounted at /workspace.
+#
+# The job itself runs on the runner, not in the image. A job container would
+# run every step, GitHub's own actions included, as that user, which cannot
+# write the runner's file-command files ($GITHUB_OUTPUT, $GITHUB_STEP_SUMMARY,
+# ...), and GitHub mounts the Docker socket into job containers, so running it
+# as root instead would hand the linted code the runner. Here only the lint runs
+# in the image, as the runner's unprivileged user with no capabilities;
+# checkout, summary and SARIF steps run on the runner like any other job.
+#
+# forge-ci itself is the canonical CLI of the run: the caller's
+# canonical-cli-bootstrap.yml builds it from the approved engine commit and
+# this job receives it, through the engine's consume-canonical-cli action,
+# before the consumer checkout. Nothing is installed.
+#
+# How to use:
+# 1. Ensure your project has a nanolinter.toml verify plan.
+# 2. It is called automatically by pullrequest-orchestrator.yml when
+#    lint-engine is nanolinter (the default), which picks the flavour image
+#    from project-type. Direct callers set `nanolinter-image` to the flavour
+#    matching their ecosystem, pinned by digest.
+name: Lint Nanolinter
+on:
+  workflow_call: # yamllint disable-line rule:truthy
+    inputs:
+      enforce-lint:
+        description: "Enforcement setting: false reports lint findings without failing; the checks still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      enforce-vulnerabilities:
+        description: "Enforcement setting: false reports vulnerability findings without failing; the scans still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      nanolinter-image:
+        description: "Required nanolinter flavour image to lint in, pinned by @sha256:<64 lowercase hex>: core, go, java, kotlin, javascript-typescript, rust or swift, e.g. ghcr.io/itiquette/nanolinter:java@sha256:<digest>"
+        required: true
+        type: string
+      required-lints:
+        description: "Mandated lint floor — comma-separated check ids passed to `nanolinter verify --require`. These checks are forced to run AND block regardless of the consumer's nanolinter.toml, so a project cannot silently skip them. Empty disables the floor."
+        required: false
+        default: "secrets,sast"
+        type: string
+      disable-checks:
+        description: "Comma-separated check ids to leave out of this run, passed to `nanolinter verify --disable-check`, for example the network-backed scans a separate job owns. It cannot remove a check required-lints names. A security check the job cannot run fails it when skipped, once the linter reports skipped checks (Nanolinter 0.8.6 does not): name it here."
+        required: false
+        default: ""
+        type: string
+      runs-on:
+        description: "JSON array of runner labels for the ordinary jobs, read with fromJSON. Signing, promotion and publication jobs stay on GitHub-hosted runners."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      forge-ci-binary-ref:
+        description: "Full approved engine commit the canonical CLI of this run was built from; the lint job receives exactly that build for its checkout, policy and SARIF commands"
+        required: true
+        type: string
+      runtime-image:
+        description: "Administrator-pinned forge-ci base runtime image@sha256 digest the canonical delivery of this run admitted; the job runs on the runner and checks the pin"
+        required: true
+        type: string
+      # Canonical delivery of the same run: canonical-cli-bootstrap.yml's
+      # outputs, forwarded by the quality stage or a direct caller. The job
+      # admits them before it checks anything out.
+      canonical-artifact-id: {type: string, required: true}
+      canonical-artifact-name: {type: string, required: true}
+      canonical-producer-run-id: {type: string, required: true}
+      canonical-producer-run-attempt: {type: string, required: true}
+      canonical-producer-engine-repository: {type: string, required: true}
+      canonical-producer-engine-commit: {type: string, required: true}
+      canonical-producer-result: {type: string, required: true}
+      upload-sarif:
+        description: "Upload nanolinter's security SARIF to GitHub Code Scanning"
+        required: false
+        default: true
+        type: boolean
+      sarif-category:
+        description: "Code Scanning category label for the nanolinter security SARIF"
+        required: false
+        default: "nanolinter-security"
+        type: string
+    secrets:
+      CODE_SCANNING_TOKEN:
+        description: "Token with security-events:write for SARIF upload"
+        required: false
+permissions:
+  contents: read
+jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+  nanolinter-lint:
+    needs: [resolve-bootstrap]
+    name: Nanolinter
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read # Canonical metadata/download; intentional read-only increase.
+    env:
+      NANOLINTER_IMAGE: ${{ inputs['nanolinter-image'] }}
+    steps:
+      # The image receives the checkout and the run context: refuse a tag
+      # before anything is fetched.
+      - name: Validate nanolinter image digest
+        run: |
+          set -euo pipefail
+          if [[ ! "$NANOLINTER_IMAGE" =~ ^[^[:space:]]+@sha256:[0-9a-f]{64}$ ]]; then
+            printf '::error::nanolinter-image must be a reviewed image reference pinned by sha256 digest, got %s\n' "$NANOLINTER_IMAGE"
+            exit 64
+          fi
+      - name: Require original canonical success and approved identity
+        # Before the consumer checkout: the canonical CLI of this run, built
+        # from the approved engine commit, is the only forge-ci this job runs.
+        shell: /bin/bash --noprofile --norc -peuo pipefail {0}
+        env:
+          ENGINE_REPOSITORY: ${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          ENGINE_COMMIT: ${{ inputs['forge-ci-binary-ref'] }}
+          ENGINE_ORIGIN: ${{ github.server_url }}/${{ needs.resolve-bootstrap.outputs.forge-ci-repository }}
+          RUNTIME_IMAGE: ${{ inputs['runtime-image'] }}
+          PRODUCER_ARTIFACT_ID: ${{ inputs['canonical-artifact-id'] }}
+          PRODUCER_ARTIFACT_NAME: ${{ inputs['canonical-artifact-name'] }}
+          PRODUCER_RUN_ID: ${{ inputs['canonical-producer-run-id'] }}
+          PRODUCER_RUN_ATTEMPT: ${{ inputs['canonical-producer-run-attempt'] }}
+          PRODUCER_ENGINE_REPOSITORY: ${{ inputs['canonical-producer-engine-repository'] }}
+          PRODUCER_ENGINE_COMMIT: ${{ inputs['canonical-producer-engine-commit'] }}
+          CANONICAL_PRODUCER_RESULT: ${{ inputs['canonical-producer-result'] }}
+        run: |
+          [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ && "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CANONICAL_PRODUCER_RESULT" == success && "$PRODUCER_RUN_ID" == "$GITHUB_RUN_ID" && "$PRODUCER_RUN_ATTEMPT" == "$GITHUB_RUN_ATTEMPT" ]]
+          [[ "$ENGINE_REPOSITORY" =~ ^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*$ && "$ENGINE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PRODUCER_ENGINE_REPOSITORY" == "$ENGINE_REPOSITORY" && "$PRODUCER_ENGINE_COMMIT" == "$ENGINE_COMMIT" ]]
+          [[ "$PRODUCER_ARTIFACT_ID" =~ ^[1-9][0-9]*$ && "$PRODUCER_ARTIFACT_NAME" == "forge-ci-canonical-linux-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ENGINE_COMMIT" ]]
+          [[ "$RUNTIME_IMAGE" =~ ^[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}$ ]]
+          [[ "$GITHUB_SERVER_URL" =~ ^https://[^/?#@[:space:]]+$ && "$ENGINE_ORIGIN" == "$GITHUB_SERVER_URL/$ENGINE_REPOSITORY" ]]
+          for variable in ENGINE_REPOSITORY ENGINE_COMMIT ENGINE_ORIGIN RUNTIME_IMAGE PRODUCER_ARTIFACT_ID PRODUCER_ARTIFACT_NAME PRODUCER_RUN_ID PRODUCER_RUN_ATTEMPT PRODUCER_ENGINE_REPOSITORY PRODUCER_ENGINE_COMMIT CANONICAL_PRODUCER_RESULT; do
+            printf '%s=%s\n' "$variable" "${!variable}" >>"$GITHUB_ENV"
+          done
+      - name: Checkout only the approved engine before consumer or private steps
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ env.ENGINE_REPOSITORY }}
+          ref: ${{ env.ENGINE_COMMIT }}
+          path: _forge_ci_bootstrap
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - name: Consume canonical CLI from the independently pinned engine checkout
+        id: canonical-bootstrap
+        uses: ./_forge_ci_bootstrap/.github/actions/consume-canonical-cli
+        with:
+          tool-profile: host # Docker and the consumer checkout in scope: root-owned system tools only.
+      - name: Checkout repository
+        # Full history and the base branch, for nanolinter's git-based checks.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CHECKOUT_PATH: src
+          CHECKOUT_FETCH_ALL_REFS: "true"
+        run: forge-ci platform checkout
+      - name: Run nanolinter (security gate)
+        # verify runs the full plan and gates on every check; --report
+        # sarif-security only selects what the SARIF holds. The step fails on a
+        # blocking finding, next to the per-check output; the SARIF steps below
+        # still run (if: always()). --require is the mandated lint floor: those
+        # checks run and block whatever the consumer's nanolinter.toml says.
+        #
+        # The image runs as the runner's user, so the checkout it reads and
+        # writes (builds) and the reports it leaves are all that user's. This
+        # is the Docker counterpart of the --userns=keep-id mapping nanolinter
+        # documents for Podman. The image keeps HOME=/home/nanolinter, where its
+        # tool manager expects it, on a private empty tmpfs; the container has
+        # no capabilities and cannot gain privileges. The token stays out of
+        # the container; the run context nanolinter reads is passed by name.
+        env:
+          REQUIRED_LINTS: ${{ inputs['required-lints'] }}
+          DISABLE_CHECKS: ${{ inputs['disable-checks'] }}
+          ADMIN_LINT: ${{ inputs['enforce-lint'] }}
+          ADMIN_VULNERABILITIES: ${{ inputs['enforce-vulnerabilities'] }}
+          NL_OUT: ${{ runner.temp }}/nanolinter
+        run: |
+          set -eu
+          mkdir -p "$NL_OUT"
+          set --
+          if [ -n "$REQUIRED_LINTS" ]; then set -- --require "$REQUIRED_LINTS"; fi
+          if [ -n "$DISABLE_CHECKS" ]; then set -- "$@" --disable-check "$DISABLE_CHECKS"; fi
+          # Pull first: a failed pull is the workflow's image, not a lint
+          # finding, and must not be reported as one.
+          if ! docker pull --quiet "$NANOLINTER_IMAGE" >/dev/null; then
+            printf '::error::cannot pull the nanolinter image %s; set nanolinter-image to an image this runner can pull (this is not a lint finding).\n' "$NANOLINTER_IMAGE"
+            exit 1
+          fi
+          rc=0
+          forge-ci policy nanolinter --enforce-lint="$ADMIN_LINT" --enforce-vulnerabilities="$ADMIN_VULNERABILITIES" \
+            --sarif-file "$NL_OUT/nanolinter-security.sarif" -- docker run --rm --pull never --user "$(id -u):$(id -g)" \
+            -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8 \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /home/nanolinter:rw,exec,mode=1777 \
+            -v "$GITHUB_WORKSPACE/src:/workspace" -v "$NL_OUT:/out" \
+            -e CI -e GITHUB_ACTIONS -e GITHUB_EVENT_NAME -e GITHUB_REF -e GITHUB_SHA \
+            -e GITHUB_BASE_REF -e GITHUB_HEAD_REF -e GITHUB_REPOSITORY -e GITHUB_SERVER_URL \
+            -e GITHUB_STEP_SUMMARY=/out/step-summary.md \
+            "$NANOLINTER_IMAGE" verify "$@" --report sarif --out - || rc=$?
+          if [ -f "$NL_OUT/step-summary.md" ]; then
+            cat "$NL_OUT/step-summary.md" >>"$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$rc" -ne 0 ]; then
+            printf '::error::nanolinter gate failed — see the per-check summary for findings or a tool/runtime failure.\n'
+          fi
+          exit "$rc"
+      - name: Enrich nanolinter SARIF for GitHub dedupe
+        if: always() && inputs.upload-sarif && steps.canonical-bootstrap.outputs.verified == 'true'
+        env:
+          SARIF_FILE: ${{ runner.temp }}/nanolinter/nanolinter-security.sarif
+        run: |
+          set -eu
+          [ -f "$SARIF_FILE" ] || exit 0
+          forge-ci security report enrich-sarif
+      - name: Upload nanolinter SARIF to Code Scanning
+        # Uses CODE_SCANNING_TOKEN (not GITHUB_TOKEN); continue-on-error so a
+        # transient Code Scanning API failure doesn't turn the lint gate red.
+        if: always() && inputs.upload-sarif && steps.canonical-bootstrap.outputs.verified == 'true'
+        continue-on-error: true
+        env:
+          CODE_SCANNING_TOKEN: ${{ secrets.CODE_SCANNING_TOKEN }}
+          SARIF_CATEGORY: ${{ inputs.sarif-category }}
+          SARIF_FILE: ${{ runner.temp }}/nanolinter/nanolinter-security.sarif
+        run: |
+          set -eu
+          [ -f "$SARIF_FILE" ] || exit 0
+          forge-ci security report upload-sarif

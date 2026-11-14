@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# One Maven reactor, declared once at its parent POM: a library module and
+# the application module that uses it, released together under one version
+# and signed keyless; no container image.
+sign:
+  method: sigstore
+artifacts:
+  - name: hello-maven-reactor
+    project-type: maven
+    working-directory: .
+    build-type: application
+    config:
+      java-version: 25

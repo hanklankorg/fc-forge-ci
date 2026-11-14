@@ -1,0 +1,90 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# Lend a GitHub-hosted VM to a Forgejo instance as an ephemeral runner.
+#
+# A runner pool that shares its kernel between tenants denies user
+# namespaces, and rootless Buildah and Podman cannot run without them.
+# GitHub-hosted runners are throwaway VMs that permit them. A job on the
+# Forgejo instance runs `forge-ci platform request-runner`, which dispatches
+# this workflow; this job starts forgejo-runner on the VM, registered to that
+# instance for exactly one job with the labels below, and the VM is gone when
+# the job is. Nothing is built here, and no job of this repository ever runs
+# on the lent runner.
+#
+# Copy to .github/workflows/lend-runner.yml of a public repository the
+# lending organization owns, then replace the placeholders:
+#
+#   FORGE_HOST/OWNER/forge-ci: the instance and owner that serve the engine; the lending script is
+#                              fetched from there at the pinned commit
+#   PIN_FORGE_CI_SHA           the forge-ci commit the orchestrating
+#                              repositories pin
+#
+# Set these on the repository:
+#   variable   FORGEJO_INSTANCE_URL   https URL of the Forgejo instance
+#   secret     FORGEJO_RUNNER_REGISTRATION_TOKEN
+#                                     the instance's runner registration token
+#
+# The VM labels (ubuntu-26.04, ubuntu-26.04-arm) and the labels the runner
+# registers with (gh-vm, arch=<arch>) are literals of this file: fixed hosted
+# labels, changed here when they change. The orchestrating side sets
+# CI_RUNNER_LABEL_CONTAINER to the same labels, ["gh-vm","arch=amd64"], and
+# gives its request job a token that may start
+# this workflow and nothing else. Labels are this repository's choice: a
+# request names an architecture and a wait, never a label.
+#
+# Whoever holds the registration token can register a runner that receives
+# the instance's container jobs and their secrets. Keep this repository's
+# collaborators to the people who may do that, protect the default branch,
+# and rotate the token when they change.
+name: Lend a runner
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: Architecture of the job the runner is for
+        required: true
+        type: choice
+        options: [amd64, arm64]
+      ttl-minutes:
+        description: How long the runner waits for its job before the VM is released
+        required: false
+        default: '20'
+        type: string
+# The job talks to the Forgejo instance only; it needs nothing from GitHub.
+permissions: {}
+jobs:
+  lend:
+    name: Lend one ${{ inputs.arch }} runner
+    runs-on: ${{ inputs.arch == 'arm64' && 'ubuntu-26.04-arm' || 'ubuntu-26.04' }}
+    # The longest wait a request may ask for (180 minutes) plus the longest job
+    # the lent runner may host; the runner's own job timeout is two hours.
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # The lending script of the pinned engine commit, fetched without
+      # credentials: the engine repository is public.
+      - name: Fetch the lending script
+        env:
+          FORGE_CI_REPOSITORY_URL: https://FORGE_HOST/OWNER/forge-ci
+          ENGINE_REF: PIN_FORGE_CI_SHA
+        run: |
+          set -euo pipefail
+          git init --quiet .
+          git remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
+          GIT_TERMINAL_PROMPT=0 git -c protocol.version=2 fetch --quiet --no-tags --depth=1 --no-recurse-submodules origin "${ENGINE_REF:?}"
+          git checkout --quiet --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${ENGINE_REF}"
+      - name: Lend this VM for one job
+        env:
+          FORGEJO_INSTANCE_URL: ${{ vars.FORGEJO_INSTANCE_URL }}
+          FORGEJO_RUNNER_REGISTRATION_TOKEN: ${{ secrets.FORGEJO_RUNNER_REGISTRATION_TOKEN }}
+          RUNNER_LABELS: gh-vm,arch=${{ inputs.arch }}
+          LEND_TTL_MINUTES: ${{ inputs.ttl-minutes }}
+        run: |
+          set -euo pipefail
+          sudo --preserve-env=FORGEJO_INSTANCE_URL,FORGEJO_RUNNER_REGISTRATION_TOKEN,RUNNER_LABELS,LEND_TTL_MINUTES \
+            bash scripts/runner-lender/lend-forgejo-runner.sh

@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# The tools the release of distro packages installs on the runner, from
+# mise.lock: its build job names these three and installs nothing else.
+# The lock holds the Linux platforms alone, its entries taken from locks
+# `mise lock` wrote for these versions; write it again with `mise lock`
+# when a version changes.
+[tools]
+go = "1.27.4"
+"aqua:goreleaser/goreleaser" = "2.18.3"
+"aqua:anchore/syft" = "1.55.0"

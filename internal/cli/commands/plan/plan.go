@@ -1,0 +1,220 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+// SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
+
+// Package plan wires `forge-ci plan ...` subcommands.
+package plan
+
+import (
+	"context"
+
+	"github.com/urfave/cli/v3"
+
+	appplan "github.com/diggsweden/forge-ci/internal/app/plan"
+	"github.com/diggsweden/forge-ci/internal/cli/cienv"
+	"github.com/diggsweden/forge-ci/internal/cli/commonflags"
+	"github.com/diggsweden/forge-ci/internal/cli/deps"
+)
+
+const configPlanJSONFlag = "config-plan-json"
+
+// New returns the `plan` subgroup.
+func New() *cli.Command {
+	return &cli.Command{
+		Name:  "plan",
+		Usage: "typed release, snapshot-release, and pull-request plan composition",
+		Commands: []*cli.Command{
+			validateTestSelectionsCmd(),
+			releaseCmd(),
+			releaseExportsCmd(),
+			releaseFileSigningCmd(),
+			releaseVersionsCmd(),
+			snapshotReleaseCmd(),
+			prCmd(),
+			gitlabBuildPipelineCmd(),
+			gitlabPublishPipelineCmd(),
+			gitlabReleasePipelineCmd(),
+			gitlabSnapshotPipelineCmd(),
+			writeCmd(),
+		},
+	}
+}
+
+func prCmd() *cli.Command {
+	return &cli.Command{
+		Name:  "pr",
+		Usage: "compose typed pull-request quality plan contracts",
+		Description: `EXAMPLE:
+   forge-ci plan pr --project-type maven --base-branch main`,
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "project-type", Sources: cli.EnvVars("PROJECT_TYPE"), Usage: "primary ecosystem of the project (maven/npm/go/cargo/…)"},
+			&cli.StringFlag{Name: "base-branch", Sources: cli.EnvVars("BASE_BRANCH"), Usage: "base branch the PR targets (used for diff-mode scans)"},
+			&cli.StringFlag{Name: "forge-ci-binary-ref", Sources: cli.EnvVars("FORGE_CI_BINARY_REF"), Usage: "git ref of the forge-ci binary used in the plan (pinned for reproducibility)"},
+			&cli.StringFlag{Name: "lint-engine", Sources: cli.EnvVars("LINT_ENGINE"), Usage: "general lint engine to run: nanolinter, megalinter, or none (default none; mutually exclusive)"},
+			&cli.StringFlag{Name: "nanolinter-image", Sources: cli.EnvVars("NANOLINTER_IMAGE"), Usage: "image the nanolinter job runs in, pinned by digest; required with --lint-engine nanolinter"},
+			&cli.BoolFlag{Name: "linter-swiftformat", Sources: cli.EnvVars("LINTER_SWIFTFORMAT"), Usage: "include the swift-format lint gate in the plan"},
+			&cli.BoolFlag{Name: "linter-swiftlint", Sources: cli.EnvVars("LINTER_SWIFTLINT"), Usage: "include the swiftlint lint gate in the plan"},
+		},
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error {
+				_, err := appplan.PR(ctx, d.OutputSink, appplan.PRInput{
+					ProjectType:      cmd.String("project-type"),
+					BaseBranch:       cmd.String("base-branch"),
+					ForgeCIBinaryRef: cmd.String("forge-ci-binary-ref"),
+					LintEngine:       cmd.String("lint-engine"),
+					NanolinterImage:  cmd.String("nanolinter-image"),
+					SwiftFormat:      cmd.Bool("linter-swiftformat"),
+					SwiftLint:        cmd.Bool("linter-swiftlint"),
+				})
+
+				return err
+			})
+		},
+	}
+}
+
+func releaseCmd() *cli.Command {
+	return &cli.Command{
+		Name:  "release",
+		Usage: "compose typed release and stage plan contracts",
+		Description: `CONFIG_PLAN_JSON is the serialized plan string produced by ` + "`config parse-artifacts`" + `.
+The --json output wraps that string under the key "config-plan-json".
+This example composes a plan for a public repository; use the actual visibility.
+
+EXAMPLE:
+   config_output="$(forge-ci --runner local --json config parse-artifacts --file .forge-ci/artifacts.yml)" &&
+   config_plan="$(printf '%s\n' "$config_output" | jq -er '."config-plan-json"')" &&
+   CONFIG_PLAN_JSON="$config_plan" forge-ci --provider local --runner local --json plan release \
+     --tag v1.2.3 --branch main --repository-visibility public
+
+Composition does not execute a release or establish signing/publication readiness.
+
+The layer passes its runner inputs with --runner-input. The plan is then
+refused when a platform its containers build, or its Xcode jobs, has no
+runner: the input of that role and platform has no value. On a forge a
+release is never planned unchecked: without any --runner-input the plan is
+refused. A --provider local run, as above, has no runners and passes none.`,
+		// A --runner-input value is a JSON array, whose commas separate nothing.
+		DisableSliceFlagSeparator: true,
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "repository-visibility", Sources: cli.EnvVars("REPOSITORY_VISIBILITY"), Usage: "public, private, internal or unknown; unknown requires explicit public-transparency consent"},
+			&cli.StringFlag{Name: configPlanJSONFlag, Sources: cli.EnvVars("CONFIG_PLAN_JSON"), Usage: "typed config-plan JSON (output of 'config parse-artifacts')"},
+			&cli.StringFlag{Name: "branch", Sources: cli.EnvVars("BRANCH"), Usage: "git branch the release is being built from"},
+			&cli.StringFlag{Name: "tag", Required: true, Sources: cienv.Tag(), Usage: "release tag (e.g. v1.2.3)"},
+			&cli.StringFlag{Name: "file-pattern", Sources: cli.EnvVars("FILE_PATTERN"), Usage: "git pathspecs the version-bump commit stages"},
+			commonflags.ReleasePolicy(),
+			&cli.StringFlag{Name: "release-publisher", Sources: cli.EnvVars("RELEASE_PUBLISHER"), Usage: "platform that publishes the release (github-cli, gitlab-cli, …)"},
+			&cli.BoolFlag{Name: "release-require-allowlisted-signer", Sources: cli.EnvVars("RELEASE_REQUIRE_ALLOWLISTED_SIGNER"), Usage: "require the tag signer to be allowlisted in .forge-ci/allowed_signers (SSH) or .forge-ci/allowed_gpg_keys.asc (GPG)"},
+			&cli.BoolFlag{Name: "release-draft", Sources: cli.EnvVars("RELEASE_DRAFT"), Usage: "create the GitHub Release as a draft"},
+			&cli.StringFlag{Name: "release-sboms", Value: "all", Sources: cli.EnvVars("RELEASE_SBOMS"), Usage: "sboms enum gating which CISA layers the release attaches"},
+			&cli.BoolFlag{Name: "release-sign-artifacts", Value: true, Sources: cli.EnvVars("RELEASE_SIGN_ARTIFACTS"), Usage: "sign release artifacts with the release GPG key"},
+			&cli.StringFlag{Name: "changelog-creator", Sources: cli.EnvVars("CHANGELOG_CREATOR"), Usage: "changelog renderer: git-cliff, the only one the GitHub release runs, or empty for no changelog"},
+			&cli.BoolFlag{Name: "changelog-skip-version-bump", Sources: cli.EnvVars("CHANGELOG_SKIP_VERSION_BUMP"), Usage: "skip the version-bump commit (caller already committed)"},
+			&cli.StringFlag{Name: "release-platforms", Sources: cli.EnvVars("RELEASE_PLATFORMS"), Usage: "comma-separated subset of each container's platforms this run builds; empty plans every declared platform"},
+			commonflags.RequiredRunnerInput(),
+		},
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error {
+				runnerInputs, err := commonflags.RequiredRunnerInputs(cmd, d.Platform, "a release plan")
+				if err != nil {
+					return err
+				}
+
+				_, err = appplan.Release(ctx, d.OutputSink, d.SummarySink, appplan.ReleaseInput{
+					RepositoryVisibility:            cmd.String("repository-visibility"),
+					ConfigPlanJSON:                  cmd.String(configPlanJSONFlag),
+					Branch:                          cmd.String("branch"),
+					RefName:                         cmd.String("tag"),
+					FilePattern:                     cmd.String("file-pattern"),
+					ReleasePolicy:                   cmd.String("release-policy"),
+					ReleasePublisher:                cmd.String("release-publisher"),
+					ReleaseRequireAllowlistedSigner: cmd.Bool("release-require-allowlisted-signer"),
+					ReleaseDraft:                    cmd.Bool("release-draft"),
+					ReleaseSBOMs:                    cmd.String("release-sboms"),
+					ReleaseSignArtifacts:            cmd.Bool("release-sign-artifacts"),
+					ChangelogCreator:                cmd.String("changelog-creator"),
+					ChangelogSkipVersionBump:        cmd.Bool("changelog-skip-version-bump"),
+					ReleasePlatforms:                cmd.String("release-platforms"),
+					Runners:                         runnerInputs,
+				})
+
+				return err
+			})
+		},
+	}
+}
+
+func snapshotReleaseCmd() *cli.Command {
+	return &cli.Command{
+		Name:  "snapshot-release",
+		Usage: "compose typed snapshot-release and stage plan contracts",
+		Description: `Extract the serialized plan from config parse-artifacts' JSON object.
+This example composes a snapshot plan for a Go project; set the primary project
+type to match your configuration. Composition does not publish a snapshot.
+
+EXAMPLE:
+   config_output="$(forge-ci --runner local --json config parse-artifacts --file .forge-ci/artifacts.yml)" &&
+   config_plan="$(printf '%s\n' "$config_output" | jq -er '."config-plan-json"')" &&
+   CONFIG_PLAN_JSON="$config_plan" forge-ci --runner local --json plan snapshot-release \
+     --project-type go --branch main
+
+Pass --runner-input name=value for each runner input of the calling layer.
+The plan refuses a planned image or Xcode platform without its own runner.`,
+		DisableSliceFlagSeparator: true,
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: configPlanJSONFlag, Sources: cli.EnvVars("CONFIG_PLAN_JSON"), Usage: "typed config-plan JSON (output of 'config parse-artifacts')"},
+			&cli.StringFlag{Name: "project-type", Sources: cli.EnvVars("PROJECT_TYPE"), Usage: "primary ecosystem of the project (maven/npm/go/cargo/…)"},
+			&cli.StringFlag{Name: "branch", Sources: cli.EnvVars("BRANCH"), Usage: "git branch the snapshot-release is being built from"},
+			&cli.StringFlag{Name: "release-sha", Sources: cli.EnvVars("RELEASE_SHA"), Usage: "commit SHA the snapshot-release is anchored to"},
+			&cli.StringFlag{Name: "release-actor", Sources: cli.EnvVars("RELEASE_ACTOR"), Usage: "user triggering the snapshot-release"},
+			&cli.StringFlag{Name: "release-repository", Sources: cli.EnvVars("RELEASE_REPOSITORY"), Usage: "\"owner/repo\" the snapshot-release is published from"},
+			&cli.StringFlag{Name: "working-dir", Sources: cli.EnvVars("WORKING_DIRECTORY"), Usage: "default working directory when no per-artifact override is in the plan"},
+			&cli.StringFlag{Name: "java-version", Sources: cli.EnvVars("JAVA_VERSION"), Usage: "JDK version installed by the publish job (Maven/Gradle paths)"},
+			&cli.StringFlag{Name: "node-version", Sources: cli.EnvVars("NODE_VERSION"), Usage: "Node.js version installed by the publish job (npm path)"},
+			&cli.StringFlag{Name: "rust-toolchain", Value: "stable", Sources: cli.EnvVars("RUST_TOOLCHAIN"), Usage: "Rust toolchain installed by the publish job (cargo path)"},
+			&cli.StringFlag{Name: "registry", Sources: cli.EnvVars("REGISTRY"), Usage: "registry forwarded to the snapshot plan context"},
+			&cli.StringFlag{Name: "forge-ci-binary-ref", Sources: cli.EnvVars("FORGE_CI_BINARY_REF"), Usage: "git ref of the forge-ci binary used in the plan"},
+			&cli.StringFlag{Name: "npm-registry", Sources: cli.EnvVars("NPM_REGISTRY"), Usage: "npm registry URL the dev tarball is published to"},
+			&cli.StringFlag{Name: "scope", Sources: cli.EnvVars("SCOPE", "PACKAGE_SCOPE"), Usage: "npm package scope (e.g. @examplescope) routed to the registry"},
+			&cli.StringFlag{Name: "sboms", Value: "none", Sources: cli.EnvVars("SBOMS"), Usage: "sboms enum gating which CISA layers the snapshot-release produces"},
+			&cli.BoolFlag{Name: "publish-npm", Value: true, Sources: cli.EnvVars("PUBLISH_NPM"), Usage: "include the npm dev-publish step in the plan"},
+			&cli.BoolFlag{Name: "publish-maven-snapshots", Sources: cli.EnvVars("PUBLISH_MAVEN_SNAPSHOTS"), Usage: "opt into Maven-format snapshot publication for Maven, Gradle JVM and Android libraries"},
+			&cli.BoolFlag{Name: "use-ci-token", Value: true, Sources: cli.EnvVars("USE_CI_TOKEN"), Usage: "use the CI platform token in place of an explicit registry password"},
+			commonflags.RunnerInput(),
+		},
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error {
+				runnerInputs, err := commonflags.RunnerInputs(cmd, d.Platform)
+				if err != nil {
+					return err
+				}
+
+				_, err = appplan.SnapshotRelease(ctx, d.OutputSink, appplan.SnapshotReleaseInput{
+					Runners:               runnerInputs,
+					ConfigPlanJSON:        cmd.String(configPlanJSONFlag),
+					ProjectType:           cmd.String("project-type"),
+					Branch:                cmd.String("branch"),
+					ReleaseSHA:            cmd.String("release-sha"),
+					ReleaseActor:          cmd.String("release-actor"),
+					ReleaseRepository:     cmd.String("release-repository"),
+					WorkingDirectory:      cmd.String("working-dir"),
+					JavaVersion:           cmd.String("java-version"),
+					NodeVersion:           cmd.String("node-version"),
+					RustToolchain:         cmd.String("rust-toolchain"),
+					Registry:              cmd.String("registry"),
+					ForgeCIBinaryRef:      cmd.String("forge-ci-binary-ref"),
+					NPMRegistry:           cmd.String("npm-registry"),
+					PackageScope:          cmd.String("scope"),
+					SBOMs:                 cmd.String("sboms"),
+					PublishNPM:            cmd.Bool("publish-npm"),
+					PublishMavenSnapshots: cmd.Bool("publish-maven-snapshots"),
+					UseCIToken:            cmd.Bool("use-ci-token"),
+				})
+
+				return err
+			})
+		},
+	}
+}
+
+// file-pattern moved to `forge-ci version file-pattern` (it feeds the
+// version-bump commit); the pathspec logic stays in app/plan.GetFilePattern.

@@ -1,0 +1,191 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+# Separate read-only entry: build-cli.yml's legacy OIDC permission cannot be
+# safely inherited by this key-free caller, even with a conditional legacy job.
+# Both entry points use the SAME engine-binary.sh canonical build recipe.
+name: Protected canonical CLI bootstrap
+on: # yamllint disable-line rule:truthy
+  workflow_call:
+    inputs:
+      engine-repository:
+        description: "Administrator-approved owner/repository on github.server_url, never consumer input"
+        required: true
+        type: string
+      engine-commit:
+        description: "Full approved engine commit containing delivery glue and the queued trusted-bootstrap helper"
+        required: true
+        type: string
+      runtime-image:
+        description: "Administrator-approved native linux/amd64 Go builder image@sha256 digest with authenticated cold-module preparation support and native Actions; it cross-compiles the arm64 file"
+        required: true
+        type: string
+      receive-runtime-image:
+        description: "Administrator-approved receiver image@sha256 digest qualifying gh/jq and native Actions; empty reuses the Go-qualified builder, never a product image fallback"
+        required: false
+        default: ""
+        type: string
+      artifact-retention-days:
+        required: false
+        default: 1
+        type: number
+    outputs:
+      artifact-id:
+        description: "ORIGINAL canonical upload ID, exposed only after the receiving job succeeds"
+        value: ${{ jobs.canonical-receive.outputs.artifact-id }}
+      artifact-name:
+        value: ${{ jobs.canonical-build.outputs.artifact-name }}
+      producer-run-id:
+        value: ${{ jobs.canonical-build.outputs.run-id }}
+      producer-run-attempt:
+        value: ${{ jobs.canonical-build.outputs.run-attempt }}
+      engine-repository:
+        value: ${{ jobs.canonical-build.outputs.engine-repository }}
+      engine-commit:
+        value: ${{ jobs.canonical-build.outputs.engine-commit }}
+permissions:
+  contents: read
+jobs:
+  canonical-admit:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - name: Require explicit administrator selections before starting an image
+        shell: bash
+        env:
+          ENGINE_REPOSITORY: ${{ inputs.engine-repository }}
+          ENGINE_COMMIT: ${{ inputs.engine-commit }}
+          RUNTIME_IMAGE: ${{ inputs.runtime-image }}
+          RECEIVE_RUNTIME_IMAGE: ${{ inputs.receive-runtime-image || inputs.runtime-image }}
+        run: |
+          set -euo pipefail
+          [[ "$ENGINE_REPOSITORY" =~ ^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*$ ]]
+          [[ "$ENGINE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RUNTIME_IMAGE" =~ ^[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}$ ]]
+          [[ "$RECEIVE_RUNTIME_IMAGE" =~ ^[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}$ ]]
+  canonical-build:
+    needs: canonical-admit
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    container:
+      image: ${{ inputs.runtime-image }}
+    permissions:
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-name: ${{ steps.build.outputs.artifact-name }}
+      run-id: ${{ steps.build.outputs.run-id }}
+      run-attempt: ${{ steps.build.outputs.run-attempt }}
+      engine-repository: ${{ steps.build.outputs.engine-repository }}
+      engine-commit: ${{ steps.build.outputs.engine-commit }}
+    env:
+      ENGINE_CHECKOUT: ${{ github.workspace }}/_forge_ci_engine
+      ENGINE_REPOSITORY: ${{ inputs.engine-repository }}
+      ENGINE_COMMIT: ${{ inputs.engine-commit }}
+      ENGINE_ORIGIN: ${{ github.server_url }}/${{ inputs.engine-repository }}
+      RUNTIME_IMAGE: ${{ inputs.runtime-image }}
+    steps:
+      - name: Checkout approved engine only
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ inputs.engine-repository }}
+          ref: ${{ inputs.engine-commit }}
+          path: _forge_ci_engine
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      # Delivery glue admits approved identity and committed module/checksum
+      # files, prepares a private authenticated module cache, THEN calls the
+      # unchanged offline recipe. Upload remains success-only after verification.
+      - name: Canonical key-free module preparation, build and original producer capture
+        id: build
+        shell: bash
+        env:
+          GO: /usr/local/go/bin/go
+          GOMAXPROCS: '2'
+        run: /bin/bash "$ENGINE_CHECKOUT/scripts/ci/canonical-cli-delivery.sh" build
+      - name: Upload exactly the canonical Linux files
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.build.outputs.artifact-name }}
+          # The directory holds the amd64 and arm64 builds and nothing else;
+          # every receiver checks that inventory before running its own file.
+          path: ${{ runner.temp }}/forge-ci-canonical-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact-retention-days }}
+          overwrite: false
+  canonical-receive:
+    needs: canonical-build
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    container:
+      image: ${{ inputs.receive-runtime-image || inputs.runtime-image }}
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      # Emit the ORIGINAL ID only after receive/bootstrap succeeds on this runner.
+      artifact-id: ${{ steps.verified.outputs.artifact-id }}
+    env:
+      ENGINE_CHECKOUT: ${{ github.workspace }}/_forge_ci_engine
+      ENGINE_REPOSITORY: ${{ inputs.engine-repository }}
+      ENGINE_COMMIT: ${{ inputs.engine-commit }}
+      ENGINE_ORIGIN: ${{ github.server_url }}/${{ inputs.engine-repository }}
+      RUNTIME_IMAGE: ${{ inputs.receive-runtime-image || inputs.runtime-image }}
+      PRODUCER_ARTIFACT_ID: ${{ needs.canonical-build.outputs.artifact-id }}
+      PRODUCER_ARTIFACT_NAME: ${{ needs.canonical-build.outputs.artifact-name }}
+      PRODUCER_RUN_ID: ${{ needs.canonical-build.outputs.run-id }}
+      PRODUCER_RUN_ATTEMPT: ${{ needs.canonical-build.outputs.run-attempt }}
+      PRODUCER_ENGINE_REPOSITORY: ${{ needs.canonical-build.outputs.engine-repository }}
+      PRODUCER_ENGINE_COMMIT: ${{ needs.canonical-build.outputs.engine-commit }}
+    steps:
+      - name: Separate approved engine checkout before any consumer or private stage
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ${{ inputs.engine-repository }}
+          ref: ${{ inputs.engine-commit }}
+          path: _forge_ci_engine
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - name: Admit original producer context and prepare an empty delivery directory
+        shell: bash
+        run: /bin/bash "$ENGINE_CHECKOUT/scripts/ci/canonical-cli-delivery.sh" prepare
+      - name: Read native artifact metadata with read-only job authentication
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_HOST: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          unset GH_DEBUG
+          /bin/bash -p "$ENGINE_CHECKOUT/scripts/ci/trusted-runtime-tools.sh" runtime gh api --hostname "${GH_HOST#https://}" \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts/$PRODUCER_ARTIFACT_ID" >"$RUNNER_TEMP/forge-ci-canonical-metadata.json"
+      - name: Admit exact artifact metadata before download
+        shell: bash
+        run: /bin/bash "$ENGINE_CHECKOUT/scripts/ci/canonical-cli-delivery.sh" admit
+      - name: Download only the original immutable artifact ID
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.canonical-build.outputs.artifact-id }}
+          path: ${{ runner.temp }}/forge-ci-canonical-${{ github.run_id }}-${{ github.run_attempt }}
+          merge-multiple: true
+      - name: Bound inventory, verify bytes, then execute only the trusted canonical CLI
+        id: bootstrap
+        shell: bash
+        env:
+          TOOL_PROFILE: runtime # This receiver runs inside the approved image.
+        run: /bin/bash "$ENGINE_CHECKOUT/scripts/ci/canonical-cli-delivery.sh" receive
+      - name: Expose original artifact ID only after successful bootstrap
+        id: verified
+        if: ${{ success() && steps.bootstrap.outcome == 'success' }}
+        shell: bash
+        env:
+          ORIGINAL_ARTIFACT_ID: ${{ needs.canonical-build.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          [[ "$ORIGINAL_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          printf 'artifact-id=%s\n' "$ORIGINAL_ARTIFACT_ID" >>"$GITHUB_OUTPUT"
+    # This reusable unit intentionally stops here: no consumer checkout,
+    # consumer action, private environment, signing or publishing follows.

@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# Copy to .forge-ci/images.yml. Unlike artifacts.yml (container-first
+# builds with extraction), Forgejo builds the binaries before the image jobs.
+containers:
+  - name: my-service
+    container-file: Containerfile.forgejo
+    context: .
+    platforms: linux/amd64,linux/arm64

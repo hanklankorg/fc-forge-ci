@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# A signed release-request/vX.Y.Z tag starts the release: Forge CI's release
+# orchestrator renders the changelog, builds the image from the Containerfile
+# on a native runner, extracts its binary (extract.binary), writes the Cargo
+# Build SBOM from Cargo.lock and signs and publishes the GitHub release.
+name: Release Workflow
+
+on:
+  push:
+    tags:
+      - "release-request/v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    uses: diggsweden/forge-ci/.github/workflows/release-orchestrator.yml@PIN_FORGE_CI_SHA # v0.90.0
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      actions: read
+    secrets:
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_GPG_PUBLIC_KEY: ${{ secrets.RELEASE_GPG_PUBLIC_KEY }}
+    with:
+      branch: main
+      # The full commit the workflow ref above names. Every plain-runner job
+      # runs the CLI built in this run from exactly this commit.
+      forge-ci-binary-ref: PIN_FORGE_CI_SHA # v0.90.0
+      artifacts-config: .forge-ci/artifacts.yml
+      changelog-creator: git-cliff
+      release-publisher: github-cli
+      # runtime-image and canonical-builder-image are pinned by digest: the
+      # release admits them before any job runs. Replace FIXME with the digests
+      # of the release you call; see
+      # https://github.com/diggsweden/forge-ci/blob/main/docs/runtime-images.md#advanced-pinning-recipe
+      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-base@sha256:0000000000000000000000000000000000000000000000000000000000000000 # FIXME v0.90.0 digest
+      canonical-builder-image: ghcr.io/diggsweden/forge-ci-runtime-go-1.27@sha256:0000000000000000000000000000000000000000000000000000000000000000 # FIXME v0.90.0 digest
+      runtime-image-full: ghcr.io/diggsweden/forge-ci-runtime:v0.90.0
+      runtime-image-rust: ghcr.io/diggsweden/forge-ci-runtime-rust-stable:v0.90.0

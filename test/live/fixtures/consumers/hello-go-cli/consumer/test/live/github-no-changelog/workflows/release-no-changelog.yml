@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# No-changelog variant of the GPG release: an empty changelog-creator skips
+# the changelog and the version bump, so the release prepares no commit. main
+# must stay at the requested commit, which the signed final tag names.
+# Everything else is release-gpg.yml's: files and tag signed with the trial's
+# disposable GPG key, so the case writes to no public transparency log.
+name: Release without changelog
+on:
+  push:
+    tags:
+      - "release-request/v*"
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  release:
+    uses: diggsweden/forge-ci/.github/workflows/release-orchestrator.yml@PIN_FORGE_CI_SHA # v0.90.0
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      actions: read
+    secrets:
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_GPG_PUBLIC_KEY: ${{ secrets.RELEASE_GPG_PUBLIC_KEY }}
+    with:
+      branch: main
+      # The full commit the workflow ref above names. Every plain-runner job
+      # runs the CLI built in this run from exactly this commit.
+      forge-ci-binary-ref: PIN_FORGE_CI_SHA # v0.90.0
+      artifacts-config: .forge-ci/artifacts-gpg.yml
+      changelog-creator: ""
+      release-publisher: github-cli
+      # runtime-image and canonical-builder-image are pinned by digest: the
+      # release admits them before any job runs. Replace FIXME with the digests
+      # of the release you call; see
+      # https://github.com/diggsweden/forge-ci/blob/main/docs/runtime-images.md#advanced-pinning-recipe
+      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-base@sha256:0000000000000000000000000000000000000000000000000000000000000000 # FIXME v0.90.0 digest
+      canonical-builder-image: ghcr.io/diggsweden/forge-ci-runtime-go-1.27@sha256:0000000000000000000000000000000000000000000000000000000000000000 # FIXME v0.90.0 digest
+      runtime-image-full: ghcr.io/diggsweden/forge-ci-runtime:v0.90.0
+      runtime-image-go: ghcr.io/diggsweden/forge-ci-runtime-go-1.27:v0.90.0
+      release.signartifacts: true
+      release.attachartifacts: release-artifacts/*/my-cli-*

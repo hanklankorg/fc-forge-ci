@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+# Snapshot files: builds the declared CLI of a branch and keeps the binaries
+# with their receipt as an unsigned run artifact, for readers of the run, for
+# 7 days. Copy beside pullrequest.yml and release.yml and replace the
+# placeholders with the same authenticated, published layer pin. It reads the
+# release's .forge-ci/artifacts.yml and needs no registry and no secret.
+# It runs when dispatched on the branch to snapshot; to snapshot every branch
+# as it is pushed, add under `on:` a `push:` with `branches-ignore: [main]`.
+name: Snapshot files
+on:
+  workflow_dispatch:
+concurrency:
+  group: snapshot-files-${{ forgejo.repository }}-${{ forgejo.ref }}
+  cancel-in-progress: true
+jobs:
+  snapshot:
+    uses: OWNER/forge-ci/.forgejo/workflows/snapshot-images.yml@PIN_FORGE_CI_SHA
+    with:
+      branch: ${{ forgejo.ref_name }}
+      publish-files: true
+      forge-ci-repository: OWNER/forge-ci
+      forge-ci-sha: PIN_FORGE_CI_SHA
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      artifact-job-image-go: REGISTRY/OWNER/go-build@sha256:PIN_GO_BUILD_DIGEST

@@ -1,0 +1,88 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Tool versions for mise (https://mise.jdx.dev/)
+# Install all tools: mise install
+# Activate in shell: eval "$(mise activate bash)"
+
+[settings]
+experimental = true  # Enable experimental features
+pipx.uvx = true      # Install pipx: backend tools via uv (uvx), never pipx
+
+# Supply-chain quarantine: refuse to install a tool release published within
+# the last 7 days, so a freshly-poisoned release has time to be noticed before
+# it lands here.
+minimum_release_age = "7d"
+
+[env]
+# Proxy configuration - available during tool installation AND runtime
+HTTP_PROXY = "{{ get_env(name='HTTP_PROXY', default='') }}"
+HTTPS_PROXY = "{{ get_env(name='HTTPS_PROXY', default='') }}"
+NO_PROXY = "{{ get_env(name='NO_PROXY', default='') }}"
+http_proxy = "{{ get_env(name='http_proxy', default='') }}"
+https_proxy = "{{ get_env(name='https_proxy', default='') }}"
+no_proxy = "{{ get_env(name='no_proxy', default='') }}"
+
+# Pip/pipx configuration
+PIP_INDEX_URL = "{{ get_env(name='PIP_INDEX_URL', default='') }}"
+
+# golangci-lint caches absolute diagnostic paths, so a cache shared between
+# linked worktrees replays another checkout's findings. Keep it per checkout
+# for a direct nanolinter run too, as the justfile does for recipes.
+GOLANGCI_LINT_CACHE = "{{ get_env(name='GOLANGCI_LINT_CACHE', default=config_root ~ '/.golangci-lint-cache') }}"
+
+[tools]
+# Pin the compiler patch because release binaries include its standard library.
+go = "1.27.4"
+
+# Lint/security orchestrator — derives a verify plan from the repo and
+# runs the configured checks. See nanolinter.toml for the plan.
+# Published binaries are Linux-only; on macOS/BSD build the pinned source
+# as described in docs/DEVELOPMENT.md instead of installing the source archive as a tool.
+"forgejo:itiquette/nanolinter" = { version = "0.8.6", os = ["linux"], api_url = "https://codefloe.com/api/v1" }
+
+# Per-check tools nanolinter delegates to. Inline comments name the
+# nanolinter check ID each tool backs.
+"aqua:casey/just" = "1.59.0"
+"aqua:rvben/rumdl" = "v0.3.2"
+"aqua:google/yamlfmt" = "v0.21.0"             # yaml
+"aqua:rhysd/actionlint" = "v1.7.12"
+"aqua:zricethezav/gitleaks" = "v8.30.1"       # secrets
+"forgejo:itiquette/gommitlint" = { version = "0.93.0", api_url = "https://codefloe.com/api/v1" }
+"aqua:koalaman/shellcheck" = "v0.11.0"        # shell
+"aqua:mvdan/sh" = "v3.14.1"
+"aqua:hadolint/hadolint" = "v2.15.1"          # container
+"aqua:lycheeverse/lychee" = "0.24.2"          # links
+"aqua:opengrep/opengrep" = "1.33.1"          # sast (see nanolinter.toml)
+"aqua:google/osv-scanner" = "2.7.0"
+"aqua:tamasfe/taplo" = "0.10.0"               # toml
+"aqua:aquasecurity/trivy" = "0.76.1"
+"aqua:crate-ci/typos" = "1.52.0"
+"aqua:ossf/scorecard" = "5.6.0"                # security-scorecard
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"  # go-vulncheck
+# Built with the pinned Go above: a deadcode built with an older Go cannot
+# load this module. Not a nanolinter check; see `just lint-go-deadcode`.
+"go:golang.org/x/tools/cmd/deadcode" = "0.52.0"
+"aqua:golangci/golangci-lint" = "2.15.0"         # go-golangci
+jq = "1.8.2"                                      # workflow/live-tier JSON utilities
+
+# Runtime dependency: SBOM generation and container-ledger signing invoke syft.
+"aqua:anchore/syft" = "1.57.0"
+
+# Runtime dependency: signing and verification invoke cosign. The adapter uses
+# the cosign 3 signing-config interface and is tested against this version.
+"aqua:sigstore/cosign" = "3.1.4"
+
+# uv provides the Python tool runner (uvx) that backs the pipx: tools
+# above — with pipx.uvx=true mise routes those installs through uv, so
+# pipx is never required.
+"aqua:astral-sh/uv" = "0.13.7"
+
+# Misc dev-loop utilities (not bound to a nanolinter check).
+"aqua:goreleaser/goreleaser" = "2.20.0"          # release-snapshot
+"aqua:sharkdp/fd" = "v10.5.1"
+"aqua:BurntSushi/ripgrep" = "15.2.0"
+"aqua:tldr-pages/tlrc" = "v1.13.1"
+yq = "4.54.1"
+"pipx:reuse" = { version = "6.3.0", uvx = "true", extras = "charset-normalizer" } # license

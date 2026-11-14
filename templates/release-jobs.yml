@@ -1,0 +1,1063 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+# Include only from the project's independently controlled, pinned external
+# CI configuration. Consumer-owned YAML is not a signing-policy boundary.
+spec:
+  inputs:
+    release-policy:
+      default: stable
+      options: [stable, stable-prerelease]
+    engine-sha:
+      regex: '^([0-9a-f]{40}|[0-9a-f]{64})$'
+    engine-reference:
+      type: string
+    forge-ci-repository:
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
+    consumer-project:
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
+    server-url:
+      regex: '^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'
+    registry:
+      regex: '^$|^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'
+    job-image:
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    job-user:
+      regex: '^$|^(0|[1-9][0-9]*)(:(0|[1-9][0-9]*))?$'
+      default: ''
+    runtime-image-java:
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+      default: ''
+    runtime-image-node:
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+      default: ''
+    runtime-image-go:
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+      default: ''
+    runtime-image-rust:
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+      default: ''
+    runtime-image-android:
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+      default: ''
+    signer-image:
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    publication-project:
+      description: Separate GitLab project owning final container images; source job tokens must not write it.
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
+    publication-image-repository:
+      description: Exact registry repository in the publication project, without tag or digest.
+      regex: '^[^[:space:]''@]+$'
+    cosign-public-key-sha256:
+      regex: '^[0-9a-f]{64}$'
+    release-git-url:
+      description: Repository SSH write URL; the prepare key must be a scoped deploy key. Empty is this project on the GitLab web host, port 22.
+      regex: '^[^[:space:]'']*$'
+      default: ''
+    release-git-host-key-fingerprint:
+      description: Independently supplied SSH host key fingerprint, SHA256:<base64> alone.
+      regex: '^SHA256:[A-Za-z0-9+/]{43}=?$'
+    request-allowed-signers:
+      description: Trusted OpenSSH allowed-signers text for human release-request tags; supplied by the external policy.
+      regex: '\A[^'']+\z'
+    bot-name:
+      regex: '^[^''[:cntrl:]]+$'
+    bot-email:
+      regex: '^[^''[:space:]]+@[^''[:space:]]+$'
+    checks:
+      type: array
+      description: Required checks on the request commit, without signing or publication secrets.
+    runner-tags:
+      type: array
+      default: []
+      description: Runner tags of every job that names none of its own below; empty leaves them untagged.
+    signer-runner-tags:
+      type: array
+      default: []
+      description: Runner tags of the jobs in signer-image, which hold the signing and publication credentials; empty leaves them untagged.
+    build:
+      type: array
+      description: Consumer build commands, run in each family build job and then in the release files job, which writes dist/release-files.json and release-notes.md.
+    build-runner-tags-linux-amd64:
+      type: array
+      description: Runner tags of the consumer checks, family builds, release files and amd64 image and export jobs, whichever the image builder; required, and never empty.
+    release-images:
+      type: boolean
+      default: false
+      description: Build, scan and stage the containers artifacts-config declares in the image jobs, for signing.
+    artifacts-config:
+      regex: '^$|^[A-Za-z0-9_.][A-Za-z0-9_./-]*$'
+      default: ''
+    release-platforms:
+      regex: '^$|^linux/(amd64|arm64)(,linux/(amd64|arm64))?$'
+      default: ''
+    labels:
+      regex: '^$|^[a-z0-9]+([._-][a-z0-9]+)*=[^''[:cntrl:]]+(\n[a-z0-9]+([._-][a-z0-9]+)*=[^''[:cntrl:]]+)*\n?$'
+      default: ''
+      description: Newline-separated key=value labels every release image carries after the standard ones. Requires release-images.
+    image-builder:
+      options: [buildah, kaniko]
+      default: buildah
+    builder-job-image:
+      regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+      default: ''
+    build-runner-tags-linux-arm64:
+      type: array
+      description: Runner tags of a native arm64 runner; required, [] when there is none, and the arm64 image and export jobs exist only when they are set.
+    export-files:
+      type: boolean
+      default: false
+      description: Run the export commands once per selected architecture, natively, in builder-job-image with image-builder, before the build job.
+    export:
+      type: array
+      default: []
+      description: Commands exporting files from a Containerfile stage into dist/; EXPORT_PLATFORM and EXPORT_ARCH name the job's architecture. Requires export-files.
+    changelog-creator:
+      options: [git-chglog, git-cliff]
+    changelog-config:
+      regex: '^[A-Za-z0-9_.][A-Za-z0-9_./-]*$'
+    commit-body-config:
+      regex: '^[A-Za-z0-9_.][A-Za-z0-9_./-]*$'
+    sign-distro-packages:
+      type: boolean
+    release-asset-retention:
+      regex: '^$|^[1-9][0-9]*$'
+    base-stages:
+      regex: '^$|^[a-z][a-z0-9+:-]*( [a-z][a-z0-9+:-]*)*$'
+    base-plan:
+      regex: '^[^''[:cntrl:]]*$'
+    transparency-log:
+      options: [none, public]
+    release-branch:
+      regex: '^$|^[A-Za-z0-9_][A-Za-z0-9_./-]*$'
+    enforce-lint:
+      type: boolean
+    enforce-vulnerabilities:
+      type: boolean
+    enforce-application-tests:
+      type: boolean
+    enforce-reproducible-builds:
+      type: boolean
+---
+stages: [check, prepare, build, images, sign, publish]
+.forge-ci-release:
+  # No second attempt unless a job names the one for an unavailable
+  # dependency: a default of the including configuration reaches no job.
+  retry: 0
+  # As in the check component: a consumer's image runs the job's shell, not
+  # its own entrypoint, on every executor.
+  # job-user, as in the check component: a variable the runner expands, since
+  # GitLab refuses an empty image user. Jobs in another image clear it.
+  image:
+    name: $[[ inputs.job-image ]]
+    entrypoint: [""]
+    docker:
+      user: $RC_JOB_USER
+    kubernetes:
+      user: $RC_JOB_USER
+  # Every job not given its own tags below runs on runner-tags; the signer
+  # jobs on signer-runner-tags. Both are literal inputs of the policy: a tag
+  # GitLab expanded from a variable would let a project choose the runner.
+  tags: $[[ inputs.runner-tags ]]
+  cache: []
+  interruptible: false
+  # Only what the runner reads before the job's shell is a job variable; the
+  # start holds each to its literal. The policy's values are not variables:
+  # the start assigns them from the inputs.
+  variables:
+    GIT_STRATEGY: empty
+    GIT_SUBMODULE_STRATEGY: none
+    RC_JOB_USER: '$[[ inputs.job-user ]]'
+# One more attempt for a job the engine ended because a dependency was
+# unavailable, exit 69, and for no other failure. A literal, so no input or
+# variable widens it, and named only by the jobs a second attempt cannot
+# harm: those that read or build and hand on files. A job that pushes an
+# image, signs, tags, moves a tag, publishes the release or a package or
+# deletes says retry: 0 itself, so a default of the including configuration
+# does not reach it either.
+.forge-ci-release-retry: &forge-ci-release-retry
+  max: 1
+  exit_codes: 69
+# The signer jobs name their image alone, which takes no user; job-user is
+# job-image's, so they clear it.
+.forge-ci-release-signer:
+  extends: .forge-ci-release
+  image: $[[ inputs.signer-image ]]
+  tags: $[[ inputs.signer-runner-tags ]]
+  variables:
+    RC_JOB_USER: ''
+# Each job's start, its before_script, is its role, then this. A project,
+# group or instance variable outranks every other, the job's predefined
+# name included, so what the job may do follows from the role, a literal of
+# this file, and never from a variable. So do the policy's values: the
+# start assigns each from its input, read only, and release.sh reads them
+# there. A variable the runner needs is held to its literal instead.
+.forge-ci-release-start:
+  - &forge-ci-release-start |
+    set -euo pipefail
+    umask 077
+    # job-user reaches the runner as RC_JOB_USER, which a project variable
+    # outranks; hold that to the literal input, and the job's user to it.
+    # The jobs in their own images hold it to empty, their images' users.
+    # kaniko replaces an image job's root filesystem with the image's and
+    # deletes it after each build; only mounts and /kaniko survive, where
+    # the kaniko job image keeps TMPDIR. Its build jobs keep their work, the
+    # engine included, in the workspace; every other job in private /tmp.
+    # The jobs that run consumer code, and the request check, keep their
+    # image's home; every other job gets a private one.
+    want_user='$[[ inputs.job-user ]]' work_parent=/tmp own_home=false
+    case "${rc_job_role:?}" in
+      request | checks | changelog | release-files | base-plan) own_home=true ;;
+      build | version) want_user= own_home=true ;;
+      export)
+        want_user= own_home=true
+        if [ '$[[ inputs.image-builder ]]' = kaniko ]; then work_parent=${CI_PROJECT_DIR:?}; fi
+        ;;
+      image-build | base-build)
+        want_user=
+        if [ '$[[ inputs.image-builder ]]' = kaniko ]; then work_parent=${CI_PROJECT_DIR:?}; fi
+        ;;
+      signing-preflight | publish-preflight | registry-preflight | sign | promote | publish | cleanup | packages) want_user= ;;
+      base-parent | base-promote) want_user= ;;
+      prepare | images-plan | images-publish | summary | base-publish | base-gate) ;;
+      *)
+        echo "ERROR: the release job role '${rc_job_role}' is unknown." >&2
+        exit 1
+        ;;
+    esac
+    job_uid=$(id -u) job_gid=$(id -g)
+    if [ "${RC_JOB_USER-}" != "${want_user}" ]; then
+      echo "ERROR: RC_JOB_USER is '${RC_JOB_USER-}', not '${want_user}'; remove the variable that sets it." >&2
+      exit 1
+    fi
+    case "${want_user}" in
+      *:*) actual_user="${job_uid}:${job_gid}" ;;
+      *) actual_user=${want_user:+${job_uid}} ;;
+    esac
+    if [ "${actual_user}" != "${want_user}" ]; then
+      echo "ERROR: the job runs as uid=${job_uid} gid=${job_gid}, not job-user ${want_user}." >&2
+      exit 1
+    fi
+    echo "job user: uid=${job_uid} gid=${job_gid}"
+    if [ "${GIT_STRATEGY-}" != empty ] || [ "${GIT_SUBMODULE_STRATEGY-}" != none ]; then
+      echo "ERROR: GIT_STRATEGY is '${GIT_STRATEGY-}' and GIT_SUBMODULE_STRATEGY '${GIT_SUBMODULE_STRATEGY-}', not empty and none; remove the variables that set them." >&2
+      exit 1
+    fi
+    # signer-runner-tags choose the runner that sees the release
+    # credentials, and GitLab expands a variable in a tag: a tag written as
+    # one would let a project choose that runner. Every job refuses it, so
+    # the release stops at its first job.
+    case '$[[ inputs.signer-runner-tags ]]' in
+      *'$'*)
+        echo "ERROR: signer-runner-tags names a \$variable; name literal tags in the release policy." >&2
+        exit 1
+        ;;
+    esac
+    # An untagged job on a platform-bound input could land on a runner of
+    # any platform, or none that permits user namespaces.
+    if [ '$[[ inputs.build-runner-tags-linux-amd64 ]]' = '[]' ]; then
+      echo "ERROR: build-runner-tags-linux-amd64 is empty; name the tags of the amd64 runner the checks and image builds run on." >&2
+      exit 1
+    fi
+    # The policy, from the inputs as written. Each replaces any variable of
+    # its name; the inputs' regexes and options keep quotes out of them.
+    readonly RC_RELEASE_POLICY='$[[ inputs.release-policy ]]' \
+      RC_FORGE_CI_REPOSITORY='$[[ inputs.forge-ci-repository ]]' \
+      RC_CONSUMER_PROJECT='$[[ inputs.consumer-project ]]' \
+      RC_SERVER_URL='$[[ inputs.server-url ]]' \
+      RC_REGISTRY='$[[ inputs.registry ]]' \
+      RC_IMAGE_LABELS='$[[ inputs.labels ]]' \
+      RC_RUNNER_TAGS='$[[ inputs.runner-tags ]]' \
+      RC_SIGNER_RUNNER_TAGS='$[[ inputs.signer-runner-tags ]]' \
+      RC_BUILD_RUNNER_TAGS_LINUX_AMD64='$[[ inputs.build-runner-tags-linux-amd64 ]]' \
+      RC_BUILD_RUNNER_TAGS_LINUX_ARM64='$[[ inputs.build-runner-tags-linux-arm64 ]]' \
+      RC_PUBLICATION_PROJECT='$[[ inputs.publication-project ]]' \
+      RC_PUBLICATION_IMAGE_REPOSITORY='$[[ inputs.publication-image-repository ]]' \
+      RC_PUBLIC_KEY_SHA256='$[[ inputs.cosign-public-key-sha256 ]]' \
+      RC_GIT_URL='$[[ inputs.release-git-url ]]' \
+      RC_GIT_HOST_KEY='$[[ inputs.release-git-host-key-fingerprint ]]' \
+      RC_REQUEST_ALLOWED_SIGNERS='$[[ inputs.request-allowed-signers ]]' \
+      RC_BOT_NAME='$[[ inputs.bot-name ]]' \
+      RC_BOT_EMAIL='$[[ inputs.bot-email ]]' \
+      RC_CHANGELOG_CREATOR='$[[ inputs.changelog-creator ]]' \
+      RC_CHANGELOG_CONFIG='$[[ inputs.changelog-config ]]' \
+      RC_COMMIT_BODY_CONFIG='$[[ inputs.commit-body-config ]]' \
+      RC_SIGN_DISTRO_PACKAGES='$[[ inputs.sign-distro-packages ]]' \
+      RC_RELEASE_ASSET_RETENTION='$[[ inputs.release-asset-retention ]]' \
+      RC_BASE_STAGES='$[[ inputs.base-stages ]]' \
+      RC_BASE_PLAN='$[[ inputs.base-plan ]]' \
+      RC_IMAGE_BUILDER='$[[ inputs.image-builder ]]' \
+      RC_BUILDER_JOB_IMAGE='$[[ inputs.builder-job-image ]]' \
+      RC_RELEASE_BRANCH_INPUT='$[[ inputs.release-branch ]]' \
+      RC_ARTIFACTS_CONFIG='$[[ inputs.artifacts-config ]]' \
+      RC_ADMIN_LINT='$[[ inputs.enforce-lint ]]' \
+      RC_ADMIN_VULNERABILITIES='$[[ inputs.enforce-vulnerabilities ]]' \
+      RC_ADMIN_APPLICATION_TESTS='$[[ inputs.enforce-application-tests ]]' \
+      RC_ADMIN_REPRODUCIBLE_BUILDS='$[[ inputs.enforce-reproducible-builds ]]' \
+      FORGE_CI_COSIGN_TRANSPARENCY='$[[ inputs.transparency-log ]]'
+    # The engine reads the transparency setting from its environment.
+    export FORGE_CI_COSIGN_TRANSPARENCY
+    # The release tokens go to the instance and its registry, which a
+    # project or pipeline variable can point elsewhere: hold CI_SERVER_URL
+    # and CI_REGISTRY to the literals, and derive the API and the project's
+    # image repository from them, as GitLab does.
+    if [ "${CI_SERVER_URL-}" != "${RC_SERVER_URL}" ] || [ "${CI_REGISTRY-}" != "${RC_REGISTRY}" ]; then
+      echo "ERROR: CI_SERVER_URL is '${CI_SERVER_URL-}' and CI_REGISTRY '${CI_REGISTRY-}', not server-url '${RC_SERVER_URL}' and registry '${RC_REGISTRY}'; remove the variables that set them." >&2
+      exit 1
+    fi
+    readonly RC_REGISTRY_IMAGE="${RC_REGISTRY:+${RC_REGISTRY}/${RC_CONSUMER_PROJECT,,}}"
+    export CI_API_V4_URL="${RC_SERVER_URL}/api/v4" CI_REGISTRY_IMAGE="${RC_REGISTRY_IMAGE}"
+    expected='$[[ inputs.engine-sha ]]'
+    reference='$[[ inputs.engine-reference ]]'
+    test "${reference}" = "${expected}"
+    test "${CI_PROJECT_PATH:?}" = "${RC_CONSUMER_PROJECT:?}"
+    test "${CI_COMMIT_REF_PROTECTED:?}" = true
+    test "${CI_PIPELINE_SOURCE:?}" = parent_pipeline
+    case "${CI_COMMIT_TAG:?}" in release-request/v*) ;; *) exit 1 ;; esac
+    unset BASH_ENV ENV
+    RC_WORK=$(mktemp -d "${work_parent}/forge-ci-release.XXXXXXXX")
+    readonly RC_WORK
+    trap 'rm -rf -- "${RC_WORK}"' EXIT
+    if [ "${own_home}" = false ]; then
+      export HOME="${RC_WORK}/home"
+      mkdir -m 0700 "${HOME}"
+      export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+    fi
+    export RC_HELPERS_DIR="${RC_WORK}/helpers"
+    export CI_OUTPUT="${RC_WORK}/outputs.env"
+    export FORGE_CI_PLAN="${RC_WORK}/plan.json"
+    export SIGN_AND_PUBLISH_STATE_DIR="${RC_WORK}/state"
+    mkdir -m 0700 "${SIGN_AND_PUBLISH_STATE_DIR}"
+    export FORGE_CI_PACKAGE_PROVIDER=gitlab
+    export FORGE_CI_REPOSITORY_URL="${RC_SERVER_URL}/${RC_FORGE_CI_REPOSITORY:?}.git"
+    git_options=(-c core.hooksPath=/dev/null -c credential.helper=)
+    if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+      for bundle in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; do
+        if [ -f "${bundle}" ]; then break; fi
+      done
+      test -f "${bundle}"
+      cat -- "${bundle}" "${CI_SERVER_TLS_CA_FILE}" > "${RC_WORK}/ca-bundle.crt"
+      export CURL_CA_BUNDLE="${RC_WORK}/ca-bundle.crt"
+      export GIT_SSL_CAINFO="${CURL_CA_BUNDLE}" SSL_CERT_FILE="${CURL_CA_BUNDLE}"
+      # Node reads none of those: without this npm refuses the instance's
+      # certificate when it reads or publishes a package.
+      export NODE_EXTRA_CA_CERTS="${CURL_CA_BUNDLE}"
+      git_options+=(-c "http.sslCAInfo=${GIT_SSL_CAINFO}")
+    fi
+    object_format=sha1
+    if [ "${#expected}" -eq 64 ]; then object_format=sha256; fi
+    git init --quiet --object-format="${object_format}" "${RC_HELPERS_DIR}"
+    git -C "${RC_HELPERS_DIR}" remote add origin "${FORGE_CI_REPOSITORY_URL}"
+    # A forge that could not be reached is asked three times, and the job
+    # then ends as unavailable, exit 69. Any other refusal of the fetch
+    # ends it at once.
+    for attempt in 1 2 3; do
+      fetch_error=$(GIT_TERMINAL_PROMPT=0 git "${git_options[@]}" -C "${RC_HELPERS_DIR}" fetch --quiet --depth=1 --no-tags origin "${expected}" 2>&1) && break
+      printf '%s\n' "${fetch_error}" >&2
+      case "${fetch_error}" in
+      "fatal: unable to access '"*"': Could not resolve host: "* | "fatal: unable to access '"*"': Failed to connect to "*) ;;
+      *) exit 1 ;;
+      esac
+      if [ "${attempt}" -eq 3 ]; then exit 69; fi
+      sleep 5
+    done
+    git "${git_options[@]}" -C "${RC_HELPERS_DIR}" checkout --quiet --detach "${expected}"
+    test "$(git -C "${RC_HELPERS_DIR}" rev-parse HEAD)" = "${expected}"
+    source "${RC_HELPERS_DIR}/.engine/bin/lib-forge-ci.sh"
+    fetch_forge_ci
+    SIGNER_STRICT=1 verify_forge_ci
+    export FORGE_CI_BIN="${HELPERS_ENGINE_VERIFIED}"
+    export PATH="${HELPERS_ROOT}/bin:${PATH}"
+    # The checks and build commands run the gates; their forge-ci applies
+    # the administrator's settings as its flags, never from the environment.
+    case "${rc_job_role}" in
+      checks | build | release-files)
+        forge_ci_admin_path "${RC_WORK}/admin-bin" "${RC_ADMIN_LINT}" "${RC_ADMIN_VULNERABILITIES}" \
+          "${RC_ADMIN_APPLICATION_TESTS}" "${RC_ADMIN_REPRODUCIBLE_BUILDS}"
+        forge-ci policy show
+        ;;
+    esac
+    export FORGE_CI_PROVIDER=gitlab
+    source "${RC_HELPERS_DIR}/.gitlab/bin/release.sh"
+    rc_release_context
+# A producer's after_script is its hand-off directory, then this. The
+# uploader and the next job can run as different users. Publish readable
+# data only; never follow links into the private workspace.
+.forge-ci-release-handoff:
+  - &forge-ci-release-handoff |
+    set -eu
+    cd -- "${CI_PROJECT_DIR:?}"
+    if [ -d "${rc_handoff:?}" ] && [ ! -L "${rc_handoff}" ]; then
+      find "${rc_handoff}" \( -type d -o -type f \) -exec chmod u=rwX,go=rX -- {} +
+    fi
+"Check: signing access":
+  extends: .forge-ci-release-signer
+  stage: check
+  before_script: [readonly rc_job_role=signing-preflight, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  needs: []
+  environment:
+    name: release/registry/signing
+    action: prepare
+  script:
+    - rc_check_signing_access
+"Check: publishing access":
+  extends: .forge-ci-release-signer
+  stage: check
+  before_script: [readonly rc_job_role=publish-preflight, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  needs: []
+  environment:
+    name: release/publish
+    action: prepare
+  script:
+    - printf '%s' "${RELEASE_TOKEN:?}" | rc_engine validate auth token --repository "${CI_PROJECT_PATH}" --token-file -
+"Check: registry access":
+  extends: .forge-ci-release-signer
+  stage: check
+  before_script: [readonly rc_job_role=registry-preflight, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  needs: []
+  # Only container publication needs the publication-project credential.
+  # Export jobs produce files without it. These are protected typed inputs,
+  # not consumer variables that could disable a required preflight.
+  rules:
+    - if: '"$[[ inputs.release-images ]]" == "true"'
+    - if: '"$[[ inputs.base-stages ]]" != ""'
+  environment:
+    name: release/registry/preflight
+    action: prepare
+  script:
+    - printf '%s' "${RELEASE_REGISTRY_TOKEN:?}" | rc_engine validate auth token --repository "${RC_PUBLICATION_PROJECT}" --token-file -
+"Check: release request":
+  extends: .forge-ci-release
+  stage: check
+  before_script: [readonly rc_job_role=request, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  needs:
+    - "Check: signing access"
+    - "Check: publishing access"
+    - job: "Check: registry access"
+      optional: true
+  script:
+    - rc_request_checkout
+    - rc_check_release_images '$[[ inputs.release-images ]]' '$[[ inputs.image-builder ]]' '$[[ inputs.builder-job-image ]]' '$[[ inputs.artifacts-config ]]' '$[[ inputs.release-platforms ]]'
+    # The export commands as data, never run here: set without export-files
+    # they would have no effect, and are refused.
+    - |
+      rc_check_exports '$[[ inputs.export-files ]]' '$[[ inputs.builder-job-image ]]' '$[[ inputs.release-platforms ]]' '$[[ inputs.build-runner-tags-linux-arm64 ]]' <<'RC_EXPORT_COMMANDS'
+      $[[ inputs.export ]]
+      RC_EXPORT_COMMANDS
+"Check: consumer checks":
+  extends: .forge-ci-release
+  stage: check
+  before_script: [readonly rc_job_role=checks, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  # Checks may run Buildah, as the image builds do; the request check,
+  # which runs no consumer command, stays on runner-tags.
+  tags: $[[ inputs.build-runner-tags-linux-amd64 ]]
+  needs:
+    - job: "Check: release request"
+      artifacts: false
+  script:
+    # Fresh immutable checkout and signature/head revalidation, never an
+    # executable workspace handed off by the authorization job.
+    - rc_request_checkout
+    - $[[ inputs.checks ]]
+"Prepare: changelog":
+  extends: .forge-ci-release
+  stage: prepare
+  before_script: [readonly rc_job_role=changelog, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  after_script: [rc_handoff=_release-render, *forge-ci-release-handoff]
+  # Beside the consumer checks: the changelog changes nothing outside the
+  # pipeline, and the release commit waits for both.
+  needs:
+    - job: "Check: release request"
+      artifacts: false
+  script:
+    - rc_render_changelog
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-render/]
+# The plan's version jobs, one per toolchain family whose projects it bumps
+# with their native tool, named by "Release: plan" from these hidden jobs.
+# The tool rewrites the family's version files in its runtime image without
+# any credential; the release commit's job runs no build tool and takes only
+# the patches, after proving each a version substitution of a planned file.
+.forge-ci-release-version:
+  extends: .forge-ci-release
+  stage: prepare
+  before_script: [readonly rc_job_role=version, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  variables:
+    RC_JOB_USER: ''
+  needs:
+    - job: "Check: consumer checks"
+      artifacts: false
+    - job: "Prepare: changelog"
+      artifacts: true
+.forge-ci-release-version-java:
+  extends: .forge-ci-release-version
+  image:
+    name: $[[ inputs.runtime-image-java ]]
+    entrypoint: [""]
+  after_script: [rc_handoff=_release-bump-java, *forge-ci-release-handoff]
+  script:
+    - rc_bump_version java
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-bump-java/]
+.forge-ci-release-version-node:
+  extends: .forge-ci-release-version
+  image:
+    name: $[[ inputs.runtime-image-node ]]
+    entrypoint: [""]
+  after_script: [rc_handoff=_release-bump-node, *forge-ci-release-handoff]
+  script:
+    - rc_bump_version node
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-bump-node/]
+.forge-ci-release-version-rust:
+  extends: .forge-ci-release-version
+  image:
+    name: $[[ inputs.runtime-image-rust ]]
+    entrypoint: [""]
+  after_script: [rc_handoff=_release-bump-rust, *forge-ci-release-handoff]
+  script:
+    - rc_bump_version rust
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-bump-rust/]
+"Prepare: release commit and tag":
+  extends: .forge-ci-release
+  # Never a second attempt, whatever default the including configuration sets.
+  retry: 0
+  stage: prepare
+  before_script: [readonly rc_job_role=prepare, *forge-ci-release-start]
+  resource_group: release-prepare
+  environment:
+    name: release/prepare
+    action: prepare
+  needs:
+    - job: "Check: consumer checks"
+      artifacts: false
+    - job: "Prepare: changelog"
+      artifacts: true
+    - job: "Prepare: version java"
+      artifacts: true
+      optional: true
+    - job: "Prepare: version node"
+      artifacts: true
+      optional: true
+    - job: "Prepare: version rust"
+      artifacts: true
+      optional: true
+  script:
+    - rc_prepare_release
+# The plan's build jobs, one per toolchain family it builds, named by
+# "Release: plan" from these hidden jobs: the build commands in the family's
+# runtime image on the release commit, with FORGE_CI_BUILD_FAMILY and
+# FORGE_CI_ARTIFACTS naming what to build. They hand on dist/ and
+# image-context/ without a manifest.
+.forge-ci-release-build-family:
+  extends: .forge-ci-release
+  stage: build
+  before_script: [readonly rc_job_role=build, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  tags: $[[ inputs.build-runner-tags-linux-amd64 ]]
+  variables:
+    RC_JOB_USER: ''
+  needs:
+    - job: "Prepare: release commit and tag"
+      artifacts: false
+.forge-ci-release-build-java:
+  extends: .forge-ci-release-build-family
+  image:
+    name: $[[ inputs.runtime-image-java ]]
+    entrypoint: [""]
+  after_script: [rc_handoff=_release-build-java, *forge-ci-release-handoff]
+  script:
+    - rc_family_checkout java
+    - $[[ inputs.build ]]
+    - rc_family_handoff java
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-build-java/]
+.forge-ci-release-build-node:
+  extends: .forge-ci-release-build-family
+  image:
+    name: $[[ inputs.runtime-image-node ]]
+    entrypoint: [""]
+  after_script: [rc_handoff=_release-build-node, *forge-ci-release-handoff]
+  script:
+    - rc_family_checkout node
+    - $[[ inputs.build ]]
+    - rc_family_handoff node
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-build-node/]
+.forge-ci-release-build-go:
+  extends: .forge-ci-release-build-family
+  image:
+    name: $[[ inputs.runtime-image-go ]]
+    entrypoint: [""]
+  after_script: [rc_handoff=_release-build-go, *forge-ci-release-handoff]
+  script:
+    - rc_family_checkout go
+    - $[[ inputs.build ]]
+    - rc_family_handoff go
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-build-go/]
+.forge-ci-release-build-rust:
+  extends: .forge-ci-release-build-family
+  image:
+    name: $[[ inputs.runtime-image-rust ]]
+    entrypoint: [""]
+  after_script: [rc_handoff=_release-build-rust, *forge-ci-release-handoff]
+  script:
+    - rc_family_checkout rust
+    - $[[ inputs.build ]]
+    - rc_family_handoff rust
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-build-rust/]
+.forge-ci-release-build-android:
+  extends: .forge-ci-release-build-family
+  image:
+    name: $[[ inputs.runtime-image-android ]]
+    entrypoint: [""]
+  after_script: [rc_handoff=_release-build-android, *forge-ci-release-handoff]
+  script:
+    - rc_family_checkout android
+    - $[[ inputs.build ]]
+    - rc_family_handoff android
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-build-android/]
+# The release files: every family's and export job's files laid together,
+# then the build commands once more, in job-image as job-user with no
+# family, to write the release notes and declare the files.
+"Build: release files":
+  extends: .forge-ci-release
+  stage: build
+  before_script: [readonly rc_job_role=release-files, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  after_script: [rc_handoff=_release-build, *forge-ci-release-handoff]
+  tags: $[[ inputs.build-runner-tags-linux-amd64 ]]
+  needs:
+    - job: "Prepare: release commit and tag"
+      artifacts: false
+    - job: "Build: export amd64"
+      artifacts: true
+      optional: true
+    - job: "Build: export arm64"
+      artifacts: true
+      optional: true
+    - job: "Build: java"
+      artifacts: true
+      optional: true
+    - job: "Build: node"
+      artifacts: true
+      optional: true
+    - job: "Build: go"
+      artifacts: true
+      optional: true
+    - job: "Build: rust"
+      artifacts: true
+      optional: true
+    - job: "Build: android"
+      artifacts: true
+      optional: true
+    # With base-stages, the files are built only after every base is promoted.
+    - job: "Base: all promoted"
+      artifacts: true
+      optional: true
+  script:
+    - rc_release_checkout
+    - rc_gather_bases
+    - rc_gather_exports '$[[ inputs.export-files ]]'
+    - rc_gather_families
+    - $[[ inputs.build ]]
+    - rc_build_handoff
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-build/]
+# The base stage, the policy's base-stages: the jobs of one stage, named by
+# "Release: plan" from these hidden jobs with the stage and its parent as
+# literals, as it names the family jobs. A root is four jobs and a child
+# five. "Base: plan" runs the project's planner and "Base: build" its
+# Containerfiles; they hold no release secret. The others run nothing of the
+# project's: "Base: parent" and "Base: publish" hold the release's registry
+# credential, and "Base: sign and promote" alone the key. A child's plan
+# needs the promotion of its parent's stage, so no child is planned or built
+# before its parent is promoted and verified against the pinned key.
+.forge-ci-release-base-plan:
+  extends: .forge-ci-release
+  stage: build
+  before_script: [readonly rc_job_role=base-plan, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  after_script: [rc_handoff=_release-base-plan, *forge-ci-release-handoff]
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-base-plan/]
+.forge-ci-release-base-parent:
+  extends: .forge-ci-release-signer
+  stage: build
+  before_script: [readonly rc_job_role=base-parent, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  after_script: [rc_handoff=_release-base-parent, *forge-ci-release-handoff]
+  environment:
+    name: release/registry/promote
+    action: prepare
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-base-parent/]
+# In builder-job-image on the build runner, as the image builds. GitLab
+# reads this job only when the plan names a base stage, which needs
+# builder-job-image.
+.forge-ci-release-base-build:
+  extends: .forge-ci-release
+  stage: build
+  before_script: [readonly rc_job_role=base-build, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  after_script: [rc_handoff=_release-base-build, *forge-ci-release-handoff]
+  image:
+    name: $[[ inputs.builder-job-image ]]
+    entrypoint: [""]
+  tags: $[[ inputs.build-runner-tags-linux-amd64 ]]
+  variables:
+    RC_JOB_USER: ''
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-base-build/]
+# In job-image, which carries the scanners, on the signer's runner: the job
+# holds the registry credential and no key.
+.forge-ci-release-base-publish:
+  extends: .forge-ci-release
+  # Never a second attempt, whatever default the including configuration sets.
+  retry: 0
+  stage: build
+  before_script: [readonly rc_job_role=base-publish, *forge-ci-release-start]
+  after_script: [rc_handoff=_release-base-publish, *forge-ci-release-handoff]
+  tags: $[[ inputs.signer-runner-tags ]]
+  environment:
+    name: release/registry/promote
+    action: prepare
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-base-publish/]
+.forge-ci-release-base-promote:
+  extends: .forge-ci-release-signer
+  # Never a second attempt, whatever default the including configuration sets.
+  retry: 0
+  stage: build
+  before_script: [readonly rc_job_role=base-promote, *forge-ci-release-start]
+  after_script: [rc_handoff=_release-base-promote, *forge-ci-release-handoff]
+  environment:
+    name: release/registry/signing
+    action: prepare
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-base-promote/]
+.forge-ci-release-base-gate:
+  extends: .forge-ci-release
+  stage: build
+  before_script: [readonly rc_job_role=base-gate, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  after_script: [rc_handoff=_release-bases, *forge-ci-release-handoff]
+  script:
+    - rc_base_gate
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-bases/]
+# The export jobs, the image jobs' shape for files: one native job per
+# selected architecture in builder-job-image with image-builder, running the
+# consumer's export commands on the release commit with no credential of the
+# job. Their dist/ is laid into the build job's before its commands run.
+.forge-ci-release-exports:
+  extends: .forge-ci-release
+  stage: build
+  retry: *forge-ci-release-retry
+  rules:
+    - if: '"$[[ inputs.export-files ]]" == "true"'
+.forge-ci-release-export-job-true:
+  image:
+    name: $[[ inputs.builder-job-image ]]
+.forge-ci-release-export-job-false:
+  image:
+    name: $[[ inputs.job-image ]]
+.forge-ci-release-export-builder:
+  extends: ".forge-ci-release-export-job-$[[ inputs.export-files ]]"
+  tags: $[[ inputs.build-runner-tags-linux-amd64 ]]
+  image:
+    entrypoint: [""]
+  variables:
+    RC_JOB_USER: ''
+.forge-ci-release-export-builder-buildah:
+  extends: .forge-ci-release-export-builder
+.forge-ci-release-export-builder-kaniko:
+  extends: .forge-ci-release-export-builder
+"Build: export amd64":
+  extends: [.forge-ci-release-exports, ".forge-ci-release-export-builder-$[[ inputs.image-builder ]]"]
+  retry: *forge-ci-release-retry
+  before_script: [readonly rc_job_role=export, *forge-ci-release-start]
+  after_script: [rc_handoff=_release-export-amd64, *forge-ci-release-handoff]
+  needs:
+    - job: "Prepare: release commit and tag"
+      artifacts: false
+  script:
+    - selected=$(rc_export_selected amd64 '$[[ inputs.release-platforms ]]') || exit; if [ "$selected" = false ]; then exit 0; fi
+    - rc_export_prepare amd64 '$[[ inputs.image-builder ]]' '$[[ inputs.builder-job-image ]]'
+    - $[[ inputs.export ]]
+    - rc_export_handoff amd64
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-export-amd64/]
+"Build: export arm64":
+  extends: [.forge-ci-release-exports, ".forge-ci-release-export-builder-$[[ inputs.image-builder ]]"]
+  retry: *forge-ci-release-retry
+  before_script: [readonly rc_job_role=export, *forge-ci-release-start]
+  after_script: [rc_handoff=_release-export-arm64, *forge-ci-release-handoff]
+  tags: $[[ inputs.build-runner-tags-linux-arm64 ]]
+  rules:
+    - if: >-
+        '$[[ inputs.export-files ]]' == 'true' && '$[[ inputs.build-runner-tags-linux-arm64 ]]' != '[]'
+  needs:
+    - job: "Prepare: release commit and tag"
+      artifacts: false
+  script:
+    - selected=$(rc_export_selected arm64 '$[[ inputs.release-platforms ]]') || exit; if [ "$selected" = false ]; then exit 0; fi
+    - rc_export_prepare arm64 '$[[ inputs.image-builder ]]' '$[[ inputs.builder-job-image ]]'
+    - $[[ inputs.export ]]
+    - rc_export_handoff arm64
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-export-arm64/]
+# The image stage, the Forgejo release-images workflow's jobs: the plan at the
+# release commit, one native build per architecture to OCI layouts with no
+# registry write, and one publishing job that scans, pushes the staging images to
+# this project's registry with the job token, records the ledger and joins it
+# to the build's dist. Without release-images none of them exists.
+.forge-ci-release-images:
+  extends: .forge-ci-release
+  stage: images
+  rules:
+    - if: '"$[[ inputs.release-images ]]" == "true"'
+# The builder is a setting, and builder-job-image its job image, as root:
+# Buildah, or kaniko, admitted, both on the build runner inputs.
+# GitLab refuses a job with an empty image name before it reads the job's
+# rules, so without release images, when builder-job-image may be empty and
+# the image jobs never run, they name job-image instead.
+.forge-ci-release-image-job-true:
+  image:
+    name: $[[ inputs.builder-job-image ]]
+.forge-ci-release-image-job-false:
+  image:
+    name: $[[ inputs.job-image ]]
+.forge-ci-release-image-builder:
+  extends: ".forge-ci-release-image-job-$[[ inputs.release-images ]]"
+  tags: $[[ inputs.build-runner-tags-linux-amd64 ]]
+  image:
+    entrypoint: [""]
+  variables:
+    RC_JOB_USER: ''
+.forge-ci-release-image-builder-buildah:
+  extends: .forge-ci-release-image-builder
+.forge-ci-release-image-builder-kaniko:
+  extends: .forge-ci-release-image-builder
+"Images: plan":
+  extends: .forge-ci-release-images
+  before_script: [readonly rc_job_role=images-plan, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  after_script: [rc_handoff=_release-images-plan, *forge-ci-release-handoff]
+  needs:
+    - job: "Prepare: release commit and tag"
+      artifacts: false
+  script:
+    - rc_images_plan '$[[ inputs.artifacts-config ]]' '$[[ inputs.release-platforms ]]'
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-images-plan/]
+"Images: build amd64":
+  extends: [.forge-ci-release-images, ".forge-ci-release-image-builder-$[[ inputs.image-builder ]]"]
+  before_script: [readonly rc_job_role=image-build, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  after_script: [rc_handoff=_release-images-amd64, *forge-ci-release-handoff]
+  needs:
+    - job: "Images: plan"
+      artifacts: true
+    - job: "Build: release files"
+      artifacts: true
+  script:
+    - rc_images_build amd64 '$[[ inputs.image-builder ]]' '$[[ inputs.builder-job-image ]]'
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-images-amd64/]
+"Images: build arm64":
+  extends: [.forge-ci-release-images, ".forge-ci-release-image-builder-$[[ inputs.image-builder ]]"]
+  before_script: [readonly rc_job_role=image-build, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  after_script: [rc_handoff=_release-images-arm64, *forge-ci-release-handoff]
+  tags: $[[ inputs.build-runner-tags-linux-arm64 ]]
+  rules:
+    - if: >-
+        '$[[ inputs.release-images ]]' == 'true' && '$[[ inputs.build-runner-tags-linux-arm64 ]]' != '[]'
+  needs:
+    - job: "Images: plan"
+      artifacts: true
+    - job: "Build: release files"
+      artifacts: true
+  script:
+    - rc_images_build arm64 '$[[ inputs.image-builder ]]' '$[[ inputs.builder-job-image ]]'
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-images-arm64/]
+"Images: publish":
+  extends: .forge-ci-release-images
+  # Never a second attempt, whatever default the including configuration sets.
+  retry: 0
+  before_script: [readonly rc_job_role=images-publish, *forge-ci-release-start]
+  after_script: [rc_handoff=_release-images, *forge-ci-release-handoff]
+  needs:
+    - job: "Images: plan"
+      artifacts: true
+    - job: "Build: release files"
+      artifacts: true
+    - job: "Images: build amd64"
+      artifacts: true
+    - job: "Images: build arm64"
+      artifacts: true
+      optional: true
+  script:
+    - rc_images_publish
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-images/]
+# Signing reads one hand-off, chosen by the policy: the build's, or with
+# release images the publishing job's, which carries the build's dist with the
+# ledger joined to it and is digested again.
+.forge-ci-release-sign-false:
+  needs:
+    - job: "Build: release files"
+      artifacts: true
+.forge-ci-release-sign-true:
+  needs:
+    - job: "Images: publish"
+      artifacts: true
+"Sign: files and images":
+  extends: [.forge-ci-release-signer, ".forge-ci-release-sign-$[[ inputs.release-images ]]"]
+  # Never a second attempt, whatever default the including configuration sets.
+  retry: 0
+  stage: sign
+  before_script: [readonly rc_job_role=sign, *forge-ci-release-start]
+  after_script: [rc_handoff=_release-sign, *forge-ci-release-handoff]
+  environment:
+    name: release/registry/signing
+    action: prepare
+  script:
+    - rc_sign_release '$[[ inputs.release-images ]]'
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-sign/]
+"Publish: images":
+  extends: .forge-ci-release-signer
+  # Never a second attempt, whatever default the including configuration sets.
+  retry: 0
+  stage: publish
+  before_script: [readonly rc_job_role=promote, *forge-ci-release-start]
+  after_script: [rc_handoff=_release-promote, *forge-ci-release-handoff]
+  environment:
+    name: release/registry/promote
+    action: prepare
+  needs:
+    - job: "Sign: files and images"
+      artifacts: true
+  script:
+    - rc_promote_release
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths: [_release-promote/]
+"Publish: release":
+  extends: .forge-ci-release-signer
+  # Never a second attempt, whatever default the including configuration sets.
+  retry: 0
+  stage: publish
+  before_script: [readonly rc_job_role=publish, *forge-ci-release-start]
+  environment:
+    name: release/publish
+    action: prepare
+  needs:
+    - job: "Sign: files and images"
+      artifacts: true
+    - job: "Publish: images"
+      artifacts: false
+  script:
+    - rc_publish_release
+"Publish: tidy up":
+  extends: .forge-ci-release-signer
+  # Never a second attempt, whatever default the including configuration sets.
+  retry: 0
+  stage: publish
+  before_script: [readonly rc_job_role=cleanup, *forge-ci-release-start]
+  environment:
+    name: release/registry/cleanup
+    action: prepare
+  needs:
+    - job: "Sign: files and images"
+      artifacts: true
+    - job: "Publish: release"
+      artifacts: false
+  script:
+    - rc_cleanup_release
+# The plan's package job, named by "Release: plan" when an npm project lists
+# forge-packages under publish-to: the packed packages of the signed release
+# go to this project's package registry once the release is published. The
+# job runs no consumer command, on the signer's runner, and holds one
+# credential, RELEASE_PACKAGE_TOKEN of the release/packages environment: the
+# job token writes no package, since every job that runs the project's code
+# holds one. npm runs in the node family's image with lifecycle scripts off,
+# on the bytes the signer handed on.
+.forge-ci-release-publish-npm-packages:
+  extends: .forge-ci-release
+  stage: publish
+  before_script: [readonly rc_job_role=packages, *forge-ci-release-start]
+  # Never a second attempt, whatever default the including configuration sets.
+  retry: 0
+  image:
+    name: $[[ inputs.runtime-image-node ]]
+    entrypoint: [""]
+  tags: $[[ inputs.signer-runner-tags ]]
+  variables:
+    RC_JOB_USER: ''
+  environment:
+    name: release/packages
+    action: prepare
+  needs:
+    - job: "Sign: files and images"
+      artifacts: true
+    - job: "Publish: release"
+      artifacts: false
+  script:
+    - rc_publish_packages
+# The release overview, as a "Summary" section of this job's log. It needs the
+# last job of the chain, so it runs only after a successful release; GitLab's
+# pipeline view shows which job failed in an unsuccessful one. It plans the
+# request again to list the family jobs that ran, and downloads nothing. It
+# holds no release secret.
+"Summary: release":
+  extends: .forge-ci-release
+  stage: .post
+  before_script: [readonly rc_job_role=summary, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  needs:
+    - job: "Publish: tidy up"
+      artifacts: false
+    - job: "Publish: npm packages"
+      artifacts: false
+      optional: true
+  script:
+    - rc_release_summary '$[[ inputs.release-images ]]' '$[[ inputs.build-runner-tags-linux-arm64 ]]'

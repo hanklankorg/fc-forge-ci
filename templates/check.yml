@@ -1,0 +1,209 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+#
+# GitLab 18.7+: checksum-bound engine checkout followed by consumer-owned checks.
+# Signing and publication credentials must be scoped to their separate jobs.
+spec:
+  component: [sha, reference]
+  inputs:
+    forge-ci-repository:
+      description: Project serving this component and its public engine package, including any subgroups.
+      regex: '^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$'
+    server-url:
+      description: >-
+        This GitLab instance's URL as CI_SERVER_URL reads, https://host[:port] without a path, for example https://gitlab.example.com. The job token goes only there: each job refuses to run when CI_SERVER_URL, which a project or pipeline variable can set, differs.
+      regex: '^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'
+    job-image:
+      description: Digest-pinned image containing Bash, Git, curl, sha256sum and the consumer's pinned check tools.
+      regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+    job-user:
+      default: ''
+      description: UID or UID:GID the job runs as, such as 65532:65532 for the runtime images' nonroot user; empty keeps the image's own user.
+      regex: '^$|^(0|[1-9][0-9]*)(:(0|[1-9][0-9]*))?$'
+    job-name:
+      default: check
+      description: Name of the generated check job.
+    stage:
+      default: test
+      description: Pipeline stage for the check job.
+    commands:
+      type: array
+      description: Consumer check commands; their failures fail this job.
+    enforce-lint:
+      type: boolean
+      default: false
+      description: Enforcement setting the job's forge-ci and FORGE_CI_BIN apply, set only in the administrator's entry point; false reports lint findings without failing. See docs/admin-policy.md.
+    enforce-vulnerabilities:
+      type: boolean
+      default: false
+      description: Enforcement setting the job's forge-ci and FORGE_CI_BIN apply, set only in the administrator's entry point; false reports vulnerability findings without failing.
+    enforce-application-tests:
+      type: boolean
+      default: false
+      description: Enforcement setting the job's forge-ci and FORGE_CI_BIN apply, set only in the administrator's entry point; false reports recognized test assertion failures without failing. Tests still run.
+    enforce-reproducible-builds:
+      type: boolean
+      default: false
+      description: Enforcement setting the job's forge-ci and FORGE_CI_BIN apply, set only in the administrator's entry point; false reports missing reproducible-build settings without failing.
+    runner-tags:
+      type: array
+      default: []
+      description: Runner tags of the job, all of which one runner must carry; empty, the default, leaves it untagged. Name literal tags only, never a $VARIABLE, which a project variable could set.
+---
+"$[[ inputs.job-name ]]":
+  stage: $[[ inputs.stage ]]
+  tags: $[[ inputs.runner-tags ]]
+  rules:
+    - when: on_success
+  needs: []
+  cache: []
+  # One more attempt when the engine found a dependency unavailable, exit
+  # 69, and for no other failure; the job writes nothing outside its own
+  # files.
+  retry:
+    max: 1
+    exit_codes: 69
+  # A consumer's image may start a tool of its own. The Docker executor would
+  # run the job's shell through that entrypoint; the Kubernetes one ignores it.
+  # GitLab refuses an empty image user, so the user is a variable the runner
+  # expands as the job starts: empty, both executors keep the image's own.
+  image:
+    name: $[[ inputs.job-image ]]
+    entrypoint: [""]
+    docker:
+      user: $RC_JOB_USER
+    kubernetes:
+      user: $RC_JOB_USER
+  variables:
+    GIT_STRATEGY: empty
+    GIT_CHECKOUT: "false"
+    GIT_SUBMODULE_STRATEGY: none
+    RC_JOB_USER: "$[[ inputs.job-user ]]"
+  # Explicit gate fields replace earlier same-named values. Other keys still
+  # merge; policy injection, not include ordering, is the authority boundary.
+  allow_failure: false
+  after_script: []
+  before_script:
+    - |
+      set -euo pipefail
+      # job-user reaches the runner as RC_JOB_USER, which a project variable
+      # outranks; hold that to the literal input, and the job's user to it.
+      want_user='$[[ inputs.job-user ]]'
+      if [ "${RC_JOB_USER-}" != "${want_user}" ]; then
+        echo "ERROR: RC_JOB_USER is '${RC_JOB_USER-}', not job-user '${want_user}'; remove the variable that sets it." >&2
+        exit 1
+      fi
+      job_uid=$(id -u) job_gid=$(id -g)
+      case "${want_user}" in
+        *:*) actual_user="${job_uid}:${job_gid}" ;;
+        *) actual_user=${want_user:+${job_uid}} ;;
+      esac
+      if [ "${actual_user}" != "${want_user}" ]; then
+        echo "ERROR: the job runs as uid=${job_uid} gid=${job_gid}, not job-user ${want_user}." >&2
+        exit 1
+      fi
+      echo "job user: uid=${job_uid} gid=${job_gid}"
+      # The instance as written: a project or pipeline variable outranks
+      # the predefined CI_SERVER_URL and CI_API_V4_URL, and the job token
+      # goes where they point. Hold the one to the literal, derive the other.
+      readonly RC_SERVER_URL='$[[ inputs.server-url ]]'
+      if [ "${CI_SERVER_URL-}" != "${RC_SERVER_URL}" ]; then
+        echo "ERROR: CI_SERVER_URL is '${CI_SERVER_URL-}', not server-url '${RC_SERVER_URL}'; remove the variable that sets it." >&2
+        exit 1
+      fi
+      export CI_API_V4_URL="${RC_SERVER_URL}/api/v4"
+      # Check before any checkout or consumer command, not after unsetting a
+      # misplaced key. GitLab protected variables also need environment scopes.
+      for name in RELEASE_SSH_SIGNING_KEY RELEASE_COSIGN_PRIVATE_KEY \
+        RELEASE_COSIGN_PASSPHRASE RELEASE_GPG_PRIVATE_KEY RELEASE_GPG_PASSPHRASE \
+        RELEASE_TOKEN RELEASE_REGISTRY_TOKEN SSH_SIGNING_KEY COSIGN_KEY \
+        COSIGN_PASSWORD GPG_SIGNING_KEY GPG_SIGNING_PASSWORD GITLAB_TOKEN; do
+        if [ -n "${!name:-}" ]; then
+          echo "ERROR: ${name} must not be available to a source-check job." >&2
+          exit 1
+        fi
+      done
+      expected='$[[ component.sha ]]'
+      reference='$[[ component.reference ]]'
+      if [ "${reference}" != "${expected}" ]; then
+        echo 'ERROR: pin the check component by its full commit SHA.' >&2
+        exit 1
+      fi
+      # The pipeline SHA identifies the consumer's object format without a
+      # project-metadata API call, which private projects deny to job tokens.
+      if [[ "${CI_COMMIT_SHA:?}" =~ ^[0-9a-f]{40}$ ]]; then
+        consumer_object_format=sha1
+      elif [[ "${CI_COMMIT_SHA}" =~ ^[0-9a-f]{64}$ ]]; then
+        consumer_object_format=sha256
+      else
+        echo 'ERROR: CI_COMMIT_SHA must be a full SHA-1 or SHA-256 commit.' >&2
+        exit 1
+      fi
+      # The administrator's settings as written. They reach the engine as the
+      # flags of the job's forge-ci, never through the environment.
+      readonly RC_ADMIN_LINT='$[[ inputs.enforce-lint ]]' \
+        RC_ADMIN_VULNERABILITIES='$[[ inputs.enforce-vulnerabilities ]]' \
+        RC_ADMIN_APPLICATION_TESTS='$[[ inputs.enforce-application-tests ]]' \
+        RC_ADMIN_REPRODUCIBLE_BUILDS='$[[ inputs.enforce-reproducible-builds ]]'
+      export FORGE_CI_PACKAGE_PROVIDER=gitlab
+      # The engine's project as written, never a variable a project can set.
+      export FORGE_CI_REPOSITORY_URL="${RC_SERVER_URL}/$[[ inputs.forge-ci-repository ]].git"
+      RC_HELPERS_DIR=$(mktemp -d /tmp/forge-ci-helpers.XXXXXXXX)
+      readonly RC_HELPERS_DIR
+      trap 'rm -rf -- "${RC_HELPERS_DIR}"' EXIT
+      git_options=(-c core.hooksPath=/dev/null -c credential.helper=)
+      if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ]; then
+        # Consumer commands may access this forge's registry too. Preserve
+        # public roots while adding the runner-provided private CA, as release
+        # jobs do; never disable TLS verification or modify system trust.
+        for bundle in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; do
+          if [ -f "${bundle}" ]; then break; fi
+        done
+        test -f "${bundle}"
+        cat -- "${bundle}" "${CI_SERVER_TLS_CA_FILE}" > "${RC_HELPERS_DIR}/ca-bundle.crt"
+        export CURL_CA_BUNDLE="${RC_HELPERS_DIR}/ca-bundle.crt"
+        export SSL_CERT_FILE="${CURL_CA_BUNDLE}" GIT_SSL_CAINFO="${CURL_CA_BUNDLE}"
+        # Node reads none of those; npm needs it for the forge's registry.
+        export NODE_EXTRA_CA_CERTS="${CURL_CA_BUNDLE}"
+        git_options+=(-c "http.sslCAInfo=${GIT_SSL_CAINFO}")
+      fi
+      # The consumer may default Git to SHA-256. The helper repository has
+      # its own object format, independent of that consumer setting.
+      object_format=sha1
+      if [ "${#expected}" -eq 64 ]; then object_format=sha256; fi
+      git init --quiet --object-format="${object_format}" "${RC_HELPERS_DIR}"
+      git -C "${RC_HELPERS_DIR}" remote add origin "${FORGE_CI_REPOSITORY_URL}"
+      # A forge that could not be reached is asked three times, and the job
+      # then ends as unavailable, exit 69. Any other refusal of the fetch
+      # ends it at once.
+      for attempt in 1 2 3; do
+        fetch_error=$(GIT_TERMINAL_PROMPT=0 git "${git_options[@]}" -C "${RC_HELPERS_DIR}" fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin "${expected}" 2>&1) && break
+        printf '%s\n' "${fetch_error}" >&2
+        case "${fetch_error}" in
+        "fatal: unable to access '"*"': Could not resolve host: "* | "fatal: unable to access '"*"': Failed to connect to "*) ;;
+        *) exit 1 ;;
+        esac
+        if [ "${attempt}" -eq 3 ]; then exit 69; fi
+        sleep 5
+      done
+      git "${git_options[@]}" -C "${RC_HELPERS_DIR}" checkout --quiet --detach "${expected}"
+      test "$(git -C "${RC_HELPERS_DIR}" rev-parse HEAD)" = "${expected}"
+      # shellcheck source=.engine/bin/lib-forge-ci.sh
+      source "${RC_HELPERS_DIR}/.engine/bin/lib-forge-ci.sh"
+      fetch_forge_ci
+      SIGNER_STRICT=1 verify_forge_ci
+      export FORGE_CI_BIN="${HELPERS_ENGINE_VERIFIED}"
+      export PATH="${HELPERS_ROOT}/bin:${PATH}"
+      forge_ci_admin_path "${RC_HELPERS_DIR}/admin-bin" "${RC_ADMIN_LINT}" "${RC_ADMIN_VULNERABILITIES}" \
+        "${RC_ADMIN_APPLICATION_TESTS}" "${RC_ADMIN_REPRODUCIBLE_BUILDS}"
+      forge-ci policy show
+      export FORGE_CI_PROVIDER=gitlab
+      export CI_OUTPUT="${RC_HELPERS_DIR}/outputs.env"
+      # The combined bundle keeps both self-hosted forge and public tool access.
+      "${FORGE_CI_BIN}" platform checkout --workspace "${CI_PROJECT_DIR:?}" \
+        --server-url "${RC_SERVER_URL}" --repository "${CI_PROJECT_PATH:?}" \
+        --ref "${CI_COMMIT_SHA}" --object-format "${consumer_object_format}" \
+        --fetch-base "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-${CI_DEFAULT_BRANCH:?}}"
+      cd "${CI_PROJECT_DIR}"
+  script: $[[ inputs.commands ]]

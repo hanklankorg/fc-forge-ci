@@ -1,0 +1,188 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# NPM Builder
+#
+# Purpose: Builds NPM projects and uploads artifacts for subsequent publishing steps.
+# Separates build logic from registry-specific publishing.
+#
+# Runs inside the forge-ci-runtime-node image. Its baked-in Node is the default;
+# an explicit node-version selects that toolchain before the binary-owned npm
+# lifecycle. The summary records the Node actually executed.
+#
+# Build Process:
+#   1. Install dependencies (npm ci)
+#   2. Run tests (if configured)
+#   3. Build application (if build script exists)
+#   4. Upload built artifacts
+#
+# Outputs:
+#   - Artifacts uploaded as '<artifact-name>-build-artifacts' or 'npm-build-artifacts' for use by publish-* workflows
+#
+# Required Permissions:
+#   contents: read  # Checkout code
+#
+name: Build NPM
+on:
+  workflow_call:
+    inputs:
+      enforce-application-tests:
+        description: "Enforcement setting: false reports recognized test assertion failures without failing; the tests still run. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/admin-policy.md."
+        type: boolean
+        required: false
+        default: false
+      working-directory:
+        description: "Working directory"
+        required: false
+        default: "."
+        type: string
+      private-dependencies:
+        description: "Allow read-only private package access during npm ci; refused for fork pull requests."
+        required: false
+        default: false
+        type: boolean
+      dependency-registry:
+        description: "HTTPS npm registry to authenticate; project .npmrc still chooses scopes. Required with private-dependencies."
+        required: false
+        default: ""
+        type: string
+      skip-tests:
+        description: "Legacy input; true is refused. Admin policy controls findings, and tests still run."
+        required: false
+        default: false
+        type: boolean
+      branch:
+        description: "Branch, tag, or SHA to checkout. Empty uses the triggering ref."
+        required: false
+        default: ""
+        type: string
+      artifact-name:
+        description: "Logical artifact name for upload naming (defaults to 'npm-build-artifacts' when empty)"
+        required: false
+        default: ""
+        type: string
+      node-version:
+        description: "Optional Node.js version to select before npm runs; empty retains the runtime image's Node. Use an exact version for reproducible builds."
+        required: false
+        default: ""
+        type: string
+      expect-version:
+        description: "Expected already committed package version for a release; empty leaves development builds unconstrained."
+        required: false
+        default: ""
+        type: string
+      enable-build-sbom:
+        description: "Run the cyclonedx-npm step (false skips Build SBOM generation entirely; derived from per-artefact 'sboms' when called from release-build-stage)"
+        required: false
+        default: true
+        type: boolean
+      runtime-image:
+        description: "forge-ci runtime image carrying Node., pinned by digest (image@sha256:<64 hex>); the resolver refuses anything else before the job container starts."
+        required: true
+        type: string
+      runs-on:
+        description: "JSON array of runner labels for the ordinary jobs, read with fromJSON. Signing, promotion and publication jobs stay on GitHub-hosted runners."
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
+      forge-ci-binary-ref:
+        description: "Full engine commit (40 hex) the workflow ref names; a tag or branch is refused"
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  resolve-bootstrap:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resolve-forge-ci-bootstrap.yml
+    with:
+      forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
+      images: |
+        runtime-image=${{ inputs['runtime-image'] }}
+  build-npm:
+    needs: [resolve-bootstrap]
+    name: Build NPM Project
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    timeout-minutes: 30
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Refuse private dependency access from fork pull requests
+        if: ${{ inputs['private-dependencies'] && startsWith(github.event_name, 'pull_request') && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: forge-ci validate event-context
+      - name: Guard working-directory stays inside the workspace
+        # Every upload below is rooted at this caller-supplied value. An
+        # absolute path or a parent step would take the artifact from outside
+        # the workspace, so it is refused here, before any step consumes it.
+        env:
+          WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
+        run: |
+          case "$WORKING_DIRECTORY" in
+            "") echo "working-directory must not be empty" >&2; exit 1 ;;
+            /*) echo "working-directory must be workspace-relative: $WORKING_DIRECTORY" >&2; exit 1 ;;
+          esac
+          case "/$WORKING_DIRECTORY/" in
+            */../*) echo "working-directory must not contain parent-directory steps: $WORKING_DIRECTORY" >&2; exit 1 ;;
+          esac
+      - name: Checkout repository
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CHECKOUT_REF: ${{ inputs.branch }}
+        run: forge-ci platform checkout
+      - name: Select configured Node version
+        # Transport/toolchain selection is outside the binary-owned lifecycle.
+        # The configured version must affect PATH, not just a summary field.
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        if: ${{ inputs['node-version'] != '' }}
+        with:
+          node-version: ${{ inputs['node-version'] }}
+          package-manager-cache: false
+      - name: Record executed Node version
+        id: node-version
+        run: |
+          set -eu
+          version=$(node --version)
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+      - name: Build NPM project
+        # One step owns the whole build sequence (metadata → ci → test → build →
+        # SBOM → pack → summary); the binary threads metadata internally and the
+        # same `build npm run` runs identically on GitLab. The per-step
+        # variations (SBOM tool version, skip-tests) are configuration here. Only
+        # platform-transport steps (checkout, upload) wrap it.
+        # It runs from the workspace root: the binary resolves
+        # WORKING_DIRECTORY itself, as on Forgejo and GitLab. A step-level
+        # working-directory as well would apply the directory twice.
+        env:
+          ADMIN_APPLICATION_TESTS: ${{ inputs['enforce-application-tests'] }}
+          WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
+          SKIP_TESTS: ${{ inputs['skip-tests'] }}
+          ENABLE_BUILD_SBOM: ${{ inputs['enable-build-sbom'] }}
+          NODE_VERSION: ${{ steps['node-version'].outputs.version }}
+          EXPECT_VERSION: ${{ inputs['expect-version'] }}
+          PRIVATE_DEPENDENCIES: ${{ inputs['private-dependencies'] }}
+          DEPENDENCY_REGISTRY: ${{ inputs['dependency-registry'] }}
+          DEPENDENCY_TOKEN: ${{ inputs['private-dependencies'] && github.token || '' }}
+          # renovate: datasource=npm depName=@cyclonedx/cyclonedx-npm
+          CYCLONEDX_VERSION: "6.0.1"
+        run: forge-ci build npm run --enforce-application-tests="$ADMIN_APPLICATION_TESTS"
+      - name: Upload NPM artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs['artifact-name'] && format('{0}-build-artifacts', inputs['artifact-name']) || 'npm-build-artifacts' }}
+          path: ${{ inputs['working-directory'] }}/*.tgz
+          retention-days: "7"
+          if-no-files-found: error
+      # Build SBOM is a separate compliance deliverable; see build-maven.yml
+      # for rationale.
+      - name: Upload NPM Build SBOM
+        if: ${{ inputs['enable-build-sbom'] }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs['artifact-name'] && format('{0}-build-sbom', inputs['artifact-name']) || 'npm-build-sbom' }}
+          path: ${{ inputs['working-directory'] }}/bom.json
+          retention-days: "7"
+          if-no-files-found: error

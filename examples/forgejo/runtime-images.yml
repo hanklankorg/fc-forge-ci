@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+# Thin caller for a Forge CI softfork. Publish/authenticate the layer and its
+# matching signer before replacing these immutable-pin placeholders.
+name: Runtime images
+on:
+  push:
+    branches: [main]
+    paths: ['containers/runtime/**', 'scripts/bootstrap/**', 'templates/**', 'cmd/**', 'internal/**', 'go.mod', 'go.sum', '.engine/bin/*.sha256', '.forgejo/workflows/runtime-images.yml']
+  schedule:
+    - cron: '30 2 * * 1'
+  workflow_dispatch:
+concurrency:
+  group: runtime-images-${{ forgejo.repository }}
+  cancel-in-progress: false
+jobs:
+  runtimes:
+    uses: OWNER/forge-ci/.forgejo/workflows/runtime-images.yml@FORGE_CI_COMMIT
+    with:
+      forge-ci-repository: OWNER/forge-ci
+      forge-ci-sha: FORGE_CI_COMMIT
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      # The arm64 smoke test runs on the arm64 pool, or on the arm64 build
+      # runner where the installation has no arm64 pool.
+      runs-on-linux-arm64: ${{ vars.CI_RUNNER_LABEL_ARM64 || vars.CI_RUNNER_LABEL_CONTAINER_ARM64 }}
+      build-runs-on-linux-amd64: ${{ vars.CI_RUNNER_LABEL_CONTAINER || vars.CI_RUNNER_LABEL }}
+      build-runs-on-linux-arm64: ${{ vars.CI_RUNNER_LABEL_CONTAINER_ARM64 || vars.CI_RUNNER_LABEL_ARM64 }}
+      signer-runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      signer-image: REGISTRY/OWNER/forge-ci-signer@sha256:PIN_SIGNER_DIGEST
+      go-build-image: REGISTRY/OWNER/go-build@sha256:PIN_GO_IMAGE_DIGEST
+      image-namespace: ${{ vars.RUNTIME_IMAGE_NAMESPACE }}
+      registry-user: ${{ vars.RELEASE_REGISTRY_USER }}
+      cosign-public-key: ${{ vars.COSIGN_PUBLIC_KEY }}
+      cosign-public-key-sha256: PIN_COSIGN_PUBLIC_KEY_SHA256
+      transparency-log: none
+      release-platforms: ${{ vars.RELEASE_PLATFORMS }}
+    secrets:
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+      RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
+      RELEASE_COSIGN_PASSPHRASE: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
+      CI_RUNNER_LENDER_TOKEN: ${{ secrets.CI_RUNNER_LENDER_TOKEN }}

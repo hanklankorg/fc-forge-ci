@@ -1,0 +1,231 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# Live marks for docs/testing-matrices.md, hand-kept: one a line,
+#   <forgejo|gitlab|github> <demo or scenario> <pull-request|development|release|lifecycle|scenario> <mark> [<setting>=<value> ...] [note]
+# with the legend's marks (✅ live-proven, ◐ partial, ⏳ running or queued,
+# ❌ failed with the root fix committed). A pass whose row failed once on an
+# unavailable dependency and passed on the launcher's one rerun (the run's
+# verdict.json lists it under "reruns") is written ✅+rerun, never ✅; the
+# matrices show it as a pass "on rerun". The setting=value words are the
+# axis values the marked run had (visibility=public|private|both,
+# image-builder=, admin-<check>=), copied from what its run root records,
+# never assumed; matrix 2 shows a mark only on the values it names, and
+# matrix 1 takes the best mark of a flow whatever its values. Each mark's
+# note names its evidence root. What is derivable, a line's
+# existence or a refusal, is not written here; the generator reads it from
+# the lanes' cases (livetest.PreparedLanes) and the demos' admission. `go run ./test/live/internal/livetest/preflight
+# testing-evidence <live-runs>` drafts the lab forges' lines from the
+# recorded verdicts (latest run of each flow wins); review the draft before
+# replacing these. A hosted GitHub trial records no verdict, so its line is
+# written by hand from the trial's log. A drafted failure is kept out until its
+# root fix is committed, and a trial of no shipped demo is left out.
+#
+# Drafted 2026-11-12 from ~/.local/state/forge-ci/live-runs: the latest run
+# of each flow, between 2026-11-10 and 2026-11-12 on lab contract version 6.
+# Left out: the lifecycles of 2026-11-10 with every administrator check off,
+# which were diagnostic runs. No row passed on a launcher's rerun; the rows
+# an unreached host failed were run again by hand, and their marks are of
+# those runs.
+#
+# Updated by hand on 2026-11-14 from the runs of 2026-11-13 and 2026-11-14:
+# the medium set at 385dd3eb (Forgejo) and 61873a25 (GitLab), as `preflight
+# testing-evidence` drafts it, and the rows of the full set after medium at
+# ac43fd4e (V 20261114T014348Z-1347958, 20261114T014348Z-1348249,
+# 20261114T014833Z-1423891 and 20261114T020845Z-1816435). The draft leaves
+# those four runs out, as their medium runs were on earlier commits. Their
+# rows passed and are dated here on the owner's decision; together with the
+# medium runs they are not one run of the full set on one commit. Five rows
+# the draft marks failed, on an earlier failure of another case of the flow,
+# are dated by their passes of 2026-11-13. The scenario lines are of the
+# runs they name.
+forgejo hello-base-images release ✅ 2026-11-13
+forgejo hello-cargo-cli pull-request ✅ 2026-11-13
+forgejo hello-cargo-cli release ✅ 2026-11-13
+forgejo hello-cargo-container lifecycle ✅ visibility=private image-builder=buildah 2026-11-14
+forgejo hello-cargo-container lifecycle ✅ visibility=private image-builder=kaniko 2026-11-13
+forgejo hello-cargo-container lifecycle ✅ visibility=public image-builder=buildah 2026-11-14
+forgejo hello-cargo-container lifecycle ✅ visibility=public image-builder=kaniko 2026-11-13
+forgejo hello-cargo-container pull-request ✅ 2026-11-14
+forgejo hello-cargo-container release ✅ 2026-11-14
+forgejo hello-cargo-workspace development ✅ 2026-11-13
+forgejo hello-cargo-workspace pull-request ✅ 2026-11-13
+forgejo hello-cargo-workspace release ✅ 2026-11-14
+forgejo hello-go-cli development ✅ 2026-11-13
+forgejo hello-go-cli pull-request ✅ 2026-11-13
+forgejo hello-go-cli release ✅ 2026-11-14
+forgejo hello-go-service development ✅ 2026-11-14
+forgejo hello-go-service lifecycle ✅ visibility=private image-builder=buildah 2026-11-13
+forgejo hello-go-service lifecycle ✅ visibility=private image-builder=kaniko 2026-11-14
+forgejo hello-go-service lifecycle ✅ visibility=public image-builder=buildah 2026-11-14
+forgejo hello-go-service lifecycle ✅ visibility=public image-builder=kaniko 2026-11-14
+forgejo hello-go-service pull-request ✅ 2026-11-14
+forgejo hello-go-service release ✅ 2026-11-14
+forgejo hello-gradle pull-request ✅ 2026-11-13
+forgejo hello-gradle release ✅ 2026-11-13
+forgejo hello-gradle-service lifecycle ✅ visibility=private image-builder=buildah 2026-11-14
+forgejo hello-gradle-service lifecycle ✅ visibility=private image-builder=kaniko 2026-11-14
+forgejo hello-gradle-service lifecycle ✅ visibility=public image-builder=buildah 2026-11-13
+forgejo hello-gradle-service lifecycle ✅ visibility=public image-builder=kaniko 2026-11-14
+forgejo hello-gradle-service pull-request ✅ 2026-11-13
+forgejo hello-gradle-service release ✅ 2026-11-13
+forgejo hello-maven pull-request ✅ 2026-11-13
+forgejo hello-maven release ✅ 2026-11-14
+forgejo hello-maven-reactor pull-request ✅ 2026-11-13
+forgejo hello-maven-reactor release ✅ 2026-11-13
+forgejo hello-maven-service development ✅ 2026-11-13
+forgejo hello-maven-service lifecycle ✅ visibility=private image-builder=buildah 2026-11-14
+forgejo hello-maven-service lifecycle ✅ visibility=private image-builder=kaniko 2026-11-13
+forgejo hello-maven-service lifecycle ✅ visibility=public image-builder=buildah 2026-11-14
+forgejo hello-maven-service lifecycle ✅ visibility=public image-builder=kaniko 2026-11-14
+forgejo hello-maven-service pull-request ✅ 2026-11-14
+forgejo hello-maven-service release ✅ 2026-11-13
+forgejo hello-meta pull-request ✅ 2026-11-13
+forgejo hello-meta release ✅ 2026-11-13
+forgejo hello-monorepo development ✅ 2026-11-13
+forgejo hello-monorepo pull-request ✅ 2026-11-13
+forgejo hello-monorepo release ✅ 2026-11-13
+forgejo hello-npm-package development ✅ 2026-11-13
+forgejo hello-npm-package pull-request ✅ 2026-11-13
+forgejo hello-npm-package release ✅ 2026-11-14
+forgejo hello-npm-service lifecycle ✅ visibility=private image-builder=buildah 2026-11-13
+forgejo hello-npm-service lifecycle ✅ visibility=private image-builder=kaniko 2026-11-14
+forgejo hello-npm-service lifecycle ✅ visibility=public image-builder=buildah 2026-11-14
+forgejo hello-npm-service lifecycle ✅ visibility=public image-builder=kaniko 2026-11-14
+forgejo hello-npm-service pull-request ✅ 2026-11-14
+forgejo hello-npm-service release ✅ 2026-11-14
+gitlab hello-android pull-request ✅ 2026-11-13
+gitlab hello-android-library pull-request ✅ 2026-11-13
+gitlab hello-base-images release ✅ 2026-11-13
+gitlab hello-cargo-cli pull-request ✅ 2026-11-13
+gitlab hello-cargo-cli release ✅ 2026-11-13
+gitlab hello-cargo-container lifecycle ✅ visibility=private image-builder=buildah 2026-11-14
+gitlab hello-cargo-container lifecycle ✅ visibility=private image-builder=kaniko 2026-11-13
+gitlab hello-cargo-container lifecycle ✅ visibility=public image-builder=buildah 2026-11-13
+gitlab hello-cargo-container lifecycle ✅ visibility=public image-builder=kaniko 2026-11-14
+gitlab hello-cargo-container pull-request ✅ 2026-11-13
+gitlab hello-cargo-container release ✅ 2026-11-13
+gitlab hello-cargo-workspace development ✅ 2026-11-13
+gitlab hello-cargo-workspace pull-request ✅ 2026-11-13
+gitlab hello-cargo-workspace release ✅ 2026-11-13
+gitlab hello-go-cli development ✅ 2026-11-13
+gitlab hello-go-cli pull-request ✅ 2026-11-13
+gitlab hello-go-cli release ✅ 2026-11-14
+gitlab hello-go-service development ✅ 2026-11-13
+gitlab hello-go-service pull-request ✅ 2026-11-13
+gitlab hello-gradle pull-request ✅ 2026-11-13
+gitlab hello-gradle release ✅ 2026-11-13
+gitlab hello-gradle-service lifecycle ✅ visibility=private image-builder=buildah 2026-11-14
+gitlab hello-gradle-service lifecycle ✅ visibility=private image-builder=kaniko 2026-11-14
+gitlab hello-gradle-service lifecycle ✅ visibility=public image-builder=buildah 2026-11-13
+gitlab hello-gradle-service lifecycle ✅ visibility=public image-builder=kaniko 2026-11-14
+gitlab hello-gradle-service pull-request ✅ 2026-11-13
+gitlab hello-gradle-service release ✅ 2026-11-13
+gitlab hello-maven pull-request ✅ 2026-11-13
+gitlab hello-maven release ✅ 2026-11-13
+gitlab hello-maven-reactor pull-request ✅ 2026-11-13
+gitlab hello-maven-reactor release ✅ 2026-11-13
+gitlab hello-maven-service development ✅ 2026-11-13
+gitlab hello-maven-service lifecycle ✅ visibility=private image-builder=buildah 2026-11-14
+gitlab hello-maven-service lifecycle ✅ visibility=private image-builder=kaniko 2026-11-14
+gitlab hello-maven-service lifecycle ✅ visibility=public image-builder=buildah 2026-11-14
+gitlab hello-maven-service lifecycle ✅ visibility=public image-builder=kaniko 2026-11-13
+gitlab hello-maven-service pull-request ✅ 2026-11-13
+gitlab hello-maven-service release ✅ 2026-11-13
+gitlab hello-meta pull-request ✅ 2026-11-13
+gitlab hello-meta release ✅ 2026-11-14
+gitlab hello-monorepo development ✅ 2026-11-13
+gitlab hello-monorepo pull-request ✅ 2026-11-13
+gitlab hello-monorepo release ✅ 2026-11-13
+gitlab hello-npm-package development ✅ 2026-11-13
+gitlab hello-npm-package pull-request ✅ 2026-11-13
+gitlab hello-npm-package release ✅ 2026-11-13
+gitlab hello-npm-service lifecycle ✅ visibility=private image-builder=buildah 2026-11-13
+gitlab hello-npm-service lifecycle ✅ visibility=private image-builder=kaniko 2026-11-14
+gitlab hello-npm-service lifecycle ✅ visibility=public image-builder=buildah 2026-11-14
+gitlab hello-npm-service lifecycle ✅ visibility=public image-builder=kaniko 2026-11-14
+gitlab hello-npm-service pull-request ✅ 2026-11-13
+gitlab hello-npm-service release ✅ 2026-11-14
+#
+# Hosted GitHub trials in the test organization, by hand from their logs; a
+# release signs with the trial's Cosign or GPG key and writes no public log.
+# The logs of 2026-11-11 and 2026-11-12 are kept under
+# ~/.local/state/forge-ci/live-runs/hosted-github-20261111-12.
+# A line with two runs names the public and then the private one.
+# On 2026-11-13 and 2026-11-14 the cells of the medium set (at 61873a25;
+# hello-meta's release at d59f79a6) and of the full set after medium (at
+# ac43fd4e) ran again; the logs are kept under
+# ~/.local/state/forge-ci/live-runs/20261113T195340Z-1088754 and
+# ~/.local/state/forge-ci/live-runs/hosted-github-20261113-14. Every public
+# half passed, hello-npm-service's release on a second try. The private
+# halves passed until the organization's Actions allowance for private
+# repositories was used up; from hello-meta's release on, GitHub refused
+# their jobs. The lines below keep the earlier runs, which name both
+# visibilities.
+github hello-android pull-request ✅ 2026-11-12, runs 43159891577 and 43160497879
+github hello-ios pull-request ✅ 2026-11-12, runs 43161227194 and 43162258904
+github hello-go-service development ✅ 2026-11-12, runs 43159984233 and 43160847885
+github hello-npm-package pull-request ✅ visibility=public 2026-11-12, from a fork, refused before checkout as it must be, run 43163527676
+github hello-android-library pull-request ✅ 2026-11-11, runs 43085301830 and 43086200652
+github hello-android-library release ✅ 2026-11-12, runs 43134153965 and 43135583711, 3 GPG signatures verified against the trial key
+github hello-cargo-cli pull-request ✅ 2026-11-12, runs 43147401452 and 43148004422
+github hello-cargo-cli release ✅ 2026-11-12, runs 43126466168 and 43127750273, 3 Cosign bundles verified against the trial key
+github hello-cargo-container lifecycle ✅ visibility=public 2026-11-10, release run 42919737094
+github hello-cargo-container lifecycle ✅ visibility=private 2026-11-12, release run 43165254088; its release stalled once on an asset upload (run 43161570088)
+github hello-cargo-container pull-request ✅ 2026-11-10, run 42848860564
+github hello-cargo-workspace pull-request ✅ 2026-11-10, run 42849993300
+github hello-cargo-workspace release ✅ 2026-11-10, run 42915679647, 4 Cosign bundles verified against the trial key
+github hello-go-cli pull-request ✅ 2026-11-12, runs 43148821568 and 43149415886
+github hello-go-cli release ✅ 2026-11-10, run 42855974665, 6 Cosign bundles verified against the trial key; GPG variant, run 42853659291; on 2026-11-12 the variant with no SBOM bundle, runs 43163726687 and 43164848434, and the one with no changelog, runs 43166247915 and 43167368648
+github hello-go-service lifecycle ✅ visibility=public 2026-11-10, release run 42912107999
+github hello-go-service lifecycle ✅ visibility=private 2026-11-12, release run 43172691617
+github hello-go-service pull-request ✅ 2026-11-10, run 42845340779
+github hello-go-service release ✅ 2026-11-12, the variant with GPG-signed files, runs 43137312566 and 43138850750
+github hello-gradle pull-request ✅ 2026-11-12, runs 43144460883 and 43156917809; the private one failed once on a dependency its runner did not find (run 43145103157)
+github hello-gradle release ✅ 2026-11-10, run 42860266897, 5 Cosign bundles verified against the trial key
+github hello-gradle-service lifecycle ✅ visibility=public 2026-11-12, release run 43135845817
+github hello-gradle-service lifecycle ✅ visibility=private 2026-11-12, release run 43139400359
+github hello-gradle-service pull-request ✅ 2026-11-11, runs 43085300596 and 43086150292
+github hello-maven pull-request ✅ 2026-11-12, runs 43143015490 and 43143618148
+github hello-maven release ✅ 2026-11-12, runs 43151439440 and 43152520181
+github hello-maven-reactor pull-request ✅ 2026-11-11, runs 43087350088 and 43088177855
+github hello-maven-reactor release ✅ 2026-11-11, runs 43102069751 and 43103635645
+github hello-maven-service lifecycle ✅ visibility=public 2026-11-12, release run 43155392448
+github hello-maven-service lifecycle ✅ visibility=private 2026-11-12, release run 43137633242
+github hello-maven-service pull-request ✅ 2026-11-10, run 42842794730
+github hello-meta pull-request ✅ 2026-11-12, runs 43150118621 and 43150691588
+github hello-meta release ✅ 2026-11-10, run 42831178553
+github hello-monorepo pull-request ✅ 2026-11-10, run 42851535452
+github hello-monorepo release ✅ 2026-11-11, runs 43108226275 and 43110448315
+github hello-npm-package pull-request ✅ 2026-11-12, runs 43145971162 and 43146612237
+github hello-npm-package release ✅ 2026-11-11, runs 43104656725 and 43106178358
+github hello-npm-service lifecycle ✅ visibility=public 2026-11-12, release run 43127999884
+github hello-npm-service lifecycle ✅ visibility=private 2026-11-12, release run 43131853118
+github hello-npm-service pull-request ✅ 2026-11-10, run 42846629993
+# Drafted and held for the owner: hello-android pull-request and development
+# passed on 2026-11-04 from the android-bootstrap-5c5e5b79 checkout.
+#
+# Owner's judgements of lifecycle and snapshot evidence roots:
+forgejo hello-cargo-container development ✅ lifecycle phase 3, 2026-11-10
+gitlab TestGitLabRelease_MinimalSignedArtifacts scenario ✅ 2026-11-13, V 20261113T195248Z-1081137
+gitlab TestGitLabRelease_MinimalBranchProtection scenario ✅ 2026-11-13, V 20261113T195248Z-1081137
+#
+# Kept GitLab scenarios, latest verdict of each in
+# ~/.local/state/forge-ci/live-runs (V).
+gitlab TestGitLabBootstrap_PublishesAndDownloadsTheRecordedBinary scenario ✅ 2026-11-13, V 20261113T195248Z-1081137
+gitlab TestGitLabPolicy_ConsumerCannotReplaceTheSigningPipeline scenario ✅ 2026-11-13, V 20261113T195248Z-1081137
+gitlab TestGitLabPolicy_JobTokenCannotWriteThePublicationRegistry scenario ✅ 2026-11-13, V 20261113T195248Z-1081137
+gitlab TestGitLabRelease_ResourceGroupSpansTheChild scenario ✅ 2026-11-13, V 20261113T195248Z-1081137
+gitlab TestGitLabRelease_PromotionRetryAfterRegistryWrite scenario ✅ 2026-11-13, V 20261113T195248Z-1081137
+gitlab TestGitLabCheck_ChecksOutPrivateConsumerWithJobToken scenario ✅ 2026-11-13, V 20261113T195248Z-1081137
+gitlab TestGitLabCheck_ChecksOutTheConsumerPipelineCommit scenario ✅ 2026-11-13, V 20261113T195248Z-1081137
+gitlab TestGitLabRelease_BuildImageCapability scenario ✅ 2026-11-13, V 20261113T195248Z-1081137
+gitlab TestGitLabRelease_ConsumerBranchProtection scenario ✅ 2026-11-13, V 20261113T195248Z-1081137
+gitlab TestGitLabRelease_ConsumerInterruptedRecovery scenario ✅ 2026-11-13, V 20261113T195248Z-1081137
+gitlab TestGitLabRelease_RejectsPreseededProvenance scenario ✅ 2026-11-13, V 20261113T195248Z-1081137
+#
+# Forgejo scenarios, latest verdict of each (V).
+forgejo TestForgejoRelease_InterruptedRecovery scenario ✅ 2026-11-14, V 20261114T011738Z-1069575
+forgejo TestForgejoRelease_RejectsPreseededProvenance scenario ✅ 2026-11-14, V 20261114T011738Z-1069575
+forgejo TestForgejoRelease_RerunAfterInterruption scenario ✅ 2026-11-14, V 20261114T014333Z-1342205
+forgejo TestInRunner_NativeStepSummary scenario ✅ 2026-11-14, V 20261114T011738Z-1069575

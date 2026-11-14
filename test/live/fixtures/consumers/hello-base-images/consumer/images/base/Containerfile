@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+#
+# The root of the graph: it starts from nothing and names no parent.
+FROM scratch
+COPY base.txt /usr/share/hello/base.txt

@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Example: a project whose product is a graph of base images. There is no
+# package to build and no version file to bump; the base images are planned
+# by base-plan.sh and built by the release workflow, not declared here.
+artifacts:
+  - name: base-images
+    project-type: meta
+    working-directory: .
+containers: []

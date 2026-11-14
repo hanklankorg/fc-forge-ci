@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+
+# Fork pull request admission. The build enables private dependencies, so a
+# pull request whose head is a fork must be refused in the build's first step,
+# before the checkout and before the run token is handed to npm. The trial
+# opens that pull request (head=fork) and judges the refusal, not a build.
+# No secret is passed: the run token reads, and a fork's token only reads.
+name: Fork pull request admission
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    uses: diggsweden/forge-ci/.github/workflows/build-npm.yml@v0.90.0
+    permissions:
+      contents: read
+      packages: read
+    with:
+      forge-ci-binary-ref: v0.90.0
+      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-node-24:v0.90.0
+      private-dependencies: true
+      dependency-registry: https://npm.pkg.github.com

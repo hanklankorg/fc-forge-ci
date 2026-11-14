@@ -1,0 +1,123 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+# Focused lab fixture, rendered and committed only in a disposable consumer.
+name: Resolved base image policy
+on:
+  push:
+    branches: [main]
+env:
+  BASE_IMAGE_REPOSITORY: RENDER_BASE_REPOSITORY
+  CI_IMAGE_BUILDER: ${{ vars.CI_IMAGE_BUILDER }}
+  CI_IMAGE_BUILDER_JOB_IMAGE: ${{ vars.CI_IMAGE_BUILDER_JOB_IMAGE }}
+jobs:
+  policy:
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    container: ${{ vars.CI_IMAGE_BUILDER_JOB_IMAGE }}
+    timeout-minutes: 5
+    outputs:
+      image-plan: ${{ steps.policy.outputs.image-plan }}
+      artifact: ${{ steps.policy.outputs.artifact }}
+      final-plan: ${{ steps.policy.outputs.final-plan }}
+    steps:
+      - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA
+        with:
+          expected-sha256: RENDER_FORGE_CI_SHA256
+      - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/checkout-consumer@PIN_FORGE_CI_SHA
+        with:
+          ref: ${{ forgejo.sha }}
+          object-format: sha256
+      - name: Resolve two native cache slots without backend-specific logic
+        id: policy
+        run: |
+          set -euo pipefail
+          builder_id=$(forge-ci container builder-identity)
+          phase=$(cat canary-phase)
+          case "${phase}" in cold|partial|warm) ;; *) exit 1 ;; esac
+          plans=()
+          for name in steady changing; do
+            input_id=$( { (cd "${name}" && sha256sum Containerfile marker.sh); printf '%s\n' "${builder_id}"; } | sha256sum | cut -d ' ' -f 1)
+            plans+=("$(jq -cn --arg repository "${BASE_IMAGE_REPOSITORY}" --arg builder "${builder_id}" --arg id "${input_id}" --arg name "${name}" '
+            ($id + "-" + $name) as $tag |
+            ("org.example.base-input-id=" + $id) as $labels |
+            ("cache-arch-" + $name) as $cache |
+            {builds:[{name:$name,arch:"amd64",platform:"linux/amd64",
+              "container-file":($name+"/Containerfile"),context:$name,target:"selected","build-args":"",
+              labels:$labels,"builder-material-id":$builder,"image-repository":$repository,
+              revision:$id,"cache-tag":($cache+"-amd64"),"required-labels":$labels,
+              "candidate-tag":("staging-"+$tag),"final-tag-name":$tag}],
+             images:[{name:$name,role:"base","image-kind":"base",flavor:$name,
+               "base-input-id":$id,"image-repository":$repository,"candidate-tag":("staging-"+$tag),
+               "final-tag-name":$tag,archs:"amd64","required-labels":$labels,
+               revision:$id,"cache-tag-prefix":$cache,
+               "provenance-json":"{\"review_fixture\":\"resolved-image-plan\"}"}]}')")
+          done
+          plan=$(printf '%s\n' "${plans[@]}" | jq -sc '{builds:map(.builds[]) ,images:map(.images[])}')
+          # No scan member: the engine must enable its normal publication gate.
+          printf 'image-plan=%s\n' "${plan}" >> "${FORGEJO_OUTPUT}"
+          printf 'artifact=resolved-base-review-%s\n' "${phase}" >> "${FORGEJO_OUTPUT}"
+          # A separate tiny final-release image exercises index-BOM evidence,
+          # without changing the base cache/first-platform signer contract.
+          final=$(printf '%s' "${plan}" | jq -c '
+            (.builds[] | select(.name == "steady")) as $build |
+            {builds:[($build | .name="final" | ."candidate-tag"="staging-v0.0.1" |
+              ."final-tag-name"="v0.0.1" | del(."cache-tag", .revision))],
+             images:[{name:"final",role:"distroless","image-kind":"release",
+              "image-repository":$build["image-repository"],
+              "candidate-tag":"staging-v0.0.1","final-tag-name":"v0.0.1",
+              archs:"amd64"}]}')
+          printf 'final-plan=%s\n' "${final}" >> "${FORGEJO_OUTPUT}"
+  images:
+    needs: policy
+    uses: OWNER/forge-ci/.forgejo/workflows/release-images.yml@PIN_FORGE_CI_SHA
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      build-runs-on-linux-amd64: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-repository: RENDER_FORGE_CI_REPOSITORY
+      forge-ci-sha: PIN_FORGE_CI_SHA
+      release-sha: ${{ forgejo.sha }}
+      release-tag: v0.0.1
+      image-repository: RENDER_BASE_REPOSITORY
+      image-plan-json: ${{ needs.policy.outputs.image-plan }}
+      artifact-name: ${{ needs.policy.outputs.artifact }}
+    secrets:
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+  check:
+    needs: [policy, images]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 5
+    steps:
+      - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA
+        with:
+          expected-sha256: RENDER_FORGE_CI_SHA256
+      - name: Inspect the shared workflow output and its scan evidence
+        env:
+          LEDGER_JSON: ${{ needs.images.outputs['ledger-json'] }}
+          REVIEW_ARTIFACT: ${{ needs.policy.outputs.artifact }}
+        run: |
+          set -euo pipefail
+          forge-ci toolchain install-system-dependencies --packages jq
+          printf '%s' "${LEDGER_JSON}" | jq -e --arg repo "${BASE_IMAGE_REPOSITORY}" '
+            length == 2 and (map(.flavor) | sort) == ["changing","steady"] and
+            all(.[]; .role == "base" and .image_kind == "base" and
+              (.ref | startswith($repo + "@sha256:")) and
+              .provenance.review_fixture == "resolved-image-plan")' >/dev/null
+          forge-ci artifact download --name "${REVIEW_ARTIFACT}" --dir evidence
+          for name in steady changing; do
+            jq -e '.SchemaVersion == 2 and (.ArtifactName | length > 0)' "evidence/trivy-results-${name}-amd64.json" >/dev/null
+            jq -e '.bomFormat == "CycloneDX"' "evidence/inventory-${name}-amd64.cyclonedx.json" >/dev/null
+          done
+  final-images:
+    needs: policy
+    uses: OWNER/forge-ci/.forgejo/workflows/release-images.yml@PIN_FORGE_CI_SHA
+    with:
+      runs-on: ${{ vars.CI_RUNNER_LABEL }}
+      build-runs-on-linux-amd64: ${{ vars.CI_RUNNER_LABEL }}
+      forge-ci-repository: RENDER_FORGE_CI_REPOSITORY
+      forge-ci-sha: PIN_FORGE_CI_SHA
+      release-sha: ${{ forgejo.sha }}
+      release-tag: v0.0.1
+      image-repository: RENDER_BASE_REPOSITORY
+      image-plan-json: ${{ needs.policy.outputs.final-plan }}
+      artifact-name: resolved-final-review-${{ needs.policy.outputs.artifact }}
+    secrets:
+      RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}

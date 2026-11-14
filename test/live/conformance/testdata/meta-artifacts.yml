@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# The declaration of the meta case of TestForgejoLayer_MinimalBinaryRelease,
+# committed as .forge-ci/artifacts.yml: a release with a changelog, a signed
+# commit and tag, and nothing the engine builds, bumps or scans. What the
+# release offers is what the consumer's own job hands over.
+artifacts:
+  - name: layer-release-canary
+    project-type: meta
