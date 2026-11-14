@@ -35,6 +35,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the repository, such as `${{ vars.XCODE_VERSION }}`. A project that moves
   to each new Xcode changes the variable and commits nothing. Empty uses
   `config.xcode-version` of the declaration, as before.
+- A Containerfile that builds again what forge-ci already built gets a
+  warning. For each container that names an artifact under `from:`,
+  `forge-ci container validate rebuilds` reads the `RUN` instructions of
+  its Containerfile and reports a build command of that artifact's
+  ecosystem (`./mvnw package`, `./gradlew build`, `npm run build`,
+  `cargo build`, `go build` and the like): an annotation on the line, a
+  block in the job log and a line in the job summary. Such an image holds
+  a rebuilt file, not the artifact that was built, tested, described in
+  the SBOM and released, and its build depends on the package registry.
+  The nanolinter lint job and the plan job of a release run it on
+  GitHub, Forgejo and GitLab; it never fails the job. A container without
+  `from:` and a `container-first` Go or Cargo artifact are not reported.
+  [Use the built artifact in the image](docs/ecosystems.md#use-the-built-artifact-in-the-image)
+  shows the fix for each ecosystem. `container validate artifacts` no
+  longer takes `--containerfile`: its substring check, which ran only in
+  the GitHub image build, is replaced by this one. The monorepo example's
+  `Containerfile.multi-artifact` copies the built artifacts where it
+  compiled them again.
 - The GitHub release orchestrator takes `xcode-build-number`, the build
   number of the release's Xcode builds, from a caller that computes one for
   each release. `config.build-number` of the declaration is a fixed value,

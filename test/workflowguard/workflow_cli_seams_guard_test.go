@@ -54,6 +54,26 @@ func TestPublishContainerRestoresJVMArtifactsWhereTheyWereBuilt(t *testing.T) {
 	require.Contains(t, string(gradle), "${{ inputs['working-directory'] }}/**/build/libs/*.jar\n")
 }
 
+// A Containerfile that rebuilds an artifact forge-ci built is warned about by
+// one engine command. Each forge runs it where the checkout is: in the lint
+// job of a pull request and in the plan of a release.
+func TestContainerfileRebuildCheckRunsOnEveryForge(t *testing.T) {
+	t.Parallel()
+
+	for file, call := range map[string]string{
+		".github/workflows/lint-nanolinter.yml":       "working-directory: src\n        run: forge-ci container validate rebuilds\n",
+		".github/workflows/release-orchestrator.yml":  "run: forge-ci container validate rebuilds\n        env:\n          ARTIFACTS_CONFIG: ${{ inputs['artifacts-config'] }}\n",
+		".forgejo/actions/lint-nanolinter/action.yml": "run_forge_ci container validate rebuilds\n",
+		".forgejo/workflows/prepare-release.yml":      `run_forge_ci container validate rebuilds "${file[@]}"` + "\n",
+		"templates/nanolinter.yml":                    "run_forge_ci container validate rebuilds\n",
+		"templates/release.yml":                       `(cd -- "${work}/consumer" && "${engine}" "${rebuilds[@]}")` + "\n",
+	} {
+		body, err := os.ReadFile(filepath.Join(reporoot.Path(t), filepath.FromSlash(file)))
+		require.NoError(t, err)
+		require.Contains(t, string(body), call, file)
+	}
+}
+
 func workflowStepEnv(t *testing.T, workflowName, jobName, stepName string) map[string]string {
 	t.Helper()
 

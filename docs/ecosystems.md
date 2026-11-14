@@ -102,6 +102,181 @@ such as `SOURCE_DATE_EPOCH` explicitly. The example at
 `examples/cargo-app/Containerfile.example` is one build configuration, not a
 guarantee for arbitrary Cargo projects.
 
+### Use the built artifact in the image
+
+A container that names an artifact under `from:` is declared as built from
+that artifact. Its Containerfile copies the built file. It does not run the
+build again.
+
+```yaml
+artifacts:
+  - name: backend
+    project-type: maven
+    working-directory: services/backend
+containers:
+  - name: backend
+    from: [backend]
+    container-file: services/backend/Containerfile
+```
+
+A Containerfile that runs `./mvnw package`, `npm run build` or `go build`
+for such a container makes a second file during the image build:
+
+- The file in the image is not the artifact forge-ci built, tested, described
+  in the SBOM and attached to the release. Nothing ties the two together.
+- Every image build downloads the build tool and all dependencies again, once
+  for each architecture, and fails when the package registry cannot be
+  reached.
+
+forge-ci warns about this. The nanolinter lint job and the plan job
+of a release run `forge-ci container validate rebuilds`, which reads the `RUN`
+instructions of each such Containerfile and reports a build command of the
+artifact's ecosystem: an annotation on the line, a block in the job log and
+a line in the job summary. It is a warning. The job stays green.
+
+| Ecosystem | Reported commands |
+| --- | --- |
+| Maven | `mvn` or `./mvnw` with `package`, `install`, `verify` or `deploy` |
+| Gradle | `gradle` or `./gradlew` with `build`, `assemble`, `bootJar`, `jar`, `shadowJar`, `installDist`, `distZip` or `distTar` |
+| npm | `npm run build`, `pnpm run build`, `pnpm build`, `yarn run build`, `yarn build` |
+| Cargo | `cargo build`, `cargo install` |
+| Go | `go build`, `go install` |
+
+A command that only fetches dependencies, such as `mvn dependency:go-offline`,
+`npm ci`, `cargo fetch` or `go mod download`, is listed beside a build command
+of the same ecosystem and is never reported alone. A container with no `from:`
+builds from source by design and is not checked. Neither is a Go or Cargo
+artifact with `config.build-mode: container-first`, where the image build is
+the build.
+
+#### Where the built files are
+
+The built files are in the build context when the image build starts, so a
+plain `COPY` reaches them. Paths are relative to the repository root; with
+`context: .`, the default, that is also the build context.
+
+| Artifact | Path |
+| --- | --- |
+| Maven | `<working-directory>/target/*.jar` |
+| Gradle | `<working-directory>/build/libs/*.jar` |
+| npm | the files of the packed package, unpacked at the repository root: `dist/`, `package.json` and whatever else the package holds |
+| Go, Cargo (artifact-first) | `<context>/dist/<os>-<arch>/<binary>-<os>-<arch>`, for example `dist/linux-amd64/my-service-linux-amd64` |
+
+How the files get there differs between the forges:
+
+- **GitHub:** `publish-container.yml` downloads the artifacts named under
+  `from:` to these paths. One artifact of each ecosystem reaches a container.
+  The npm tarball is unpacked and removed, so copy the package's files, not
+  the tarball.
+- **Forgejo:** the build job of your release workflow puts the files in a
+  directory with the same layout and uploads it; `release-images.yml` unpacks
+  that `context-artifact` over the release checkout. See
+  [Release images](forgejo.md#release-images).
+- **GitLab:** the release's build commands leave the files in
+  `image-context/` with the same layout, and the image jobs lay it over the
+  release checkout. See [Release images](gitlab.md#release-images).
+
+[Snapshot images](workflows.md#automatic-artifact-first-inputs) place the
+artifacts named under `from:` at the same paths on all three forges, so one
+Containerfile serves release and snapshot.
+
+#### Maven and Gradle
+
+Before, with a build stage that compiles the jar again:
+
+```dockerfile
+FROM eclipse-temurin:25-jdk AS build
+WORKDIR /src
+COPY . .
+RUN ./mvnw clean package -DskipTests
+
+FROM eclipse-temurin:25-jre
+COPY --from=build /src/target/*.jar /app/app.jar
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+```
+
+After, with no JDK and no build stage:
+
+```dockerfile
+FROM eclipse-temurin:25-jre
+COPY services/backend/target/*.jar /app/app.jar
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+```
+
+For Gradle the line is `COPY services/backend/build/libs/*.jar /app/app.jar`.
+
+#### npm
+
+Before:
+
+```dockerfile
+FROM node:24 AS build
+WORKDIR /src
+COPY . .
+RUN npm ci && npm run build
+
+FROM nginx:stable
+COPY --from=build /src/dist/ /usr/share/nginx/html/
+```
+
+After:
+
+```dockerfile
+FROM nginx:stable
+COPY dist/ /usr/share/nginx/html/
+```
+
+#### Go and Cargo
+
+Before:
+
+```dockerfile
+FROM golang:1.27 AS build
+WORKDIR /src
+COPY . .
+RUN go build -o /out/my-service ./cmd/my-service
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/my-service /usr/local/bin/my-service
+```
+
+After. `TARGETARCH` is set by the image build to the architecture being
+built:
+
+```dockerfile
+FROM gcr.io/distroless/static-debian12:nonroot
+ARG TARGETARCH
+COPY dist/linux-${TARGETARCH}/my-service-linux-${TARGETARCH} /usr/local/bin/my-service
+```
+
+A Cargo binary is copied from the same path. If a `.containerignore` or
+`.dockerignore` excludes `dist/`, add `!dist/linux-*/` after that line.
+
+When the image build should be the build, say so in the declaration instead:
+set `config.build-mode: container-first` on the Go or Cargo artifact. The
+Containerfile then compiles the binary, forge-ci builds no binary before the
+image, and the check does not report it. See
+[container-first](#container-first-compiled-native-container-is-the-build-environment).
+
+#### Build the image locally
+
+Build the artifact first, then the image, from the repository root:
+
+```bash
+# Maven
+(cd services/backend && ./mvnw package)
+podman build -f services/backend/Containerfile -t backend:dev .
+
+# npm: the image takes the package's files at the repository root
+(cd packages/frontend && npm ci && npm run build && npm pack)
+tar -xzf packages/frontend/*.tgz --strip-components=1
+podman build -f packages/frontend/Containerfile -t frontend:dev .
+
+# Go: the layout the release build writes
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o dist/linux-amd64/my-service-linux-amd64 ./cmd/my-service
+podman build --platform linux/amd64 -t my-service:dev .
+```
+
 ## Per-ecosystem support matrices
 
 ---
@@ -229,7 +404,7 @@ Without either variable, JVM trust is left as it is.
 | SBOM: build layer | ✅ | `build-maven.yml` via cyclonedx-maven-plugin | A separate `makeAggregateBom` invocation follows the selected build lifecycle. See [Build tools](sbom.md#per-language-build-tools). |
 | SBOM: analyzed-artifact | ✅ | syft scan of the produced `.jar` | Detects bundled dependencies (fat jars) the build-layer SBOM may miss. |
 | SBOM: analyzed-container | ✅ | `publish-container.yml` (syft) | Standard for containers wrapping Maven artifacts. |
-| Container build (wrapping the jar) | ✅ | `publish-container.yml` (artifact-first → container) | The build artifact is downloaded into the build context; the Containerfile `COPY`s it in. |
+| Container build (wrapping the jar) | ✅ | `publish-container.yml` (artifact-first → container) | The jar is restored at `<working-directory>/target`; the Containerfile `COPY`s it in. See [Use the built artifact in the image](#use-the-built-artifact-in-the-image). |
 | Multi-arch container (same jar) | ✅ | split-runner matrix | The JAR is platform-agnostic; the runtime base image is what differs per arch. |
 | Build reproducibility | prerequisite check | `validate jvm-reproducibility` checks `<project.build.outputTimestamp>` in pom.xml | Missing settings are `reproducible-builds` findings: they are reported without blocking by default; explicit `enforce-reproducible-builds: true` makes them fail validation. |
 | Multi-module Maven (parent + children) | ✅ | one Maven artifact entry pointing at parent POM | Inheritance handles children; `mvn package` at the parent builds everything. |
@@ -275,7 +450,7 @@ Without either variable, JVM trust is left as it is.
 | SBOM: build layer | ✅ | `@cyclonedx/cyclonedx-npm` via `npx` | Runs after the application build and before pack. See [Build tools](sbom.md#per-language-build-tools). |
 | SBOM: analyzed-artifact | ✅ | syft scan of the packed `.tgz` | Reports dependencies detectable in the shipped tarball. |
 | SBOM: analyzed-container | ✅ | `publish-container.yml` (syft) | Standard for containers wrapping NPM artifacts. |
-| Container build (wrapping the tarball) | ✅ | `publish-container.yml` (artifact-first → container) | Containerfile `COPY`s the tarball or `dist/` into the runtime image. |
+| Container build (wrapping the tarball) | ✅ | `publish-container.yml` (artifact-first → container) | The packed package is unpacked at the repository root; the Containerfile `COPY`s its files, such as `dist/`, into the runtime image. See [Use the built artifact in the image](#use-the-built-artifact-in-the-image). |
 | Multi-arch container (same tarball) | ✅ | split-runner matrix | Node tarballs are platform-agnostic; native add-ons require their own multi-arch wheels (not handled here). |
 | Build reproducibility | ✅ | npm ≥ 10 (npm/cli#3536 fix) | Runtime image pins Node 24 LTS; uses npm 10+. `package-lock.json` checked in is required. |
 | Library shape (no build script) | ✅ | `npm pack` produces the publishable tarball directly | Matches scoped npm-package conventions. |

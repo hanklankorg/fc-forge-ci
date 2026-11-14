@@ -302,7 +302,9 @@ Containers are declared under `containers[]` and built in the publish stage by
 `publish-container.yml`: native multi-arch on split runners, Trivy gate, SBOM
 and SLSA provenance attestations, and an entry in the release-image ledger.
 See [Container configuration](artifacts-reference.md#containers-section) and
-[Artifact and Image Flows](flows.md). Container builds run their `RUN` steps
+[Artifact and Image Flows](flows.md). A Containerfile of a container with
+`from:` copies the built artifact; see
+[Use the built artifact in the image](ecosystems.md#use-the-built-artifact-in-the-image). Container builds run their `RUN` steps
 on the job's own network (`--network host`), so they reach what the job's
 steps reach, the host's loopback services included; trust a build as you
 trust the job.

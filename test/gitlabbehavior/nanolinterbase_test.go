@@ -214,8 +214,10 @@ func runNanolinterScriptWith(t *testing.T, dir, workspace string, inputs map[str
 	// This suite checks checkout and environment transport. Policy semantics
 	// execute against real compiled engines in commands/policy integration tests.
 	// The driver records the administrator flags it was given.
-	// It stands in for the SAST conversion too, with the status the test names.
+	// It stands in for the SAST conversion too, with the status the test names,
+	// and for the Containerfile check, which never fails.
 	const policyDriver = "#!/bin/sh\n[ \"$1 $2 $3\" != 'security report to-gitlab-sast' ] || exit \"${CONVERT_STATUS:-0}\"\n" +
+		"[ \"$1 $2 $3\" != 'container validate rebuilds' ] || exit 0\n" +
 		"[ \"$1\" = policy ] && [ \"$2\" = nanolinter ] || exit 98\nshift 2\n: > \"${0%/*}/admin-flags\"\n" +
 		"while :; do\n  case \"$1\" in\n    --enforce-*=*) printf '%s\\n' \"$1\" >> \"${0%/*}/admin-flags\"; shift ;;\n" +
 		"    --sarif-file) shift 2 ;;\n    *) break ;;\n  esac\ndone\n[ \"$1\" = -- ] || exit 98\nshift\nexec \"$@\"\n"

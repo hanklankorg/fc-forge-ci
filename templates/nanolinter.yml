@@ -206,6 +206,11 @@ spec:
 
           # --require runs the trusted caller's floor regardless of consumer
           # configuration. Admin policy decides enforcement after execution.
+          # A warning and never a failure: a container declared as built
+          # from an artifact whose Containerfile runs that artifact's build
+          # again.
+          run_forge_ci container validate rebuilds
+
           require_args=()
           if [ -n "$REQUIRED_LINTS" ]; then require_args=(--require "$REQUIRED_LINTS"); fi
           if [ -n "$DISABLE_CHECKS" ]; then require_args+=(--disable-check "$DISABLE_CHECKS"); fi

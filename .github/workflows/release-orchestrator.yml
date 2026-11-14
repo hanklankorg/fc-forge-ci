@@ -525,6 +525,12 @@ jobs:
         run: forge-ci config parse-artifacts
         env:
           ARTIFACTS_CONFIG: ${{ inputs['artifacts-config'] }}
+      - name: Check Containerfiles against the declared artifacts
+        # A warning and never a failure: a container declared as built from an
+        # artifact whose Containerfile runs that artifact's build again.
+        run: forge-ci container validate rebuilds
+        env:
+          ARTIFACTS_CONFIG: ${{ inputs['artifacts-config'] }}
       - name: Plan release
         id: plan
         env:

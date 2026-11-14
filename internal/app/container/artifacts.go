@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/clicolor"
-	"github.com/diggsweden/forge-ci/internal/domain/container"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/output"
 	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
@@ -27,25 +26,15 @@ type ValidateArtifactsInput struct {
 	ProjectType string
 	// ArtifactDir is the directory holding the downloaded artifacts.
 	ArtifactDir string
-	// ContainerfilePath is checked for COPY-instead-of-rebuild
-	// advisory warnings. Empty → "Containerfile".
-	ContainerfilePath string
 }
 
 // ValidateArtifacts checks that the expected artifact files for a
-// project type are present in ArtifactDir, and warns when the
-// Containerfile appears to rebuild from source (which would defeat
-// the purpose of separate build steps).
+// project type are present in ArtifactDir.
 //
 //nolint:cyclop // validates each presence/exclusivity rule independently.
 func ValidateArtifacts(out io.Writer, annot output.Annotator, in ValidateArtifactsInput) error {
 	if in.ProjectType == "" || in.ArtifactDir == "" {
-		return fmt.Errorf("usage: validate-artifacts <project-type> <artifact-dir> [containerfile-path]: %w", errs.ErrUsage)
-	}
-
-	cf := in.ContainerfilePath
-	if cf == "" {
-		cf = "Containerfile"
+		return fmt.Errorf("usage: validate-artifacts <project-type> <artifact-dir>: %w", errs.ErrUsage)
 	}
 
 	var (
@@ -151,28 +140,7 @@ func ValidateArtifacts(out io.Writer, annot output.Annotator, in ValidateArtifac
 		return fmt.Errorf("all %s artifacts in %s are empty: %w", typeLabel, in.ArtifactDir, errs.ErrValidation)
 	}
 
-	checkContainerfileRebuilds(cf, out, annot)
-
 	return nil
-}
-
-// checkContainerfileRebuilds reads cf and emits an advisory warning
-// when it appears to rebuild from source.
-func checkContainerfileRebuilds(cf string, out io.Writer, annot output.Annotator) {
-	body, err := os.ReadFile(cf) //nolint:gosec // cf is a CLI-flag path.
-	if err != nil {
-		return // file missing → silently skip
-	}
-
-	if !container.ContainerfileRebuildsFromSource(string(body)) {
-		return
-	}
-
-	annot.Warningf("Containerfile rebuilds from source - downloaded artifacts may be ignored")
-
-	_, _ = fmt.Fprintln(out, "This means the container build will NOT use pre-built artifacts, defeating the purpose of separate build steps.")
-	_, _ = fmt.Fprintln(out, "Consider updating Containerfile to COPY pre-built artifacts instead of rebuilding.")
-	_, _ = fmt.Fprintf(out, "See: %s\n", cf)
 }
 
 // listMatching walks the checked directory handle without following links.

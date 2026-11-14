@@ -4,12 +4,14 @@
 package container
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
 
 	"github.com/urfave/cli/v3"
 
+	appconfig "github.com/diggsweden/forge-ci/internal/app/config"
 	appcontainer "github.com/diggsweden/forge-ci/internal/app/container"
 	"github.com/diggsweden/forge-ci/internal/cli/cienv"
 	"github.com/diggsweden/forge-ci/internal/cli/deps"
@@ -25,6 +27,7 @@ func validateGroup() *cli.Command {
 		Usage: "validate one aspect of the container build inputs",
 		Commands: []*cli.Command{
 			validateArtifactsCmd(),
+			validateRebuildsCmd(),
 			validateContainerfileCmd(),
 			validateNamespaceCmd(),
 		},
@@ -34,9 +37,9 @@ func validateGroup() *cli.Command {
 func validateArtifactsCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "artifacts",
-		Usage: "verify project-type-specific artifacts are present, warn on COPY-instead-of-rebuild policy",
+		Usage: "verify project-type-specific artifacts are present",
 		Description: `EXAMPLE:
-   forge-ci container validate artifacts --project-type maven --artifact-dir target --containerfile Containerfile`,
+   forge-ci container validate artifacts --project-type maven --artifact-dir target`,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:     "project-type",
@@ -50,19 +53,46 @@ func validateArtifactsCmd() *cli.Command {
 				Sources:  cli.EnvVars("ARTIFACT_DIR"),
 				Usage:    "directory holding the built artifacts to inspect",
 			},
-			&cli.StringFlag{
-				Name:    flagContainerfile,
-				Sources: cli.EnvVars("CONTAINERFILE"),
-				Usage:   "Containerfile path (enables COPY-vs-rebuild policy checks)",
-			},
 		},
 		Action: func(_ context.Context, cmd *cli.Command) error {
 			annot := deps.Annotator(cmd)
 
 			return appcontainer.ValidateArtifacts(os.Stderr, annot, appcontainer.ValidateArtifactsInput{
-				ProjectType:       cmd.String("project-type"),
-				ArtifactDir:       cmd.String("artifact-dir"),
-				ContainerfilePath: cmd.String(flagContainerfile),
+				ProjectType: cmd.String("project-type"),
+				ArtifactDir: cmd.String("artifact-dir"),
+			})
+		},
+	}
+}
+
+func validateRebuildsCmd() *cli.Command {
+	return &cli.Command{
+		Name:  "rebuilds",
+		Usage: "warn when a declared container's Containerfile rebuilds an artifact forge-ci built",
+		Description: `Reads the containers of artifacts.yml that are built from an artifact (from:)
+and the RUN instructions of their Containerfiles, in the working directory. A
+Containerfile that runs the artifact's build again (./mvnw package, npm run
+build, go build and the like) gets a warning: the image would hold a rebuilt
+file, not the artifact forge-ci built, tested, described in the SBOM and
+released. The command warns and exits 0; a missing artifacts.yml is nothing
+to check.
+
+EXAMPLE:
+   forge-ci container validate rebuilds`,
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "file",
+				Value:   defaultArtifactsFile,
+				Sources: cli.EnvVars("ARTIFACTS_CONFIG"),
+				Usage:   "path to the artifacts.yml that declares the containers",
+			},
+		},
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error {
+				appconfig.WarnContainerfileRebuilds(ctx, os.Stderr, deps.Annotator(cmd), d.SummarySink,
+					appconfig.EmitConfigPlanInput{Path: cmp.Or(cmd.String("file"), defaultArtifactsFile)})
+
+				return nil
 			})
 		},
 	}

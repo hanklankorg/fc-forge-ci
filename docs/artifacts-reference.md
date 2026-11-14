@@ -830,6 +830,8 @@ Containers reference artifacts via the `from:` field and are built after all art
 - **Must reference:** Existing artifact names from `artifacts[]` section
 - **Example:** `from: [backend-api]` (single artifact)
 - **Example:** `from: [api, worker, web]` (multi-artifact container)
+- **Containerfile:** copies the built files and does not build them again; see
+  [Use the built artifact in the image](ecosystems.md#use-the-built-artifact-in-the-image)
 
 #### `container-file`
 

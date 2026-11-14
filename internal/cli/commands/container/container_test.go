@@ -52,6 +52,24 @@ func TestValidateContainerfileCmd_WritesOutput(t *testing.T) {
 	}
 }
 
+// The check warns and the command still succeeds: the job stays green.
+func TestValidateRebuildsCmd_WarnsAndSucceeds(t *testing.T) {
+	env := ghaenv.Setup(t)
+	fsys := testfs.NewReal(t)
+	fsys.WriteFile(".forge-ci/artifacts.yml", []byte(
+		"artifacts:\n  - {name: api, project-type: maven}\ncontainers:\n  - {name: api, from: [api]}\n"))
+	fsys.WriteFile("Containerfile", []byte("FROM maven AS build\nRUN ./mvnw clean package\n"))
+	fsys.Chdir()
+
+	if err := containercmd.New().Run(context.Background(), []string{"container", "validate", "rebuilds"}); err != nil {
+		t.Fatalf("a rebuilding Containerfile failed the command: %v", err)
+	}
+
+	if want := "Container `api`: `Containerfile` line 2 runs `./mvnw clean package`"; !strings.Contains(env.Summary(), want) {
+		t.Errorf("job summary lacks %q:\n%s", want, env.Summary())
+	}
+}
+
 func TestCommands_RequireFlagsWhenMissing(t *testing.T) {
 	tests := []struct {
 		name string

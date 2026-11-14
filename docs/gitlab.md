@@ -603,7 +603,8 @@ the build and signing, as the Forgejo
    also push to this project's registry. The checkout
    is the release commit with the build's `image-context/` laid over it, for
    the files the Containerfiles copy that are not in the repository, such as
-   the jar the build made.
+   the jar the build made; see
+   [Use the built artifact in the image](ecosystems.md#use-the-built-artifact-in-the-image).
 3. `Images: publish` admits, verifies and scans the layouts of every image
    and, only when all of them pass the scan gate, pushes each image's index
    with the job token, records it in `release-images.json` with the scan

@@ -331,6 +331,11 @@ spec:
       fi
       mkdir -- "${CI_PROJECT_DIR}/_release-plan"
       (cd -- "${work}/consumer" && "${engine}" "${plan[@]}")
+      # A warning and never a failure: a container declared as built from an
+      # artifact whose Containerfile runs that artifact's build again.
+      rebuilds=(container validate rebuilds)
+      if [ -n '$[[ inputs.artifacts-config ]]' ]; then rebuilds+=(--file '$[[ inputs.artifacts-config ]]'); fi
+      (cd -- "${work}/consumer" && "${engine}" "${rebuilds[@]}")
       chmod -R u=rwX,go=rX -- "${CI_PROJECT_DIR}/_release-plan"
       cat -- "${CI_PROJECT_DIR}/_release-plan/release-families.yml"
   artifacts:

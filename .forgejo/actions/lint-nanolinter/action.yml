@@ -63,6 +63,9 @@ runs:
           exit "${fetched}"
         fi
         SIGNER_STRICT=1 verify_forge_ci
+        # A warning and never a failure: a container declared as built from
+        # an artifact whose Containerfile runs that artifact's build again.
+        run_forge_ci container validate rebuilds
         LANG=C.UTF-8 LC_ALL=C.UTF-8 run_forge_ci policy nanolinter \
           --enforce-lint="${LINT_ADMIN_LINT:?enforce-lint is required}" \
           --enforce-vulnerabilities="${LINT_ADMIN_VULNERABILITIES:?enforce-vulnerabilities is required}" \

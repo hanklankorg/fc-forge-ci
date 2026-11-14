@@ -172,6 +172,11 @@ jobs:
           CHECKOUT_PATH: src
           CHECKOUT_FETCH_ALL_REFS: "true"
         run: forge-ci platform checkout
+      - name: Check Containerfiles against the declared artifacts
+        # A warning and never a failure: a container declared as built from an
+        # artifact whose Containerfile runs that artifact's build again.
+        working-directory: src
+        run: forge-ci container validate rebuilds
       - name: Run nanolinter (security gate)
         # verify runs the full plan and gates on every check; --report
         # sarif-security only selects what the SARIF holds. The step fails on a

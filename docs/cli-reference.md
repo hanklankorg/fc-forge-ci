@@ -2875,18 +2875,17 @@ validate one aspect of the container build inputs
 
 #### `forge-ci container validate artifacts`
 
-verify project-type-specific artifacts are present, warn on COPY-instead-of-rebuild policy
+verify project-type-specific artifacts are present
 
 ```
 EXAMPLE:
-   forge-ci container validate artifacts --project-type maven --artifact-dir target --containerfile Containerfile
+   forge-ci container validate artifacts --project-type maven --artifact-dir target
 ```
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
 | `--project-type` | ecosystem of the produced artifacts (maven/gradle/go/cargo) (required) | string | `""` | `$PROJECT_TYPE` |
 | `--artifact-dir` | directory holding the built artifacts to inspect (required) | string | `""` | `$ARTIFACT_DIR` |
-| `--containerfile` | Containerfile path (enables COPY-vs-rebuild policy checks) | string | `""` | `$CONTAINERFILE` |
 
 #### `forge-ci container validate containerfile`
 
@@ -2921,6 +2920,27 @@ EXAMPLE:
 | `--enforce-namespace` | required namespace prefix (e.g. the owner) the image name must start with (required) | string | `""` | `$ENFORCE_NAMESPACE` |
 | `--enforce-namespace-on` | registries whose namespace policy this deployment enforces (default ghcr.io); set to your registry when self-hosting so the check runs instead of silently passing | string | `"ghcr.io"` | `$ENFORCE_NAMESPACE_ON` |
 | `--expected-image-repository` | explicit allowed OCI repository base, constrained to the enforced registry/namespace; set independently of image-name for source names requiring a mapping | string | `""` | `$EXPECTED_IMAGE_REPOSITORY` |
+
+#### `forge-ci container validate rebuilds`
+
+warn when a declared container's Containerfile rebuilds an artifact forge-ci built
+
+```
+Reads the containers of artifacts.yml that are built from an artifact (from:)
+and the RUN instructions of their Containerfiles, in the working directory. A
+Containerfile that runs the artifact's build again (./mvnw package, npm run
+build, go build and the like) gets a warning: the image would hold a rebuilt
+file, not the artifact forge-ci built, tested, described in the SBOM and
+released. The command warns and exits 0; a missing artifacts.yml is nothing
+to check.
+
+EXAMPLE:
+   forge-ci container validate rebuilds
+```
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--file` | path to the artifacts.yml that declares the containers | string | `".forge-ci/artifacts.yml"` | `$ARTIFACTS_CONFIG` |
 
 ### `forge-ci container write-digest-marker`
 

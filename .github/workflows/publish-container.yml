@@ -724,8 +724,7 @@ jobs:
         if: *if_has_go_artifacts
         env:
           CONTAINER_CONTEXT: ${{ inputs.context }}
-          CONTAINER_FILE: ${{ inputs['container-file'] }}
-        run: forge-ci container validate artifacts --project-type go --artifact-dir "$CONTAINER_CONTEXT/dist" --containerfile "$CONTAINER_CONTEXT/$CONTAINER_FILE"
+        run: forge-ci container validate artifacts --project-type go --artifact-dir "$CONTAINER_CONTEXT/dist"
       - name: Download Cargo artifacts
         if: &if_has_cargo_artifacts ${{ (contains(fromJson(inputs['artifact-types-json']), 'cargo') || contains(format(',{0},', inputs['artifact-types']), ',cargo,')) && inputs['cargo-artifact-name'] != '' }}
         env:
@@ -737,8 +736,7 @@ jobs:
         if: *if_has_cargo_artifacts
         env:
           CONTAINER_CONTEXT: ${{ inputs.context }}
-          CONTAINER_FILE: ${{ inputs['container-file'] }}
-        run: forge-ci container validate artifacts --project-type cargo --artifact-dir "$CONTAINER_CONTEXT/dist" --containerfile "$CONTAINER_CONTEXT/$CONTAINER_FILE"
+        run: forge-ci container validate artifacts --project-type cargo --artifact-dir "$CONTAINER_CONTEXT/dist"
       - name: Admit image publication
         if: ${{ inputs['push-image'] }}
         run: forge-ci validate event-context

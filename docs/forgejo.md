@@ -795,7 +795,8 @@ admitted builder job image on the ordinary runner pool instead.
   of a platform whose `build-runs-on-linux-<arch>` input is empty.
 - **build** runs once per container and architecture, on a runner of that
   architecture. It checks the release commit out, unpacks `context-artifact`
-  over it when one is named (binaries built in an earlier job, for example),
+  over it when one is named (binaries built in an earlier job, for example;
+  see [Use the built artifact in the image](ecosystems.md#use-the-built-artifact-in-the-image)),
   and builds to an OCI layout with `build-arch --stage`, labelled with the
   source, revision, title, version, url, documentation, ref.name (the final
   tag) and created (the release commit's time), then the labels admitted by

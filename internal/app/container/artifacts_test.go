@@ -31,11 +31,10 @@ func TestValidateArtifacts_JVMFindsJARs(t *testing.T) {
 		t.Run(projectType, func(t *testing.T) {
 			fsys := testfs.NewReal(t)
 			fsys.WriteFile("demo-1.0.0.jar", []byte("fake-jar"))
-			cf := fsys.WriteFile("Containerfile", []byte("FROM alpine\nCOPY demo-1.0.0.jar /app/\n"))
 
 			var out bytes.Buffer
 			if err := appcontainer.ValidateArtifacts(&out, output.Annotator{}, appcontainer.ValidateArtifactsInput{
-				ProjectType: projectType, ArtifactDir: fsys.Root, ContainerfilePath: cf,
+				ProjectType: projectType, ArtifactDir: fsys.Root,
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -73,11 +72,10 @@ func TestValidateArtifacts_TopLevelTypesDoNotRecurse(t *testing.T) {
 func TestValidateArtifacts_GoFindsNestedBinaries(t *testing.T) {
 	fsys := testfs.NewReal(t)
 	fsys.WriteFile(filepath.Join("dist", "linux-amd64", "demo-linux-amd64"), []byte("binary"))
-	cf := fsys.WriteFile("Containerfile", []byte("FROM alpine\nCOPY dist/linux-amd64/demo-linux-amd64 /app/\n"))
 
 	var out bytes.Buffer
 	if err := appcontainer.ValidateArtifacts(&out, output.Annotator{}, appcontainer.ValidateArtifactsInput{
-		ProjectType: "go", ArtifactDir: fsys.Path("dist"), ContainerfilePath: cf,
+		ProjectType: "go", ArtifactDir: fsys.Path("dist"),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -97,11 +95,10 @@ func TestValidateArtifacts_ReportsEveryArtifactInPathOrder(t *testing.T) {
 	fsys := testfs.NewReal(t)
 	arm := fsys.WriteFile(filepath.Join("dist", "linux-arm64", "demo-linux-arm64"), []byte("arm"))
 	amd := fsys.WriteFile(filepath.Join("dist", "linux-amd64", "demo-linux-amd64"), []byte("amd64-binary"))
-	cf := fsys.WriteFile("Containerfile", []byte("FROM scratch\nCOPY dist/ /app/\n"))
 
 	var out, annotations bytes.Buffer
 	if err := appcontainer.ValidateArtifacts(&out, output.NewAnnotator(&annotations, output.FormatGitHub), appcontainer.ValidateArtifactsInput{
-		ProjectType: "go", ArtifactDir: fsys.Path("dist"), ContainerfilePath: cf,
+		ProjectType: "go", ArtifactDir: fsys.Path("dist"),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -125,11 +122,10 @@ func TestValidateArtifacts_ReportsEveryArtifactInPathOrder(t *testing.T) {
 func TestValidateArtifacts_CargoFindsNestedBinaries(t *testing.T) {
 	fsys := testfs.NewReal(t)
 	fsys.WriteFile(filepath.Join("dist", "linux-amd64", "demo-linux-amd64"), []byte("binary"))
-	cf := fsys.WriteFile("Containerfile", []byte("FROM alpine\nCOPY dist/linux-amd64/demo-linux-amd64 /app/\n"))
 
 	var out bytes.Buffer
 	if err := appcontainer.ValidateArtifacts(&out, output.Annotator{}, appcontainer.ValidateArtifactsInput{
-		ProjectType: "cargo", ArtifactDir: fsys.Path("dist"), ContainerfilePath: cf,
+		ProjectType: "cargo", ArtifactDir: fsys.Path("dist"),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -188,64 +184,6 @@ func TestValidateArtifacts_MissingArtifactsFail(t *testing.T) {
 				t.Errorf("missing %q in stderr:\n%s", wantStderr, stderr.String())
 			}
 		})
-	}
-}
-
-func TestValidateArtifacts_RebuildWarningIncludesGuidanceAndPath(t *testing.T) {
-	fsys := testfs.NewReal(t)
-	fsys.WriteFile("demo.jar", []byte("fake"))
-	cf := fsys.WriteFile("Dockerfile", []byte("FROM maven:3\nRUN apt-get update && \\\n    mvn clean package && \\\n    rm -rf /root/.m2"))
-
-	var out, stderr bytes.Buffer
-	if err := appcontainer.ValidateArtifacts(&out, output.NewAnnotator(&stderr, output.FormatGitHub), appcontainer.ValidateArtifactsInput{
-		ProjectType:       "maven",
-		ArtifactDir:       fsys.Root,
-		ContainerfilePath: cf,
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	for _, want := range []string{"::warning::Containerfile rebuilds from source", "downloaded artifacts may be ignored", "COPY pre-built artifacts", "Dockerfile"} {
-		if !strings.Contains(out.String(), want) && !strings.Contains(stderr.String(), want) {
-			t.Errorf("missing %q\nstdout:\n%s\nstderr:\n%s", want, out.String(), stderr.String())
-		}
-	}
-}
-
-// TestValidateArtifacts_CopyOnlyContainerfileIsNotWarnedAbout is the negative
-// control for the rebuild warning. Without it, a checker that warned on every
-// Containerfile it could read would pass the positive test above, and the
-// warning would be noise on exactly the layout the pipeline is trying to
-// encourage.
-//
-// The detector is a substring match over the whole file rather than an
-// instruction-aware parse, so a COPY line that merely names a build tool
-// ("COPY gradle-build-out/app.jar") does trip it. This fixture stays clear of
-// those words on purpose; it pins the intended case, not that limitation.
-func TestValidateArtifacts_CopyOnlyContainerfileIsNotWarnedAbout(t *testing.T) {
-	fsys := testfs.NewReal(t)
-	fsys.WriteFile("demo.jar", []byte("fake"))
-	cf := fsys.WriteFile("Containerfile", []byte(
-		"FROM eclipse-temurin:21-jre\n"+
-			"WORKDIR /app\n"+
-			"COPY demo.jar /app/demo.jar\n"+
-			"USER 65532:65532\n"+
-			"ENTRYPOINT [\"java\", \"-jar\", \"/app/demo.jar\"]\n"))
-
-	var out, stderr bytes.Buffer
-
-	if err := appcontainer.ValidateArtifacts(&out, output.NewAnnotator(&stderr, output.FormatGitHub), appcontainer.ValidateArtifactsInput{
-		ProjectType:       "maven",
-		ArtifactDir:       fsys.Root,
-		ContainerfilePath: cf,
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	for _, unwanted := range []string{"rebuilds from source", "may be ignored", "COPY pre-built artifacts"} {
-		if strings.Contains(out.String(), unwanted) || strings.Contains(stderr.String(), unwanted) {
-			t.Errorf("a COPY-only Containerfile was warned about (%q)\nstdout:\n%s\nstderr:\n%s", unwanted, out.String(), stderr.String())
-		}
 	}
 }
 
@@ -318,14 +256,12 @@ func TestValidateArtifacts_ZeroSizePolicy(t *testing.T) {
 				fsys.WriteFile(filepath.Join("dist-root", path), []byte(body))
 			}
 
-			cf := fsys.WriteFile("Containerfile", []byte("FROM alpine\n"))
-
 			var out, annotations bytes.Buffer
 
 			err := appcontainer.ValidateArtifacts(&out,
 				output.NewAnnotator(&annotations, output.FormatGitHub),
 				appcontainer.ValidateArtifactsInput{
-					ProjectType: tc.projectType, ArtifactDir: artifactDir, ContainerfilePath: cf,
+					ProjectType: tc.projectType, ArtifactDir: artifactDir,
 				})
 
 			if !tc.wantRefusal {
@@ -384,11 +320,9 @@ func TestValidateArtifacts_RefusesNonRegularMatches(t *testing.T) {
 
 			makeEntry(t, filepath.Join(artifactDir, "demo.jar"))
 
-			cf := fsys.WriteFile("Containerfile", []byte("FROM alpine\n"))
-
 			err := appcontainer.ValidateArtifacts(io.Discard, output.Annotator{},
 				appcontainer.ValidateArtifactsInput{
-					ProjectType: "maven", ArtifactDir: artifactDir, ContainerfilePath: cf,
+					ProjectType: "maven", ArtifactDir: artifactDir,
 				})
 			if !errors.Is(err, errs.ErrValidation) {
 				t.Fatalf("err = %v, want ErrValidation for %s", err, name)
