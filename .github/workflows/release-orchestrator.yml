@@ -526,9 +526,12 @@ jobs:
         env:
           ARTIFACTS_CONFIG: ${{ inputs['artifacts-config'] }}
       - name: Check Containerfiles against the declared artifacts
-        # A warning and never a failure: a container declared as built from an
-        # artifact whose Containerfile runs that artifact's build again.
-        run: forge-ci container validate rebuilds
+        # Warnings and never a failure: a container declared as built from an
+        # artifact whose Containerfile runs that artifact's build again, and
+        # a Containerfile that names an image without its registry.
+        run: |
+          forge-ci container validate rebuilds
+          forge-ci container validate image-names
         env:
           ARTIFACTS_CONFIG: ${{ inputs['artifacts-config'] }}
       - name: Plan release

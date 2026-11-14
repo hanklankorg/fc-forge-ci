@@ -33,11 +33,26 @@ const rebuildGuide = "ecosystems.md#use-the-built-artifact-in-the-image"
 // build again. Such an image holds a file made during the image build, not
 // the artifact forge-ci built, tested, described in the SBOM and released.
 //
-// It is advice and returns no error, so it cannot fail a job: a declaration or
-// a Containerfile it cannot read is left to the plan and the image build,
-// which refuse it with their own message. The Containerfiles are read from
-// the working directory, the root of the checkout.
+// It is advice and returns no error, so it cannot fail a job.
 func WarnContainerfileRebuilds(ctx context.Context, out io.Writer, annot output.Annotator, summary ci.SummarySink, in EmitConfigPlanInput) {
+	eachContainerfile(out, in, func(cfg *config.Config, declared config.Container, file, body string) {
+		prebuilt := prebuiltTypes(cfg.Artifacts, declared.From)
+
+		rebuilds := slices.DeleteFunc(domaincontainer.ContainerfileRebuilds(body), func(r domaincontainer.Rebuild) bool {
+			return !slices.Contains(prebuilt, r.Ecosystem)
+		})
+		if len(rebuilds) > 0 {
+			warnRebuild(ctx, out, annot, summary, declared, file, rebuilds)
+		}
+	})
+}
+
+// eachContainerfile calls visit for every declared container whose
+// Containerfile can be read, with the file's path and content. The
+// Containerfiles are read from the working directory, the root of the
+// checkout. A declaration or a Containerfile that cannot be read is left to
+// the plan and the image build, which refuse it with their own message.
+func eachContainerfile(out io.Writer, in EmitConfigPlanInput, visit func(cfg *config.Config, declared config.Container, file, body string)) {
 	data, err := readArtifactsFile(in)
 	if errors.Is(err, fs.ErrNotExist) {
 		return
@@ -68,18 +83,8 @@ func WarnContainerfileRebuilds(ctx context.Context, out io.Writer, annot output.
 	for _, declared := range cfg.Containers {
 		file := path.Clean(filepath.ToSlash(cmp.Or(declared.ContainerFile, config.DefaultContainerFile)))
 
-		body, readErr := fs.ReadFile(fsys, file)
-		if readErr != nil {
-			continue
-		}
-
-		prebuilt := prebuiltTypes(cfg.Artifacts, declared.From)
-
-		rebuilds := slices.DeleteFunc(domaincontainer.ContainerfileRebuilds(string(body)), func(r domaincontainer.Rebuild) bool {
-			return !slices.Contains(prebuilt, r.Ecosystem)
-		})
-		if len(rebuilds) > 0 {
-			warnRebuild(ctx, out, annot, summary, declared, file, rebuilds)
+		if body, readErr := fs.ReadFile(fsys, file); readErr == nil {
+			visit(cfg, declared, file, string(body))
 		}
 	}
 }

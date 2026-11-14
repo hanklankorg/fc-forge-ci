@@ -70,6 +70,23 @@ func TestValidateRebuildsCmd_WarnsAndSucceeds(t *testing.T) {
 	}
 }
 
+// A short image name is a warning too: the job stays green.
+func TestValidateImageNamesCmd_WarnsAndSucceeds(t *testing.T) {
+	env := ghaenv.Setup(t)
+	fsys := testfs.NewReal(t)
+	fsys.WriteFile(".forge-ci/artifacts.yml", []byte("containers:\n  - {name: api}\n"))
+	fsys.WriteFile("Containerfile", []byte("FROM eclipse-temurin:21\n"))
+	fsys.Chdir()
+
+	if err := containercmd.New().Run(context.Background(), []string{"container", "validate", "image-names"}); err != nil {
+		t.Fatalf("a short image name failed the command: %v", err)
+	}
+
+	if want := "`Containerfile` line 1 names the image `eclipse-temurin:21` without a registry"; !strings.Contains(env.Summary(), want) {
+		t.Errorf("job summary lacks %q:\n%s", want, env.Summary())
+	}
+}
+
 func TestCommands_RequireFlagsWhenMissing(t *testing.T) {
 	tests := []struct {
 		name string

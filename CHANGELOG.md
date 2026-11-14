@@ -53,6 +53,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the GitHub image build, is replaced by this one. The monorepo example's
   `Containerfile.multi-artifact` copies the built artifacts where it
   compiled them again.
+- A Containerfile that names an image without its registry gets a
+  warning. `forge-ci container validate image-names` reads the
+  Containerfile of each declared container and reports a short name such
+  as `eclipse-temurin:21` in `FROM`, `COPY --from=` and
+  `RUN --mount=…,from=`: an annotation on the line, a block in the job
+  log and a line in the job summary, each with the full name to write
+  (`docker.io/library/eclipse-temurin:21`). The registry of a short name
+  is decided by the `registries.conf` of the runner, so such an image
+  builds on a GitHub hosted runner and fails on a Forgejo or GitLab
+  runner that lists no registry. `scratch` and an earlier stage are not
+  reported, the literal default of an `ARG` is read, and a name with an
+  argument that has no default is named in the log as not checked. The
+  nanolinter lint job and the plan job of a release run it on GitHub,
+  Forgejo and GitLab; it never fails the job. forge-ci does not add a
+  registry list to the runner. See
+  [Name the registry of an image](docs/ecosystems.md#name-the-registry-of-an-image).
 - A GitHub release carries a signed SLSA provenance statement of its
   files, `slsa-provenance.intoto.json`, as a Forgejo and a GitLab release
   do. Its subjects are the files the checksums list. The signing job writes

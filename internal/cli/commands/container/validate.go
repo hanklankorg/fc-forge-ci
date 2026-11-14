@@ -28,6 +28,7 @@ func validateGroup() *cli.Command {
 		Commands: []*cli.Command{
 			validateArtifactsCmd(),
 			validateRebuildsCmd(),
+			validateImageNamesCmd(),
 			validateContainerfileCmd(),
 			validateNamespaceCmd(),
 		},
@@ -90,6 +91,41 @@ EXAMPLE:
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error {
 				appconfig.WarnContainerfileRebuilds(ctx, os.Stderr, deps.Annotator(cmd), d.SummarySink,
+					appconfig.EmitConfigPlanInput{Path: cmp.Or(cmd.String("file"), defaultArtifactsFile)})
+
+				return nil
+			})
+		},
+	}
+}
+
+func validateImageNamesCmd() *cli.Command {
+	return &cli.Command{
+		Name:  "image-names",
+		Usage: "warn when a declared container's Containerfile names an image without its registry",
+		Description: `Reads the Containerfile of each container of artifacts.yml, in the working
+directory, and the images it names in FROM, COPY --from= and RUN --mount. An
+image named without a registry (eclipse-temurin:21, not
+docker.io/library/eclipse-temurin:21) gets a warning: the registries.conf of
+the runner decides where it is pulled from, so the build fails, or pulls
+another image, on another runner. scratch and an earlier build stage are not
+images. A name with a build argument that has no default in the file is
+named as not checked. The command warns and exits 0; a missing artifacts.yml
+is nothing to check.
+
+EXAMPLE:
+   forge-ci container validate image-names`,
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "file",
+				Value:   defaultArtifactsFile,
+				Sources: cli.EnvVars("ARTIFACTS_CONFIG"),
+				Usage:   "path to the artifacts.yml that declares the containers",
+			},
+		},
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			return deps.FromCmd(ctx, cmd, func(d *deps.Deps) error {
+				appconfig.WarnContainerfileShortImageNames(ctx, os.Stderr, deps.Annotator(cmd), d.SummarySink,
 					appconfig.EmitConfigPlanInput{Path: cmp.Or(cmd.String("file"), defaultArtifactsFile)})
 
 				return nil

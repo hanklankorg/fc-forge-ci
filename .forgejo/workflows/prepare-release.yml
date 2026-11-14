@@ -352,9 +352,11 @@ jobs:
             --runtime-image-java "${RUNTIME_IMAGE_JAVA:-}" --runtime-image-node "${RUNTIME_IMAGE_NODE:-}" \
             --runtime-image-rust "${RUNTIME_IMAGE_RUST:-}"
           printf 'versions=%s\n' "$(cat -- "${work}/versions.json")" >>"${FORGEJO_OUTPUT}"
-          # A warning and never a failure: a container declared as built from
-          # an artifact whose Containerfile runs that artifact's build again.
+          # Warnings and never a failure: a container declared as built from
+          # an artifact whose Containerfile runs that artifact's build again,
+          # and a Containerfile that names an image without its registry.
           run_forge_ci container validate rebuilds "${file[@]}"
+          run_forge_ci container validate image-names "${file[@]}"
 
       # Read as data, like the plan: the output says whether the declaration
       # has a distro-packages block, and the signing job checks the token a

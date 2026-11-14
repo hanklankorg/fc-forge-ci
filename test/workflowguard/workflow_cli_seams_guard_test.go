@@ -54,19 +54,24 @@ func TestPublishContainerRestoresJVMArtifactsWhereTheyWereBuilt(t *testing.T) {
 	require.Contains(t, string(gradle), "${{ inputs['working-directory'] }}/**/build/libs/*.jar\n")
 }
 
-// A Containerfile that rebuilds an artifact forge-ci built is warned about by
-// one engine command. Each forge runs it where the checkout is: in the lint
-// job of a pull request and in the plan of a release.
-func TestContainerfileRebuildCheckRunsOnEveryForge(t *testing.T) {
+// A Containerfile that rebuilds an artifact forge-ci built, and one that names
+// an image without its registry, are each warned about by one engine command.
+// Each forge runs both where the checkout is: in the lint job of a pull
+// request and in the plan of a release.
+func TestContainerfileWarningsRunOnEveryForge(t *testing.T) {
 	t.Parallel()
 
 	for file, call := range map[string]string{
-		".github/workflows/lint-nanolinter.yml":       "working-directory: src\n        run: forge-ci container validate rebuilds\n",
-		".github/workflows/release-orchestrator.yml":  "run: forge-ci container validate rebuilds\n        env:\n          ARTIFACTS_CONFIG: ${{ inputs['artifacts-config'] }}\n",
-		".forgejo/actions/lint-nanolinter/action.yml": "run_forge_ci container validate rebuilds\n",
-		".forgejo/workflows/prepare-release.yml":      `run_forge_ci container validate rebuilds "${file[@]}"` + "\n",
-		"templates/nanolinter.yml":                    "run_forge_ci container validate rebuilds\n",
-		"templates/release.yml":                       `(cd -- "${work}/consumer" && "${engine}" "${rebuilds[@]}")` + "\n",
+		".github/workflows/lint-nanolinter.yml": "working-directory: src\n        run: |\n" +
+			"          forge-ci container validate rebuilds\n          forge-ci container validate image-names\n",
+		".github/workflows/release-orchestrator.yml": "run: |\n          forge-ci container validate rebuilds\n" +
+			"          forge-ci container validate image-names\n        env:\n          ARTIFACTS_CONFIG: ${{ inputs['artifacts-config'] }}\n",
+		".forgejo/actions/lint-nanolinter/action.yml": "run_forge_ci container validate rebuilds\n        run_forge_ci container validate image-names\n",
+		".forgejo/workflows/prepare-release.yml": `run_forge_ci container validate rebuilds "${file[@]}"` + "\n" +
+			`          run_forge_ci container validate image-names "${file[@]}"` + "\n",
+		"templates/nanolinter.yml": "run_forge_ci container validate rebuilds\n          run_forge_ci container validate image-names\n",
+		"templates/release.yml": `(cd -- "${work}/consumer" && "${engine}" container validate rebuilds "${declared[@]}")` + "\n" +
+			`      (cd -- "${work}/consumer" && "${engine}" container validate image-names "${declared[@]}")` + "\n",
 	} {
 		body, err := os.ReadFile(filepath.Join(reporoot.Path(t), filepath.FromSlash(file)))
 		require.NoError(t, err)

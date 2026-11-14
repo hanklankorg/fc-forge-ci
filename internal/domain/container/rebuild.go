@@ -119,20 +119,50 @@ type runInstruction struct {
 	script string
 }
 
-// runInstructions reads the RUN instructions of a Containerfile: it joins
-// continuation lines, drops comment lines, reads the JSON (exec) form and
-// takes the lines of `RUN <<EOF` as the script. Any other here-document is
-// data, a file the instruction writes, and is skipped.
+// runInstructions reads the RUN instructions of a Containerfile: it reads
+// the JSON (exec) form and takes the lines of `RUN <<EOF` as the script. Any
+// other here-document is data, a file the instruction writes, and is skipped.
 func runInstructions(body string) []runInstruction {
+	var runs []runInstruction
+
+	for _, ins := range instructions(body) {
+		if ins.keyword != "RUN" {
+			continue
+		}
+
+		// Options such as --mount=type=cache stand before the command.
+		script := execFormScript(strings.Join(withoutOptions(ins.words), " "))
+		if strings.HasPrefix(script, "<<") {
+			script = ins.heredoc
+		}
+
+		runs = append(runs, runInstruction{line: ins.line, script: script})
+	}
+
+	return runs
+}
+
+// instruction is one instruction of a Containerfile.
+type instruction struct {
+	line    int      // line it starts on, from 1
+	keyword string   // upper case: FROM, RUN, COPY
+	words   []string // what follows the keyword
+	heredoc string   // the lines of its here-document, if it has one
+}
+
+// instructions reads a Containerfile: it joins continuation lines, drops
+// comment lines and takes the lines of a here-document out of the file, so
+// none of them is read as an instruction.
+func instructions(body string) []instruction {
 	var (
-		runs  []runInstruction
+		found []instruction
 		lines = strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
 	)
 
 	for index := 0; index < len(lines); index++ {
 		var (
-			start       int
-			instruction strings.Builder
+			start  int
+			joined strings.Builder
 		)
 
 		for ; index < len(lines); index++ {
@@ -145,40 +175,31 @@ func runInstructions(body string) []runInstruction {
 				start = index + 1
 			}
 
-			instruction.WriteString(strings.TrimSuffix(line, `\`) + " ")
+			joined.WriteString(strings.TrimSuffix(line, `\`) + " ")
 
 			if !strings.HasSuffix(line, `\`) {
 				break
 			}
 		}
 
-		words := strings.Fields(instruction.String())
-		if len(words) == 0 || !strings.EqualFold(words[0], "RUN") {
+		words := strings.Fields(joined.String())
+		if len(words) == 0 {
 			continue
 		}
 
-		// Options such as --mount=type=cache stand before the command.
-		words = words[1:]
-		for len(words) > 0 && strings.HasPrefix(words[0], "--") {
-			words = words[1:]
-		}
+		ins := instruction{line: start, keyword: strings.ToUpper(words[0]), words: words[1:]}
 
-		script := execFormScript(strings.Join(words, " "))
-
-		if delimiter := heredocStart.FindStringSubmatch(script); delimiter != nil {
-			var document string
-
-			document, index = readHeredoc(lines, index+1, delimiter[1])
-
-			if strings.HasPrefix(script, "<<") {
-				script = document
+		// Only these instructions take a here-document.
+		if ins.keyword == "RUN" || ins.keyword == "COPY" || ins.keyword == "ADD" {
+			if delimiter := heredocStart.FindStringSubmatch(execFormScript(strings.Join(ins.words, " "))); delimiter != nil {
+				ins.heredoc, index = readHeredoc(lines, index+1, delimiter[1])
 			}
 		}
 
-		runs = append(runs, runInstruction{line: start, script: script})
+		found = append(found, ins)
 	}
 
-	return runs
+	return found
 }
 
 // readHeredoc reads the lines of a here-document from index up to its

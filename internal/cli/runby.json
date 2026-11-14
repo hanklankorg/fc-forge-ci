@@ -78,6 +78,7 @@
   "container suffix-extracted-binaries": [".github/workflows/publish-container.yml"],
   "container validate artifacts": [".github/workflows/publish-container.yml"],
   "container validate containerfile": [".github/workflows/publish-container.yml"],
+  "container validate image-names": [".forgejo/actions/lint-nanolinter",".forgejo/workflows/prepare-release.yml",".github/workflows/lint-nanolinter.yml",".github/workflows/release-orchestrator.yml","templates/nanolinter.yml"],
   "container validate namespace": [".github/workflows/publish-container.yml",".github/workflows/self-runtime-container.yml"],
   "container validate rebuilds": [".forgejo/actions/lint-nanolinter",".forgejo/workflows/prepare-release.yml",".github/workflows/lint-nanolinter.yml",".github/workflows/release-orchestrator.yml","templates/nanolinter.yml"],
   "container write-digest-marker": [".github/workflows/publish-container.yml",".github/workflows/self-runtime-container.yml"],

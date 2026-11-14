@@ -2902,6 +2902,29 @@ EXAMPLE:
 | `--context` | also require this context and the resolved Containerfile to stay inside the current source directory | string | `""` | n/a |
 | `--source-dir` | also require this directory to be a relative path with no '..' segment (repeatable) | string | `""` | n/a |
 
+#### `forge-ci container validate image-names`
+
+warn when a declared container's Containerfile names an image without its registry
+
+```
+Reads the Containerfile of each container of artifacts.yml, in the working
+directory, and the images it names in FROM, COPY --from= and RUN --mount. An
+image named without a registry (eclipse-temurin:21, not
+docker.io/library/eclipse-temurin:21) gets a warning: the registries.conf of
+the runner decides where it is pulled from, so the build fails, or pulls
+another image, on another runner. scratch and an earlier build stage are not
+images. A name with a build argument that has no default in the file is
+named as not checked. The command warns and exits 0; a missing artifacts.yml
+is nothing to check.
+
+EXAMPLE:
+   forge-ci container validate image-names
+```
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--file` | path to the artifacts.yml that declares the containers | string | `".forge-ci/artifacts.yml"` | `$ARTIFACTS_CONFIG` |
+
 #### `forge-ci container validate namespace`
 
 verify an image lives in the allowed namespace for an enforced registry (no-op for registries not in --enforce-namespace-on)

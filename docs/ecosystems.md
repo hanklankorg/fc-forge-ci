@@ -277,6 +277,51 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o dist/linux-amd64/my-service-li
 podman build --platform linux/amd64 -t my-service:dev .
 ```
 
+### Name the registry of an image
+
+A Containerfile names every image with its registry:
+
+```dockerfile
+FROM docker.io/library/eclipse-temurin:21-jre@sha256:<digest>
+COPY --from=docker.io/bitnami/kubectl:1.31 /opt/bitnami/kubectl/bin/kubectl /usr/local/bin/
+```
+
+A name without a registry, such as `eclipse-temurin:21-jre`, is a short
+name. The image builder looks it up in the registries that the
+`registries.conf` of the runner lists, so the result depends on the runner:
+
+- A runner that lists Docker Hub pulls the image from there. GitHub's hosted
+  runners do.
+- A runner with no list fails the build: `short-name resolution enforced but
+  cannot prompt without a TTY`. Many self-hosted Forgejo and GitLab runners
+  have none.
+- A runner that lists another registry first pulls an image of that name
+  and tag from that registry: another image.
+
+A digest in the name makes sure that a pulled image is the expected one. It
+does not make the name resolve.
+
+forge-ci does not add a registry list to the runner, because that would
+hide which registry an image comes from. It warns instead. The nanolinter
+lint job and the plan job of a release run
+`forge-ci container validate image-names`, which reads the Containerfile of
+each declared container and reports an image named without a registry in
+`FROM`, `COPY --from=` and `RUN --mount=…,from=`: an annotation on the line,
+a block in the job log and a line in the job summary. It is a warning. The
+job stays green.
+
+| In the Containerfile | Reported |
+| --- | --- |
+| `FROM eclipse-temurin:21`, `FROM bitnami/kubectl` | Yes. Write `docker.io/library/eclipse-temurin:21`, `docker.io/bitnami/kubectl` |
+| `FROM ghcr.io/org/app`, `FROM localhost/app`, `FROM registry:5000/app` | No, the name has a registry |
+| `FROM scratch`, `FROM build`, `COPY --from=build`, `COPY --from=0` | No, these are not images but `scratch` and an earlier stage |
+| `ARG BASE=eclipse-temurin:21` and `FROM ${BASE}` | Yes, the default in the file is read |
+| `ARG BASE` and `FROM ${BASE}` | No. The log says the name was not checked |
+
+An official Docker Hub image is `docker.io/library/<name>`. Any other Docker
+Hub image is `docker.io/<organisation>/<name>`. Keep the tag and the digest
+as they are.
+
 ## Per-ecosystem support matrices
 
 ---
