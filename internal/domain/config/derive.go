@@ -49,10 +49,15 @@ func Derive(cfg *Config) error {
 	return nil
 }
 
+// defaultArtifactSBOMs is every layer there is for the artifact's type. An
+// APK, AAB or AAR has no analyzed-artifact layer: the Android build merges
+// and shrinks its dependencies, so a scan of the result finds none of them.
 func defaultArtifactSBOMs(artifact Artifact) string {
 	switch {
 	case artifact.ProjectType == projecttype.GradleAndroid && artifact.BuildType == BuildTypeLibrary:
 		return string(SBOMLayerBuild)
+	case artifact.ProjectType == projecttype.GradleAndroid:
+		return string(SBOMLayerBuild) + "," + string(SBOMLayerAnalyzedContainer)
 	case SBOMSupportedTypes[artifact.ProjectType]:
 		return sbomsAllPreset
 	default:

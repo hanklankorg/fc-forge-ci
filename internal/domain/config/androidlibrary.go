@@ -16,7 +16,7 @@ func validateAndroidLibraryOptions(artifact Artifact) []string {
 		return nil
 	}
 
-	violations := androidLibrarySBOMViolations(artifact)
+	var violations []string
 
 	options := artifact.GradleAndroid
 	if options == nil {
@@ -42,14 +42,17 @@ func validateAndroidLibraryOptions(artifact Artifact) []string {
 	return violations
 }
 
-func androidLibrarySBOMViolations(artifact Artifact) []string {
-	if artifact.SBOMs == "" {
+// androidSBOMViolations refuses an analyzed-artifact SBOM for an Android
+// artifact when the declaration is read, not when the release assembles its
+// SBOMs: there is none for an APK, AAB or AAR.
+func androidSBOMViolations(artifact Artifact) []string {
+	if artifact.ProjectType != projecttype.GradleAndroid || artifact.SBOMs == "" {
 		return nil
-	} // The library default is the supported build layer.
+	} // The default leaves the layer out.
 
 	layers, err := ExpandSBOMs(artifact.SBOMs)
 	if err == nil && slices.Contains(layers, SBOMLayerAnalyzedArtifact) {
-		return []string{fmt.Sprintf("artifact %q: Android library analyzed-artifact SBOMs are not supported; select sboms: build", artifact.Name)}
+		return []string{fmt.Sprintf("artifact %q: there is no analyzed-artifact SBOM for an Android artifact; leave sboms out, or name the layers without it (sboms: build)", artifact.Name)}
 	}
 
 	return nil

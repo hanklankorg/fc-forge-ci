@@ -369,7 +369,7 @@ Without either variable, JVM trust is left as it is.
 | Lint | external | caller's `test.yml` | Android Lint + detekt belong in the consumer repo. |
 | Test | mandatory module-bound unit-test invocation + external PR gate | release builder's module test aggregate + caller's `test.yml` | The module-bound aggregate remains selected even with packaging task overrides. Cache/`NO-SOURCE` outcomes are not physical execution evidence. Instrumented tests require a separate emulator fixture. |
 | SBOM: build layer | ✅ | cyclonedx-gradle-plugin | Uses the Gradle init-script generator; see [Build tools](sbom.md#per-language-build-tools). |
-| SBOM: analyzed-artifact | ❌ | `sbom assemble` rejects `gradle-android` | APK/AAB Syft scanning is not implemented; set `sboms: build` or `build,analyzed-container`. |
+| SBOM: analyzed-artifact | ❌ | the declaration is refused | A scan of an APK or AAB finds none of its dependencies; the default is `build,analyzed-container` (`build` for a library). |
 | Build reproducibility | ✅ | same archive settings as Gradle JVM | |
 | Signing (APK + AAB) | ✅ | `config.enable-android-signing: true` reads ANDROID_KEYSTORE et al. from caller secrets | `false` only skips keystore injection; requested release tasks and uploads still run and may produce unsigned outputs. |
 | `secrets.properties` injection | ✅ | Base64-encoded via `SECRETS_PROPERTIES_BASE64` secret | Decoded into `secrets.properties` at build time for Google Maps API keys etc. |

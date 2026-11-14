@@ -299,6 +299,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failed at `xcode-select` once it signed. A caller that names no runner
   still gets `macos-26`. On GitLab the caller already names the macOS
   runner.
+- An Android artifact that sets no `sboms` gets the SBOM layers there are
+  for it: `build,analyzed-container` for an application, `build` for a
+  library as before. The default was `all`, which asks for an
+  analyzed-artifact SBOM that does not exist for an APK or AAB, so an
+  Android application that left `sboms` out failed when the release
+  assembled its SBOMs. A declaration that asks for the layer, `sboms: all`
+  included, is now refused when it is read, for an application as it
+  already was for a library.
 - **BREAKING**: A Forgejo or GitLab release carries the same files as a
   GitHub release. `release files declare` writes `checksums.sha256`, where
   it wrote `checksums.txt`, and puts the `--sbom` files into one SBOM

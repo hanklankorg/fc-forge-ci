@@ -4,10 +4,11 @@ forge-ci produces Software Bills of Materials at multiple points in the pipeline
 
 ## Quick start
 
-By default, SBOM-capable artifact types request all three layers: Build,
-Analyzed-artifact and Analyzed-container. Snapshot builds generate none by
-default. If that suits you, leave `sboms` unset; Android artifacts are the
-exception (see [Defaults](#defaults)). To change it, set the `sboms` field.
+By default, an SBOM-capable artifact type gets every layer there is for it:
+Build, Analyzed-artifact and Analyzed-container, and for an Android artifact
+the two that exist for it (see [Defaults](#defaults)). Snapshot builds
+generate none by default. If that suits you, leave `sboms` unset. To change
+it, set the `sboms` field.
 
 ## The `sboms` field
 
@@ -50,14 +51,17 @@ The input is `release.sboms` on the release orchestrator, whose inputs carry a
 
 | Where | Default | Why |
 |---|---|---|
-| Per-artifact (`artifacts.yml`) | `all` for SBOM-capable ecosystems (`maven`, `npm`, `gradle`, `gradle-android`, `cargo`, `go`); `none` for `xcode-ios` and `meta` | SBOMs on for buildable types |
+| Per-artifact (`artifacts.yml`) | `all` for `maven`, `npm`, `gradle`, `cargo` and `go`; `build,analyzed-container` for a `gradle-android` application and `build` for a `gradle-android` library; `none` for `xcode-ios` and `meta` | Every layer there is for the type |
 | Release orchestrator (`release.sboms`) | `all` | Runs once per release; SBOMs are expected for compliance |
 | Snapshot orchestrator (`sboms`) | `none` | Runs on every push; most reviews don't need SBOMs |
 
-Gradle Android must leave out `analyzed-artifact`: there is no analyzed SBOM
-for APK/AAB files, and requesting one fails release assembly. Set Android
-artifacts to `sboms: build`, or `sboms: build,analyzed-container` when they
-feed a container.
+There is no `analyzed-artifact` SBOM for an Android artifact. The Android
+build merges and shrinks the application's dependencies into the APK, AAB or
+AAR, so a scan of the built file finds none of them; the build SBOM, taken
+from Gradle's resolved dependencies, is the accurate one. The default leaves
+the layer out, and a declaration that asks for it (`sboms: all` included) is
+refused when it is read, on the pull request, with the layers to name
+instead.
 
 ### Examples
 

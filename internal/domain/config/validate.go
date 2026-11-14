@@ -300,6 +300,7 @@ func validateArtifact(a Artifact, idx int, artifactNames map[string]bool, validT
 	v = append(v, validateAndroidBuildTypes(a)...)
 	v = append(v, validateNPMPublish(a)...)
 	v = append(v, validatePrivateDependencies(a)...)
+	v = append(v, androidSBOMViolations(a)...)
 	v = append(v, validateAndroidLibraryOptions(a)...)
 
 	v = append(v, validateWorkingDirectory(a)...)

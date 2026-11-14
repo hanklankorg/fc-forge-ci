@@ -308,7 +308,7 @@ requirements and incompatible fields.
 - **Formats produced:** See [SBOM formats and schema versions](sbom.md#consuming-sboms); versions depend on the generator and its configuration.
 - **Release policy:** The production `release.sboms` input (default `all`) is intersected with the pipeline-wide union. It selects release-bundle layers and gates container-first Go/Cargo Build SBOM jobs. It does not rewrite per-artifact `effective-sboms`, disable artifact-first Build SBOM jobs, or disable container SBOM attestations. The snapshot `sboms` input (default `none`) has separate workflow-wide generation gates.
 - **What it controls:** Build-time artifact-first Build SBOM execution, container SBOM generation, and per-artifact release inclusion. Direct build workflow calls still default their Build SBOM input to `true` unless explicitly disabled. See [docs/sbom.md](sbom.md) for the full semantics.
-- **Note:** `analyzed-*` scans use [Syft](https://github.com/anchore/syft); ecosystem coverage varies. Gradle Android does not support APK/AAB analyzed-artifact SBOMs, and requesting that layer fails release assembly. Configure Android with `sboms: build`, or `build,analyzed-container` when it feeds a container. The `build` layer uses ecosystem-native CycloneDX tooling; see [Cargo SBOM scope](sbom.md#cargo-sbom-scope) for target/feature limits.
+- **Note:** `analyzed-*` scans use [Syft](https://github.com/anchore/syft); ecosystem coverage varies. There is no analyzed-artifact SBOM for a Gradle Android artifact: its default leaves the layer out, and a declaration that asks for it is refused when it is read. The `build` layer uses ecosystem-native CycloneDX tooling; see [Cargo SBOM scope](sbom.md#cargo-sbom-scope) for target/feature limits.
 
 ---
 

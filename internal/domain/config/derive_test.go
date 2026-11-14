@@ -200,3 +200,49 @@ func TestDerive_BuildArgsFraming(t *testing.T) {
 		})
 	}
 }
+
+// An APK, AAB or AAR has no analyzed-artifact SBOM. The default leaves the
+// layer out, so a declaration that says nothing about SBOMs releases; a
+// declaration that asks for the layer is refused when it is read, not when
+// the release assembles its SBOMs.
+func TestAndroidArtifactsHaveNoAnalyzedArtifactSBOM(t *testing.T) {
+	t.Parallel()
+
+	const refusal = "there is no analyzed-artifact SBOM for an Android artifact"
+
+	for _, tc := range []struct {
+		name      string
+		buildType config.BuildType
+		sboms     string
+		layers    []config.SBOMLayer
+		refused   bool
+	}{
+		{name: "application default", layers: []config.SBOMLayer{config.SBOMLayerBuild, config.SBOMLayerAnalyzedContainer}},
+		{name: "library default", buildType: config.BuildTypeLibrary, layers: []config.SBOMLayer{config.SBOMLayerBuild}},
+		{name: "application asks for all", sboms: "all", refused: true},
+		{name: "library asks for the layer", buildType: config.BuildTypeLibrary, sboms: "build,analyzed-artifact", refused: true},
+		{name: "application names the build layer", sboms: "build", layers: []config.SBOMLayer{config.SBOMLayerBuild}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &config.Config{Artifacts: []config.Artifact{{
+				Name: "app", ProjectType: projecttype.GradleAndroid, BuildType: tc.buildType, SBOMs: tc.sboms,
+			}}}
+
+			err := config.Validate(cfg)
+			if tc.refused {
+				require.ErrorContains(t, err, refusal)
+
+				return
+			}
+
+			if err != nil {
+				require.NotContains(t, err.Error(), refusal)
+			}
+
+			require.NoError(t, config.Derive(cfg))
+			require.Equal(t, tc.layers, cfg.Artifacts[0].EffectiveSBOMs)
+		})
+	}
+}
