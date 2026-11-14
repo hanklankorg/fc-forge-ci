@@ -58,9 +58,10 @@ The commands, in the order a release runs them:
 
 Every published file is covered: an asset by its line in the checksums file
 and by its own signature, and the checksums file, each evidence file and the
-provenance by their own signatures. `release files manifest` refuses a
-`dist/` in which a listed file has no signature. See the [CLI reference](cli-reference.md#forge-ci-release-files)
-for each command's flags.
+provenance by their own signatures. `release publish` refuses a manifest in
+which a listed file has no signature. See the
+[CLI reference](cli-reference.md#forge-ci-release-files) for each command's
+flags.
 
 ## Targets at a glance
 

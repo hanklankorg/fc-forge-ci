@@ -93,8 +93,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.asc` beside each file, dated at the release commit's time, in place of
   the Cosign bundle. The provenance statement is signed with the files, so
   it has an `.asc` as well. The evidence and the images are signed with the
-  Cosign key as before, and so are the files of any other declaration. `Check: signing access` requires the three GPG
-  variables for such a declaration before the release commit, also with
+  Cosign key as before, and so are the files of any other declaration.
+  `Check: signing access` requires the three GPG variables for such a
+  declaration before the release commit, also with
   `sign-distro-packages: false`; `doctor --requirements` reports them as
   required, and the release plan and `doctor` no longer warn about either
   `gpg` setting on GitLab. The live lane `gpg-files-gitlab` releases
@@ -369,17 +370,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bundle's. The signer signs every file the checksums list, not only the
   checksums and the SBOMs, with the same key and suffix (`.bundle`, or
   `.asc` with GPG); a distro package keeps its `.sig` and gets no second
-  signature. `release files manifest` refuses a `dist/` in which a listed
-  file has no signature, so `release publish` and
-  `release validate-published` require them all. What a caller changes: a
+  signature. `release publish` and `release validate-published` refuse a
+  manifest in which a listed file has no signature, so a release is
+  published with them all. What a caller changes: a
   step that runs `release files declare --sbom` or `release files
   import-goreleaser` over SBOMs needs `RELEASE_TAG` in its environment, or
   `--version`, and the repository in its CI environment, or
   `--project-name`; an `--sbom` file may no longer also match an `--asset`
   pattern; and a signer of its own runs `release sign --files-from-manifest`
   where it ran `--manifest-section sboms`. Whoever verifies a release reads
-  `checksums.sha256` and unpacks the bundle to read an SBOM. The GitHub
-  release and forge-ci's own release are unchanged. See
+  `checksums.sha256` and unpacks the bundle to read an SBOM. A GitHub
+  release already had these files. See
   `docs/verification.md#verify-a-forgejo-or-gitlab-release`.
 - The default lint floor (`required-lints`) is `secrets` on every forge; it
   was `secrets,sast`. SAST still runs where a project's plan lists it and its
