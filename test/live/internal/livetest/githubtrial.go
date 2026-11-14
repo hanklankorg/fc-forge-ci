@@ -580,6 +580,17 @@ func (trial *GitHubTrial) PushChange(repo string, tree GitHubConsumerTree, branc
 	return head
 }
 
+// MainHead fetches the repository's main into the checkout at dir and returns
+// its commit. A release moves main on with the release commit, and a pull
+// request opened after it starts there, as a contributor's would.
+func (trial *GitHubTrial) MainHead(repo, dir string) string {
+	trial.tb.Helper()
+
+	trial.git(dir, "fetch", gitQuiet, trial.remote(repo), "refs/heads/"+defaultBranch)
+
+	return strings.TrimSpace(trial.git(dir, "rev-parse", "FETCH_HEAD"))
+}
+
 // OpenPullRequest opens branch against main and returns its number.
 func (trial *GitHubTrial) OpenPullRequest(repo, branch string) int {
 	trial.tb.Helper()

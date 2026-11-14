@@ -439,8 +439,10 @@ func runTrial(t *testing.T, trial *livetest.GitHubTrial, engine livetest.GitHubE
 	checkImages(t, trial, repo, settings, final, engine, signing.trust, visibility.Private)
 
 	// A demo then shows a pull request, judged by the consumer's own
-	// pull-request workflow.
+	// pull-request workflow. It starts at main as the release left it: a
+	// project may refuse a pull request that is behind its base.
 	if demo != "" {
+		tree.Main = trial.MainHead(repo, tree.Dir)
 		head := trial.PushChange(repo, tree, trialBranch)
 		trial.OpenPullRequest(repo, trialBranch)
 		judge(t, trial, repo, settings.DemoPullRequest, "pull_request", head)
