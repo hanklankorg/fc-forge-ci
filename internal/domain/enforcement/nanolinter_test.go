@@ -46,6 +46,31 @@ func TestNanolinterSeparatesDependencyFindingsFromLint(t *testing.T) {
 	}
 }
 
+// TestNanolinterReportOnlyChecksAreNoLintFindings: a check the plan demotes to
+// warn is reported and not counted by the lint gate, while a check the floor
+// requires is reported as blocking and is counted. A demoted dependency check
+// still counts as a vulnerability.
+func TestNanolinterReportOnlyChecksAreNoLintFindings(t *testing.T) {
+	t.Parallel()
+
+	report, err := ParseNanolinter([]byte(`{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"nanolinter"}},"results":[
+{"ruleId":"sast","properties":{"source":"curated","check_id":"sast","class":"security","policy":"warn","status":"fail"}},
+{"ruleId":"secret","properties":{"source":"curated","check_id":"secrets","class":"security","policy":"block","status":"fail"}},
+{"ruleId":"CVE-EXAMPLE","properties":{"source":"curated","check_id":"osv","class":"security","policy":"warn","status":"fail"}},
+{"ruleId":"future","properties":{"source":"curated","check_id":"future-scanner","class":"security","policy":"warn","status":"fail"}}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if report.LintFindings != 1 || report.VulnerabilityFindings != 2 {
+		t.Fatalf("lint = %d, vulnerabilities = %d, want 1 and 2", report.LintFindings, report.VulnerabilityFindings)
+	}
+
+	if !strings.Contains(string(report.SecuritySARIF), `"ruleId": "sast"`) {
+		t.Fatal("a report-only SAST finding must stay in the security SARIF")
+	}
+}
+
 func TestNanolinterUnknownSecurityClassIsNeverLintOnly(t *testing.T) {
 	report, err := ParseNanolinter([]byte(`{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"nanolinter"}},"results":[{"ruleId":"future","properties":{"source":"curated","check_id":"future-scanner","class":"security","status":"fail"}}]}]}`))
 	if err != nil || report.LintFindings != 1 || report.VulnerabilityFindings != 1 {

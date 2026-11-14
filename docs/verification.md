@@ -73,6 +73,13 @@ runs the scan and reports its findings, and they fail the pull request only
 when the project lists `sast` under `[policy] block` or the caller adds it to
 the floor with `required-lints: secrets,sast`.
 
+The same holds for every check of the plan under `enforce-lint: true`: the
+lint gate counts the findings of the checks the plan blocks on and of the
+floor, and reports the findings of a check the plan lists under
+`[policy] warn`, or leaves out of `[policy] block`, without failing the pull
+request. Dependency advisories are not the plan's to demote: they follow
+`enforce-vulnerabilities`.
+
 Your project needs a `nanolinter.toml` verify plan; the flavour image provides
 the tools, so no `just`/`justfile` is required. (A local `.mise.toml` + `just`
 recipe is optional, for running the same checks on a developer's machine.) The

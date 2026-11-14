@@ -569,6 +569,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The lint gate under `enforce-lint: true` no longer fails on the findings
+  of a check the project's plan only reports (`[policy] warn`, or absent
+  from `[policy] block`). It counted every failed check, so a plan could
+  not demote one. The floor of `required-lints` blocks as before, and
+  dependency advisories follow `enforce-vulnerabilities` as before.
 - Security: the engine and the Go runtime image build on Go 1.27.4,
   which fixes GO-2026-6859, an HTTP/1 server crash from a
   `MaxBytesReader` header race in `net/http` that govulncheck reports as

@@ -23,6 +23,7 @@ type nanoResult struct {
 		Source          string `json:"source"`
 		CheckID         string `json:"check_id"`
 		Class           string `json:"class"`
+		Policy          string `json:"policy"`
 		Status          string `json:"status"`
 		FailureCategory string `json:"failure_reason_category"`
 		Details         string `json:"details"`
@@ -218,6 +219,15 @@ func (result nanoResult) findings() (int, int) {
 	}
 
 	lint, vulnerabilities := result.gates()
+
+	// A check the plan reports without blocking is no lint finding: the
+	// project decides that for its own checks, and the mandated floor is
+	// passed to the runner as --require, which reports those checks as
+	// blocking whatever the plan says. A vulnerability is the
+	// administrator's to enforce and is counted either way.
+	if result.Properties.Source == nanoCurated && result.Properties.Policy == "warn" {
+		lint = false
+	}
 
 	return count(lint), count(vulnerabilities)
 }
