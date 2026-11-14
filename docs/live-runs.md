@@ -2353,13 +2353,15 @@ request stay. Forge Lab's session cleanup deletes only the repositories it
 created, by ID, so it never removes a demo. A GitHub demo has no lab account;
 its token is the session's personal access token, which the owner revokes.
 
-GitHub starts no run for a push that follows the first push of a long history
-closely, and replays none: with 542 commits, request tags pushed up to 35
-seconds after main went unanswered, and the same tree as one commit was
-answered after two seconds. A demo therefore withdraws a request tag that
-starts no run within 40 seconds and pushes it again, at most six times, and
-its log says so each time. A trial pushes one commit and sends its request
-once.
+GitHub starts no run for a push that adds some hundreds of commits to a
+branch, nor for any push of the 40 seconds after it, and replays none: after
+one push of 542 commits, request tags pushed up to 35 seconds later went
+unanswered, and the projects with more than 500 commits never released. A
+GitHub demo therefore pushes the consumer's history to main in portions of
+100 commits with Actions turned off, turns Actions on again and pushes the
+rendered commit alone, as a trial does. A project that moves a long history
+to a new GitHub repository meets the same: push the request tag a minute
+after the history, or push it again.
 
 ## Lightweight prerelease API checks
 

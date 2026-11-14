@@ -49,11 +49,9 @@ const (
 	githubPoll           = 20 * time.Second
 	githubEngineTimeout  = 75 * time.Minute
 	githubRunAppears     = 5 * time.Minute
-	// githubRunCreated is the wait for the run of a request GitHub accepted;
-	// it was measured at two to four seconds. githubRequestSends is how often
-	// a request is sent before the trial gives up on it.
-	githubRunCreated   = 40 * time.Second
-	githubRequestSends = 6
+	// githubSeedCommits is the most commits of a consumer's history one push
+	// adds to main, counted along the first parents: seedHistory.
+	githubSeedCommits = 100
 	githubIndexTimeout   = 5 * time.Minute
 	githubIssuer         = "https://token.actions.githubusercontent.com"
 	githubEngineWorkflow = "self-runtime-container.yml"
@@ -349,6 +347,11 @@ func (trial *GitHubTrial) PushConsumer(repo, root, fixtures string, engine GitHu
 	trial.tb.Helper()
 
 	dir, workflows := trial.stageConsumer(root, fixtures, engine, overrides)
+
+	if trial.history {
+		trial.seedHistory(repo, dir)
+	}
+
 	trial.push(dir, trial.remote(repo), "HEAD:refs/heads/main")
 	trial.waitWorkflows(repo, workflows)
 
@@ -1165,46 +1168,7 @@ func (trial *GitHubTrial) PushReleaseRequest(repo string, tree GitHubConsumerTre
 	trial.git(tree.Dir, "-c", "user.name="+githubTrialAuthor, "-c", "user.email="+githubTrialEmail,
 		"-c", "gpg.format=openpgp", "-c", "gpg.program="+program, "-c", "user.signingkey="+key.Fingerprint,
 		"tag", "-s", request, "-m", "Release "+version, tree.Main)
-
-	if !trial.history {
-		trial.push(tree.Dir, trial.remote(repo), "refs/tags/"+request)
-
-		return
-	}
-
-	// After the first push of a long history GitHub starts no run for the
-	// pushes that follow, and replays none of them. Measured with 542 commits:
-	// request tags pushed up to 35 seconds after main started no run, those
-	// from 43 seconds on did, and the same tree as one commit was answered
-	// after two seconds. No API tells the two states apart, so a request that
-	// starts no run is withdrawn and sent again.
-	send := func(again bool) {
-		if again {
-			trial.tb.Logf("GitHub started no run for %s of %s within %s: the request is pushed again", request, repo, githubRunCreated)
-			trial.push(tree.Dir, trial.remote(repo), ":refs/tags/"+request)
-		}
-
-		trial.push(tree.Dir, trial.remote(repo), "refs/tags/"+request)
-	}
-
-	if !sendUntilAnswered(githubRequestSends, send, func() bool { return trial.requestRunCreated(repo, request) }) {
-		trial.tb.Fatalf("livetest: GitHub started no run for %s of %s, pushed %d times", request, repo, githubRequestSends)
-	}
-}
-
-// sendUntilAnswered sends an event until answered reports that it took
-// effect, at most sends times. A send after the first is told so, to withdraw
-// what the one before it left.
-func sendUntilAnswered(sends int, send func(again bool), answered func() bool) bool {
-	for attempt := range sends {
-		send(attempt > 0)
-
-		if answered() {
-			return true
-		}
-	}
-
-	return false
+	trial.push(tree.Dir, trial.remote(repo), "refs/tags/"+request)
 }
 
 // CheckRelease checks what the engine promises of a GitHub release beyond a
@@ -1710,22 +1674,55 @@ func (trial *GitHubTrial) failureEvidence(ctx context.Context, repo string, run 
 	return readFailureExcerpt(strings.NewReader(log), 40)
 }
 
-// requestRunCreated reports whether GitHub created a push run for the request
-// tag within githubRunCreated.
-func (trial *GitHubTrial) requestRunCreated(repo, request string) bool {
+// seedHistory pushes the history under the rendered commit to main, in
+// portions and with Actions off, so that the rendered commit arrives as the
+// one-commit push a trial makes.
+//
+// GitHub starts no run for a push that adds some hundreds of commits to a
+// branch, nor for any push of the 40 seconds after it, and replays none.
+// Measured with 542 commits: after one push of them, request tags pushed up
+// to 35 seconds later started no run; after pushes of 100 each, the first
+// tag was answered within two seconds. Actions is off meanwhile because
+// each portion would otherwise run the workflows its head commit holds.
+func (trial *GitHubTrial) seedHistory(repo, dir string) {
 	trial.tb.Helper()
 
-	for deadline := time.Now().Add(githubRunCreated); ; trial.sleep() {
-		runs, _, err := trial.api.Actions.ListRepositoryWorkflowRuns(trial.tb.Context(), trial.org, repo,
-			&github.ListWorkflowRunsOptions{Branch: request, Event: eventPush})
-		if err == nil && len(runs.WorkflowRuns) > 0 {
-			return true
-		}
+	ctx := trial.tb.Context()
 
-		if time.Now().After(deadline) {
-			return false
+	before, _, err := trial.api.Repositories.GetActionsPermissions(ctx, trial.org, repo)
+	if err != nil {
+		trial.tb.Fatalf("livetest: read the Actions setting of %s: %v", repo, err)
+	}
+
+	if _, _, err = trial.api.Repositories.UpdateActionsPermissions(ctx, trial.org, repo,
+		github.ActionsPermissionsRepository{Enabled: new(false)}); err != nil {
+		trial.tb.Fatalf("livetest: turn Actions off in %s for its history: %v", repo, err)
+	}
+
+	history := strings.Fields(trial.git(dir, "rev-list", "--first-parent", "--reverse", "HEAD^"))
+	for _, commit := range historyPortions(history, githubSeedCommits) {
+		trial.push(dir, trial.remote(repo), commit+":refs/heads/main")
+	}
+
+	if _, _, err = trial.api.Repositories.UpdateActionsPermissions(ctx, trial.org, repo, github.ActionsPermissionsRepository{
+		Enabled: new(true), AllowedActions: before.AllowedActions, SHAPinningRequired: before.SHAPinningRequired,
+	}); err != nil {
+		trial.tb.Fatalf("livetest: turn Actions back on in %s: %v", repo, err)
+	}
+}
+
+// historyPortions returns the commits of a first-parent history, oldest
+// first, that end a portion of size commits, and its last commit.
+func historyPortions(history []string, size int) []string {
+	var ends []string
+
+	for index, commit := range history {
+		if (index+1)%size == 0 || index == len(history)-1 {
+			ends = append(ends, commit)
 		}
 	}
+
+	return ends
 }
 
 // waitWorkflows waits until GitHub lists every workflow just pushed to a new
