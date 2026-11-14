@@ -141,8 +141,8 @@ func RenderGitHubConsumer(name, text string, engine GitHubEngine, overrides map[
 	}
 
 	rendered, applied := githubInputOverrides(rendered, overrides)
-
 	prefix := engine.Owner + "/" + engine.Repository + "/.github/workflows/"
+
 	for _, use := range githubLeftover.FindAllStringSubmatch(rendered, -1) {
 		// A workflow of the consumer's own repository, such as its tests,
 		// is no engine.
@@ -449,15 +449,8 @@ func (settings *GitHubTrialSettings) set(key, value string) bool {
 	release := settings.Event == TrialRelease || settings.Event == TrialLifecycle
 
 	switch {
-	case key == settingWorkflow:
-		settings.Workflow = value
-
-		// A lifecycle runs the three fixed fixture workflows.
-		return settings.Event != TrialLifecycle && trialWorkflow.MatchString(value)
-	case key == settingDemoPullRequest:
-		settings.DemoPullRequest = value
-
-		return settings.Event == TrialRelease && trialWorkflow.MatchString(value)
+	case key == settingWorkflow || key == settingDemoPullRequest:
+		return settings.setWorkflow(key, value)
 	case key == "fixtures":
 		settings.Fixtures = value
 
@@ -483,6 +476,21 @@ func (settings *GitHubTrialSettings) set(key, value string) bool {
 	default:
 		return false
 	}
+}
+
+// setWorkflow takes the workflow a trial runs, or the pull-request workflow a
+// release demo runs after its release.
+func (settings *GitHubTrialSettings) setWorkflow(key, value string) bool {
+	if key == settingDemoPullRequest {
+		settings.DemoPullRequest = value
+
+		return settings.Event == TrialRelease && trialWorkflow.MatchString(value)
+	}
+
+	settings.Workflow = value
+
+	// A lifecycle runs the three fixed fixture workflows.
+	return settings.Event != TrialLifecycle && trialWorkflow.MatchString(value)
 }
 
 func validTrialImageNames(value string) bool {

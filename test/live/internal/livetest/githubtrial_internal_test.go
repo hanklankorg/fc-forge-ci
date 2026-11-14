@@ -128,7 +128,7 @@ func TestReuseGitHubEngineOnlyReadsPreparedSessionEngine(t *testing.T) {
 // TestRestoreVariableAfterOutlivesTheRun: the engine's platforms variable is
 // set back when the run ends, by which time the test's own context is
 // cancelled.
-func TestRestoreVariableAfterOutlivesTheRun(t *testing.T) {
+func TestRestoreVariableAfterOutlivesTheRun(t *testing.T) { //nolint:tparallel // the subtest ends, and restores, before the check after it.
 	t.Parallel()
 
 	var restored string

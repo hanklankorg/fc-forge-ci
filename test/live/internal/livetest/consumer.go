@@ -382,14 +382,8 @@ func (settings *TrialSettings) set(key, value string) bool {
 		settings.Fixtures = value
 
 		return settings.Event == TrialRelease && !known && pathsafe.Relative(value)
-	case settingWorkflow:
-		settings.Workflow = value
-
-		return !settings.fixedWorkflows() && trialWorkflow.MatchString(value)
-	case settingDemoPullRequest:
-		settings.DemoPullRequest = value
-
-		return settings.Event == TrialRelease && trialWorkflow.MatchString(value)
+	case settingWorkflow, settingDemoPullRequest:
+		return settings.setWorkflow(key, value)
 	case settingToken, settingSecretFile:
 		return settings.setSecret(key, value)
 	case settingVersion, settingImage:
@@ -404,6 +398,20 @@ func (settings *TrialSettings) set(key, value string) bool {
 	}
 
 	return settings.setVariable(key, value)
+}
+
+// setWorkflow takes the workflow a trial runs, unless its event runs fixed
+// ones, or the pull-request workflow a release demo runs after its release.
+func (settings *TrialSettings) setWorkflow(key, value string) bool {
+	if key == settingDemoPullRequest {
+		settings.DemoPullRequest = value
+
+		return settings.Event == TrialRelease && trialWorkflow.MatchString(value)
+	}
+
+	settings.Workflow = value
+
+	return !settings.fixedWorkflows() && trialWorkflow.MatchString(value)
 }
 
 // setDeclaration takes a declaration's path inside the consumer, once, for
