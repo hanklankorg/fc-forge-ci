@@ -140,6 +140,9 @@ type TrialSettings struct {
 	// Workflow is the file under .forgejo/workflows whose run is judged: for
 	// a lifecycle the release workflow, the last of its three.
 	Workflow string
+	// DemoPullRequest is the workflow a demo's pull request is judged by,
+	// after its release.
+	DemoPullRequest string
 	// Version is what a release trial requests, as release-request/v<Version>.
 	Version string
 	// NextVersion requests a second release in the same repository.
@@ -206,6 +209,7 @@ var (
 // The trial's own settings, and the workflow each event judges by default.
 const (
 	settingWorkflow            = "workflow"
+	settingDemoPullRequest     = "pull-request-workflow"
 	settingVersion             = "version"
 	settingNextVersion         = "next-version"
 	settingToken               = "token"
@@ -239,7 +243,7 @@ const (
 // one token on one line). An external registry's token comes from a file
 // too (see ExternalRegistryCredential).
 func ParseTrialSettings(event string, words []string) (TrialSettings, error) {
-	settings := TrialSettings{Event: event, Variables: map[string]string{}, FileSecrets: map[string]string{}}
+	settings := TrialSettings{Event: event, DemoPullRequest: trialPullRequestWorkflow, Variables: map[string]string{}, FileSecrets: map[string]string{}}
 
 	switch event {
 	case TrialPullRequest:
@@ -253,7 +257,8 @@ func ParseTrialSettings(event string, words []string) (TrialSettings, error) {
 
 	for _, word := range words {
 		if key, value, _ := strings.Cut(word, "="); value == "" || !settings.set(key, value) {
-			return TrialSettings{}, fmt.Errorf("setting %q is none of %s=<file>.yml (not lifecycle or snapshot), %s=<X.Y.Z> (release or lifecycle), %s=<X.Y.Z> (second release), %s=<SECRET_NAME>, "+
+			return TrialSettings{}, fmt.Errorf("setting %q is none of %s=<file>.yml (not lifecycle or snapshot), "+
+				settingDemoPullRequest+"=<file>.yml (release only, for a demo), %s=<X.Y.Z> (release or lifecycle), %s=<X.Y.Z> (second release), %s=<SECRET_NAME>, "+
 				settingSecretFile+"=<SECRET_NAME>:<absolute file>, "+
 				settingReleaseImagesConfig+"=<relative declaration> (release only), "+
 				settingSnapshotDeclaration+"=<relative declaration> (snapshot only), "+
@@ -381,6 +386,10 @@ func (settings *TrialSettings) set(key, value string) bool {
 		settings.Workflow = value
 
 		return !settings.fixedWorkflows() && trialWorkflow.MatchString(value)
+	case settingDemoPullRequest:
+		settings.DemoPullRequest = value
+
+		return settings.Event == TrialRelease && trialWorkflow.MatchString(value)
 	case settingToken, settingSecretFile:
 		return settings.setSecret(key, value)
 	case settingVersion, settingImage:

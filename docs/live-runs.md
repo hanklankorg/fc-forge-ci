@@ -2016,6 +2016,7 @@ report on this one.
   | `<VARIABLE>=<value>` | A repository variable, name in capitals. `@layer-commit` and `@request-commit` as the value stand for the commit of the layer under test and for the commit a release requests, which no caller can know beforehand. |
   | `token=<SECRET>` | A repository secret that receives the lab account's token, for a token the consumer reads outside a call of the layer. |
   | `workflow=<file>` | The workflow to judge. `pullrequest.yml` or `release.yml` when left out. |
+  | `pull-request-workflow=<file>` | Release only: the workflow a demo's pull request is judged by. `pullrequest.yml` when left out. |
   | `version=<X.Y.Z>` | The version a release requests. `0.0.1` when left out, and `0.1.0` on GitHub, which is the version the demos declare: a GitHub release or lifecycle of a demo that bumps proves the version bump only with another version, such as `version=0.2.0`. A consumer whose release does not bump must already declare it, so a demo that declares `0.1.0` asks for `version=0.1.0`. |
   | `next-version=<X.Y.Z>` | Release only: request a greater second version in the same repository with the same signing authority. Cannot accompany `interrupt-after`. |
   | `image=<registry>/<repository>[:<tag>]` | Release only: an image on an external registry that must verify against the trial's Cosign key after the release: the repository's `v<version>` tag, or the tag written, such as a flavour's `v0.0.1-go`. Needs the external registry's token below. |
@@ -2339,7 +2340,8 @@ GitHub client only while the forge still gives its name the listed ID. On
 Forgejo the layer binary package the demos share goes with the last demo; on
 GitHub a demo's container packages outlive it and `demo-delete` says so.
 
-On Forgejo the pull request needs the consumer's `pullrequest.yml`, judged
+On Forgejo and GitHub the pull request needs the consumer's `pullrequest.yml`,
+or the workflow `pull-request-workflow=<file>` names; on Forgejo it is judged
 with the same repository variables as the release; on GitLab the merge
 request runs the consumer's `.gitlab/merge-request.yml`, which the policy
 admits for merge requests.

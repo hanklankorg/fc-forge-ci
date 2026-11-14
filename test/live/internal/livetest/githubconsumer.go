@@ -292,14 +292,17 @@ func ReleaseRequestTag(version string) (string, string, error) {
 
 // GitHubTrialSettings is what the caller of a hosted GitHub trial chose.
 type GitHubTrialSettings struct {
-	Event     string            // TrialPullRequest, TrialDevRelease, TrialRelease or TrialLifecycle
-	Workflow  string            // the fixture workflow whose run is judged
-	Fixtures  string            // the consumer's fixture directory; "" finds it
-	Version   string            // the release version, vX.Y.Z
-	Image     string            // comma-separated released image names to verify, or ""
-	Platforms string            // RELEASE_PLATFORMS of the engine and the consumer
-	Fork      bool              // head=fork: the pull request comes from a fork of the consumer
-	Overrides map[string]string // input: value lines set in the rendered fixtures
+	Event    string // TrialPullRequest, TrialDevRelease, TrialRelease or TrialLifecycle
+	Workflow string // the fixture workflow whose run is judged
+	// DemoPullRequest is the workflow a demo's pull request is judged by,
+	// after its release.
+	DemoPullRequest string
+	Fixtures        string            // the consumer's fixture directory; "" finds it
+	Version         string            // the release version, vX.Y.Z
+	Image           string            // comma-separated released image names to verify, or ""
+	Platforms       string            // RELEASE_PLATFORMS of the engine and the consumer
+	Fork            bool              // head=fork: the pull request comes from a fork of the consumer
+	Overrides       map[string]string // input: value lines set in the rendered fixtures
 }
 
 // githubDefaultPlatforms is what a trial builds unless RELEASE_PLATFORMS
@@ -388,7 +391,9 @@ func RequireGitHubLintImage(name, text string, overrides map[string]string) erro
 
 // ParseGitHubTrialSettings reads the caller's key=value words for an event.
 func ParseGitHubTrialSettings(event string, words []string) (GitHubTrialSettings, error) {
-	settings := GitHubTrialSettings{Event: event, Platforms: githubDefaultPlatforms, Overrides: map[string]string{}}
+	settings := GitHubTrialSettings{
+		Event: event, DemoPullRequest: trialPullRequestWorkflow, Platforms: githubDefaultPlatforms, Overrides: map[string]string{},
+	}
 
 	switch event {
 	case TrialPullRequest:
@@ -421,7 +426,7 @@ func (settings *GitHubTrialSettings) parseWord(word string) error {
 	}
 
 	if !found || value == "" || (!settings.setPlatforms(key, value) && !settings.set(key, value)) {
-		return fmt.Errorf("setting %q: want workflow=<file> (not lifecycle), fixtures=<dir>, version=X.Y.Z or image=<name[,name...]> (release or lifecycle), "+
+		return fmt.Errorf("setting %q: want workflow=<file> (not lifecycle), pull-request-workflow=<file> (release, for a demo), fixtures=<dir>, version=X.Y.Z or image=<name[,name...]> (release or lifecycle), "+
 			"head=fork (pull-request), RELEASE_PLATFORMS=linux/amd64[,linux/arm64], or nanolinter-image=/megalinter-image=<reference>: %w", word, errs.ErrValidation)
 	}
 
@@ -449,6 +454,10 @@ func (settings *GitHubTrialSettings) set(key, value string) bool {
 
 		// A lifecycle runs the three fixed fixture workflows.
 		return settings.Event != TrialLifecycle && trialWorkflow.MatchString(value)
+	case key == settingDemoPullRequest:
+		settings.DemoPullRequest = value
+
+		return settings.Event == TrialRelease && trialWorkflow.MatchString(value)
 	case key == "fixtures":
 		settings.Fixtures = value
 

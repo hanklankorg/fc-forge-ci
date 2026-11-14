@@ -441,14 +441,9 @@ func runTrial(t *testing.T, trial *livetest.GitHubTrial, engine livetest.GitHubE
 	// A demo then shows a pull request, judged by the consumer's own
 	// pull-request workflow.
 	if demo != "" {
-		pullRequest, err := livetest.ParseGitHubTrialSettings(livetest.TrialPullRequest, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-
 		head := trial.PushChange(repo, tree, trialBranch)
 		trial.OpenPullRequest(repo, trialBranch)
-		judge(t, trial, repo, pullRequest.Workflow, "pull_request", head)
+		judge(t, trial, repo, settings.DemoPullRequest, "pull_request", head)
 	}
 }
 

@@ -339,7 +339,7 @@ func runForgejoConsumerTrial(t *testing.T, root string, releaseCase forgejoRelea
 	}
 
 	if demo != "" {
-		runDemoPullRequest(t, scenario, consumer, main, facts.Secrets, plan.Secrets)
+		runDemoPullRequest(t, scenario, consumer, settings.DemoPullRequest, main, facts.Secrets, plan.Secrets)
 	}
 }
 
@@ -628,19 +628,20 @@ func requireDemoReady(t *testing.T, settings livetest.TrialSettings, workflows m
 		t.Fatalf("a demo runs the release and then a pull request; start it with the release event")
 	}
 
-	if _, found := workflows[demoPullRequestWorkflow]; !found {
-		t.Fatalf("a demo also opens a pull request, and the consumer has no workflow %s", demoPullRequestWorkflow)
+	if _, found := workflows[settings.DemoPullRequest]; !found {
+		t.Fatalf("a demo also opens a pull request, and the consumer has no workflow %s; name it with pull-request-workflow=<file>", settings.DemoPullRequest)
 	}
 }
 
-// demoPullRequestWorkflow is the workflow a demo's pull request is judged by.
+// demoPullRequestWorkflow is the workflow a lifecycle's pull request is
+// judged by.
 const demoPullRequestWorkflow = "pullrequest.yml"
 
 // runDemoPullRequest opens a demo's pull request into the main its release
 // left, and requires the consumer's own pull-request workflow to pass on it.
 // The change is one commit on pushed, the commit whose tree the trial staged:
 // on the released main it would carry that tree and undo the release commit.
-func runDemoPullRequest(t *testing.T, scenario layerScenario, consumer livetest.Consumer, pushed string, secrets ...map[string]string) {
+func runDemoPullRequest(t *testing.T, scenario layerScenario, consumer livetest.Consumer, workflow, pushed string, secrets ...map[string]string) {
 	t.Helper()
 
 	target, repo := scenario.target, scenario.repo
@@ -649,7 +650,7 @@ func runDemoPullRequest(t *testing.T, scenario layerScenario, consumer livetest.
 
 	requirePullRequest(t, livetest.OpenPullRequest(t, target, repo, trialBranch, layerMain, "test: consumer trial"), trialBranch, head, released)
 
-	run := livetest.WaitForConsumerRun(t, target, repo, demoPullRequestWorkflow, "pull_request", "")
+	run := livetest.WaitForConsumerRun(t, target, repo, workflow, "pull_request", "")
 	scenario.logJobs(t, livetest.RunJobs(t, target, repo, run.ID), secrets...)
 	requireRunSuccess(t, run)
 }

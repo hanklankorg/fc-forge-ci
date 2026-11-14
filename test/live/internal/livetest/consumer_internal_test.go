@@ -102,8 +102,19 @@ func TestParseTrialSettings_ReadsTheCallersWords(t *testing.T) {
 		t.Errorf("resolved variables = %v", resolved)
 	}
 
-	if defaults, _ := ParseTrialSettings(TrialRelease, nil); defaults.Workflow != trialReleaseWorkflow || defaults.Version != "0.0.1" {
+	if defaults, _ := ParseTrialSettings(TrialRelease, nil); defaults.Workflow != trialReleaseWorkflow || defaults.Version != "0.0.1" ||
+		defaults.DemoPullRequest != trialPullRequestWorkflow {
 		t.Errorf("a release trial without settings = %+v", defaults)
+	}
+
+	// A demo's pull request is judged by the workflow its release names.
+	demo, err := ParseTrialSettings(TrialRelease, []string{"pull-request-workflow=pull-request-workflow.yml"})
+	if err != nil || demo.DemoPullRequest != "pull-request-workflow.yml" {
+		t.Errorf("demo pull request workflow = %q, %v", demo.DemoPullRequest, err)
+	}
+
+	if _, err := ParseTrialSettings(TrialPullRequest, []string{"pull-request-workflow=other.yml"}); !errors.Is(err, errs.ErrValidation) {
+		t.Errorf("pull-request-workflow= on a pull request: %v", err)
 	}
 
 	// A lifecycle judges the release workflow last, requests one version and

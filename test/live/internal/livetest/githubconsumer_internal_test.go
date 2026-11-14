@@ -571,6 +571,17 @@ func TestParseGitHubTrialSettings(t *testing.T) {
 		t.Errorf("release settings = %+v", release)
 	}
 
+	// A demo's pull request is judged by pullrequest.yml unless the release
+	// names another workflow; no other event takes the setting.
+	demo, err := ParseGitHubTrialSettings(TrialRelease, []string{"pull-request-workflow=pull-request-workflow.yml"})
+	if err != nil || release.DemoPullRequest != "pullrequest.yml" || demo.DemoPullRequest != "pull-request-workflow.yml" {
+		t.Errorf("demo pull request workflow = %q and %q, %v", release.DemoPullRequest, demo.DemoPullRequest, err)
+	}
+
+	if _, err := ParseGitHubTrialSettings(TrialPullRequest, []string{"pull-request-workflow=other.yml"}); !errors.Is(err, errs.ErrValidation) {
+		t.Errorf("pull-request-workflow= on a pull request: %v", err)
+	}
+
 	// version= is X.Y.Z on every forge; a leading v is accepted.
 	plain, err := ParseGitHubTrialSettings(TrialRelease, []string{"version=1.2.3"})
 	if err != nil || plain.Version != "v1.2.3" {
