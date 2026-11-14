@@ -156,6 +156,11 @@ on:
         required: false
         default: '["macos-26"]'
         type: string
+      xcode-version:
+        description: "Xcode version of the Xcode builds, for a caller that keeps it outside the repository, such as a repository variable. Empty uses config.xcode-version of the declaration."
+        required: false
+        default: ""
+        type: string
       xcode-build-number:
         description: "Build number (CURRENT_PROJECT_VERSION) of the Xcode builds of this release, for a caller that computes one for each release, such as a commit count. Empty uses config.build-number of the declaration, or the project's own."
         required: false
@@ -691,6 +696,7 @@ jobs:
     with:
       runs-on: ${{ inputs['runs-on'] }}
       runs-on-darwin-arm64: ${{ inputs['runs-on-darwin-arm64'] }}
+      xcode-version: ${{ inputs['xcode-version'] }}
       xcode-build-number: ${{ inputs['xcode-build-number'] }}
       go-test-selections-json: ${{ inputs['go-test-selections-json'] }}
       cargo-test-selections-json: ${{ inputs['cargo-test-selections-json'] }}

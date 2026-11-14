@@ -290,6 +290,11 @@
         "required": false,
         "type": "string",
         "default": ""
+      },
+      "xcode-version": {
+        "required": false,
+        "type": "string",
+        "default": ""
       }
     },
     "secrets": [
@@ -484,6 +489,11 @@
         "required": false,
         "type": "string",
         "default": "."
+      },
+      "xcode-version": {
+        "required": false,
+        "type": "string",
+        "default": ""
       }
     },
     "secrets": [

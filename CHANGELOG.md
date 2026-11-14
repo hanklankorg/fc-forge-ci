@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The GitHub release and snapshot orchestrators take `xcode-version`, the
+  Xcode version of their Xcode builds, from a caller that keeps it outside
+  the repository, such as `${{ vars.XCODE_VERSION }}`. A project that moves
+  to each new Xcode changes the variable and commits nothing. Empty uses
+  `config.xcode-version` of the declaration, as before.
 - The GitHub release orchestrator takes `xcode-build-number`, the build
   number of the release's Xcode builds, from a caller that computes one for
   each release. `config.build-number` of the declaration is a fixed value,

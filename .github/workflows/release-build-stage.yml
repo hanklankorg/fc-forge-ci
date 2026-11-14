@@ -45,6 +45,11 @@ on:
         required: false
         default: '["macos-26"]'
         type: string
+      xcode-version:
+        description: "Xcode version of the Xcode builds, in place of config.xcode-version of the declaration."
+        required: false
+        default: ""
+        type: string
       xcode-build-number:
         description: "Build number of the Xcode builds, in place of config.build-number of the declaration."
         required: false
@@ -353,7 +358,7 @@ jobs:
     uses: ./.github/workflows/build-xcode-ios.yml
     with:
       runs-on-darwin-arm64: ${{ inputs['runs-on-darwin-arm64'] }}
-      xcode-version: ${{ matrix.artifact.xcode_ios.xcode_version }}
+      xcode-version: ${{ inputs['xcode-version'] || matrix.artifact.xcode_ios.xcode_version }}
       scheme: ${{ matrix.artifact.xcode_ios.scheme }}
       workspace: ${{ matrix.artifact.xcode_ios.workspace }}
       project: ${{ matrix.artifact.xcode_ios.project }}

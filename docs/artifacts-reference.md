@@ -576,6 +576,7 @@ and Google Play publisher agree.
 - **Type:** `string`
 - **Description:** Xcode version to use for building
 - **Required:** Yes
+- **Note:** A GitHub release or snapshot caller can pass the orchestrator's `xcode-version` input, for example from a repository variable, and that value is used in place of this one.
 - **Valid values:** `15.4`, `16.0`, `16.1`, etc.
 - **Example:** `xcode-version: "16.1"`
 

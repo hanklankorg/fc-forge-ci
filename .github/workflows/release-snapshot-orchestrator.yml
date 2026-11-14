@@ -147,6 +147,11 @@ on:
         required: false
         default: '["macos-26"]'
         type: string
+      xcode-version:
+        description: "Xcode version of the Xcode builds, for a caller that keeps it outside the repository, such as a repository variable. Empty uses config.xcode-version of the declaration."
+        required: false
+        default: ""
+        type: string
       build-runs-on-linux-amd64:
         description: "JSON array of runner labels for the linux/amd64 image builds, read with fromJSON. The runner must permit the user namespaces Buildah needs."
         required: false
@@ -416,6 +421,7 @@ jobs:
     with:
       runs-on: ${{ inputs['runs-on'] }}
       runs-on-darwin-arm64: ${{ inputs['runs-on-darwin-arm64'] }}
+      xcode-version: ${{ inputs['xcode-version'] }}
       enforce-application-tests: ${{ inputs['enforce-application-tests'] }}
       snapshot-release-plan-json: ${{ needs.setup-snapshot.outputs.snapshot-release-plan-json }}
       snapshot-build-stage-plan-json: ${{ needs.setup-snapshot.outputs.snapshot-build-stage-plan-json }}
