@@ -166,7 +166,7 @@ func (trial *GitHubTrial) EnsureEngine(root, platforms string) GitHubEngine {
 	trial.SetVariable(name, "RELEASE_PLATFORMS", platforms)
 
 	if platforms != githubDefaultPlatforms {
-		trial.tb.Cleanup(func() { trial.SetVariable(name, "RELEASE_PLATFORMS", githubDefaultPlatforms) })
+		trial.restoreVariableAfter(name, "RELEASE_PLATFORMS", githubDefaultPlatforms)
 	}
 
 	namespace := "ghcr.io/" + strings.ToLower(trial.org+"/"+name)
@@ -677,16 +677,33 @@ func (trial *GitHubTrial) RepositoryInventory(repo string) GitHubInventory {
 func (trial *GitHubTrial) SetVariable(repo, name, value string) {
 	trial.tb.Helper()
 
-	ctx := trial.tb.Context()
+	if err := trial.setVariable(trial.tb.Context(), repo, name, value); err != nil {
+		trial.tb.Fatalf("livetest: set variable %s on %s: %v", name, repo, err)
+	}
+}
 
+func (trial *GitHubTrial) setVariable(ctx context.Context, repo, name, value string) error {
 	response, err := trial.api.Actions.CreateRepoVariable(ctx, trial.org, repo, github.ActionsCreateVariableRequest{Name: name, Value: value})
 	if err != nil && response != nil && response.StatusCode == http.StatusConflict {
 		_, err = trial.api.Actions.UpdateRepoVariable(ctx, trial.org, repo, name, github.ActionsUpdateVariableRequest{Value: new(value)})
 	}
 
-	if err != nil {
-		trial.tb.Fatalf("livetest: set variable %s on %s: %v", name, repo, err)
-	}
+	return err
+}
+
+// restoreVariableAfter sets the variable back when the run ends. The test's
+// own context is cancelled by then, so the cleanup has one of its own.
+func (trial *GitHubTrial) restoreVariableAfter(repo, name, value string) {
+	trial.tb.Helper()
+
+	trial.tb.Cleanup(func() {
+		ctx, cancel := cleanupContext(timeoutAPI)
+		defer cancel()
+
+		if err := trial.setVariable(ctx, repo, name, value); err != nil {
+			trial.tb.Errorf("livetest: restore variable %s on %s: %v", name, repo, err)
+		}
+	})
 }
 
 // SetSecret seals value to the repository's Actions key and stores it.

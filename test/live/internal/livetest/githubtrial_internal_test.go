@@ -125,6 +125,48 @@ func TestReuseGitHubEngineOnlyReadsPreparedSessionEngine(t *testing.T) {
 	}
 }
 
+// TestRestoreVariableAfterOutlivesTheRun: the engine's platforms variable is
+// set back when the run ends, by which time the test's own context is
+// cancelled.
+func TestRestoreVariableAfterOutlivesTheRun(t *testing.T) {
+	t.Parallel()
+
+	var restored string
+
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/repos/example-org/fc-forge-ci/actions/variables") {
+			response.WriteHeader(http.StatusNotFound)
+
+			return
+		}
+
+		var variable struct {
+			Name  string `json:"name"`
+			Value string `json:"value"`
+		}
+
+		_ = json.NewDecoder(r.Body).Decode(&variable)
+		restored = variable.Name + "=" + variable.Value
+
+		response.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+
+	client, err := github.NewClient(github.WithHTTPClient(server.Client()), github.WithURLs(new(server.URL+"/"), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("run", func(t *testing.T) {
+		trial := &GitHubTrial{tb: t, api: client, org: "example-org"}
+		trial.restoreVariableAfter("fc-forge-ci", "RELEASE_PLATFORMS", githubDefaultPlatforms)
+	})
+
+	if want := "RELEASE_PLATFORMS=" + githubDefaultPlatforms; restored != want {
+		t.Fatalf("restored %q after the run, want %q", restored, want)
+	}
+}
+
 func TestGitHubWaitRunReturnsCancelledTerminalRun(t *testing.T) {
 	t.Parallel()
 
