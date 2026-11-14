@@ -4,7 +4,7 @@
 
 name: 'Build Maven'
 description: >-
-  The build step of a consumer's own job for a Maven project: one `forge-ci build maven run`, the same sequence GitHub's build-maven workflow and GitLab's build-maven component run: install, the app or library lifecycle with its tests, and the CycloneDX Build SBOM. JARs, WARs and POMs land in <working-directory>/target/ (and each module's target/), and the SBOM as target/bom.json. Nothing is uploaded: the job copies what it releases into dist/ and declares it with `forge-ci release files declare`. The job brings the toolchain: a JDK and Maven (see setup-toolchain, or a job image). The step holds no secret.
+  The build step of a consumer's own job for a Maven project: one `forge-ci build maven run`, the same sequence GitHub's build-maven workflow and GitLab's build-maven component run: install, the app or library lifecycle with its tests, and the CycloneDX Build SBOM. JARs, WARs and POMs land in <working-directory>/target/ (and each module's target/), and the SBOM as target/bom.json. The job copies what it releases into dist/ and declares it with `forge-ci release files declare`. A library build (build-type: lib) also uploads the build hand-off GitHub's workflow uploads, the POMs and the built JARs as the run artifact maven-build-artifacts, which publish-forge-packages publishes with from-build; an application build uploads nothing. The job brings the toolchain: a JDK and Maven (see setup-toolchain, or a job image). The step holds no secret.
 inputs:
   version:
     description: >-
@@ -46,6 +46,10 @@ inputs:
     description: "'false' skips the Build SBOM, and with it the cyclonedx-maven-plugin."
     required: false
     default: 'true'
+  artifact-name:
+    description: "Logical name of a library build's hand-off artifact: <artifact-name>-build-artifacts, or maven-build-artifacts when empty. Name it where one run builds several libraries."
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -63,6 +67,7 @@ runs:
         BUILD_MAVEN_SKIP_TESTS: ${{ inputs.skip-tests }}
         BUILD_MAVEN_ADMIN_APPLICATION_TESTS: ${{ inputs.enforce-application-tests }}
         BUILD_MAVEN_BUILD_SBOM: ${{ inputs.enable-build-sbom }}
+        BUILD_MAVEN_ARTIFACT_NAME: ${{ inputs.artifact-name }}
       run: |
         set -euo pipefail
         # shellcheck source=.engine/bin/lib-forge-ci.sh
@@ -96,3 +101,24 @@ runs:
           --private-dependencies="${BUILD_MAVEN_PRIVATE_DEPENDENCIES:?private-dependencies is required}" \
           --settings-path "${BUILD_MAVEN_SETTINGS_PATH}" \
           --expect-version "${version}"
+        if [ "${build_type}" = lib ]; then
+          # The library hand-off of GitHub's build-maven workflow, under its
+          # name and with its paths: every POM and built JAR, rooted at the
+          # project directory, so the artifact holds pom.xml and target/ as
+          # the from-build publisher reads them.
+          artifact=${BUILD_MAVEN_ARTIFACT_NAME:+${BUILD_MAVEN_ARTIFACT_NAME}-build-artifacts}
+          FORGE_CI_PROVIDER=forgejo run_forge_ci artifact upload \
+            --name "${artifact:-maven-build-artifacts}" \
+            --path "${directory}/pom.xml" \
+            --path "${directory}/**/pom.xml" \
+            --path "${directory}/target/*.jar" \
+            --path "${directory}/target/*.war" \
+            --path "${directory}/target/*.pom" \
+            --path "${directory}/**/target/*.jar" \
+            --path "${directory}/**/target/*.war" \
+            --path "${directory}/**/target/*.pom" \
+            --path "!${directory}/target/original-*.jar" \
+            --path "!${directory}/**/target/original-*.jar" \
+            --retention-days 7 \
+            --if-no-files error
+        fi

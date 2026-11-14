@@ -20,6 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sentence for a Forgejo without the link API and for a token Forgejo
   refuses. The plain `mvn deploy` form is not linked. GitHub and GitLab are
   unchanged: their packages belong to the repository already. See
+||||||| parent of d04e51ff (feat(forgejo): hand a Maven library build to the package publish)
+- The Forgejo `build-maven` action uploads the hand-off of a library build
+  (`build-type: lib`), as GitHub's `build-maven` workflow does: every
+  `pom.xml` and built JAR, as the run artifact `maven-build-artifacts`, or
+  `<artifact-name>-build-artifacts` with the new input `artifact-name`. A
+  consumer's job no longer copies the POM and the JARs and uploads them
+  itself: `publish-forge-packages` with `from-build: "true"` and
+  `artifact-name: maven-build-artifacts` publishes them. A workflow that
+  already uploads an artifact of that name from the same run removes its
+  own upload. An application build uploads nothing, as before. The new
+  example `examples/maven-library/forgejo/` is the pull-request and release
+  pair of a Maven library. See
   `docs/forgejo.md#maven-npm-and-gradle-packages-in-the-owners-registry`.
 - The Forgejo layer has the `publish-forge-packages` action: the publish
   step of a consumer's own job for a project that lists `forge-packages`

@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+# Example: Maven library published to the forge's package registry
+sign:
+  method: sigstore
+
+artifacts:
+  - name: my-library
+    project-type: maven
+    working-directory: .
+    build-type: library
+    publish-to: [forge-packages]
+    config:
+      java-version: 25

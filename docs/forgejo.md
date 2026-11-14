@@ -35,7 +35,7 @@ immutable release request
 | `.engine/bin/` | The resolver `lib-forge-ci.sh` and the engine binary checksums, shared with the GitLab layer. The binary is not in the tree: a job downloads it by its checksum. See [The binary in the layer](#the-binary-in-the-layer). |
 | `.forgejo/scripts/verify-signer-toolchain.sh` | The check every privileged job runs first, and the signer image runs at build time. |
 | `containers/signer/Containerfile` | The definition of the signer image. No image is published; see [The signer image](#the-signer-image). |
-| `examples/<ecosystem>/forgejo/` | A pull-request and a release workflow to start from, for [Go CLI](../examples/go-cli/forgejo/), [Go service](../examples/go-service/forgejo/), [Cargo](../examples/cargo-app/forgejo/) and [Maven](../examples/maven-app/forgejo/). |
+| `examples/<ecosystem>/forgejo/` | A pull-request and a release workflow to start from, for [Go CLI](../examples/go-cli/forgejo/), [Go service](../examples/go-service/forgejo/), [Cargo](../examples/cargo-app/forgejo/), [Maven](../examples/maven-app/forgejo/) and a [Maven library](../examples/maven-library/forgejo/). |
 | `examples/forgejo/` | Organization publication callers, including runtime images and package-retention preview. |
 
 Lint and build ship as actions, not as workflows: the pull-request jobs and
@@ -644,7 +644,7 @@ example shows the two workflows they add up to.
 | Release isolation | `check-l3-isolation` | `validate isolation` over the consumer's `release-workflow.yml`. |
 | Build, Go | `build-go` | `build go run`: `go mod download`, `go test ./...`, the Build SBOM, one binary per platform. |
 | Build, Cargo | `build-cargo` | `build cargo run`: `cargo fetch`, `cargo test --locked`, the Build SBOM, one binary per platform. |
-| Build, Maven | `build-maven` | `build maven run --expect-version`: `mvn install`, a refusal unless the POM declares the release version, the app or library lifecycle with its tests, the Build SBOM, all in `target/`. |
+| Build, Maven | `build-maven` | `build maven run --expect-version`: `mvn install`, a refusal unless the POM declares the release version, the app or library lifecycle with its tests, the Build SBOM, all in `target/`. A library build (`build-type: lib`) then uploads the POMs and the built JARs as the run artifact `maven-build-artifacts`, as GitHub's workflow does. |
 | Hand-off | a `run:` step | `release files declare`, which writes `checksums.sha256`, the SBOM bundle of the `--sbom` files and `dist/release-files.json`; then `upload-dist`. |
 | Image | `release-images.yml` reusable workflow | Native per-architecture builds, scan-before-publication assembly and a release image ledger. |
 
@@ -1168,12 +1168,51 @@ goes to the registry of the repository's owner on this Forgejo:
 | `project-type` | Publishes | From |
 |---|---|---|
 | `npm` | the one `*.tgz` in `working-directory`, under `npm-tag`, with lifecycle scripts off | the hand-off the release signed: `artifact-name` is the build job's artifact |
-| `maven` with `from-build: 'true'` | the library's POM, jar, sources and Javadoc bytes, without running Maven | the build hand-off in `working-directory` |
+| `maven` with `from-build: 'true'` | the library's POM, jar, sources and Javadoc bytes, without running Maven | the build hand-off in `working-directory`: `artifact-name` is the artifact `build-maven` uploaded for the library |
 | `maven` | `mvn deploy` in `working-directory`, with `cli-opts` and `profile` | the checked-out project; this form runs the project's build with the token in reach |
 | `gradle`, `gradle-android` | the exported Maven publications in `working-directory`, at `version` | `forge-ci build gradle export-publications` in the build job |
 
+A Maven library needs no step of its own for the hand-off. `build-maven`
+with `build-type: lib` uploads every `pom.xml` and built JAR as the run
+artifact `maven-build-artifacts` (`<artifact-name>-build-artifacts` when it
+is given `artifact-name`), under the name and with the paths of GitHub's
+`build-maven` workflow. The publish job downloads it and publishes those
+bytes:
+
+```yaml
+  build:
+    # ...
+    steps:
+      # ...
+      - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/build-maven@PIN_FORGE_CI_SHA
+        with:
+          version: ${{ needs.prepare.outputs.release-tag }}
+          commit: ${{ needs.prepare.outputs.release-sha }}
+          build-type: lib
+          # The profile of your POM that attaches the sources and Javadoc JARs.
+          profile: central-release
+
+  publish-package:
+    name: "Publish: package"
+    needs: [prepare, sign-and-publish]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    steps:
+      - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/publish-forge-packages@PIN_FORGE_CI_SHA
+        with:
+          project-type: maven
+          from-build: "true"
+          artifact-name: maven-build-artifacts
+          working-directory: .forge-ci/maven-build
+          version: ${{ needs.prepare.outputs.release-tag }}
+          token: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+```
+
+[examples/maven-library/forgejo/](../examples/maven-library/forgejo/) is the
+whole pair.
+
 - The job runs on `runs-on`, the ordinary runner, and brings the toolchain:
-  a JDK and Maven, or Node. It holds no signing key.
+  a JDK and Maven, or Node; `from-build` needs neither. It holds no signing
+  key.
 - `token` is a token that may write packages of the owner
   (`write:package`), such as `RELEASE_REGISTRY_TOKEN`. The automatic job
   token cannot write packages. The action gives the token to the deploy

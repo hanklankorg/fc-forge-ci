@@ -27,6 +27,7 @@ func consumerReleaseTemplates() []string {
 		"examples/monorepo/forgejo/release-workflow.yml",
 		"examples/cargo-app/forgejo/release-workflow.yml",
 		"examples/maven-app/forgejo/release-workflow.yml",
+		"examples/maven-library/forgejo/release-workflow.yml",
 		"examples/gradle-app/forgejo/release-workflow.yml",
 	}
 }

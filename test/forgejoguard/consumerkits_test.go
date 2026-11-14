@@ -93,6 +93,7 @@ func consumerKits() []consumerKit {
 		{dir: "examples/go-service/forgejo", buildAction: "build-go"},
 		{dir: "examples/cargo-app/forgejo", buildAction: "build-cargo"},
 		{dir: "examples/maven-app/forgejo", buildAction: "build-maven"},
+		{dir: "examples/maven-library/forgejo", buildAction: "build-maven"},
 		{dir: "examples/gradle-app/forgejo", prBuild: "./gradlew --no-daemon build", releaseBuild: "forge-ci build gradle run"},
 		{
 			dir: "examples/no-build/forgejo", prBuild: "sh install.sh",

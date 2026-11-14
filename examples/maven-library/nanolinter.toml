@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# nanolinter verify plan: the forge-ci lint gate runs `nanolinter verify` against
+# it, with `secrets` as the floor. `nanolinter explain --all` lists more checks.
+
+[detect]
+auto = true
+
+[verify]
+checks = [
+  "secrets",
+  "sast",
+  "commits",
+  "yaml",
+  "markdown",
+  "shell",
+  "xml",
+  "java-checkstyle",
+]
+
+[policy]
+block = [
+  "secrets",
+  "commits",
+  "yaml",
+  "markdown",
+  "shell",
+  "xml",
+  "java-checkstyle",
+]

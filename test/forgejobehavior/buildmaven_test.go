@@ -7,10 +7,13 @@
 package forgejobehavior
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/diggsweden/forge-ci/internal/domain/artifact"
 	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
 )
 
@@ -75,7 +78,7 @@ func TestBuildMavenForwardsEveryInput(t *testing.T) {
 	action := loadAction(t, buildMaven)
 	action.requireSteps(t, 1)
 
-	inputs := []string{"version", "commit", "build-type", "working-directory", "profile", "skip-tests", "build-sbom", "private-dependencies", "settings-path"}
+	inputs := []string{"version", "commit", "build-type", "working-directory", "profile", "skip-tests", "build-sbom", "private-dependencies", "settings-path", "artifact-name"}
 	bound := map[string]string{}
 
 	for _, input := range inputs {
@@ -127,6 +130,89 @@ func TestBuildMavenForwardsEveryInput(t *testing.T) {
 		if got.status == 0 || refused.argv() != nil {
 			t.Fatalf("an empty %s: status %d argv %q stderr %q", required, got.status, refused.argv(), got.stderr)
 		}
+	}
+}
+
+// A library build uploads the hand-off GitHub's build-maven workflow uploads:
+// the same artifact name and the same paths, so publish-forge-packages finds
+// pom.xml and target/ where the from-build publisher reads them. An
+// application build uploads nothing.
+func TestBuildMavenUploadsTheLibraryHandOffGitHubUploads(t *testing.T) {
+	t.Parallel()
+
+	var github struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string            `yaml:"name"`
+				With map[string]string `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	loadYAML(t, ".github/workflows/build-maven.yml", &github)
+
+	var upload map[string]string
+
+	for _, step := range github.Jobs[buildMaven].Steps {
+		if step.Name == "Upload Maven artifacts" {
+			upload = step.With
+		}
+	}
+
+	if upload["name"] != "${{ inputs['artifact-name'] && format('{0}-build-artifacts', inputs['artifact-name']) || 'maven-build-artifacts' }}" {
+		t.Fatalf("GitHub names its Maven build artifact %q", upload["name"])
+	}
+
+	paths := strings.Fields(strings.ReplaceAll(upload["path"], "${{ inputs['working-directory'] }}", "service"))
+	if len(paths) == 0 {
+		t.Fatal("GitHub's Maven upload names no path")
+	}
+
+	script := actionStep(t, buildMaven, "Build Maven project")
+
+	for name, artifact := range map[string]string{"": "maven-build-artifacts", "library": "library-build-artifacts"} {
+		box, _ := mavenSandbox(t, false)
+		if got := box.run(script, mavenInputs("BUILD_MAVEN_BUILD_TYPE=lib", "BUILD_MAVEN_WORKING_DIRECTORY=service", "BUILD_MAVEN_ARTIFACT_NAME="+name)...); got.status != 0 {
+			t.Fatalf("status %d stderr %s", got.status, got.stderr)
+		}
+
+		calls := strings.Split(strings.TrimSuffix(readSandboxFile(t, box, "argv"), "\n"), "\n")
+		want := "artifact upload --name " + artifact + " --path " + strings.Join(paths, " --path ") + " --retention-days 7 --if-no-files error"
+
+		if len(calls) != 2 || !strings.HasPrefix(calls[0], "build maven run ") || calls[1] != want {
+			t.Fatalf("engine calls of a library build\n%s\nwant the build, then\n%s", strings.Join(calls, "\n"), want)
+		}
+	}
+
+	box, _ := mavenSandbox(t, false)
+	if got := box.run(script, mavenInputs("BUILD_MAVEN_BUILD_TYPE=app")...); got.status != 0 || strings.Contains(readSandboxFile(t, box, "argv"), "artifact upload") {
+		t.Fatalf("an application build: status %d calls %s", got.status, readSandboxFile(t, box, "argv"))
+	}
+
+	// The paths select the hand-off layout from a built project: the POM and
+	// the three JARs under target/, without the shaded build's original JAR.
+	project := t.TempDir()
+	for _, file := range []string{"pom.xml", "target/library-1.2.3.jar", "target/library-1.2.3-sources.jar", "target/library-1.2.3-javadoc.jar", "target/original-library-1.2.3.jar", "target/classes/Library.class"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(project, file)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(filepath.Join(project, file), []byte(file), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	entries, err := artifact.CollectUpload("", nil, strings.Fields(strings.ReplaceAll(upload["path"], "${{ inputs['working-directory'] }}", project)), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	selected := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		selected = append(selected, entry.RelPath)
+	}
+
+	if want := []string{"pom.xml", "target/library-1.2.3-javadoc.jar", "target/library-1.2.3-sources.jar", "target/library-1.2.3.jar"}; !slices.Equal(selected, want) {
+		t.Fatalf("the hand-off holds %v, want %v", selected, want)
 	}
 }
 
