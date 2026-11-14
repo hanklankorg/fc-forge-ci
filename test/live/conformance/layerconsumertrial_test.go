@@ -225,7 +225,11 @@ func runForgejoConsumerTrial(t *testing.T, root string, releaseCase forgejoRelea
 	t.Logf("layer under test: %s at %s, binary sha256 %s, runner label %q",
 		scenario.layer.Repository, scenario.layer.Commit, scenario.layer.BinarySHA256, scenario.label)
 
-	main := consumer.Push(t, repo, plan)
+	// pushed is the commit the trial staged and pushed; main moves on from it
+	// below with a commit made on the forge, which the stage does not hold.
+	pushed := consumer.Push(t, repo, plan)
+
+	main := pushed
 	if release {
 		// Install only the disposable requester's public trust material while
 		// Actions are still disabled. The private key stays on the host.
@@ -339,7 +343,7 @@ func runForgejoConsumerTrial(t *testing.T, root string, releaseCase forgejoRelea
 	}
 
 	if demo != "" {
-		runDemoPullRequest(t, scenario, consumer, settings.DemoPullRequest, main, facts.Secrets, plan.Secrets)
+		runDemoPullRequest(t, scenario, consumer, settings.DemoPullRequest, pushed, facts.Secrets, plan.Secrets)
 	}
 }
 
