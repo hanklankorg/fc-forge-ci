@@ -2339,8 +2339,16 @@ demo. Making a demo deletes nothing. `demo-delete` deletes one demo's set
 only: it lists the repositories by name and ID, asks for the demo's name (or
 takes `confirm=<name>`), and deletes each repository by the lab client or the
 GitHub client only while the forge still gives its name the listed ID. On
-Forgejo the layer binary package the demos share goes with the last demo; on
-GitHub a demo's container packages outlive it and `demo-delete` says so.
+Forgejo the layer binary package the demos share goes with the last demo.
+
+GitHub keeps the packages of a deleted repository and unbinds them, and a new
+demo of the same name is then refused those package names. So on GitHub the
+listing also shows the container, npm and Maven packages bound to each
+repository, and `demo-delete` deletes them before the repository: each only
+while it is still that package of that repository, and each confirmed gone.
+The session's token needs to read and delete packages. A package bound to no
+repository is never deleted, whatever its name: one left by an earlier
+deletion is removed by hand.
 
 On Forgejo and GitHub the pull request needs the consumer's `pullrequest-workflow.yml`,
 or the workflow `pull-request-workflow=<file>` names; on Forgejo it is judged

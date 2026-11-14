@@ -125,11 +125,17 @@ func (trial *GitHubTrial) DeleteContainerPackage(ctx context.Context, acknowledg
 // deletePackage deletes the organization's package of that type and name,
 // whose identity the caller has just read, then confirms absence.
 func (trial *GitHubTrial) deletePackage(ctx context.Context, packageType, name string) error {
-	if _, err := trial.api.Organizations.DeletePackage(ctx, trial.org, packageType, name); err != nil {
+	return deleteOrganizationPackage(ctx, trial.api, trial.org, packageType, name)
+}
+
+// deleteOrganizationPackage is the one deletion of a package of an
+// organization: by type and exact name, then confirmed absent.
+func deleteOrganizationPackage(ctx context.Context, api *githubapi.Client, org, packageType, name string) error {
+	if _, err := api.Organizations.DeletePackage(ctx, org, packageType, name); err != nil {
 		return fmt.Errorf("delete exact %s package: %w", packageType, err)
 	}
 
-	_, response, err := trial.api.Organizations.GetPackage(ctx, trial.org, packageType, name)
+	_, response, err := api.Organizations.GetPackage(ctx, org, packageType, name)
 	if err == nil || response == nil || response.StatusCode != http.StatusNotFound {
 		return errPackageDeletionUnconfirmed
 	}

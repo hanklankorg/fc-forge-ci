@@ -22,11 +22,22 @@ import (
 // helpers' suffixes; it is deleted repository by repository, each one only
 // after the forge confirms it still has the identity the listing showed.
 
-// DemoRepository is one repository of a demo, as the forge lists it.
+// DemoRepository is one repository of a demo, as the forge lists it. Packages
+// are those the forge keeps apart from the repository and binds to it; they
+// are listed only where deleting the repository would leave them behind.
 type DemoRepository struct {
-	Name   string
-	ID     int64
-	WebURL string
+	Name     string
+	ID       int64
+	WebURL   string
+	Packages []DemoPackage
+}
+
+// DemoPackage is one package bound to a demo's repository, as the forge lists
+// it.
+type DemoPackage struct {
+	Type string
+	Name string
+	ID   int64
 }
 
 // DemoSet is one demo and every repository that belongs to it, the demo's

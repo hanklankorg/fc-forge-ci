@@ -251,8 +251,6 @@ func confirmed(in request, stdin io.Reader, stdout io.Writer) error {
 // afterwards says what is left to do once the deletion is done.
 func afterwards(ctx context.Context, forge demos, in request, stdout io.Writer) error {
 	if in.forge == forgeGitHub {
-		_, _ = fmt.Fprintln(stdout, "GitHub keeps a repository's container packages; delete any the demo published under the organization's Packages.")
-
 		return nil
 	}
 
@@ -274,5 +272,9 @@ func show(stdout io.Writer, set livetest.DemoSet) {
 
 	for _, repository := range set.Repositories {
 		_, _ = fmt.Fprintf(stdout, "  %-48s id %-8d %s\n", repository.Name, repository.ID, repository.WebURL)
+
+		for _, pkg := range repository.Packages {
+			_, _ = fmt.Fprintf(stdout, "    %s package %s\n", pkg.Type, pkg.Name)
+		}
 	}
 }

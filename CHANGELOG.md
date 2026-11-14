@@ -373,6 +373,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `release.yml` passes the path. `forge-ci doctor` reads a placeholder left
   in a Forgejo `release-snapshot-workflow.yml` as a warning, as it does for
   the other `release*` files.
+||||||| parent of 082fa8f6 (test: delete a GitHub demo's packages with its repositories)
+- `just demo-delete github` deletes the container, npm and Maven packages
+  GitHub binds to a demo's repositories before it deletes the repositories,
+  and lists them first. GitHub keeps and unbinds the packages of a deleted
+  repository, and a new demo of the same name was then refused its package
+  names. A package bound to no repository is never deleted.
 
 - A lint-runner check that could not complete now follows the enforcement of
   the gate it belongs to. With `enforce-lint` or `enforce-vulnerabilities` on,
