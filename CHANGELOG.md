@@ -352,6 +352,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The three main workflows have one file name on every forge:
+  `pullrequest-workflow.yml`, `release-snapshot-workflow.yml` and
+  `release-workflow.yml`. The Forgejo examples were `pullrequest.yml`,
+  `snapshot.yml` and `release.yml`; `forge-ci init` now writes
+  `.forgejo/workflows/pullrequest-workflow.yml` and
+  `.forgejo/workflows/release-workflow.yml`. A Forgejo consumer that renames
+  its files sets `caller-workflow: release-workflow.yml` on the signer call,
+  as the examples do: the name is recorded in the provenance. The
+  `check-l3-isolation` action's `workflow` input now defaults to
+  `.forgejo/workflows/release-workflow.yml`; a consumer that keeps
+  `release.yml` passes the path. `forge-ci doctor` reads a placeholder left
+  in a Forgejo `release-snapshot-workflow.yml` as a warning, as it does for
+  the other `release*` files.
+
 - A lint-runner check that could not complete now follows the enforcement of
   the gate it belongs to. With `enforce-lint` or `enforce-vulnerabilities` on,
   the gate still fails. With the gate report-only, the command prints a

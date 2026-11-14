@@ -252,7 +252,7 @@ func githubCellLintImages(extra []string) (map[string]string, []string, error) {
 // fixture lints with no Nanolinter image. Every demo with a cell ships that
 // fixture, so a missing one is an error.
 func githubCellLintImage(root, demo string, images map[string]string) ([]string, error) {
-	fixture := filepath.Join(demoConsumerDir(root, demo), "test", "live", "github", "workflows", "pullrequest.yml")
+	fixture := filepath.Join(demoConsumerDir(root, demo), "test", "live", "github", "workflows", "pullrequest-workflow.yml")
 
 	body, err := os.ReadFile(fixture) //nolint:gosec // G304: a shipped demo's fixture, under the repository root.
 	if err != nil {

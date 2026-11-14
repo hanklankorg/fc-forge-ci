@@ -31,7 +31,7 @@ const publicationCaller = `jobs:
       base-repository: ${{ vars.BASE_IMAGE_REPOSITORY || 'ghcr.io/examplescope/myapp-base' }}
       publication-image-repository: ${{ vars.IMAGE_REPOSITORY || 'ghcr.io/examplescope/myapp' }}
       registry-user: ${{ vars.IMAGE_REGISTRY_USER }}
-      caller-workflow: release.yml
+      caller-workflow: release-workflow.yml
       release-asset-retention: "6"
       forge-ci-repository: examplescope/forge-ci
       forge-ci-sha: ` + consumerPinned + `
@@ -120,7 +120,7 @@ func TestPublicationCallerContract(t *testing.T) {
 
 	const destination = "registry.lab.test/owner/app"
 
-	plan, err := sampleLayer().PlanConsumer(map[string]string{"release.yml": publicationCaller}, ConsumerFacts{Inputs: map[string]string{"image-repository": destination, "base-repository": destination + "-base"}})
+	plan, err := sampleLayer().PlanConsumer(map[string]string{"release-workflow.yml": publicationCaller}, ConsumerFacts{Inputs: map[string]string{"image-repository": destination, "base-repository": destination + "-base"}})
 	if err != nil {
 		t.Fatal(err)
 	}

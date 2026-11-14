@@ -50,7 +50,7 @@ setup, evidence and cleanup.
 | GitLab lifecycle | `just test-live-consumer gitlab <checkout> lifecycle job-archive=<archive> build-archive=<archive> signer-archive=<archive> lint-archive=<archive> [setting ...]` | As the release; a demo with a service snapshot and a GitLab release, `hello-maven-service` or `hello-cargo-container` ([Lifecycle](#lifecycle)) |
 | GitLab snapshot | `just test-live-consumer gitlab <checkout> snapshot job-archive=<archive>` | Planned images, selected builder archive and any producer runtime archives; [snapshot admission](#snapshot); no readiness |
 | GitHub PR, development build or release | `just test-live-consumer github <checkout> <pull-request\|dev-release\|release> org=<org-id> [setting ...]` | Forge Lab's hosted `github run` session, consumer workflow fixtures and public engine images |
-| GitHub lifecycle | `just test-live-consumer github <checkout> lifecycle org=<org-id> [version=X.Y.Z] [image=<name>]` | As the release, plus the consumer's `release-dev.yml` fixture and the release credential; the `hello-maven-service`, `hello-cargo-container`, `hello-go-service` and `hello-npm-service` demos ([Lifecycle](#lifecycle)) |
+| GitHub lifecycle | `just test-live-consumer github <checkout> lifecycle org=<org-id> [version=X.Y.Z] [image=<name>]` | As the release, plus the consumer's `release-snapshot-workflow.yml` fixture and the release credential; the `hello-maven-service`, `hello-cargo-container`, `hello-go-service` and `hello-npm-service` demos ([Lifecycle](#lifecycle)) |
 
 See [Forgejo trials](#trying-a-consumer), [GitLab acceptance](#gitlab-live-acceptance)
 and [GitHub trials](#trying-a-consumer-on-github). `just test-live` is the local
@@ -60,7 +60,7 @@ For a retained demonstration, use [`just demo <forge> <name>`](#showing-a-consum
 `hello-maven` is a Maven application JAR without an image, not a library
 publication fixture. `hello-maven-service` adds the runtime image required by
 the service snapshot and lifecycle roads. On GitHub, that service's snapshot
-uses `dev-release`, not `snapshot`; its `release-dev.yml` fixture selects the
+uses `dev-release`, not `snapshot`; its `release-snapshot-workflow.yml` fixture selects the
 [shared snapshot oracle](#trying-a-consumer-on-github). The plain application
 ships no such development fixture. Image snapshots do not prove Maven SNAPSHOT
 package publication.
@@ -789,7 +789,7 @@ sets differ between forges only where a forge cannot run a demo's event:
 | `hello-android`, `hello-android-library` pull request | Forgejo | Missing: the demos' Forgejo workflows and an Android job image on Forgejo |
 | `hello-android-library` release | Forgejo, GitLab | Missing: a Forgejo release workflow and a GitLab release build |
 | `hello-base-images` release | GitHub | Missing: a hosted release fixture |
-| `hello-cargo-workspace`, `hello-go-cli`, `hello-monorepo`, `hello-npm-package` development build | GitHub | Missing: the demos' hosted `release-dev.yml` fixtures |
+| `hello-cargo-workspace`, `hello-go-cli`, `hello-monorepo`, `hello-npm-package` development build | GitHub | Missing: the demos' hosted `release-snapshot-workflow.yml` fixtures |
 
 `TestRunSetsCoverTheSamePairsOnEveryForge`
 (`test/live/internal/livetest/runsetparity_internal_test.go`) holds this:
@@ -1061,7 +1061,7 @@ lifecycle when it fails, with their acceptance owners unchanged:
    facts and the release requester's public allowed-signers staged in the
    private index before the base commit, so every commit of the flow carries
    the trust. Base to `main`, the change to `development`, a pull request
-   judged by the consumer's own `pullrequest.yml`. No tag, release or other run.
+   judged by the consumer's own `pullrequest-workflow.yml`. No tag, release or other run.
 2. **Merge.** The pull request is merged natively with a merge commit, the forge
    told which head commit is meant. A mirror then shows `main` at a commit whose
    parents are the base and the change and whose tree is the change's.
@@ -1133,9 +1133,9 @@ so a failure there may be the component's rather than the flow's.
 On hosted GitHub (`TestGitHubLayer_ConsumerLifecycle`) the same five phases
 run in one disposable repository of the test organization, against the engine
 the checkout pushed there, through the three orchestrators the demo's GitHub
-fixtures call: `pullrequest.yml` for the pull request, `release-dev.yml`, the
+fixtures call: `pullrequest-workflow.yml` for the pull request, `release-snapshot-workflow.yml`, the
 demo's call of the snapshot orchestrator, dispatched on the merged `main` with
-`source-branch: development` for the development phase, and `release.yml`
+`source-branch: development` for the development phase, and `release-workflow.yml`
 for the release. The pull request is merged through the API, told the head
 commit, and the merge is read back as on the lab forges: `main` at it and
 `development` still at the change, through the API, then, in the working
@@ -1272,7 +1272,7 @@ dispatched on `main` and snapshots `development`. The receipts are the
 snapshot-images workflow's own `snapshot-images` artifact. The settings are
 the lifecycle's `CI_JOB_IMAGE` and `CI_IMAGE_BUILDER` (with
 `CI_IMAGE_BUILDER_JOB_IMAGE` under kaniko), and none of the release's. The
-harness pins its workflow as the demo's `.forgejo/workflows/release.yml` pins
+harness pins its workflow as the demo's `.forgejo/workflows/release-workflow.yml` pins
 the layer, so a demo without one has no Forgejo route. Each producer family
 builds in the case's image of that family where it names one, as
 `CI_JOB_IMAGE_NODE`, and in `CI_JOB_IMAGE` otherwise, given the workflow as
@@ -1502,7 +1502,7 @@ judges the package beside the other two wherever the consumer publishes one,
 by asking the forge's own registry API: the version must be absent before
 the release is requested and listed after it.
 
-- **Forgejo.** The layer has no package job, so the demo's `release.yml`
+- **Forgejo.** The layer has no package job, so the demo's `release-workflow.yml`
   ends in one that runs `forge-ci publish forge-packages deploy`. A release
   workflow with that command is held to every npm package its declaration
   sends to `forge-packages`, in the release trial and the lifecycle alike.
@@ -1556,7 +1556,7 @@ files, each with its Build SBOM, an image of each in one image repository,
 told apart by tag suffix, and the package in the forge's registry. The rows
 are ordinary release rows of the `private` lane, with kaniko.
 
-- **Forgejo.** The demo's `release.yml` is the monorepo example's: a build
+- **Forgejo.** The demo's `release-workflow.yml` is the monorepo example's: a build
   job for each project and one job that joins their files into the hand-off
   and their build outputs into the image context. The version bumps, the
   builds and the package job run in a Maven and a Node image the workflow
@@ -2017,8 +2017,8 @@ report on this one.
   |---|---|
   | `<VARIABLE>=<value>` | A repository variable, name in capitals. `@layer-commit` and `@request-commit` as the value stand for the commit of the layer under test and for the commit a release requests, which no caller can know beforehand. |
   | `token=<SECRET>` | A repository secret that receives the lab account's token, for a token the consumer reads outside a call of the layer. |
-  | `workflow=<file>` | The workflow to judge. `pullrequest.yml` or `release.yml` when left out. |
-  | `pull-request-workflow=<file>` | Release only: the workflow a demo's pull request is judged by. `pullrequest.yml` when left out. |
+  | `workflow=<file>` | The workflow to judge. `pullrequest-workflow.yml` or `release-workflow.yml` when left out. |
+  | `pull-request-workflow=<file>` | Release only: the workflow a demo's pull request is judged by. `pullrequest-workflow.yml` when left out. |
   | `version=<X.Y.Z>` | The version a release requests. `0.0.1` when left out, and `0.1.0` on GitHub, which is the version the demos declare: a GitHub release or lifecycle of a demo that bumps proves the version bump only with another version, such as `version=0.2.0`. A consumer whose release does not bump must already declare it, so a demo that declares `0.1.0` asks for `version=0.1.0`. |
   | `next-version=<X.Y.Z>` | Release only: request a greater second version in the same repository with the same signing authority. Cannot accompany `interrupt-after`. |
   | `image=<registry>/<repository>[:<tag>]` | Release only: an image on an external registry that must verify against the trial's Cosign key after the release: the repository's `v<version>` tag, or the tag written, such as a flavour's `v0.0.1-go`. Needs the external registry's token below. |
@@ -2342,7 +2342,7 @@ GitHub client only while the forge still gives its name the listed ID. On
 Forgejo the layer binary package the demos share goes with the last demo; on
 GitHub a demo's container packages outlive it and `demo-delete` says so.
 
-On Forgejo and GitHub the pull request needs the consumer's `pullrequest.yml`,
+On Forgejo and GitHub the pull request needs the consumer's `pullrequest-workflow.yml`,
 or the workflow `pull-request-workflow=<file>` names; on Forgejo it is judged
 with the same repository variables as the release; on GitLab the merge
 request runs the consumer's `.gitlab/merge-request.yml`, which the policy
@@ -2519,7 +2519,7 @@ runners in its runtime images. Every platform builds natively on GitHub's runner
 of that architecture (`ubuntu-26.04` or `ubuntu-26.04-arm`). When the trial
 ends, the engine repository is set back to `linux/amd64`.
 
-`dev-release` dispatches `release-dev.yml` (or `workflow=<file>`) once on `main`,
+`dev-release` dispatches `release-snapshot-workflow.yml` (or `workflow=<file>`) once on `main`,
 without creating stable-release signing secrets. Its workflow must succeed and
 produce downloadable artifacts. The trial downloads each artifact without
 forwarding its API credential to the signed download URL, checks available
@@ -2528,7 +2528,7 @@ artifact, and requires unchanged `main`, no tags and no releases. This proves
 artifact transport, not application-specific versions, package installation or
 container publication, except where the fixture snapshots the service
 snapshot's declaration (`.forge-ci/service-development.yml`), as the service
-demos' `release-dev.yml` does: the trial then stages that declaration and
+demos' `release-snapshot-workflow.yml` does: the trial then stages that declaration and
 judges the run by the snapshot oracle every forge shares
 (`livetest.RequireSnapshotImages`), which also holds the manifest at each
 published digest to an index of its planned platforms and no other child.
@@ -2536,8 +2536,8 @@ published digest to an index of its planned platforms and no other child.
 stable-release-only settings.
 
 `lifecycle` runs the three fixtures in one disposable repository: a pull
-request from `development` judged by `pullrequest.yml`, its native merge
-through the API, `release-dev.yml` dispatched on the merged `main` with
+request from `development` judged by `pullrequest-workflow.yml`, its native merge
+through the API, `release-snapshot-workflow.yml` dispatched on the merged `main` with
 `source-branch: development`, judged as a snapshotting `dev-release` is, and
 a signed
 release request at the merged `main`, judged as `release` is, with the
@@ -2636,7 +2636,7 @@ What it does, in order:
    examples' all-zero placeholder digest is refused before anything is
    created: pass `nanolinter-image=` with an image GitHub's runners can pull.
 3. **The verdict.** A pull request: a change branch and a pull request, and the
-   `pullrequest.yml` run (or `workflow=`) must succeed. The change is the one
+   `pullrequest-workflow.yml` run (or `workflow=`) must succeed. The change is the one
    the local trials make: one added file, a Conventional subject, a sign-off
    and an SSH signature by a key made for it, because the consumer lints the
    commits it reviews. A release: an ephemeral
@@ -2644,7 +2644,7 @@ What it does, in order:
    `RELEASE_GPG_PASSPHRASE` and `RELEASE_GPG_PUBLIC_KEY`; the separate credential
    file supplies `RELEASE_TOKEN` (never the hosted context's management/Packages
    token), and a signed annotated `release-request/vX.Y.Z` tag starts
-   `release.yml`. After it succeeds, `main` must be one signed commit ahead, the
+   `release-workflow.yml`. After it succeeds, `main` must be one signed commit ahead, the
    final tag and a release with assets must exist, and every `*.bundle` asset
    must verify with `cosign verify-blob` against the engine's keyless identity.
    The trial fetches the final tag and `main` and verifies them with `git`: the
@@ -2656,7 +2656,7 @@ What it does, in order:
    subject must have a verified Cosign bundle or a signature by the trial's
    GPG key. Signature
    sidecars (`.bundle`, `.asc`, `.sig`, `.pem`) are not subjects themselves.
-   A fixture whose `release.yml` pins `cosign-public-key-sha256` signs with a
+   A fixture whose `release-workflow.yml` pins `cosign-public-key-sha256` signs with a
    Cosign key instead: the trial makes a passphrase-protected key pair, sets
    `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE` and the
    `COSIGN_PUBLIC_KEY` variable, writes the key's digest into the workflow,

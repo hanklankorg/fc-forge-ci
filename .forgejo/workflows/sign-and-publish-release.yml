@@ -153,7 +153,7 @@ on:
         default: ''
       caller-workflow:
         description: >-
-          Consumer workflow file recorded in SLSA provenance, for example release.yml. Must be a relative path with no `..` step and no control character.
+          Consumer workflow file recorded in SLSA provenance, for example release-workflow.yml. Must be a relative path with no `..` step and no control character.
         type: string
         required: true
       release-draft:

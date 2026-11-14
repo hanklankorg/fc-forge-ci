@@ -67,7 +67,7 @@ func TestConsumerPRWorkflowREUSE(t *testing.T) {
 
 	root := t.TempDir()
 	stageTestWrite(t, root, "LICENSES/CC0-1.0.txt", string(license), 0600)
-	stageTestWrite(t, root, ".forgejo/workflows/pullrequest.yml", workflow, 0600)
+	stageTestWrite(t, root, ".forgejo/workflows/pullrequest-workflow.yml", workflow, 0600)
 
 	output, err := exec.CommandContext(t.Context(), reuse, "--root", root, "lint").CombinedOutput()
 	if err != nil {

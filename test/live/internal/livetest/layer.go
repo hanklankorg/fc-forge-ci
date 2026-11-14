@@ -304,7 +304,7 @@ func (layer Layer) Render(fixture string, facts ...string) (string, error) {
 // formed, and naming no image and no key.
 const unrunDigest = "0000000000000000000000000000000000000000000000000000000000000000"
 
-// RenderReleaseExample fills examples/go-cli/forgejo/release.yml as a consumer of
+// RenderReleaseExample fills examples/go-cli/forgejo/release-workflow.yml as a consumer of
 // the served layer would, for a scenario that has the isolation gate read it.
 //
 // The scenario uses the example itself and no copy, so the gate is held to

@@ -98,13 +98,13 @@ var runSetExceptions = []struct {
 	{"hello-base-images", TrialRelease, []string{SetMedium, SetFull}, []string{matrixGitHub},
 		"missing: a hosted GitHub release fixture of the demo (test/live/github/workflows)"},
 	{"hello-cargo-workspace", TrialDevRelease, []string{SetMedium, SetFull}, []string{matrixGitHub},
-		"missing: the demo's hosted development-build fixture (test/live/github/workflows/release-dev.yml)"},
+		"missing: the demo's hosted development-build fixture (test/live/github/workflows/release-snapshot-workflow.yml)"},
 	{"hello-go-cli", TrialDevRelease, []string{SetMedium, SetFull}, []string{matrixGitHub},
-		"missing: the demo's hosted development-build fixture (test/live/github/workflows/release-dev.yml)"},
+		"missing: the demo's hosted development-build fixture (test/live/github/workflows/release-snapshot-workflow.yml)"},
 	{"hello-monorepo", TrialDevRelease, []string{SetMedium, SetFull}, []string{matrixGitHub},
-		"missing: the demo's hosted development-build fixture (test/live/github/workflows/release-dev.yml)"},
+		"missing: the demo's hosted development-build fixture (test/live/github/workflows/release-snapshot-workflow.yml)"},
 	{"hello-npm-package", TrialDevRelease, []string{SetMedium, SetFull}, []string{matrixGitHub},
-		"missing: the demo's hosted development-build fixture (test/live/github/workflows/release-dev.yml)"},
+		"missing: the demo's hosted development-build fixture (test/live/github/workflows/release-snapshot-workflow.yml)"},
 }
 
 // byName orders pairs by demo, then event.

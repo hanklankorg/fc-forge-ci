@@ -462,7 +462,7 @@ func TestComponentAdminInputsAddOnlyWhatTheComponentDeclares(t *testing.T) {
 // turned on, or no single provider, nothing is read.
 func TestCheckAdminInputsConsumed(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, ".forgejo", "workflows", "release.yml"),
+	writeFile(t, filepath.Join(root, ".forgejo", "workflows", "release-workflow.yml"),
 		"on:\n  workflow_call:\n    inputs:\n      enforce-lint:\n        type: boolean\n")
 
 	lint, builds := adminInputEnvironment(enforcement.Lint), adminInputEnvironment(enforcement.ReproducibleBuilds)

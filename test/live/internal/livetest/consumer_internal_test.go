@@ -165,7 +165,7 @@ func TestParseTrialSettings_RefusesWhatItCannotMean(t *testing.T) {
 	}{
 		"unknown event":                        {event: "push"},
 		"no value":                             {event: TrialRelease, words: []string{"CI_JOB_IMAGE="}},
-		"no key":                               {event: TrialRelease, words: []string{"pullrequest.yml"}},
+		"no key":                               {event: TrialRelease, words: []string{"pullrequest-workflow.yml"}},
 		"lowercase variable":                   {event: TrialRelease, words: []string{"ci_job_image=x"}},
 		"workflow outside directory":           {event: TrialRelease, words: []string{"workflow=../release.yml"}},
 		"workflow not YAML":                    {event: TrialRelease, words: []string{"workflow=release.sh"}},
@@ -192,12 +192,12 @@ func TestParseTrialSettings_RefusesWhatItCannotMean(t *testing.T) {
 		"second version goes backwards":        {event: TrialRelease, words: []string{"version=1.2.3", "next-version=1.2.2"}},
 		"second version named twice":           {event: TrialRelease, words: []string{"next-version=1.2.3", "next-version=1.2.4"}},
 		"second version with interruption":     {event: TrialRelease, words: []string{"next-version=1.2.3", "interrupt-after=Build"}},
-		"workflow of a lifecycle":              {event: TrialLifecycle, words: []string{"CI_JOB_IMAGE=" + snapshotJobImage, "workflow=release.yml"}},
+		"workflow of a lifecycle":              {event: TrialLifecycle, words: []string{"CI_JOB_IMAGE=" + snapshotJobImage, "workflow=release-workflow.yml"}},
 		"second version of a lifecycle":        {event: TrialLifecycle, words: []string{"CI_JOB_IMAGE=" + snapshotJobImage, "next-version=1.2.3"}},
 		"interrupt of a lifecycle":             {event: TrialLifecycle, words: []string{"CI_JOB_IMAGE=" + snapshotJobImage, "interrupt-after=Build"}},
 		"lifecycle without a job image":        {event: TrialLifecycle},
 		"snapshot without a job image":         {event: TrialSnapshot},
-		"workflow of a snapshot":               {event: TrialSnapshot, words: []string{"CI_JOB_IMAGE=" + snapshotJobImage, "workflow=release.yml"}},
+		"workflow of a snapshot":               {event: TrialSnapshot, words: []string{"CI_JOB_IMAGE=" + snapshotJobImage, "workflow=release-workflow.yml"}},
 		"version of a snapshot":                {event: TrialSnapshot, words: []string{"CI_JOB_IMAGE=" + snapshotJobImage, "version=1.2.3"}},
 		"lifecycle with a floating image":      {event: TrialLifecycle, words: []string{"CI_JOB_IMAGE=registry.invalid/java:latest"}},
 		"lifecycle kaniko without a job image": {event: TrialLifecycle, words: []string{"CI_JOB_IMAGE=" + snapshotJobImage, "CI_IMAGE_BUILDER=kaniko"}},
@@ -218,8 +218,8 @@ func TestReadConsumerPin_ReadsWholeConsumers(t *testing.T) {
 	)
 
 	pin, err := ReadConsumerPin(map[string]string{
-		"pullrequest.yml": consumerWorkflow(t, "hello-cli-pullrequest.yml"),
-		"release.yml":     consumerWorkflow(t, "hello-cli-release.yml"),
+		"pullrequest-workflow.yml": consumerWorkflow(t, "hello-cli-pullrequest.yml"),
+		"release-workflow.yml":     consumerWorkflow(t, "hello-cli-release.yml"),
 	})
 	if want := (ConsumerPin{Actions: actions, Workflows: workflows, Commit: consumerPinned}); err != nil || pin != want {
 		t.Errorf("the Go CLI's pin = %+v, %v; want %+v", pin, err, want)
@@ -227,7 +227,7 @@ func TestReadConsumerPin_ReadsWholeConsumers(t *testing.T) {
 
 	// The binary-pinning consumer passes the digest as a literal, and calls no
 	// workflow of the layer from its pull request.
-	pin, err = ReadConsumerPin(map[string]string{"pullrequest.yml": consumerWorkflow(t, "binary-pin-pullrequest.yml")})
+	pin, err = ReadConsumerPin(map[string]string{"pullrequest-workflow.yml": consumerWorkflow(t, "binary-pin-pullrequest.yml")})
 	if want := (ConsumerPin{Actions: actions, Commit: consumerPinned, BinarySHA256: consumerPinnedBinary}); err != nil || pin != want {
 		t.Errorf("the binary-pinning consumer's pin = %+v, %v; want %+v", pin, err, want)
 	}
@@ -327,7 +327,7 @@ func TestPlanConsumer_RendersAWholeRelease(t *testing.T) {
 	source := consumerWorkflow(t, "hello-cli-release.yml")
 
 	plan, err := layer.PlanConsumer(map[string]string{
-		"pullrequest.yml": consumerWorkflow(t, "hello-cli-pullrequest.yml"), "release.yml": source,
+		"pullrequest-workflow.yml": consumerWorkflow(t, "hello-cli-pullrequest.yml"), "release-workflow.yml": source,
 	}, releaseFacts())
 	if err != nil {
 		t.Fatal(err)
@@ -411,7 +411,7 @@ func TestPlanConsumer_APullRequestLeavesTheReleaseTrustAlone(t *testing.T) {
 	layer := sampleLayer()
 	release := consumerWorkflow(t, "hello-cli-release.yml")
 
-	plan, err := layer.PlanConsumer(map[string]string{"pullrequest.yml": consumerWorkflow(t, "hello-cli-pullrequest.yml"), "release.yml": release},
+	plan, err := layer.PlanConsumer(map[string]string{"pullrequest-workflow.yml": consumerWorkflow(t, "hello-cli-pullrequest.yml"), "release-workflow.yml": release},
 		ConsumerFacts{Inputs: map[string]string{"forge-ci-repository": layer.Repository}})
 	if err != nil {
 		t.Fatal(err)
@@ -432,7 +432,7 @@ func TestPlanConsumer_ReplacesTheBinaryDigestWhereverItStands(t *testing.T) {
 	layer := sampleLayer()
 	source := consumerWorkflow(t, "binary-pin-pullrequest.yml")
 
-	plan, err := layer.PlanConsumer(map[string]string{"pullrequest.yml": source}, ConsumerFacts{})
+	plan, err := layer.PlanConsumer(map[string]string{"pullrequest-workflow.yml": source}, ConsumerFacts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +458,7 @@ func TestPlanConsumer_TakesEachFactTheWayTheConsumerPassesIt(t *testing.T) {
 	}}
 
 	// A quoted literal, an input left empty, and an expression a formatter folded.
-	plan, err := layer.PlanConsumer(map[string]string{"release.yml": call +
+	plan, err := layer.PlanConsumer(map[string]string{"release-workflow.yml": call +
 		"      signer-image: 'forge.example/owner/signer@sha256:1'\n" +
 		"      forge-ci-repository: ''\n" +
 		"      release-git-url: \"ssh://git@forge.example/owner/repository.git\"\n" +
@@ -482,7 +482,7 @@ func TestPlanConsumer_TakesEachFactTheWayTheConsumerPassesIt(t *testing.T) {
 		"a variable with a fallback":        "      signer-image: ${{ vars.SIGNER || 'forge.example/owner/signer@sha256:1' }}\n",
 		"one variable for two facts":        "      signer-image: ${{ vars.ONE }}\n      release-git-url: ${{ vars.ONE }}\n",
 	} {
-		if refused, err := layer.PlanConsumer(map[string]string{"release.yml": call + with}, facts); !errors.Is(err, errs.ErrValidation) {
+		if refused, err := layer.PlanConsumer(map[string]string{"release-workflow.yml": call + with}, facts); !errors.Is(err, errs.ErrValidation) {
 			t.Errorf("%s: PlanConsumer = %+v, %v; want a validation refusal", name, refused, err)
 		}
 	}
@@ -578,7 +578,7 @@ func TestPlanConsumer_RepositoryDefaultsRefuseUnsubstitutableExpressions(t *test
 		"${{ format('{0}/app', vars.REGISTRY) }}",
 	} {
 		for _, input := range []string{"base-repository", "image-repository"} {
-			if _, err := sampleLayer().PlanConsumer(map[string]string{"release.yml": call + "      " + input + ": " + expression + "\n"}, facts); !errors.Is(err, errs.ErrValidation) {
+			if _, err := sampleLayer().PlanConsumer(map[string]string{"release-workflow.yml": call + "      " + input + ": " + expression + "\n"}, facts); !errors.Is(err, errs.ErrValidation) {
 				t.Errorf("admitted %s: %s: %v", input, expression, err)
 			}
 		}
@@ -586,7 +586,7 @@ func TestPlanConsumer_RepositoryDefaultsRefuseUnsubstitutableExpressions(t *test
 	// A repository default must not make fallback signer/key expressions legal.
 	for _, input := range []string{"signer-image", "cosign-public-key"} {
 		facts.Inputs[input] = "lab-value"
-		if _, err := sampleLayer().PlanConsumer(map[string]string{"release.yml": call + "      " + input + ": ${{ vars.TRUST || 'ghcr.io/owner/app' }}\n"}, facts); !errors.Is(err, errs.ErrValidation) {
+		if _, err := sampleLayer().PlanConsumer(map[string]string{"release-workflow.yml": call + "      " + input + ": ${{ vars.TRUST || 'ghcr.io/owner/app' }}\n"}, facts); !errors.Is(err, errs.ErrValidation) {
 			t.Fatalf("admitted defaulted trust input %s", input)
 		}
 	}
@@ -641,7 +641,7 @@ func TestGenericGoConsumerPreservesApplicationAndOriginalSource(t *testing.T) {
 		".gitlab/generic-cli-kind":        "go\n",
 		".gitlab/generic-cli-source.json": "{\"commit\":\"" + consumerPinned + "\"}\n",
 		"application_test.go":             "package app\nconst pin = \"" + consumerPinned + "\"\n",
-		".gitlab/generic-cli-original-source/.forgejo/workflows/release.yml": consumerPinned + "\n",
+		".gitlab/generic-cli-original-source/.forgejo/workflows/release-workflow.yml": consumerPinned + "\n",
 	} {
 		writeLayerFile(t, root, path, content)
 	}

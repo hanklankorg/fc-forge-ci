@@ -14,7 +14,7 @@ import (
 // Keep the provenance alongside every copied file, including configurations
 // whose inline headers currently duplicate it. No consumer REUSE policy changes.
 var mavenConsumerRecipeFiles = []string{
-	".forgejo/workflows/pullrequest.yml",
+	".forgejo/workflows/pullrequest-workflow.yml",
 	forgejoReleaseWorkflow,
 	chglogKeepAChangelogConfig,
 	chglogMinimalConfig,

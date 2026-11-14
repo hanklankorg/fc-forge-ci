@@ -6037,7 +6037,7 @@ enum:VALUE/VALUE (one of the listed values, for example enum:none/public). A
 job that does not pass the input is left to the called workflow.
 
 EXAMPLE:
-   forge-ci validate isolation --workflow .github/workflows/release.yml \
+   forge-ci validate isolation --workflow .github/workflows/release-workflow.yml \
      --build-job build --signing-secret RELEASE_GPG_PRIVATE_KEY --signing-secret COSIGN_PRIVATE_KEY
 ```
 
@@ -6067,7 +6067,7 @@ output, or annotate the consumer with '# job-graph-guard: allow reason=...'.
 
 EXAMPLE:
    forge-ci validate job-graph --root .
-   forge-ci validate job-graph --workflow .forgejo/workflows/release.yml
+   forge-ci validate job-graph --workflow .forgejo/workflows/release-workflow.yml
 ```
 
 | Flag | Description | Type | Default | Env vars |
@@ -6102,7 +6102,7 @@ commit pointed to by any tag. This catches history-rewrite/orphaned-pin failures
 before object GC turns them into confusing runtime failures.
 
 EXAMPLE:
-   forge-ci validate pin-reachability --workflow .forgejo/workflows/release.yml
+   forge-ci validate pin-reachability --workflow .forgejo/workflows/release-workflow.yml
 ```
 
 | Flag | Description | Type | Default | Env vars |

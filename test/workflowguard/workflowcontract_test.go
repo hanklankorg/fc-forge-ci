@@ -627,11 +627,8 @@ func githubReleaseCallers(t *testing.T, root string) []string {
 			githubDirs = append(githubDirs, path)
 		}
 
-		if !entry.IsDir() && entry.Name() == "release-workflow.yml" {
-			if filepath.Base(filepath.Dir(path)) != "github" {
-				t.Errorf("%s is a GitHub release caller outside a github/ directory", path)
-			}
-
+		// The Forgejo release workflow has the same file name in forgejo/.
+		if !entry.IsDir() && entry.Name() == "release-workflow.yml" && filepath.Base(filepath.Dir(path)) == "github" {
 			examples = append(examples, path)
 		}
 
@@ -642,7 +639,7 @@ func githubReleaseCallers(t *testing.T, root string) []string {
 	}
 
 	if len(examples) == 0 {
-		t.Fatal("no examples/**/release-workflow.yml found; the ceremony check would pass vacuously")
+		t.Fatal("no examples/**/github/release-workflow.yml found; the ceremony check would pass vacuously")
 	}
 
 	for _, dir := range githubDirs {

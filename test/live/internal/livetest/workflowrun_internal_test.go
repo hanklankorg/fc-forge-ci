@@ -139,7 +139,7 @@ func TestSelectRun_JudgesOnlyTheRunTheAwaitedEventStarted(t *testing.T) {
 	}
 
 	const (
-		file        = "pullrequest.yml"
+		file        = "pullrequest-workflow.yml"
 		pullRequest = "pull_request"
 	)
 
@@ -152,7 +152,7 @@ func TestSelectRun_JudgesOnlyTheRunTheAwaitedEventStarted(t *testing.T) {
 	}{
 		"none yet":                         {event: pullRequest},
 		"the awaited run":                  {runs: []WorkflowRun{run(3, file, pullRequest, pullRequest)}, event: pullRequest, wantID: 3},
-		"another workflow's run is unseen": {runs: []WorkflowRun{run(4, "release.yml", "schedule", "schedule")}, event: pullRequest},
+		"another workflow's run is unseen": {runs: []WorkflowRun{run(4, "release-workflow.yml", "schedule", "schedule")}, event: pullRequest},
 		"a push run beside it is passed over": {
 			runs:  []WorkflowRun{run(5, file, eventPush, eventPush), run(6, file, pullRequest, pullRequest)},
 			event: pullRequest, wantID: 6,

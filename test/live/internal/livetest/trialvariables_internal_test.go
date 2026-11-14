@@ -25,7 +25,7 @@ func TestTrialVariablesPreserveLiteralValuesAndRejectAmbiguity(t *testing.T) {
 		t.Fatalf("variables = %v, %v", got, err)
 	}
 
-	for _, input := range []string{"A=one\nA=two", "workflow=release.yml", "token=NAME", "NOT_AN_ASSIGNMENT", "9NAME=value"} {
+	for _, input := range []string{"A=one\nA=two", "workflow=release-workflow.yml", "token=NAME", "NOT_AN_ASSIGNMENT", "9NAME=value"} {
 		if _, err := ParseTrialVariables(input); err == nil {
 			t.Fatalf("accepted invalid variables %q", input)
 		}

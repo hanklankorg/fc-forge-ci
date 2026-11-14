@@ -16,11 +16,11 @@ publish stage.
   the include that policy project holds to keep a branch's binaries as
   unsigned job artifacts for 7 days
   ([snapshot files](../../docs/workflows.md#snapshot-files)).
-- **Forgejo**: [`forgejo/pullrequest.yml`](forgejo/pullrequest.yml) and
-  [`forgejo/release.yml`](forgejo/release.yml), a `build-go` binary release
+- **Forgejo**: [`forgejo/pullrequest-workflow.yml`](forgejo/pullrequest-workflow.yml) and
+  [`forgejo/release-workflow.yml`](forgejo/release-workflow.yml), a `build-go` binary release
   between the layer's prepare and signer workflows. See the
   [Forgejo guide](../../docs/forgejo.md#getting-started).
-  [`forgejo/snapshot.yml`](forgejo/snapshot.yml) builds and tests every
+  [`forgejo/release-snapshot-workflow.yml`](forgejo/release-snapshot-workflow.yml) builds and tests every
   pushed branch except `main`, without signing or publishing anything.
   [`forgejo/snapshot-files.yml`](forgejo/snapshot-files.yml), run by hand on
   a branch, also keeps its binaries as an unsigned run artifact for 7 days
@@ -31,7 +31,7 @@ owner's package registries:
 [`artifacts-forgejo-packages.yml`](artifacts-forgejo-packages.yml) declares
 it, [`.goreleaser.yml`](.goreleaser.yml) builds the packages with `nfpms`, and
 [`forgejo/release-goreleaser.yml`](forgejo/release-goreleaser.yml), copied as
-`release.yml`, signs each with the release's OpenPGP key. That workflow
+`release-workflow.yml`, signs each with the release's OpenPGP key. That workflow
 installs `go`, GoReleaser and syft from the project's own mise config and
 `mise.lock`. See
 [Distro packages in the owner's registries](../../docs/forgejo.md#distro-packages-in-the-owners-registries).

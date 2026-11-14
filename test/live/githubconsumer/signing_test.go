@@ -23,13 +23,13 @@ func TestReleaseSigningAndroidNonRelease(t *testing.T) {
 	root := filepath.Join(reporoot.Path(t), "test/live/fixtures/consumers/hello-android/consumer")
 
 	fixtures := "test/live/github"
-	if _, err := os.Stat(filepath.Join(root, fixtures, "workflows/release.yml")); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(root, fixtures, "workflows/release-workflow.yml")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("Android regression requires the real PR/build-only fixture: %v", err)
 	}
 
 	for _, event := range []string{livetest.TrialPullRequest, livetest.TrialDevRelease} {
 		t.Run(event, func(t *testing.T) {
-			settings, err := livetest.ParseGitHubTrialSettings(event, []string{"workflow=pullrequest.yml"})
+			settings, err := livetest.ParseGitHubTrialSettings(event, []string{"workflow=pullrequest-workflow.yml"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -84,7 +84,7 @@ func TestReleaseSigningSelectedWorkflow(t *testing.T) {
 			}
 
 			// A contradictory conventional filename must not override the selector.
-			if err := os.WriteFile(filepath.Join(workflows, "release.yml"), signingWorkflow(t, "*", true, false), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(workflows, "release-workflow.yml"), signingWorkflow(t, "*", true, false), 0o600); err != nil {
 				t.Fatal(err)
 			}
 
@@ -141,7 +141,7 @@ func signingWorkflow(t *testing.T, email any, ssh, key bool) []byte {
 
 func TestReleaseSigningReadErrorsRemainFatal(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "fixtures/workflows/release.yml"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "fixtures/workflows/release-workflow.yml"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -310,7 +310,7 @@ func TestReleaseSigningAliases(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := os.WriteFile(filepath.Join(workflows, "release.yml"), []byte(tc.body), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(workflows, "release-workflow.yml"), []byte(tc.body), 0o600); err != nil {
 				t.Fatal(err)
 			}
 

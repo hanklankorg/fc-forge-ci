@@ -25,10 +25,10 @@ const lifecycleBranch = "development"
 // consumer calls:
 //
 //  1. a pull request from development into main, judged by the consumer's
-//     own pullrequest.yml;
+//     own pullrequest-workflow.yml;
 //  2. its native merge through the API, told the head commit, with a merge
 //     commit of the base and the change;
-//  3. the development snapshot: release-dev.yml, the consumer's call of the
+//  3. the development snapshot: release-snapshot-workflow.yml, the consumer's call of the
 //     snapshot orchestrator over the service snapshot's declaration the
 //     trial staged (livetest.ServiceSnapshotOverlay), dispatched on the
 //     merged main and told to snapshot development; its run must succeed,

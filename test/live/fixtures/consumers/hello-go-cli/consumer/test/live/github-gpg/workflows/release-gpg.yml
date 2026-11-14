@@ -3,7 +3,7 @@
 
 # Separate native GPG artifact profile. The ordinary trial supplies its
 # disposable key; release-create-github signs real product files as .asc.
-# This case does not claim offered-bundle coverage: use release.yml for that.
+# This case does not claim offered-bundle coverage: use release-workflow.yml for that.
 name: Native GPG release
 on:
   push:

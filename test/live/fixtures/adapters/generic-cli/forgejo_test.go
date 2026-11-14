@@ -26,7 +26,7 @@ func TestForgejoNativeGraphAndSDKPin(t *testing.T) {
 	text = strings.ReplaceAll(text, "BUMP_IMAGE", "${{ vars.CI_JOB_IMAGE }}")
 
 	text = strings.ReplaceAll(text, "IS_GO", "false")
-	if _, err := livetest.ReadConsumerPin(map[string]string{"release.yml": text}); err != nil {
+	if _, err := livetest.ReadConsumerPin(map[string]string{"release-workflow.yml": text}); err != nil {
 		t.Fatal(err)
 	}
 

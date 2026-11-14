@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
 # SPDX-License-Identifier: CC0-1.0
-# Alternative to release.yml: copy this file AS .forgejo/workflows/release.yml.
-# Use pullrequest.yml beside it unchanged. Replace the same reviewed pin, signer
+# Alternative to release-workflow.yml: copy this file AS .forgejo/workflows/release-workflow.yml.
+# Use pullrequest-workflow.yml beside it unchanged. Replace the same reviewed pin, signer
 # and key placeholders as the ordinary Go CLI example, after publication.
 # The product owns .goreleaser.yml and its locked mise tools: go, GoReleaser and
 # syft in the mise config, with a committed mise.lock. Keep any generation hooks
@@ -96,7 +96,7 @@ jobs:
       dist-digest: ${{ needs.build.outputs.dist-digest }}
       artifact-name: build-dist
       artifact-path: dist/
-      caller-workflow: release.yml
+      caller-workflow: release-workflow.yml
       forge-ci-repository: OWNER/forge-ci
       forge-ci-sha: PIN_FORGE_CI_SHA
       signer-image: FORGE_HOST/OWNER/forge-ci-signer@sha256:PIN_SIGNER_IMAGE_DIGEST

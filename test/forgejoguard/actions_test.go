@@ -370,7 +370,7 @@ func TestGoReleaserExampleBuildsSignsAndDeclaresDistroPackages(t *testing.T) {
 func TestServiceReleaseFanInUsesTheExistingAssembler(t *testing.T) {
 	t.Parallel()
 
-	workflow := loadWorkflow(t, "examples/go-service/forgejo/release.yml")
+	workflow := loadWorkflow(t, "examples/go-service/forgejo/release-workflow.yml")
 	handoff := workflow.jobs["handoff"]
 	steps := handoff.steps()
 

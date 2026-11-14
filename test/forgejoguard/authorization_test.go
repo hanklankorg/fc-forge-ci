@@ -103,13 +103,13 @@ func TestForgejoAuthorizationWorkflowSelection(t *testing.T) {
 		path string
 		want bool
 	}{
-		{".forgejo/workflows/release.yml", true},
+		{".forgejo/workflows/release-workflow.yml", true},
 		{"examples/forgejo/signer-image.yaml", true},
-		{"examples/new-kit/forgejo/snapshot.yml", true},
-		{"test/live/fixtures/consumers/app/consumer/.forgejo/workflows/release.yml", true},
+		{"examples/new-kit/forgejo/release-snapshot-workflow.yml", true},
+		{"test/live/fixtures/consumers/app/consumer/.forgejo/workflows/release-workflow.yml", true},
 		{".github/workflows/release.yml", false},
 		{"examples/new-kit/github/release.yml", false},
-		{"test/live/fixtures/consumers/app/consumer/test/live/github/workflows/release.yml", false},
+		{"test/live/fixtures/consumers/app/consumer/test/live/github/workflows/release-workflow.yml", false},
 		{".forgejo/actions/build/action.yml", false},
 		{"examples/new-kit/forgejo/README.md", false},
 	} {

@@ -113,7 +113,7 @@ func serviceDevelopmentFixture(ctx context.Context, source Consumer, config Serv
 		}
 	}
 
-	body, err := os.ReadFile(filepath.Join(config.RecipeDirectory, ".forgejo/workflows/release.yml"))
+	body, err := os.ReadFile(filepath.Join(config.RecipeDirectory, ".forgejo/workflows/release-workflow.yml"))
 	if err != nil {
 		return source, err
 	}

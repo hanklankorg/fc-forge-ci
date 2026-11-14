@@ -26,7 +26,7 @@ func TestValidateDevelopmentPush(t *testing.T) {
 		{name: "empty event", change: func(r *WorkflowRun) { r.Event = "" }, want: `development push event = "", want push`},
 		{name: "dispatch trigger", change: func(r *WorkflowRun) { r.TriggerEvent = "workflow_dispatch" }, want: `development push trigger event = "workflow_dispatch", want push`},
 		{name: "empty trigger", change: func(r *WorkflowRun) { r.TriggerEvent = "" }, want: `development push trigger event = "", want push`},
-		{name: "wrong workflow", change: func(r *WorkflowRun) { r.WorkflowID = "release.yml" }, want: `development push workflow = "release.yml", want "development.yml"`},
+		{name: "wrong workflow", change: func(r *WorkflowRun) { r.WorkflowID = "release-workflow.yml" }, want: `development push workflow = "release-workflow.yml", want "development.yml"`},
 		{name: "empty workflow", change: func(r *WorkflowRun) { r.WorkflowID = "" }, want: `development push workflow = "", want "development.yml"`},
 		{name: "no runs", runs: []WorkflowRun{}, want: "development push run count = 0, want one"},
 		{name: "two runs", runs: []WorkflowRun{{ID: 42}, {ID: 43}}, want: "development push run count = 2, want one"},

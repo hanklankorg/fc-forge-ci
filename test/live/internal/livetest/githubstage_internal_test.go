@@ -154,7 +154,7 @@ func TestGitHubStagePreservesBlobsModesAndExportAttributes(t *testing.T) {
 func TestGitHubStageConsumerUsesObjectSnapshot(t *testing.T) {
 	for _, history := range []bool{false, true} {
 		root, git := stageTestRepo(t, "sha1")
-		stageTestWrite(t, root, "fixtures/workflows/pullrequest.yml", fixturePullRequest, 0644)
+		stageTestWrite(t, root, "fixtures/workflows/pullrequest-workflow.yml", fixturePullRequest, 0644)
 		stageTestWrite(t, root, ".gitattributes", "keep export-ignore\n", 0644)
 		stageTestWrite(t, root, "keep", "retained", 0755)
 		stageTestCommit(t, git, root)

@@ -639,7 +639,7 @@ func requireDemoReady(t *testing.T, settings livetest.TrialSettings, workflows m
 
 // demoPullRequestWorkflow is the workflow a lifecycle's pull request is
 // judged by.
-const demoPullRequestWorkflow = "pullrequest.yml"
+const demoPullRequestWorkflow = "pullrequest-workflow.yml"
 
 // runDemoPullRequest opens a demo's pull request into the main its release
 // left, and requires the consumer's own pull-request workflow to pass on it.

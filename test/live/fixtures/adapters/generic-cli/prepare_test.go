@@ -219,12 +219,12 @@ func TestPrepareMaterializesPrivateSnapshot(t *testing.T) {
 				}
 
 				for path := range strings.SplitSeq(run("", "-C", native, "diff-tree", "--no-commit-id", "--name-only", "-r", commit, "HEAD"), "\n") {
-					if !strings.HasPrefix(path, ".gitlab/") && !strings.HasPrefix(path, ".chglog/") && path != ".forgejo/workflows/release.yml" {
+					if !strings.HasPrefix(path, ".gitlab/") && !strings.HasPrefix(path, ".chglog/") && path != ".forgejo/workflows/release-workflow.yml" {
 						t.Fatalf("native overlay escaped CI scope: %s", path)
 					}
 				}
 
-				workflow, err := os.ReadFile(filepath.Join(native, ".forgejo/workflows/release.yml"))
+				workflow, err := os.ReadFile(filepath.Join(native, ".forgejo/workflows/release-workflow.yml"))
 				if err != nil {
 					t.Fatal(err)
 				}

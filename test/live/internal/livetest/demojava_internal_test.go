@@ -30,7 +30,7 @@ func TestGradleExamplePRMatchesJavaToolchain(t *testing.T) {
 
 	for _, file := range []string{
 		"examples/gradle-app/github/pullrequest-workflow.yml",
-		consumer + "test/live/github/workflows/pullrequest.yml",
+		consumer + "test/live/github/workflows/pullrequest-workflow.yml",
 	} {
 		t.Run(file, func(t *testing.T) {
 			t.Parallel()

@@ -68,7 +68,7 @@ func Plan(forge provider.ForgeAPI, example string, forgeEntries []string) []File
 		plan = append(plan, FileCopy{From: path.Join(dir, "gitlab", ".gitlab-ci.yml"), To: ".gitlab-ci.yml"})
 		plan = append(plan, changelogCopies()...)
 	case provider.ForgeForgejo:
-		// The directory also holds optional variants (snapshot.yml, an
+		// The directory also holds optional variants (release-snapshot-workflow.yml, an
 		// alternative release-goreleaser.yml) and files the README asks to
 		// copy elsewhere. Init writes only the workflows it owns: two release
 		// workflows would both run on one release-request tag.
@@ -86,7 +86,7 @@ func Plan(forge provider.ForgeAPI, example string, forgeEntries []string) []File
 }
 
 // forgejoWorkflows are the Forgejo workflows init writes.
-var forgejoWorkflows = []string{"pullrequest.yml", "release.yml"}
+var forgejoWorkflows = []string{"pullrequest-workflow.yml", "release-workflow.yml"}
 
 // OptionalWorkflows lists the workflows of an example's forge directory that
 // init does not write, for the report to name: a person copies one by hand

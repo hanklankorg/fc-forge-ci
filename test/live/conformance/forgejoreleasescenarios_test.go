@@ -120,7 +120,7 @@ func TestForgejoRelease_RerunAfterInterruption(t *testing.T) {
 }
 
 // requireForgejoReleaseCase refuses the settings a scenario's own end cannot
-// be judged with: it requests one release of release.yml, the workflow its
+// be judged with: it requests one release of release-workflow.yml, the workflow its
 // fixture is staged in, publishes only to the lab, and keeps nothing.
 func requireForgejoReleaseCase(t *testing.T, releaseCase forgejoReleaseCase, settings livetest.TrialSettings) {
 	t.Helper()
@@ -131,9 +131,9 @@ func requireForgejoReleaseCase(t *testing.T, releaseCase forgejoReleaseCase, set
 
 	_, held := settings.Variables[livetest.ForgejoRecoveryHoldVariable]
 
-	if settings.Event != livetest.TrialRelease || settings.Workflow != "release.yml" || settings.NextVersion != "" ||
+	if settings.Event != livetest.TrialRelease || settings.Workflow != "release-workflow.yml" || settings.NextVersion != "" ||
 		settings.InterruptAfter != "" || len(settings.Images) != 0 || held || livetest.DemoName() != "" {
-		t.Fatalf("a release scenario requests one release of release.yml on the lab's own registry: no next-version, interrupt-after, image, %s or demo", livetest.ForgejoRecoveryHoldVariable)
+		t.Fatalf("a release scenario requests one release of release-workflow.yml on the lab's own registry: no next-version, interrupt-after, image, %s or demo", livetest.ForgejoRecoveryHoldVariable)
 	}
 }
 

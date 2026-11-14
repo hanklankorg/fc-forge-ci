@@ -199,7 +199,7 @@ func TestRunFromRenamedForgejoForkPreservesFullPins(t *testing.T) {
 				t.Fatalf("source identity changed: %+v", result.Source)
 			}
 
-			for _, name := range []string{"release.yml", "pullrequest.yml"} {
+			for _, name := range []string{"release-workflow.yml", "pullrequest-workflow.yml"} {
 				body, readErr := os.ReadFile(filepath.Join(dir, ".forgejo", "workflows", name))
 				if readErr != nil {
 					t.Fatal(readErr)
@@ -236,7 +236,7 @@ func TestRunWritesWhatTheForgesReleaseReads(t *testing.T) {
 			".forge-ci/artifacts.yml", ".github/workflows/pullrequest-workflow.yml", ".github/workflows/release-workflow.yml",
 		}},
 		provider.ForgeForgejo: {"https://forge.example/fixture/forge-ci", append([]string{
-			".forgejo/workflows/pullrequest.yml", ".forgejo/workflows/release.yml",
+			".forgejo/workflows/pullrequest-workflow.yml", ".forgejo/workflows/release-workflow.yml",
 		}, changelog...)},
 		provider.ForgeGitLab: {"https://gitlab.example/fixture/forge-ci", append([]string{".gitlab-ci.yml"}, changelog...)},
 	}

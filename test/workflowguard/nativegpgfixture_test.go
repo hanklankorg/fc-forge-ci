@@ -73,7 +73,7 @@ func TestNativeGPGFixtureUsesRealGoAndOrdinaryReleaseOwner(t *testing.T) {
 	original := read(".forge-ci/artifacts.yml")
 	require.Equal(t, "sigstore", original["sign"].(map[string]any)["method"])
 
-	originalWorkflow := read("test/live/github/workflows/release.yml")
+	originalWorkflow := read("test/live/github/workflows/release-workflow.yml")
 	originalJob := originalWorkflow["jobs"].(map[string]any)["release"].(map[string]any)
 	require.Equal(t, ".forge-ci/artifacts.yml", originalJob["with"].(map[string]any)["artifacts-config"])
 }

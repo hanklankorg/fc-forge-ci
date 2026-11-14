@@ -64,7 +64,7 @@ func TestMavenApplicationFixturePreservesAdmittedSource(t *testing.T) {
 				t.Fatal("source executable mode changed")
 			}
 
-			workflow, err := git.run(t.Context(), fixture.stage, "show", fixture.Commit+":.forgejo/workflows/release.yml")
+			workflow, err := git.run(t.Context(), fixture.stage, "show", fixture.Commit+":.forgejo/workflows/release-workflow.yml")
 			if err != nil || !strings.Contains(workflow, "build-type: app") || !strings.Contains(workflow, "ARTIFACT_NAME: real-service") || !strings.Contains(workflow, "image: "+image) {
 				t.Fatal("app recipe binding failed")
 			}

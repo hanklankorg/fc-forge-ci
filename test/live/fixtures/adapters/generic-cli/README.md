@@ -6,7 +6,7 @@
 ## Native Forgejo stable transport
 
 Append `forgejo` as the optional fifth prepare argument (default: `gitlab`).
-This stages `.forgejo/workflows/release.yml`, replacing other workflow entries
+This stages `.forgejo/workflows/release-workflow.yml`, replacing other workflow entries
 only in the private index so the SDK sees one coherent engine pin. Existing
 `.gitlab/` scripts/metadata remain the single shared check/producer/identity
 implementation; the Forgejo workflow invokes them directly. No source format

@@ -162,7 +162,8 @@ func checkPlaceholdersFilled(root, artifactsPath string) (Check, bool) {
 }
 
 // releaseOnly reports whether rel is a workflow only a release runs: the
-// examples name those release*.yml (release-workflow.yml, release.yml). Any
+// examples name those release*.yml (release-workflow.yml,
+// release-snapshot-workflow.yml). Any
 // other file, artifacts.yml and GitLab's single .gitlab-ci.yml included, can
 // stop a pull request, so its values fail.
 func releaseOnly(rel string) bool {

@@ -104,17 +104,17 @@ func TestRunTrialSigningBoundaryChild(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	event, workflow, email := livetest.TrialRelease, "release.yml", "release@example.org"
+	event, workflow, email := livetest.TrialRelease, "release-workflow.yml", "release@example.org"
 	if name == "wildcard" {
 		email = "*"
 	}
 
 	if name == "pull-request" {
-		event, workflow, email = name, "pullrequest.yml", "*"
+		event, workflow, email = name, "pullrequest-workflow.yml", "*"
 	}
 
 	if name != "missing" {
-		if err := os.WriteFile(filepath.Join(fixtures, "release.yml"), signingWorkflow(t, email, true, false), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(fixtures, "release-workflow.yml"), signingWorkflow(t, email, true, false), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

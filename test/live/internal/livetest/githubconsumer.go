@@ -326,7 +326,7 @@ const TrialDevRelease = "dev-release"
 // GitHubDevelopmentWorkflow is the fixture workflow a development build
 // dispatches: the consumer's own call of the snapshot orchestrator. A
 // lifecycle's development phase dispatches the same workflow.
-const GitHubDevelopmentWorkflow = "release-dev.yml"
+const GitHubDevelopmentWorkflow = "release-snapshot-workflow.yml"
 
 // githubPlatforms reports whether value is a duplicate-free list of the
 // platforms GitHub's hosted runners build natively.

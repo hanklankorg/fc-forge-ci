@@ -26,7 +26,7 @@ func TestGitHubReleaseProfile_ShippedGoCLIVariants(t *testing.T) {
 		fixtures, workflow string
 		want               githubReleaseProfile
 	}{
-		{"test/live/github", "release.yml", githubReleaseProfile{GitSigning: config.GitSignSSH, Changelog: true, Prepares: true, SBOMBundle: sbomBundleOffered}},
+		{"test/live/github", "release-workflow.yml", githubReleaseProfile{GitSigning: config.GitSignSSH, Changelog: true, Prepares: true, SBOMBundle: sbomBundleOffered}},
 		{"test/live/github-gpg", "release-gpg.yml", githubReleaseProfile{GitSigning: config.GitSignGPG, Changelog: true, Prepares: true, SBOMBundle: sbomBundleOffered}},
 		{"test/live/github-no-sboms", "release-no-sboms.yml", githubReleaseProfile{GitSigning: config.GitSignGPG, Changelog: true, Prepares: true, SBOMBundle: sbomBundleWithheld}},
 		{"test/live/github-no-changelog", "release-no-changelog.yml", githubReleaseProfile{GitSigning: config.GitSignGPG, Prepares: false, SBOMBundle: sbomBundleOffered}},
@@ -61,7 +61,7 @@ func TestGitHubReleaseProfile_AMetaReleaseThatAttachesOffersFiles(t *testing.T) 
 	consumer := filepath.Join(reporoot.Path(t), "test/live/fixtures/consumers/hello-meta/consumer")
 	dir := t.TempDir()
 
-	workflow, err := os.ReadFile(filepath.Join(consumer, "test/live/github/workflows/release.yml"))
+	workflow, err := os.ReadFile(filepath.Join(consumer, "test/live/github/workflows/release-workflow.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,9 +74,9 @@ func TestGitHubReleaseProfile_AMetaReleaseThatAttachesOffersFiles(t *testing.T) 
 	writeProfileFile(t, dir, ".forge-ci/artifacts.yml", string(declaration))
 
 	attached := strings.Replace(string(workflow), "      release.draft: false\n", "      release.draft: false\n      release.attachartifacts: install.sh\n", 1)
-	writeProfileFile(t, dir, ".github/workflows/release.yml", attached)
+	writeProfileFile(t, dir, ".github/workflows/release-workflow.yml", attached)
 
-	if got, err := githubReleaseProfileOf(dir, "release.yml"); err != nil || got.NoFiles {
+	if got, err := githubReleaseProfileOf(dir, "release-workflow.yml"); err != nil || got.NoFiles {
 		t.Fatalf("a meta release that attaches a file: %+v, %v", got, err)
 	}
 }
@@ -88,11 +88,11 @@ func TestGitHubReleaseProfile_AnUnsignedXcodeReleaseOffersNoFiles(t *testing.T) 
 
 	for signing, want := range map[string]bool{"false": true, "true": false} {
 		dir := t.TempDir()
-		writeProfileFile(t, dir, ".github/workflows/release.yml", workflow)
+		writeProfileFile(t, dir, ".github/workflows/release-workflow.yml", workflow)
 		writeProfileFile(t, dir, ".forge-ci/artifacts.yml",
 			"artifacts:\n  - name: app\n    project-type: xcode-ios\n    working-directory: .\n    config:\n      scheme: App\n      enable-code-signing: "+signing+"\n")
 
-		if got, err := githubReleaseProfileOf(dir, "release.yml"); err != nil || got.NoFiles != want {
+		if got, err := githubReleaseProfileOf(dir, "release-workflow.yml"); err != nil || got.NoFiles != want {
 			t.Fatalf("enable-code-signing %s: NoFiles %t, want %t (%v)", signing, got.NoFiles, want, err)
 		}
 	}
@@ -105,7 +105,7 @@ func TestGitHubReleaseProfile_TheIOSFixtureProvesTheCallersXcodeVersion(t *testi
 	consumer := filepath.Join(reporoot.Path(t), "test/live/fixtures/consumers/hello-ios/consumer")
 	dir := t.TempDir()
 
-	workflow, err := os.ReadFile(filepath.Join(consumer, "test/live/github/workflows/release.yml"))
+	workflow, err := os.ReadFile(filepath.Join(consumer, "test/live/github/workflows/release-workflow.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,9 +116,9 @@ func TestGitHubReleaseProfile_TheIOSFixtureProvesTheCallersXcodeVersion(t *testi
 	}
 
 	writeProfileFile(t, dir, ".forge-ci/artifacts.yml", string(declaration))
-	writeProfileFile(t, dir, ".github/workflows/release.yml", string(workflow))
+	writeProfileFile(t, dir, ".github/workflows/release-workflow.yml", string(workflow))
 
-	if got, err := githubReleaseProfileOf(dir, "release.yml"); err != nil || !got.NoFiles || !got.Prepares {
+	if got, err := githubReleaseProfileOf(dir, "release-workflow.yml"); err != nil || !got.NoFiles || !got.Prepares {
 		t.Fatalf("the unsigned Xcode release: %+v, %v", got, err)
 	}
 
@@ -162,13 +162,13 @@ func TestGitHubReleaseProfile_Inputs(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeProfileFile(t, dir, ".github/workflows/release.yml", tc.workflow)
+			writeProfileFile(t, dir, ".github/workflows/release-workflow.yml", tc.workflow)
 
 			if tc.config != "" {
 				writeProfileFile(t, dir, ".forge-ci/artifacts.yml", tc.config)
 			}
 
-			got, err := githubReleaseProfileOf(dir, "release.yml")
+			got, err := githubReleaseProfileOf(dir, "release-workflow.yml")
 			if err != nil || got != tc.want {
 				t.Fatalf("profile = %+v, %v; want %+v", got, err, tc.want)
 			}
@@ -189,10 +189,10 @@ func TestGitHubReleaseProfile_Inputs(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeProfileFile(t, dir, ".github/workflows/release.yml", body)
+			writeProfileFile(t, dir, ".github/workflows/release-workflow.yml", body)
 			writeProfileFile(t, dir, ".forge-ci/artifacts.yml", declared)
 
-			if got, err := githubReleaseProfileOf(dir, "release.yml"); !errors.Is(err, errs.ErrValidation) {
+			if got, err := githubReleaseProfileOf(dir, "release-workflow.yml"); !errors.Is(err, errs.ErrValidation) {
 				t.Fatalf("an input the oracle cannot judge is read as %+v, %v", got, err)
 			}
 		})
@@ -402,7 +402,7 @@ func TestGitHubVariantFixturesRenderAndAdmit(t *testing.T) {
 		{"hello-go-cli", "test/live/github-no-changelog", "release-no-changelog.yml", `changelog-creator: ""`},
 		{"hello-go-service", "test/live/github-gpg-files", "release-gpg-files.yml", "artifacts-config: .forge-ci/artifacts-gpg-files.yml"},
 		{"hello-meta", "test/live/github-draft", "release-draft.yml", "release.draft: true"},
-		{"hello-npm-package", "test/live/github-fork", "pullrequest.yml", "private-dependencies: true"},
+		{"hello-npm-package", "test/live/github-fork", "pullrequest-workflow.yml", "private-dependencies: true"},
 	} {
 		t.Run(tc.fixtures, func(t *testing.T) {
 			dir := filepath.Join(consumers, tc.consumer, "consumer", tc.fixtures, "workflows")

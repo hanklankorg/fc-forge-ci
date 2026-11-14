@@ -270,7 +270,7 @@ func minimalPreparation(t *testing.T, trial *GitHubTrial, engine, commit string,
 		minimalWrite(t, dir, "second/gradle.properties", "version=0.0.1\n")
 	}
 
-	minimalWrite(t, dir, ".github/workflows/release.yml", minimalPreparationWorkflow(t, engine, commit, multi))
+	minimalWrite(t, dir, ".github/workflows/release-workflow.yml", minimalPreparationWorkflow(t, engine, commit, multi))
 	trial.git(dir, "init", "--quiet", "--object-format=sha1", "--initial-branch=main")
 	trial.git(dir, "add", "--all")
 	trial.commit(dir, "feat: add minimal version preparation fixture", "")
@@ -279,7 +279,7 @@ func minimalPreparation(t *testing.T, trial *GitHubTrial, engine, commit string,
 	trial.git(dir, "-c", "user.name=Forge Lab Minimal", "-c", "user.email="+minimalBotEmail,
 		"-c", "gpg.format=ssh", "-c", "user.signingkey="+filepath.Join(keyDir, sshKeyFile), "tag", "-s", "release-request/v0.0.2", "-m", "Minimal release v0.0.2", initial)
 	trial.push(dir, trial.remote(repo), "refs/tags/release-request/v0.0.2")
-	run := trial.WaitRun(repo, "release.yml", "push", initial, 25*time.Minute)
+	run := trial.WaitRun(repo, "release-workflow.yml", "push", initial, 25*time.Minute)
 	t.Logf("hosted scenario: %s", run.GetHTMLURL())
 	trial.ReportRun(repo, run)
 

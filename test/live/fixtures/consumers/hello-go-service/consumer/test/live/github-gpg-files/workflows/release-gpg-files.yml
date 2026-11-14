@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: CC0-1.0
 
 # Release variant: the files are signed with GPG and the image with a Cosign
-# key (.forge-ci/artifacts-gpg-files.yml). Everything else is release.yml's.
+# key (.forge-ci/artifacts-gpg-files.yml). Everything else is release-workflow.yml's.
 # The trial supplies both disposable keys; the release offers an .asc for
 # every file and no Cosign bundle, and the image carries a Cosign signature
 # and SLSA provenance.

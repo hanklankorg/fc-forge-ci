@@ -19,7 +19,7 @@ import (
 // The consumer paths of the Forgejo release workflow and of the overlaid
 // development workflow.
 const (
-	forgejoReleaseWorkflow     = ".forgejo/workflows/release.yml"
+	forgejoReleaseWorkflow     = ".forgejo/workflows/release-workflow.yml"
 	forgejoDevelopmentWorkflow = ".forgejo/workflows/development.yml"
 )
 
@@ -98,7 +98,7 @@ func mavenLibraryDevelopmentFixture(ctx context.Context, source Consumer, config
 		return source, identity, err
 	}
 
-	recipe, err := os.ReadFile(filepath.Join(config.RecipeDirectory, ".forgejo/workflows/release.yml"))
+	recipe, err := os.ReadFile(filepath.Join(config.RecipeDirectory, ".forgejo/workflows/release-workflow.yml"))
 	if err != nil {
 		return source, identity, err
 	}

@@ -31,7 +31,7 @@ func releaseOutputFixture(t *testing.T) (ReleaseImageOutputs, []imageledger.Entr
 		t.Fatal(err)
 	}
 
-	in := ReleaseImageOutputs{Repository: "registry.example.invalid/owner/app", Tag: "v0.3.0", Commit: strings.Repeat("a", 64), Source: "https://forge.example.invalid/owner/app", Workflow: ".forgejo/workflows/release.yml", PublicKey: "/inert/public.pem"}
+	in := ReleaseImageOutputs{Repository: "registry.example.invalid/owner/app", Tag: "v0.3.0", Commit: strings.Repeat("a", 64), Source: "https://forge.example.invalid/owner/app", Workflow: ".forgejo/workflows/release-workflow.yml", PublicKey: "/inert/public.pem"}
 
 	plan, err := appconfig.ResolveReleaseImagesPlan(appconfig.EmitReleaseImagesPlanInput{
 		Config: appconfig.EmitConfigPlanInput{Path: file}, Images: pipeline.ReleaseImagesInput{ImageRepository: in.Repository, Repository: "owner/app", ReleaseTag: in.Tag},

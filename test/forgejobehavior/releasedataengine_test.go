@@ -270,7 +270,7 @@ func TestBaseImageSigningThroughTheEngine(t *testing.T) {
 					"REAL_FORGE_CI="+engine, "ENGINE_CALL_LOG="+calls, "HELPERS_DIR="+box.root,
 					"SIGNER_WORK_DIR="+box.root, "FORGEJO_SERVER=https://forgejo.invalid", "FORGEJO_REPO=Owner/Project",
 					"LEDGER_JSON="+ledger, "REPOSITORY_SUFFIX="+test.suffix, "BASE_IMAGE_REPOSITORY="+test.repository,
-					"SOURCE_SHA="+releaseImageDigest[:40], "CALLER_WORKFLOW=release.yml", "SBOM_ARTIFACT=base-sboms",
+					"SOURCE_SHA="+releaseImageDigest[:40], "CALLER_WORKFLOW=release-workflow.yml", "SBOM_ARTIFACT=base-sboms",
 					"COSIGN_KEY=fixture-key", "COSIGN_PASSWORD=fixture-password", "REGISTRY_TOKEN="+token, "REGISTRY_USER="+user)...)
 
 			// Every case ends in a refusal; the login tells an admitted ledger

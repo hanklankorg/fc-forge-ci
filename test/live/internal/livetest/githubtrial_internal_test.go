@@ -172,7 +172,7 @@ func TestGitHubWaitRunReturnsCancelledTerminalRun(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/actions/workflows/pullrequest.yml/runs") {
+		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/actions/workflows/pullrequest-workflow.yml/runs") {
 			t.Errorf("unexpected run lookup: %s %s", r.Method, r.URL.Path)
 			response.WriteHeader(http.StatusNotFound)
 
@@ -191,7 +191,7 @@ func TestGitHubWaitRunReturnsCancelledTerminalRun(t *testing.T) {
 
 	trial := &GitHubTrial{tb: t, api: client, org: "example-org"}
 
-	run := trial.WaitRun("fc-cancelled", "pullrequest.yml", "pull_request", strings.Repeat("a", 40), time.Second)
+	run := trial.WaitRun("fc-cancelled", "pullrequest-workflow.yml", "pull_request", strings.Repeat("a", 40), time.Second)
 	if run.GetID() != 42 || run.GetConclusion() != "cancelled" {
 		t.Fatalf("cancelled terminal run was not returned: %+v", run)
 	}
@@ -232,7 +232,7 @@ func TestGitHubConsumerStandsOnItsSyntheticHistory(t *testing.T) {
 
 	for name, body := range map[string]string{
 		"README.md": "consumer\n",
-		"test/live/github/workflows/pullrequest.yml": fixturePullRequest,
+		"test/live/github/workflows/pullrequest-workflow.yml": fixturePullRequest,
 	} {
 		path := filepath.Join(root, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -258,7 +258,7 @@ func TestGitHubConsumerStandsOnItsSyntheticHistory(t *testing.T) {
 		t.Fatalf("a synthetic commit holds files: %q", files)
 	}
 
-	if files := trial.git(dir, "ls-tree", "-r", "--name-only", "HEAD"); !strings.Contains(files, "README.md") || !strings.Contains(files, ".github/workflows/pullrequest.yml") {
+	if files := trial.git(dir, "ls-tree", "-r", "--name-only", "HEAD"); !strings.Contains(files, "README.md") || !strings.Contains(files, ".github/workflows/pullrequest-workflow.yml") {
 		t.Fatalf("the rendered commit lost the consumer: %q", files)
 	}
 
@@ -304,7 +304,7 @@ func TestGitHubConsumerPreservesTrackedIgnoredSource(t *testing.T) {
 	for name, body := range map[string]string{
 		".gitignore":      "bin/\n*.local\n",
 		"src/bin/tool.rs": "fn main() {}\n",
-		"test/live/github/workflows/pullrequest.yml": fixturePullRequest,
+		"test/live/github/workflows/pullrequest-workflow.yml": fixturePullRequest,
 	} {
 		path := filepath.Join(root, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -367,9 +367,9 @@ const (
 			trial.git(root, "init", "--quiet", "--object-format="+format, "--initial-branch=main", ".")
 
 			files := map[string]string{
-				".forgejo/workflows/release.yml":             native,
+				".forgejo/workflows/release-workflow.yml":             native,
 				"test/policy/workflow_policy_test.go":        policy,
-				"test/live/github/workflows/pullrequest.yml": fixturePullRequest,
+				"test/live/github/workflows/pullrequest-workflow.yml": fixturePullRequest,
 			}
 			for path, text := range files {
 				writeLayerFile(t, root, path, text)
@@ -407,7 +407,7 @@ const (
 				}
 			}
 
-			if got := trial.git(dir, "show", "HEAD:.github/workflows/pullrequest.yml"); !strings.Contains(got, trialEngine.Owner+"/"+trialEngine.Repository+"/.github/workflows/pullrequest-orchestrator.yml@"+trialEngine.Commit) {
+			if got := trial.git(dir, "show", "HEAD:.github/workflows/pullrequest-workflow.yml"); !strings.Contains(got, trialEngine.Owner+"/"+trialEngine.Repository+"/.github/workflows/pullrequest-orchestrator.yml@"+trialEngine.Commit) {
 				t.Fatalf("GitHub fixture not rendered against the same frozen engine: %s", got)
 			}
 
@@ -474,9 +474,9 @@ func TestGitHubConsumerNativeChecksumPolicy(t *testing.T) {
 			policy := "package policy_test\nconst forgeCIBinarySHA256 = \"" + nativeDigest + "\"\nconst independentSHA256 = \"" + independentDigest + "\"\n"
 
 			files := map[string]string{
-				".forgejo/workflows/pullrequest.yml":         native,
+				".forgejo/workflows/pullrequest-workflow.yml":         native,
 				"test/policy/workflow_policy_test.go":        policy,
-				"test/live/github/workflows/pullrequest.yml": fixturePullRequest,
+				"test/live/github/workflows/pullrequest-workflow.yml": fixturePullRequest,
 			}
 			for path, text := range files {
 				writeLayerFile(t, root, path, text)
@@ -486,7 +486,7 @@ func TestGitHubConsumerNativeChecksumPolicy(t *testing.T) {
 			trial.commit(root, consumerBaseMessage, "")
 			dir, _ := trial.stageConsumer(root, "test/live/github", engine, nil)
 
-			got := trial.git(dir, "show", "HEAD:.forgejo/workflows/pullrequest.yml")
+			got := trial.git(dir, "show", "HEAD:.forgejo/workflows/pullrequest-workflow.yml")
 			if !strings.Contains(got, "expected-sha256: "+wantDigest) || !strings.Contains(got, "https://github.com/"+engine.Owner+"/"+engine.Repository+"/.forgejo/actions/setup-forge-ci@"+engine.Commit) {
 				t.Fatalf("native checksum or frozen identity lost: %s", got)
 			}
@@ -514,7 +514,7 @@ func TestGitHubNativePolicyChecksumRequiresFrozenRecordedData(t *testing.T) {
 	trial := &GitHubTrial{tb: t}
 	root := t.TempDir()
 	trial.git(root, "init", "--quiet", "--initial-branch=main", ".")
-	writeLayerFile(t, root, ".forgejo/workflows/pullrequest.yml", "jobs:\n  check:\n    steps:\n      - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA\n        with:\n          expected-sha256: "+strings.Repeat("a", 64)+"\n")
+	writeLayerFile(t, root, ".forgejo/workflows/pullrequest-workflow.yml", "jobs:\n  check:\n    steps:\n      - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA\n        with:\n          expected-sha256: "+strings.Repeat("a", 64)+"\n")
 	trial.git(root, "add", "--all")
 	trial.commit(root, consumerBaseMessage, "")
 
@@ -555,7 +555,7 @@ func TestGitHubConsumerCommitsTrialFiles(t *testing.T) {
 
 	for name, body := range map[string]string{
 		".forge-ci/allowed_signers":                  "fixture\n",
-		"test/live/github/workflows/pullrequest.yml": fixturePullRequest,
+		"test/live/github/workflows/pullrequest-workflow.yml": fixturePullRequest,
 	} {
 		path := filepath.Join(root, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -595,7 +595,7 @@ func TestGitHubListsAllRequiresEveryPushedWorkflowActive(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	for _, name := range []string{"pullrequest.yml", "release.yml"} {
+	for _, name := range []string{"pullrequest-workflow.yml", "release-workflow.yml"} {
 		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -615,12 +615,12 @@ func TestGitHubListsAllRequiresEveryPushedWorkflowActive(t *testing.T) {
 		want   bool
 	}{
 		"none listed yet": {listed: nil, want: false},
-		"one missing":     {listed: []*github.Workflow{workflow("release.yml", "active")}, want: false},
+		"one missing":     {listed: []*github.Workflow{workflow("release-workflow.yml", "active")}, want: false},
 		"one disabled": {listed: []*github.Workflow{
-			workflow("release.yml", "active"), workflow("pullrequest.yml", "disabled_manually"),
+			workflow("release-workflow.yml", "active"), workflow("pullrequest-workflow.yml", "disabled_manually"),
 		}, want: false},
 		"all active": {listed: []*github.Workflow{
-			workflow("release.yml", "active"), workflow("pullrequest.yml", "active"),
+			workflow("release-workflow.yml", "active"), workflow("pullrequest-workflow.yml", "active"),
 		}, want: true},
 	} {
 		if got := githubListsAll(&github.Workflows{Workflows: test.listed}, entries); got != test.want {
@@ -776,22 +776,22 @@ func TestGitHubReleaseSignMethodReadsTheWorkflowsConfiguration(t *testing.T) {
 		"derived, no config": {workflow(""), "", "", domainrelease.SignMethodGPG},
 	} {
 		dir := t.TempDir()
-		write(t, dir, ".github/workflows/release.yml", tc.workflow)
+		write(t, dir, ".github/workflows/release-workflow.yml", tc.workflow)
 
 		if tc.file != "" {
 			write(t, dir, tc.file, tc.body)
 		}
 
-		got, err := githubReleaseSignMethod(dir, "release.yml")
+		got, err := githubReleaseSignMethod(dir, "release-workflow.yml")
 		if err != nil || got != tc.want {
 			t.Errorf("%s: got %q, %v; want %q", name, got, err, tc.want)
 		}
 	}
 
 	dir := t.TempDir()
-	write(t, dir, ".github/workflows/release.yml", workflow(".forge-ci/a.yml")+"  other:\n    with:\n      artifacts-config: .forge-ci/b.yml\n")
+	write(t, dir, ".github/workflows/release-workflow.yml", workflow(".forge-ci/a.yml")+"  other:\n    with:\n      artifacts-config: .forge-ci/b.yml\n")
 
-	if _, err := githubReleaseSignMethod(dir, "release.yml"); !errors.Is(err, errs.ErrValidation) {
+	if _, err := githubReleaseSignMethod(dir, "release-workflow.yml"); !errors.Is(err, errs.ErrValidation) {
 		t.Errorf("two configurations accepted: %v", err)
 	}
 }

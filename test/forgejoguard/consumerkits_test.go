@@ -18,7 +18,7 @@ import (
 )
 
 // consumerKit is one ecosystem example's Forgejo pair: the directory holding
-// its pullrequest.yml and release.yml, and the build action both use. An
+// its pullrequest-workflow.yml and release-workflow.yml, and the build action both use. An
 // ecosystem the layer has no build action for names, in its place, the
 // command each build job runs: the build tool itself for the pull request,
 // the engine's build for the release. A project with nothing to build names
@@ -82,8 +82,8 @@ func runScript(step ast.Node) string {
 	return scalarString(mappingValue(step, "run"))
 }
 
-func (k consumerKit) release() string     { return k.dir + "/release.yml" }
-func (k consumerKit) pullRequest() string { return k.dir + "/pullrequest.yml" }
+func (k consumerKit) release() string     { return k.dir + "/release-workflow.yml" }
+func (k consumerKit) pullRequest() string { return k.dir + "/pullrequest-workflow.yml" }
 
 // consumerKits are every consumer pair under examples/, each held to the
 // same rules. TestConsumerKitsAreEveryForgejoExample keeps the list whole.
@@ -139,7 +139,7 @@ func TestConsumerKitsAreEveryForgejoExample(t *testing.T) {
 	var found []string
 
 	err := filepath.WalkDir(filepath.Join(root, "examples"), func(path string, entry fs.DirEntry, err error) error {
-		if err != nil || entry.IsDir() || entry.Name() != "release.yml" || filepath.Base(filepath.Dir(path)) != "forgejo" {
+		if err != nil || entry.IsDir() || entry.Name() != "release-workflow.yml" || filepath.Base(filepath.Dir(path)) != "forgejo" {
 			return err
 		}
 

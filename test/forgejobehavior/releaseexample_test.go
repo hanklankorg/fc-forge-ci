@@ -31,7 +31,7 @@ func TestReleaseExampleBuildJobHandsOffWhatTheSignerAccepts(t *testing.T) {
 		t.Fatalf("status %d\nstdout %s\nstderr %s", got.status, got.stdout, got.stderr)
 	}
 
-	declare := jobStep(t, "examples/go-cli/forgejo/release.yml", "build", "Declare the release files")
+	declare := jobStep(t, "examples/go-cli/forgejo/release-workflow.yml", "build", "Declare the release files")
 	if declare.Env["RELEASE_TAG"] != "${{ needs.prepare.outputs.release-tag }}" || declare.Env["RELEASE_SHA"] != "${{ needs.prepare.outputs.release-sha }}" {
 		t.Fatalf("the declaring step reads %q, not the prepared release", declare.Env)
 	}

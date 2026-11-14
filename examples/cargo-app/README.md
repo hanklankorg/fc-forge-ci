@@ -15,13 +15,13 @@ each container manifest.
   `check` and one `build-cargo` job per service. No component builds the
   images: in a release the policy project's `build` commands do. See the
   [GitLab guide](../../docs/gitlab.md#getting-started).
-- **Forgejo**: [`forgejo/pullrequest.yml`](forgejo/pullrequest.yml) and
-  [`forgejo/release.yml`](forgejo/release.yml), a binary release of the two
+- **Forgejo**: [`forgejo/pullrequest-workflow.yml`](forgejo/pullrequest-workflow.yml) and
+  [`forgejo/release-workflow.yml`](forgejo/release-workflow.yml), a binary release of the two
   services with one `build-cargo` step each, as on GitLab. Copy
   `artifacts.yml` to `.forge-ci/artifacts.yml`: the signed release commit
   carries the version of each crate it declares, which `prepare-release.yml`
   bumps in a key-free job in `runtime-image-rust`. The images are added to
-  the build job as in the [Go service example](../go-service/forgejo/release.yml). See the
+  the build job as in the [Go service example](../go-service/forgejo/release-workflow.yml). See the
   [Forgejo guide](../../docs/forgejo.md#getting-started).
 
 The rest of this page describes the GitHub configuration.

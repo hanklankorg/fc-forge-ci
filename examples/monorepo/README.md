@@ -17,9 +17,9 @@ Multiple artifacts built from a single repository with container support.
   tests run in `build-release.sh`, so a failing test stops the release before
   anything is signed. See
   [Releases and promotion](../../docs/gitlab.md#releases-and-promotion).
-- **Forgejo**: [`forgejo/pullrequest.yml`](forgejo/pullrequest.yml), the lint
+- **Forgejo**: [`forgejo/pullrequest-workflow.yml`](forgejo/pullrequest-workflow.yml), the lint
   gate and each project's checks in the image of its toolchain, and
-  [`forgejo/release.yml`](forgejo/release.yml), one release of both projects.
+  [`forgejo/release-workflow.yml`](forgejo/release-workflow.yml), one release of both projects.
   The workflow names a build job for each project and joins their files into
   one hand-off; the images those jobs run in are pinned by digest in the
   workflow. See

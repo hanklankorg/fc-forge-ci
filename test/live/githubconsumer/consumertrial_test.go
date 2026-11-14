@@ -489,7 +489,7 @@ func TestConsumerRepositoryNamesSeparateConcurrentEvents(t *testing.T) {
 
 	for _, visibility := range []string{"public", "private"} {
 		for _, event := range []string{livetest.TrialPullRequest, livetest.TrialDevRelease, livetest.TrialRelease} {
-			for _, workflow := range []string{"release-dev.yml", "release-dev.yaml", "release-dev-test-signed.yml"} {
+			for _, workflow := range []string{"release-snapshot-workflow.yml", "release-dev.yaml", "release-dev-test-signed.yml"} {
 				name := consumerRepositoryName("/consumers/fc-ios-app/", visibility, event, workflow)
 				if seen[name] {
 					t.Fatalf("concurrent consumer cases share repository identity %q", name)

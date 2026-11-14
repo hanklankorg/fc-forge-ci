@@ -13,8 +13,8 @@ container and no version file. `artifacts.yml` declares the project
 - **GitLab**: [`gitlab/.gitlab-ci.yml`](gitlab/.gitlab-ci.yml), the lint gate
   and `check`; the release runs from a separate policy project. See the
   [GitLab guide](../../docs/gitlab.md#getting-started).
-- **Forgejo**: [`forgejo/pullrequest.yml`](forgejo/pullrequest.yml) and
-  [`forgejo/release.yml`](forgejo/release.yml), a job that archives the
+- **Forgejo**: [`forgejo/pullrequest-workflow.yml`](forgejo/pullrequest-workflow.yml) and
+  [`forgejo/release-workflow.yml`](forgejo/release-workflow.yml), a job that archives the
   release commit between the layer's prepare and signer workflows. See the
   [Forgejo guide](../../docs/forgejo.md#getting-started).
 

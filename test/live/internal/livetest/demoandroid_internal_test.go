@@ -28,8 +28,8 @@ func TestAndroidDemosBindBothJobsToPreparedEngine(t *testing.T) {
 		t.Run(demo, func(t *testing.T) {
 			t.Parallel()
 
-			body := reporoot.ReadFile(t, "test/live/fixtures/consumers/"+demo+"/consumer/test/live/github/workflows/pullrequest.yml")
-			rendered, _, err := RenderGitHubConsumer("pullrequest.yml", string(body), trialEngine, nil)
+			body := reporoot.ReadFile(t, "test/live/fixtures/consumers/"+demo+"/consumer/test/live/github/workflows/pullrequest-workflow.yml")
+			rendered, _, err := RenderGitHubConsumer("pullrequest-workflow.yml", string(body), trialEngine, nil)
 			require.NoError(t, err)
 
 			var workflow struct {
@@ -70,7 +70,7 @@ func TestAndroidLibraryDemoReleasePublishesItsMavenPublication(t *testing.T) {
 
 	consumer := "test/live/fixtures/consumers/hello-android-library/consumer/"
 	declaration := string(reporoot.ReadFile(t, consumer+".forge-ci/artifacts.yml"))
-	fixture := string(reporoot.ReadFile(t, consumer+"test/live/github/workflows/release.yml"))
+	fixture := string(reporoot.ReadFile(t, consumer+"test/live/github/workflows/release-workflow.yml"))
 
 	cfg, err := parseServiceDeclaration(declaration)
 	require.NoError(t, err)
@@ -88,13 +88,13 @@ func TestAndroidLibraryDemoReleasePublishesItsMavenPublication(t *testing.T) {
 
 	staged := t.TempDir()
 	writeFile(t, filepath.Join(staged, ".forge-ci", "artifacts.yml"), declaration)
-	writeFile(t, filepath.Join(staged, ".github", "workflows", "release.yml"), fixture)
+	writeFile(t, filepath.Join(staged, ".github", "workflows", "release-workflow.yml"), fixture)
 
-	maven, err := githubReleasesMavenPackages(staged, "release.yml")
+	maven, err := githubReleasesMavenPackages(staged, "release-workflow.yml")
 	require.NoError(t, err)
 	require.True(t, maven, "the release oracle must read the Maven package back")
 
-	rendered, _, err := RenderGitHubConsumer("release.yml", fixture, trialEngine, nil)
+	rendered, _, err := RenderGitHubConsumer("release-workflow.yml", fixture, trialEngine, nil)
 	require.NoError(t, err)
 
 	var workflow struct {

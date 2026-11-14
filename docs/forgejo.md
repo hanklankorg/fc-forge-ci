@@ -220,8 +220,8 @@ A key left out leaves its placeholder, and init lists it. Consumers then run
 `forge-ci init https://<host>/<owner>/forge-ci` in their repository; by hand,
 the steps are these.
 
-1. **Copy the two examples** of your ecosystem, `pullrequest.yml` and
-   `release.yml` from `examples/<ecosystem>/forgejo/` (see the
+1. **Copy the two examples** of your ecosystem, `pullrequest-workflow.yml` and
+   `release-workflow.yml` from `examples/<ecosystem>/forgejo/` (see the
    [examples index](../examples/README.md)), at the commit you will pin, into
    a draft directory outside `.forgejo/workflows/`. Optionally copy the example's
    `nanolinter.toml` if you want custom lint policy: the pull-request workflow's lint
@@ -229,7 +229,7 @@ the steps are these.
    `required-lints` floor, default `secrets`.
 2. **Replace the placeholders**: `FORGE_HOST`, `OWNER`, `PIN_FORGE_CI_SHA`,
    `PIN_SIGNER_IMAGE_DIGEST` and `PIN_COSIGN_PUBLIC_KEY_SHA256`. The header of
-   `release.yml` says what each one is. The tokens are the same in both files,
+   `release-workflow.yml` says what each one is. The tokens are the same in both files,
    so one command fills them:
 
    ```bash
@@ -239,11 +239,11 @@ the steps are these.
      -e 's|PIN_FORGE_CI_SHA|<commit>|g' \
      -e 's|PIN_SIGNER_IMAGE_DIGEST|<digest>|g' \
      -e 's|PIN_COSIGN_PUBLIC_KEY_SHA256|<sha256>|g' \
-     pullrequest.yml release.yml
+     pullrequest-workflow.yml release-workflow.yml
    ```
 
 3. **Fill in every `FIXME`**: the bot identity and the name of your binary in
-   `release.yml`, and in the Go service example the image title. For an
+   `release-workflow.yml`, and in the Go service example the image title. For an
    ecosystem without an example, keep the hand-off the build job ends with.
 4. **Decide on request signatures.** The example sets
    `verify-release-request-signature: 'false'`. A production consumer reviews
@@ -254,8 +254,8 @@ the steps are these.
    while the check is still off.
 5. **Set the [variables](#variables) and [secrets](#secrets-and-tokens)**, among them
    `CI_JOB_IMAGE`, the image the pull-request jobs run in.
-6. **Add the two files** as `.forgejo/workflows/pullrequest.yml` and
-   `.forgejo/workflows/release.yml` through your protected pull-request path,
+6. **Add the two files** as `.forgejo/workflows/pullrequest-workflow.yml` and
+   `.forgejo/workflows/release-workflow.yml` through your protected pull-request path,
    with the changelog configuration the release reads: `keepachangelog.toml`
    and `minimal.toml` of [`templates/gitcliff/`](../templates/gitcliff/) as
    `.forge-ci/gitcliff/`. Do not activate an incomplete template.
@@ -593,8 +593,8 @@ examples do with `upload-dist`.
 ## Pull-request gates and lint
 
 The pull-request jobs are the consumer's own, and the layer offers two steps
-for them; every `pullrequest.yml` in the examples, such as
-[Go CLI](../examples/go-cli/forgejo/pullrequest.yml), wires both:
+for them; every `pullrequest-workflow.yml` in the examples, such as
+[Go CLI](../examples/go-cli/forgejo/pullrequest-workflow.yml), wires both:
 
 - **`lint-nanolinter`**: `nanolinter verify --require <floor>` against the
   repository's `nanolinter.toml`. The default floor is `secrets`, as on
@@ -641,7 +641,7 @@ example shows the two workflows they add up to.
 | Step | Action | Runs |
 |---|---|---|
 | Lint | `lint-nanolinter` | `nanolinter verify --require <floor>`, with `disable-checks` and `offline` for what another job or the runner's network decides. The default floor is `secrets`, as on the other forges. |
-| Release isolation | `check-l3-isolation` | `validate isolation` over the consumer's `release.yml`. |
+| Release isolation | `check-l3-isolation` | `validate isolation` over the consumer's `release-workflow.yml`. |
 | Build, Go | `build-go` | `build go run`: `go mod download`, `go test ./...`, the Build SBOM, one binary per platform. |
 | Build, Cargo | `build-cargo` | `build cargo run`: `cargo fetch`, `cargo test --locked`, the Build SBOM, one binary per platform. |
 | Build, Maven | `build-maven` | `build maven run --expect-version`: `mvn install`, a refusal unless the POM declares the release version, the app or library lifecycle with its tests, the Build SBOM, all in `target/`. |
@@ -685,7 +685,7 @@ another. [The prepare job](#the-prepare-job) says how the bump is kept out
 of the job that holds the signing key.
 
 **Rendered release notes are ignored by Git.** The hand-off step of
-`release.yml` reads a `release-notes.md` that an earlier step of the build job
+`release-workflow.yml` reads a `release-notes.md` that an earlier step of the build job
 rendered in the checkout root. List that file in `.gitignore`: an untracked
 file that is not ignored makes the checkout dirty, and GoReleaser then stops
 with `git is in a dirty state`.
@@ -713,8 +713,8 @@ configuration uses; the action installs nothing and refuses a checkout that
 is not the prepared commit. Follow it with `upload-dist` and pass that
 action's digest to `sign-and-publish-release.yml`.
 [`examples/go-cli/forgejo/release-goreleaser.yml`](../examples/go-cli/forgejo/release-goreleaser.yml)
-is the complete caller: copy it as `release.yml`, beside the example's
-`pullrequest.yml`. Evidence that arrives after packaging is added with
+is the complete caller: copy it as `release-workflow.yml`, beside the example's
+`pullrequest-workflow.yml`. Evidence that arrives after packaging is added with
 `release files manifest --unsigned --evidence-file <file>`.
 
 Other ecosystems keep their own build tools and end their build job with
@@ -727,7 +727,7 @@ locked dependencies with retries, without compiling, through
 ## Releases and promotion
 
 A release starts when an immutable `release-request/vX.Y.Z` tag is pushed.
-The consumer's `release.yml` calls the layer around its own build job:
+The consumer's `release-workflow.yml` calls the layer around its own build job:
 
 1. **`prepare-release.yml`** checks that every secret the release needs is
    configured, guards the request tag, requires it at the head of the release branch,
@@ -862,7 +862,7 @@ When files and images come from separate jobs, `assemble-release-dist` with
 `artifact-names` listing `release-files` and `release-images` downloads both,
 merges the ledger and uploads `dist/`; its `digest` output feeds the signer
 as `upload-dist`'s does. See
-[`examples/go-service/forgejo/release.yml`](../examples/go-service/forgejo/release.yml).
+[`examples/go-service/forgejo/release-workflow.yml`](../examples/go-service/forgejo/release-workflow.yml).
 [Checked multi-architecture images](multiarch-images.md) covers images whose
 job graph you write yourself.
 
@@ -1405,13 +1405,13 @@ provenance out, see
 [what a snapshot takes from the declaration](workflows.md#what-a-snapshot-takes-from-the-declaration).
 
 Callers to copy:
-[`examples/go-service/forgejo/snapshot.yml`](../examples/go-service/forgejo/snapshot.yml)
+[`examples/go-service/forgejo/release-snapshot-workflow.yml`](../examples/go-service/forgejo/release-snapshot-workflow.yml)
 publishes container-only snapshot images,
-[`examples/maven-app/forgejo/snapshot.yml`](../examples/maven-app/forgejo/snapshot.yml)
+[`examples/maven-app/forgejo/release-snapshot-workflow.yml`](../examples/maven-app/forgejo/release-snapshot-workflow.yml)
 builds the jar first in the Java image named by `artifact-job-image-java`,
 [`examples/go-cli/forgejo/snapshot-files.yml`](../examples/go-cli/forgejo/snapshot-files.yml)
 keeps a branch's built files with `publish-files: true`, and
-[`examples/go-cli/forgejo/snapshot.yml`](../examples/go-cli/forgejo/snapshot.yml)
+[`examples/go-cli/forgejo/release-snapshot-workflow.yml`](../examples/go-cli/forgejo/release-snapshot-workflow.yml)
 only builds and tests with `build-go`, publishing nothing.
 Build secrets remain unsupported; `extract.binary` is a release's output,
 which a snapshot does not run. Scan severity and image SBOM policy are

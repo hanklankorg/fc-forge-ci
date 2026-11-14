@@ -193,7 +193,7 @@ func runLayerConsumerPR(t *testing.T, private bool, objectFormat string, pr cons
 	scenario := newLayerScenario(t, "layer-consumer-pr", private, objectFormat)
 	target, repo := scenario.target, scenario.repo
 
-	example, err := os.ReadFile(filepath.Join(reporoot.Path(t), "examples/go-cli/forgejo/release.yml"))
+	example, err := os.ReadFile(filepath.Join(reporoot.Path(t), "examples/go-cli/forgejo/release-workflow.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func runLayerConsumerPR(t *testing.T, private bool, objectFormat string, pr cons
 		"main.go":                        consumerPRMain,
 		"main_test.go":                   consumerPRMainTest,
 		consumerPRCanary:                 "consumer-pr-base\n",
-		".forgejo/workflows/release.yml": release,
+		".forgejo/workflows/release-workflow.yml": release,
 		".forgejo/workflows/" + workflow + ".yml": scenario.render(t, pr.fixture, pr.facts...),
 	}
 	maps.Copy(files, pr.base)

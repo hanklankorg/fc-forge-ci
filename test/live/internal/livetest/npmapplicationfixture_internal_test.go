@@ -83,7 +83,7 @@ func TestNPMApplicationFixtureSourceBoundary(t *testing.T) {
 					}
 				}
 
-				name := ".forgejo/workflows/release.yml"
+				name := ".forgejo/workflows/release-workflow.yml"
 				if development {
 					name = ".forgejo/workflows/development.yml"
 				}
@@ -319,7 +319,7 @@ func TestNPMApplicationActualSourceRenderer(t *testing.T) {
 func TestNPMStableReleaseWorkflowBumpsInTheTrialImage(t *testing.T) {
 	t.Parallel()
 
-	recipe, err := os.ReadFile(filepath.Join(reporoot.Path(t), "test/live/fixtures/consumers/hello-npm-service/consumer/.forgejo/workflows/release.yml"))
+	recipe, err := os.ReadFile(filepath.Join(reporoot.Path(t), "test/live/fixtures/consumers/hello-npm-service/consumer/.forgejo/workflows/release-workflow.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}

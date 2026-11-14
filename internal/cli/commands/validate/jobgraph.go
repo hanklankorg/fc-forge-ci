@@ -28,7 +28,7 @@ output, or annotate the consumer with '# job-graph-guard: allow reason=...'.
 
 EXAMPLE:
    forge-ci validate job-graph --root .
-   forge-ci validate job-graph --workflow .forgejo/workflows/release.yml`,
+   forge-ci validate job-graph --workflow .forgejo/workflows/release-workflow.yml`,
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: flagRoot, Value: ".", Usage: "repository root containing .github/workflows"},
 			&cli.StringFlag{Name: "workflows-dir", Usage: "workflow directory to scan (defaults to <root>/.github/workflows)"},

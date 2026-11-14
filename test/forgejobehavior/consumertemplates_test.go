@@ -22,12 +22,12 @@ import (
 // the list to every examples/**/forgejo/ pair.
 func consumerReleaseTemplates() []string {
 	return []string{
-		"examples/go-cli/forgejo/release.yml",
-		"examples/go-service/forgejo/release.yml",
-		"examples/monorepo/forgejo/release.yml",
-		"examples/cargo-app/forgejo/release.yml",
-		"examples/maven-app/forgejo/release.yml",
-		"examples/gradle-app/forgejo/release.yml",
+		"examples/go-cli/forgejo/release-workflow.yml",
+		"examples/go-service/forgejo/release-workflow.yml",
+		"examples/monorepo/forgejo/release-workflow.yml",
+		"examples/cargo-app/forgejo/release-workflow.yml",
+		"examples/maven-app/forgejo/release-workflow.yml",
+		"examples/gradle-app/forgejo/release-workflow.yml",
 	}
 }
 
@@ -46,7 +46,7 @@ func TestConsumerPRIsolationInputsMatchReleaseHandoff(t *testing.T) {
 				} `yaml:"steps"`
 			} `yaml:"jobs"`
 		}
-		loadYAML(t, strings.TrimSuffix(release, "release.yml")+"pullrequest.yml", &gate)
+		loadYAML(t, strings.TrimSuffix(release, "release-workflow.yml")+"pullrequest-workflow.yml", &gate)
 
 		found := false
 
@@ -93,10 +93,10 @@ func TestConsumerPRIsolationInputsMatchReleaseHandoff(t *testing.T) {
 // consumer replaces: the forge host, the owner and the forge-ci pin.
 func consumerTemplates() []string {
 	templates := consumerReleaseTemplates()
-	templates = append(templates, "examples/go-cli/forgejo/release-goreleaser.yml", "examples/go-cli/forgejo/snapshot.yml")
+	templates = append(templates, "examples/go-cli/forgejo/release-goreleaser.yml", "examples/go-cli/forgejo/release-snapshot-workflow.yml")
 
 	for _, release := range consumerReleaseTemplates() {
-		templates = append(templates, strings.TrimSuffix(release, "release.yml")+"pullrequest.yml")
+		templates = append(templates, strings.TrimSuffix(release, "release-workflow.yml")+"pullrequest-workflow.yml")
 	}
 
 	return templates

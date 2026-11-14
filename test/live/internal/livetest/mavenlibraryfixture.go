@@ -54,7 +54,7 @@ func NewMavenApplicationConsumerFixture(tb TB, source Consumer, recipe, image st
 		}
 
 		text := string(body)
-		if strings.HasSuffix(file, "/release.yml") {
+		if strings.HasSuffix(file, "/release-workflow.yml") {
 			text = regexp.MustCompile(`(?m)^(      image: |      runtime-image-java: ).*$`).ReplaceAllString(text, "${1}"+image)
 			text = strings.ReplaceAll(text, "ARTIFACT_NAME: hello-maven", "ARTIFACT_NAME: "+artifact)
 			// An application may own build.finalName (for example an unversioned

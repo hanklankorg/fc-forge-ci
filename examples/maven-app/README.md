@@ -10,13 +10,13 @@ Simple Maven application with container build.
 - **GitLab**: [`gitlab/.gitlab-ci.yml`](gitlab/.gitlab-ci.yml), the lint gate,
   `check` and `build-maven`. No component builds or publishes the image. See
   the [GitLab guide](../../docs/gitlab.md#getting-started).
-- **Forgejo**: [`forgejo/pullrequest.yml`](forgejo/pullrequest.yml) and
-  [`forgejo/release.yml`](forgejo/release.yml), a `build-maven` jar release of
+- **Forgejo**: [`forgejo/pullrequest-workflow.yml`](forgejo/pullrequest-workflow.yml) and
+  [`forgejo/release-workflow.yml`](forgejo/release-workflow.yml), a `build-maven` jar release of
   a project at the repository root. `prepare-release.yml` bumps the POM
   versions, and `build-maven` checks the version it builds. An image
   is added to the build job as in the
-  [Go service example](../go-service/forgejo/release.yml).
-  [`forgejo/snapshot.yml`](forgejo/snapshot.yml) publishes a development
+  [Go service example](../go-service/forgejo/release-workflow.yml).
+  [`forgejo/release-snapshot-workflow.yml`](forgejo/release-snapshot-workflow.yml) publishes a development
   image of `main` through the shared snapshot workflow, the jar built first
   in a digest-pinned Java toolchain image. See the
   [Forgejo guide](../../docs/forgejo.md#getting-started).

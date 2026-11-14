@@ -44,7 +44,7 @@ commit pointed to by any tag. This catches history-rewrite/orphaned-pin failures
 before object GC turns them into confusing runtime failures.
 
 EXAMPLE:
-   forge-ci validate pin-reachability --workflow .forgejo/workflows/release.yml`,
+   forge-ci validate pin-reachability --workflow .forgejo/workflows/release-workflow.yml`,
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: flagRoot, Value: ".", Usage: "repository root used to resolve relative workflow paths"},
 			&cli.StringSliceFlag{Name: flagWorkflow, Usage: "workflow file to scan for reusable-workflow pins (repeatable; required)"},

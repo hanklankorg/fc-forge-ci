@@ -48,9 +48,9 @@ func TestForgejoLayer_ConsumerSnapshotTrial(t *testing.T) {
 			consumer := livetest.OpenConsumer(t, target, root)
 			workflows := consumer.Workflows(t)
 
-			const workflow = "snapshot.yml"
+			const workflow = "release-snapshot-workflow.yml"
 			if _, found := workflows[workflow]; !found {
-				t.Fatal("consumer must supply .forgejo/workflows/snapshot.yml")
+				t.Fatal("consumer must supply .forgejo/workflows/release-snapshot-workflow.yml")
 			}
 
 			layer, repo := newConsumerRepos(t, target, consumer, "consumer-snapshot-trial", visibility.Private)

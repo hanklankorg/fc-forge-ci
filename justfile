@@ -932,7 +932,7 @@ test-live-image kind forge_lab budget="" cpus="" memory_mib="" compiler_jobs="":
 #   token=<SECRET>       a repository secret that receives the lab account's
 #                        token, for a token the consumer reads under a name of
 #                        its own. No other secret value can be given.
-#   workflow=<file>      the workflow to judge; pullrequest.yml or release.yml
+#   workflow=<file>      the workflow to judge; pullrequest-workflow.yml or release-workflow.yml
 #                        when left out.
 #   version=<X.Y.Z>      the version a release requests; 0.0.1 when left out.
 #   image=<reference>    release only: an image on an external registry that
@@ -1024,7 +1024,7 @@ test-live-image kind forge_lab budget="" cpus="" memory_mib="" compiler_jobs="":
 # image=<name> (release and lifecycle), history=<commits> (release), RELEASE_PLATFORMS=<linux/amd64 and/or
 # linux/arm64> (default linux/amd64), nanolinter-image= and
 # megalinter-image=<reference>. The lifecycle runs the consumer's
-# pullrequest.yml, release-dev.yml and release.yml fixtures in one repository.
+# pullrequest-workflow.yml, release-snapshot-workflow.yml and release-workflow.yml fixtures in one repository.
 # docs/live-runs.md, Trying a consumer on GitHub, has the prerequisites.
 [arg('repo', help='Absolute path to a clean consumer checkout, for example /absolute/myapp')]
 [arg('forge', help='forgejo, gitlab or github')]

@@ -14,11 +14,11 @@ versioned binaries first and assembles images from them in separate native jobs.
   `check` and `build-go`. No component builds the image: in a release the
   policy project's `build` commands do. See the
   [GitLab guide](../../docs/gitlab.md#getting-started).
-- **Forgejo**: [`forgejo/pullrequest.yml`](forgejo/pullrequest.yml) and
-  [`forgejo/release.yml`](forgejo/release.yml), the service binaries and one
+- **Forgejo**: [`forgejo/pullrequest-workflow.yml`](forgejo/pullrequest-workflow.yml) and
+  [`forgejo/release-workflow.yml`](forgejo/release-workflow.yml), the service binaries and one
   image from [`forgejo/Containerfile.example`](forgejo/Containerfile.example)
   using the prebuilt binaries and `release-images.yml`.
-  [`forgejo/snapshot.yml`](forgejo/snapshot.yml) builds a container-only
+  [`forgejo/release-snapshot-workflow.yml`](forgejo/release-snapshot-workflow.yml) builds a container-only
   snapshot on every push to `main`, or when run by hand. Commit `mise.lock`
   for the runner platforms to use the locked toolchain setup. Images default
   to linux/amd64; arm64 requires a native runner and

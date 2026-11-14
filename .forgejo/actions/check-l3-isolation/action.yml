@@ -9,7 +9,7 @@ inputs:
   workflow:
     description: Release workflow path.
     required: false
-    default: .forgejo/workflows/release.yml
+    default: .forgejo/workflows/release-workflow.yml
   build-job:
     description: Dist-producing job that must hold no signing keys (e.g. build-and-release, dist).
     required: false

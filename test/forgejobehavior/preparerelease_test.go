@@ -55,7 +55,7 @@ func TestPrepareReleaseInputWiring(t *testing.T) {
 
 	var workflow, template prepareReleaseWorkflow
 	loadYAML(t, ".forgejo/workflows/prepare-release.yml", &workflow)
-	loadYAML(t, "examples/go-cli/forgejo/release.yml", &template)
+	loadYAML(t, "examples/go-cli/forgejo/release-workflow.yml", &template)
 
 	workflowInputs := workflow.On.WorkflowCall.Inputs
 	if len(workflowInputs) == 0 {

@@ -10,8 +10,8 @@ Gradle JVM build example. For Android applications, see [examples/android-app](.
 - **GitLab**: [`gitlab/.gitlab-ci.yml`](gitlab/.gitlab-ci.yml), the lint gate,
   `check` and `build-gradle`. See the
   [GitLab guide](../../docs/gitlab.md#getting-started).
-- **Forgejo**: [`forgejo/pullrequest.yml`](forgejo/pullrequest.yml) and
-  [`forgejo/release.yml`](forgejo/release.yml). The layer has no Gradle
+- **Forgejo**: [`forgejo/pullrequest-workflow.yml`](forgejo/pullrequest-workflow.yml) and
+  [`forgejo/release-workflow.yml`](forgejo/release-workflow.yml). The layer has no Gradle
   action, so the release's build job runs `forge-ci build gradle run`
   itself; the release plan's bump writes the release version into
   `gradle.properties`. See the [Forgejo guide](../../docs/forgejo.md).

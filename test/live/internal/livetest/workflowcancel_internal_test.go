@@ -26,14 +26,14 @@ func TestWorkflowWaitFatalFailureStillSettlesTheObservedRun(t *testing.T) {
 
 		switch request.Method + " " + request.URL.Path {
 		case "GET /api/v1/repos/fixture/fci-owned/actions/runs":
-			_, _ = io.WriteString(response, `{"workflow_runs":[{"id":42,"workflow_id":"release.yml","event":"push","trigger_event":"push","status":"running"}]}`)
+			_, _ = io.WriteString(response, `{"workflow_runs":[{"id":42,"workflow_id":"release-workflow.yml","event":"push","trigger_event":"push","status":"running"}]}`)
 		case "GET /api/v1/repos/fixture/fci-owned/actions/runs/42":
 			status := "running"
 			if cancellations.Load() == 2 {
 				status = "cancelled"
 			}
 
-			_, _ = io.WriteString(response, `{"id":42,"workflow_id":"release.yml","event":"push","status":"`+status+`"}`)
+			_, _ = io.WriteString(response, `{"id":42,"workflow_id":"release-workflow.yml","event":"push","status":"`+status+`"}`)
 		case "GET /api/v1/repos/fixture/fci-owned/actions/runs/42/jobs":
 			_, _ = io.WriteString(response, `[{"id":7,"run_id":42,"name":"prepare","status":"success"}]`)
 		case "POST /api/v1/repos/fixture/fci-owned/actions/runs/42/cancel":
@@ -73,7 +73,7 @@ func TestWorkflowWaitFatalFailureStillSettlesTheObservedRun(t *testing.T) {
 			}
 		}()
 
-		waitForRunOf(stopOnFatalTB{TB: t}, target, "fci-owned", "release.yml", "push", time.Minute, "prepare", 0)
+		waitForRunOf(stopOnFatalTB{TB: t}, target, "fci-owned", "release-workflow.yml", "push", time.Minute, "prepare", 0)
 		t.Error("refused cancellation returned a normal workflow conclusion")
 	}()
 
@@ -149,7 +149,7 @@ func TestWorkflowWaitFailsARunWhoseJobsAreAllBlockedOrOver(t *testing.T) {
 
 func TestObservedWorkflowCancellationWaitsForJobsAndUsesOnlyObservedID(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		observed := WorkflowRun{ID: 226, WorkflowID: "release.yml", Event: "push", Status: "running"}
+		observed := WorkflowRun{ID: 226, WorkflowID: "release-workflow.yml", Event: "push", Status: "running"}
 		cancelled, polls := false, 0
 		check := func(id int64) {
 			if id != observed.ID {
@@ -195,7 +195,7 @@ func TestObservedWorkflowCancellationWaitsForJobsAndUsesOnlyObservedID(t *testin
 
 func TestObservedWorkflowCancellationRefusesIdentityDriftAndSkipsTerminalMutation(t *testing.T) {
 	for _, drift := range []bool{false, true} {
-		observed := WorkflowRun{ID: 226, WorkflowID: "release.yml", Event: "push"}
+		observed := WorkflowRun{ID: 226, WorkflowID: "release-workflow.yml", Event: "push"}
 
 		err := stopObservedWorkflowRun(t.Context(), observed, 0,
 			func(context.Context, int64) (WorkflowRun, error) {
@@ -225,7 +225,7 @@ func TestObservedWorkflowCancellationHasBoundedTerminalObservation(t *testing.T)
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		defer cancel()
 
-		observed := WorkflowRun{ID: 226, WorkflowID: "release.yml", Event: "push", Status: "running"}
+		observed := WorkflowRun{ID: 226, WorkflowID: "release-workflow.yml", Event: "push", Status: "running"}
 		calls := 0
 
 		err := stopObservedWorkflowRun(ctx, observed, 0,
@@ -243,7 +243,7 @@ func TestObservedWorkflowCancellationHasBoundedTerminalObservation(t *testing.T)
 }
 
 func TestObservedWorkflowFailureSettlesIndependentJobWithoutChangingPrimaryConclusion(t *testing.T) {
-	observed := WorkflowRun{ID: 228, WorkflowID: "release.yml", Event: "push", Status: "failure"}
+	observed := WorkflowRun{ID: 228, WorkflowID: "release-workflow.yml", Event: "push", Status: "failure"}
 	cancelled, observations := 0, 0
 
 	err := stopObservedWorkflowRun(t.Context(), observed, 0,
@@ -282,7 +282,7 @@ func TestObservedWorkflowFailureSettlesIndependentJobWithoutChangingPrimaryConcl
 // report; giving up there left run 436 building after its repository went.
 func TestObservedWorkflowCancellationAsksAgainWhenTheForgeFailsToAnswer(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		observed := WorkflowRun{ID: 436, WorkflowID: "release.yml", Event: "release", Status: "failure"}
+		observed := WorkflowRun{ID: 436, WorkflowID: "release-workflow.yml", Event: "release", Status: "failure"}
 		attempts, cancelled := 0, false
 
 		err := stopObservedWorkflowRun(t.Context(), observed, 0,
@@ -312,7 +312,7 @@ func TestObservedWorkflowCancellationAsksAgainWhenTheForgeFailsToAnswer(t *testi
 }
 
 func TestObservedWorkflowCancellationKeepsAClientRefusalFinal(t *testing.T) {
-	observed := WorkflowRun{ID: 436, WorkflowID: "release.yml", Event: "release", Status: "running"}
+	observed := WorkflowRun{ID: 436, WorkflowID: "release-workflow.yml", Event: "release", Status: "running"}
 	attempts := 0
 
 	err := stopObservedWorkflowRun(t.Context(), observed, 0,
@@ -336,7 +336,7 @@ func TestObservedWorkflowCancellationKeepsAClientRefusalFinal(t *testing.T) {
 func TestObservedWorkflowCancellationDrainsOnlyAfterItCancelled(t *testing.T) {
 	for _, running := range []bool{true, false} {
 		synctest.Test(t, func(t *testing.T) {
-			observed := WorkflowRun{ID: 436, WorkflowID: "release.yml", Event: "release", Status: "failure"}
+			observed := WorkflowRun{ID: 436, WorkflowID: "release-workflow.yml", Event: "release", Status: "failure"}
 			cancelled := false
 			start := time.Now()
 
@@ -368,14 +368,14 @@ func TestObservedWorkflowCancellationDrainsOnlyAfterItCancelled(t *testing.T) {
 // the run then settles at the next poll and the runner still needs the drain.
 func TestObservedWorkflowCancellationDrainsAfterAnUnansweredCancel(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		observed := WorkflowRun{ID: 436, WorkflowID: "release.yml", Event: "release", Status: "running"}
+		observed := WorkflowRun{ID: 436, WorkflowID: "release-workflow.yml", Event: "release", Status: "running"}
 		applied := false
 		start := time.Now()
 
 		err := stopObservedWorkflowRun(t.Context(), observed, time.Minute,
 			func(context.Context, int64) (WorkflowRun, error) {
 				if applied {
-					return WorkflowRun{ID: 436, WorkflowID: "release.yml", Event: "release", Status: "cancelled"}, nil
+					return WorkflowRun{ID: 436, WorkflowID: "release-workflow.yml", Event: "release", Status: "cancelled"}, nil
 				}
 
 				return observed, nil

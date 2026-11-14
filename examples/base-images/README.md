@@ -20,7 +20,7 @@ rules are in the [Forgejo](../../docs/forgejo.md#base-images) and
 | `artifacts.yml` | `.forge-ci/artifacts.yml` |
 | `base-plan.sh` | `base-plan.sh` |
 | `images/` | `images/` |
-| `forgejo/release.yml` | `.forgejo/workflows/release.yml` |
+| `forgejo/release-workflow.yml` | `.forgejo/workflows/release-workflow.yml` |
 | `gitlab/.gitlab-ci.yml` | `.gitlab-ci.yml` |
 | `gitlab/check-release.sh`, `gitlab/build-release.sh` | `.gitlab/` |
 | `nanolinter.toml` | `nanolinter.toml` |

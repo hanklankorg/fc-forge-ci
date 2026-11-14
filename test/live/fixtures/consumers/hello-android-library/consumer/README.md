@@ -34,7 +34,7 @@ exports it to a directory (`forge-ci build gradle export-publications
 `publish-to: [forge-packages]` in `.forge-ci/artifacts.yml` asks.
 
 On GitHub a signed `release-request/vX.Y.Z` tag starts the release
-(`test/live/github/workflows/release.yml`): the orchestrator bumps the
+(`test/live/github/workflows/release-workflow.yml`): the orchestrator bumps the
 version, builds the AAR in the Android runtime image, publishes the exported
 publication to GitHub Packages in the Java runtime image and signs the
 release with GPG, which writes to no transparency log. The build uploads the

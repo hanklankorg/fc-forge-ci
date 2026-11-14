@@ -325,7 +325,7 @@ const fixturePullRequest = `jobs:
 func TestRenderGitHubConsumer_PinsTheEngineUnderTest(t *testing.T) {
 	t.Parallel()
 
-	got, _, err := RenderGitHubConsumer("pullrequest.yml", fixturePullRequest, trialEngine, nil)
+	got, _, err := RenderGitHubConsumer("pullrequest-workflow.yml", fixturePullRequest, trialEngine, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +357,7 @@ func TestRenderGitHubConsumer_OwnWorkflowCalls(t *testing.T) {
 
 	own := fixturePullRequest + "  own-tests:\n    uses: ./.github/workflows/test.yml\n"
 
-	got, _, err := RenderGitHubConsumer("pullrequest.yml", own, trialEngine, nil)
+	got, _, err := RenderGitHubConsumer("pullrequest-workflow.yml", own, trialEngine, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +367,7 @@ func TestRenderGitHubConsumer_OwnWorkflowCalls(t *testing.T) {
 	}
 
 	other := fixturePullRequest + "  own-tests:\n    uses: someone/other/.github/workflows/test.yml@v1\n"
-	if _, _, err := RenderGitHubConsumer("pullrequest.yml", other, trialEngine, nil); !errors.Is(err, errs.ErrValidation) {
+	if _, _, err := RenderGitHubConsumer("pullrequest-workflow.yml", other, trialEngine, nil); !errors.Is(err, errs.ErrValidation) {
 		t.Errorf("a call of another repository's workflow: got %v, want a validation error", err)
 	}
 }
@@ -392,7 +392,7 @@ func TestRenderGitHubConsumer_CargoLintImageOverride(t *testing.T) {
       nanolinter-image: codefloe.com/itiquette/nanolinter:go
 `
 
-	unchanged, applied, err := RenderGitHubConsumer("pullrequest.yml", fixture, trialEngine, nil)
+	unchanged, applied, err := RenderGitHubConsumer("pullrequest-workflow.yml", fixture, trialEngine, nil)
 	if err != nil || len(applied) != 0 || !strings.Contains(unchanged, "nanolinter-image: codefloe.com/itiquette/nanolinter:go") {
 		t.Fatalf("explicit fixture image was not preserved: applied=%q, err=%v\n%s", applied, err, unchanged)
 	}
@@ -404,7 +404,7 @@ func TestRenderGitHubConsumer_CargoLintImageOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rendered, applied, err := RenderGitHubConsumer("pullrequest.yml", fixture, trialEngine, settings.Overrides)
+	rendered, applied, err := RenderGitHubConsumer("pullrequest-workflow.yml", fixture, trialEngine, settings.Overrides)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +429,7 @@ func TestRenderGitHubConsumer_Overrides(t *testing.T) {
 
 	const input = "nanolinter-image"
 
-	got, applied, err := RenderGitHubConsumer("pullrequest.yml", fixturePullRequest, trialEngine, map[string]string{input: mirror})
+	got, applied, err := RenderGitHubConsumer("pullrequest-workflow.yml", fixturePullRequest, trialEngine, map[string]string{input: mirror})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -442,7 +442,7 @@ func TestRenderGitHubConsumer_Overrides(t *testing.T) {
 		t.Errorf("override not applied in place:\n%s", got)
 	}
 
-	unchanged, applied, err := RenderGitHubConsumer("pullrequest.yml", fixturePullRequest, trialEngine, map[string]string{"megalinter-image": "x"})
+	unchanged, applied, err := RenderGitHubConsumer("pullrequest-workflow.yml", fixturePullRequest, trialEngine, map[string]string{"megalinter-image": "x"})
 	if err != nil || len(applied) != 0 || strings.Contains(unchanged, "megalinter-image") {
 		t.Errorf("override of an absent input: applied %q, err %v; want nothing applied and no error", applied, err)
 	}
@@ -454,11 +454,11 @@ func TestRenderGitHubConsumer_RefusesWhatItCannotPin(t *testing.T) {
 	t.Parallel()
 
 	foreign := "jobs:\n  x:\n    uses: someone/forge-ci/.github/workflows/release-orchestrator.yml@main\n"
-	if _, _, err := RenderGitHubConsumer("release.yml", foreign, trialEngine, nil); !errors.Is(err, errs.ErrValidation) {
+	if _, _, err := RenderGitHubConsumer("release-workflow.yml", foreign, trialEngine, nil); !errors.Is(err, errs.ErrValidation) {
 		t.Errorf("foreign engine: err = %v, want a validation error", err)
 	}
 
-	if _, _, err := RenderGitHubConsumer("release.yml", fixturePullRequest, GitHubEngine{Owner: "o", Repository: "r", Commit: "abc"}, nil); !errors.Is(err, errs.ErrValidation) {
+	if _, _, err := RenderGitHubConsumer("release-workflow.yml", fixturePullRequest, GitHubEngine{Owner: "o", Repository: "r", Commit: "abc"}, nil); !errors.Is(err, errs.ErrValidation) {
 		t.Errorf("short commit: err = %v, want a validation error", err)
 	}
 }
@@ -473,8 +473,8 @@ func TestKeylessIdentityRegexp(t *testing.T) {
 	for subject, want := range map[string]bool{
 		"https://github.com/Example-Org/fc-forge-ci/.github/workflows/release-create-github.yml@refs/heads/main":   true,
 		"https://github.com/Example-Org/fc-forge-ci/.github/workflows/publish-container.yml@" + trialEngine.Commit: true,
-		"https://github.com/Example-Org/fc-forge-ciX/.github/workflows/release.yml@refs/heads/main":                false,
-		"https://github.com/other/fc-forge-ci/.github/workflows/release.yml@refs/heads/main":                       false,
+		"https://github.com/Example-Org/fc-forge-ciX/.github/workflows/release-workflow.yml@refs/heads/main":                false,
+		"https://github.com/other/fc-forge-ci/.github/workflows/release-workflow.yml@refs/heads/main":                       false,
 	} {
 		if got := identity.MatchString(subject); got != want {
 			t.Errorf("identity matches %s = %v, want %v", subject, got, want)
@@ -534,17 +534,17 @@ func TestRequireGitHubLintImage(t *testing.T) {
 
 	workflow := "      lint-engine: nanolinter\n      nanolinter-image: codefloe.com/itiquette/nanolinter:go@sha256:" + strings.Repeat("0", 64) + "\n"
 
-	err := RequireGitHubLintImage("pullrequest.yml", workflow, nil)
+	err := RequireGitHubLintImage("pullrequest-workflow.yml", workflow, nil)
 	if !errors.Is(err, errs.ErrValidation) || !strings.Contains(err.Error(), "pass nanolinter-image=") {
 		t.Fatalf("a placeholder lint image: %v", err)
 	}
 
 	pinned := map[string]string{"nanolinter-image": "ghcr.io/o/nanolinter@sha256:" + strings.Repeat("d", 64)}
-	if err := RequireGitHubLintImage("pullrequest.yml", workflow, pinned); err != nil {
+	if err := RequireGitHubLintImage("pullrequest-workflow.yml", workflow, pinned); err != nil {
 		t.Fatalf("an overridden lint image: %v", err)
 	}
 
-	for event, want := range map[string]string{TrialPullRequest: "pullrequest.yml", TrialLifecycle: "pullrequest.yml", TrialRelease: "", TrialDevRelease: ""} {
+	for event, want := range map[string]string{TrialPullRequest: "pullrequest-workflow.yml", TrialLifecycle: "pullrequest-workflow.yml", TrialRelease: "", TrialDevRelease: ""} {
 		settings, err := ParseGitHubTrialSettings(event, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -566,15 +566,15 @@ func TestParseGitHubTrialSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if release.Workflow != "release.yml" || release.Version != "v1.2.3" || release.Image != "hello-cli" ||
+	if release.Workflow != "release-workflow.yml" || release.Version != "v1.2.3" || release.Image != "hello-cli" ||
 		release.Fixtures != "tests/live/github" || release.Overrides["nanolinter-image"] != pinned {
 		t.Errorf("release settings = %+v", release)
 	}
 
-	// A demo's pull request is judged by pullrequest.yml unless the release
+	// A demo's pull request is judged by pullrequest-workflow.yml unless the release
 	// names another workflow; no other event takes the setting.
 	demo, err := ParseGitHubTrialSettings(TrialRelease, []string{"pull-request-workflow=pull-request-workflow.yml"})
-	if err != nil || release.DemoPullRequest != "pullrequest.yml" || demo.DemoPullRequest != "pull-request-workflow.yml" {
+	if err != nil || release.DemoPullRequest != "pullrequest-workflow.yml" || demo.DemoPullRequest != "pull-request-workflow.yml" {
 		t.Errorf("demo pull request workflow = %q and %q, %v", release.DemoPullRequest, demo.DemoPullRequest, err)
 	}
 
@@ -589,7 +589,7 @@ func TestParseGitHubTrialSettings(t *testing.T) {
 	}
 
 	pr, err := ParseGitHubTrialSettings(TrialPullRequest, nil)
-	if err != nil || pr.Workflow != "pullrequest.yml" || pr.Version != "" || pr.Platforms != "linux/amd64" {
+	if err != nil || pr.Workflow != "pullrequest-workflow.yml" || pr.Version != "" || pr.Platforms != "linux/amd64" {
 		t.Errorf("pull-request defaults = %+v, %v", pr, err)
 	}
 
@@ -666,7 +666,7 @@ func TestParseGitHubTrialSettings_DevelopmentRelease(t *testing.T) {
 	t.Parallel()
 
 	settings, err := ParseGitHubTrialSettings(TrialDevRelease, nil)
-	if err != nil || settings.Workflow != "release-dev.yml" || settings.Version != "" || settings.Image != "" {
+	if err != nil || settings.Workflow != "release-snapshot-workflow.yml" || settings.Version != "" || settings.Image != "" {
 		t.Fatalf("development settings = %+v, %v", settings, err)
 	}
 
@@ -683,7 +683,7 @@ func TestParseGitHubTrialSettings_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	settings, err := ParseGitHubTrialSettings(TrialLifecycle, []string{"version=0.2.0", "image=app"})
-	if err != nil || settings.Workflow != "release.yml" || settings.Version != "v0.2.0" || settings.Image != "app" {
+	if err != nil || settings.Workflow != "release-workflow.yml" || settings.Version != "v0.2.0" || settings.Image != "app" {
 		t.Fatalf("lifecycle settings = %+v, %v", settings, err)
 	}
 
@@ -740,26 +740,26 @@ func TestRenderGitHubConsumer_RequiresTheRuntimeImageOfAnOrchestratorCall(t *tes
 	engine := GitHubEngine{Owner: "org", Repository: "fc-forge-ci", Commit: strings.Repeat("a", 40)}
 	call := "jobs:\n  release:\n    uses: diggsweden/forge-ci/.github/workflows/release-orchestrator.yml@v0.90.0\n    with:\n      branch: main\n"
 
-	if _, _, err := RenderGitHubConsumer("release.yml", call, engine, nil); !errors.Is(err, errs.ErrValidation) ||
+	if _, _, err := RenderGitHubConsumer("release-workflow.yml", call, engine, nil); !errors.Is(err, errs.ErrValidation) ||
 		!strings.Contains(err.Error(), "runtime-image") {
 		t.Fatalf("RenderGitHubConsumer() = %v, want the missing runtime-image named", err)
 	}
 
 	withImage := call + "      runtime-image: ghcr.io/diggsweden/forge-ci-runtime-base:v0.90.0\n"
-	if _, _, err := RenderGitHubConsumer("release.yml", withImage, engine, nil); !errors.Is(err, errs.ErrValidation) ||
+	if _, _, err := RenderGitHubConsumer("release-workflow.yml", withImage, engine, nil); !errors.Is(err, errs.ErrValidation) ||
 		!strings.Contains(err.Error(), "canonical-builder-image") {
 		t.Fatalf("RenderGitHubConsumer() = %v, want the missing canonical-builder-image named", err)
 	}
 
 	withBuilder := withImage + "      canonical-builder-image: ghcr.io/diggsweden/forge-ci-runtime-go-1.27@sha256:" + strings.Repeat("0", 64) + "\n"
-	if _, _, err := RenderGitHubConsumer("release.yml", withBuilder, engine, nil); !errors.Is(err, errs.ErrValidation) ||
+	if _, _, err := RenderGitHubConsumer("release-workflow.yml", withBuilder, engine, nil); !errors.Is(err, errs.ErrValidation) ||
 		!strings.Contains(err.Error(), "digest") {
 		t.Fatalf("RenderGitHubConsumer() = %v, want a refusal while the engine knows no digests", err)
 	}
 
 	engine.Digests = map[string]string{"forge-ci-runtime-base": "sha256:" + strings.Repeat("b", 64), "forge-ci-runtime-go-1.27": "sha256:" + strings.Repeat("c", 64)}
 
-	rendered, _, err := RenderGitHubConsumer("release.yml", withBuilder, engine, nil)
+	rendered, _, err := RenderGitHubConsumer("release-workflow.yml", withBuilder, engine, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -797,7 +797,7 @@ func TestRenderGitHubConsumer_ReleaseCallPinsTheEngineCommitAndDigests(t *testin
 		"",
 	}, "\n")
 
-	rendered, _, err := RenderGitHubConsumer("release.yml", fixture, engine, nil)
+	rendered, _, err := RenderGitHubConsumer("release-workflow.yml", fixture, engine, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -820,7 +820,7 @@ func TestRenderGitHubConsumer_ReleaseCallPinsTheEngineCommitAndDigests(t *testin
 
 	delete(engine.Digests, "forge-ci-runtime")
 
-	if _, _, err := RenderGitHubConsumer("release.yml", fixture, engine, nil); !errors.Is(err, errs.ErrValidation) ||
+	if _, _, err := RenderGitHubConsumer("release-workflow.yml", fixture, engine, nil); !errors.Is(err, errs.ErrValidation) ||
 		!strings.Contains(err.Error(), "forge-ci-runtime,") {
 		t.Errorf("an image the engine published no digest for must be refused, got %v", err)
 	}
@@ -833,7 +833,7 @@ func TestRenderGitHubConsumer_AcceptsAnyFixtureOwner(t *testing.T) {
 
 	fixture := strings.NewReplacer("diggsweden/forge-ci", "OWNER/forge-ci", "ghcr.io/diggsweden/", "ghcr.io/OWNER/").Replace(fixturePullRequest)
 
-	got, _, err := RenderGitHubConsumer("pullrequest.yml", fixture, trialEngine, nil)
+	got, _, err := RenderGitHubConsumer("pullrequest-workflow.yml", fixture, trialEngine, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

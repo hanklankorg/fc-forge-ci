@@ -135,7 +135,7 @@ func TestConsumerTemplatesPassReleaseIsolation(t *testing.T) {
 
 	got := box.run(script,
 		"FORGE_CI_BIN="+forgeCIEngine(t), "GITHUB_ACTION_REPOSITORY=fork/delivery-0a1b",
-		"ISOLATION_WORKFLOW=consumer/.forgejo/workflows/release.yml",
+		"ISOLATION_WORKFLOW=consumer/.forgejo/workflows/release-workflow.yml",
 		"ISOLATION_BUILD_JOB=build", "ISOLATION_SIGN_JOB=sign-and-publish", "ISOLATION_PREPARE_JOB=prepare",
 		"ISOLATION_DIST_DIGEST_OUTPUT=dist-digest", "ISOLATION_SIGNING_SECRETS="+fmt.Sprint(action.Inputs["signing-secrets"].Default))
 	if got.status != 0 {
@@ -151,11 +151,11 @@ func TestConsumerTemplatesPassReleaseIsolation(t *testing.T) {
 	// names another commit is refused.
 	drifted := strings.Replace(instantiate.Replace(string(reporoot.ReadFile(t, consumerTemplates()[0]))),
 		"forge-ci-sha: "+pin, "forge-ci-sha: "+strings.Repeat("f", 40), 1)
-	box.write("consumer/.forgejo/workflows/release.yml", drifted, 0o600)
+	box.write("consumer/.forgejo/workflows/release-workflow.yml", drifted, 0o600)
 
 	refused := box.run(script,
 		"FORGE_CI_BIN="+forgeCIEngine(t), "GITHUB_ACTION_REPOSITORY=fork/delivery-0a1b",
-		"ISOLATION_WORKFLOW=consumer/.forgejo/workflows/release.yml",
+		"ISOLATION_WORKFLOW=consumer/.forgejo/workflows/release-workflow.yml",
 		"ISOLATION_BUILD_JOB=build", "ISOLATION_SIGN_JOB=sign-and-publish", "ISOLATION_PREPARE_JOB=prepare",
 		"ISOLATION_DIST_DIGEST_OUTPUT=dist-digest", "ISOLATION_SIGNING_SECRETS="+fmt.Sprint(action.Inputs["signing-secrets"].Default))
 	if refused.status == 0 || !strings.Contains(refused.stdout+refused.stderr, "mixed fork/delivery-0a1b pins") {
@@ -178,11 +178,11 @@ func TestConsumerTemplatesPassReleaseIsolation(t *testing.T) {
 			"passes signer-image to fork/delivery-0a1b as a value that is an expression",
 		},
 	} {
-		box.write("consumer/.forgejo/workflows/release.yml", kit.workflow, 0o600)
+		box.write("consumer/.forgejo/workflows/release-workflow.yml", kit.workflow, 0o600)
 
 		refused := box.run(script,
 			"FORGE_CI_BIN="+forgeCIEngine(t), "GITHUB_ACTION_REPOSITORY=fork/delivery-0a1b",
-			"ISOLATION_WORKFLOW=consumer/.forgejo/workflows/release.yml",
+			"ISOLATION_WORKFLOW=consumer/.forgejo/workflows/release-workflow.yml",
 			"ISOLATION_BUILD_JOB=build", "ISOLATION_SIGN_JOB=sign-and-publish", "ISOLATION_PREPARE_JOB=prepare",
 			"ISOLATION_DIST_DIGEST_OUTPUT=dist-digest", "ISOLATION_SIGNING_SECRETS="+fmt.Sprint(action.Inputs["signing-secrets"].Default))
 		if refused.status == 0 || !strings.Contains(refused.stdout+refused.stderr, kit.want) {

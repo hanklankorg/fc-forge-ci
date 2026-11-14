@@ -4,7 +4,7 @@
 # Draft variant of the release: release.draft keeps the GitHub release a
 # draft, which GitHub offers under no tag address, so the release must be
 # found in the release list and its signed final tag must still exist.
-# Everything else is release.yml's: nothing is built and main stays where it
+# Everything else is release-workflow.yml's: nothing is built and main stays where it
 # was.
 name: Release as a draft
 

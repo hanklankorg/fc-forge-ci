@@ -102,7 +102,7 @@ EOF
     workflow=${workflow//BUMP_IMAGE/\'\'}
     workflow=${workflow//IS_GO/true}
   fi
-  printf '%s\n' "${workflow}" | stage .forgejo/workflows/release.yml
+  printf '%s\n' "${workflow}" | stage .forgejo/workflows/release-workflow.yml
 fi
 tree=$(git -C "${destination}" write-tree)
 commit=$(printf 'test: disposable generic CLI release adapter\n' |

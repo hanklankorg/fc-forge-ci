@@ -128,7 +128,7 @@ func TestAffectedRowsAreNarrowedByTheTable(t *testing.T) {
 		{"the snapshot script GitLab reads too", forgeGitLab, []string{".forgejo/bin/snapshot-images.sh"}, snapshot, nil},
 		{"a demo, and the scenarios that run on it", forgeForgejo, []string{demosDir + "/hello-go-cli/consumer/go.mod"}, goCLI,
 			[]string{"TestForgejoRelease_InterruptedRecovery", "TestForgejoRelease_RejectsPreseededProvenance", forgejoRerunTest}},
-		{"two changes", forgeForgejo, []string{"examples/go-cli/forgejo/release.yml", ".forgejo/bin/snapshot-images.sh"},
+		{"two changes", forgeForgejo, []string{"examples/go-cli/forgejo/release-workflow.yml", ".forgejo/bin/snapshot-images.sh"},
 			func(c PreparedCase) bool { return goCLI(c) || snapshot(c) },
 			[]string{"TestForgejoRelease_InterruptedRecovery", "TestForgejoRelease_RejectsPreseededProvenance", forgejoRerunTest}},
 	} {

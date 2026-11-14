@@ -89,7 +89,7 @@ func exampleDemoFiles(example string) map[string]string {
 			".forge-ci/artifacts.yml":                path.Join(dir, "artifacts.yml"),
 			".forge-ci/gitcliff/keepachangelog.toml": "templates/gitcliff/keepachangelog.toml",
 			".forge-ci/gitcliff/minimal.toml":        "templates/gitcliff/minimal.toml",
-			".forgejo/workflows/release.yml":         path.Join(dir, "forgejo/release.yml"),
+			".forgejo/workflows/release-workflow.yml":         path.Join(dir, "forgejo/release-workflow.yml"),
 			GitLabGateFile:                           path.Join(dir, "gitlab/.gitlab-ci.yml"),
 			"nanolinter.toml":                        path.Join(dir, "nanolinter.toml"),
 			".gitlab/check-release.sh":               path.Join(dir, "gitlab/check-release.sh"),
@@ -110,11 +110,11 @@ func exampleDemoFiles(example string) map[string]string {
 		"nanolinter.toml":                        path.Join(dir, "nanolinter.toml"),
 	}
 
-	files[".forgejo/workflows/pullrequest.yml"] = path.Join(dir, "forgejo/pullrequest.yml")
-	files[".forgejo/workflows/release.yml"] = path.Join(dir, "forgejo/release.yml")
+	files[".forgejo/workflows/pullrequest-workflow.yml"] = path.Join(dir, "forgejo/pullrequest-workflow.yml")
+	files[".forgejo/workflows/release-workflow.yml"] = path.Join(dir, "forgejo/release-workflow.yml")
 
-	files[githubDemoWorkflows+"/pullrequest.yml"] = path.Join(dir, "github/pullrequest-workflow.yml")
-	files[githubDemoWorkflows+"/release.yml"] = path.Join(dir, "github/release-workflow.yml")
+	files[githubDemoWorkflows+"/pullrequest-workflow.yml"] = path.Join(dir, "github/pullrequest-workflow.yml")
+	files[githubDemoWorkflows+"/release-workflow.yml"] = path.Join(dir, "github/release-workflow.yml")
 
 	// The monorepo's GitLab release is a policy's, as the base-image graph's:
 	// the example holds the two commands that policy names.
@@ -134,7 +134,7 @@ func exampleDemoFiles(example string) map[string]string {
 		// to, because a second release workflow would run on the same tag.
 		// The trial stages them over the root (WithForgejoFixtures). The
 		// locked mise tools beside them are the demo's own.
-		files[ForgejoPackagesFixtures+"/.forgejo/workflows/release.yml"] = path.Join(dir, "forgejo/release-goreleaser.yml")
+		files[ForgejoPackagesFixtures+"/.forgejo/workflows/release-workflow.yml"] = path.Join(dir, "forgejo/release-goreleaser.yml")
 		files[ForgejoPackagesFixtures+"/.forge-ci/artifacts.yml"] = path.Join(dir, "artifacts-forgejo-packages.yml")
 		files[ForgejoPackagesFixtures+"/.goreleaser.yml"] = path.Join(dir, ".goreleaser.yml")
 	}
@@ -212,8 +212,8 @@ func TestExampleDemosServeEveryForgeTheirExampleDoes(t *testing.T) {
 
 	root := reporoot.Path(t)
 	forges := map[string]string{
-		"github/pullrequest-workflow.yml": githubDemoWorkflows + "/pullrequest.yml",
-		"forgejo/pullrequest.yml":         ".forgejo/workflows/pullrequest.yml",
+		"github/pullrequest-workflow.yml": githubDemoWorkflows + "/pullrequest-workflow.yml",
+		"forgejo/pullrequest-workflow.yml":         ".forgejo/workflows/pullrequest-workflow.yml",
 		"gitlab/.gitlab-ci.yml":           GitLabGateFile,
 	}
 

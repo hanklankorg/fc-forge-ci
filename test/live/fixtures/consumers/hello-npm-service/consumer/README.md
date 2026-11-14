@@ -16,7 +16,7 @@ registry (`publish-to: [forge-packages]` in `.forge-ci/artifacts.yml`), and
 the signed image. On GitHub the release orchestrator publishes the package to
 GitHub Packages, which takes it only under the owner's scope: name it
 `@<owner>/hello-npm-service`. On Forgejo the last job of
-`.forgejo/workflows/release.yml` publishes the released tarball with
+`.forgejo/workflows/release-workflow.yml` publishes the released tarball with
 `forge-ci publish forge-packages deploy`, using `RELEASE_REGISTRY_TOKEN`, a
 token that may write the owner's packages. On GitLab the release policy's
 `Publish: npm packages` job publishes the released tarball to the project's

@@ -20,8 +20,8 @@ One directory per ecosystem, shared by all three forges. Each holds the
 forge-neutral `artifacts.yml`, a `nanolinter.toml` verify plan for the lint
 gate, a README with a short "Per forge" list, and a subdirectory per forge
 that builds it: `github/` with the caller workflows,
-`gitlab/.gitlab-ci.yml`, and `forgejo/pullrequest.yml` with
-`forgejo/release.yml` and, where offered, `forgejo/snapshot.yml`. A forge
+`gitlab/.gitlab-ci.yml`, and `forgejo/pullrequest-workflow.yml` with
+`forgejo/release-workflow.yml` and, where offered, `forgejo/release-snapshot-workflow.yml`. A forge
 without a directory cannot build that ecosystem; [Delivery layers side by side](../docs/providers.md#delivery-layers-side-by-side)
 has the capability table.
 

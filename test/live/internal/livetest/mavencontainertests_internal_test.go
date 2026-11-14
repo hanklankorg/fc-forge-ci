@@ -15,7 +15,7 @@ import (
 )
 
 func TestMavenContainerTestsStayInTheKeyFreeBuildJob(t *testing.T) {
-	body, err := os.ReadFile(filepath.Join(reporoot.Path(t), "test/live/fixtures/consumers/hello-maven/consumer/.forgejo/workflows/release.yml"))
+	body, err := os.ReadFile(filepath.Join(reporoot.Path(t), "test/live/fixtures/consumers/hello-maven/consumer/.forgejo/workflows/release-workflow.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -69,7 +69,7 @@ func TestOriginalReviewerGPGExpressionCannotBypassRootBinding(t *testing.T) {
 			root, git := gpgProfileTestSource(t)
 			profile := "test/live/github/workflows/"
 
-			body, err := os.ReadFile(filepath.Join(root, profile, "release.yml"))
+			body, err := os.ReadFile(filepath.Join(root, profile, "release-workflow.yml"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -84,7 +84,7 @@ func TestOriginalReviewerGPGExpressionCannotBypassRootBinding(t *testing.T) {
 				body = []byte(strings.Replace(string(body), ".forge-ci/artifacts.yml", expression, 1))
 			}
 
-			stageTestWrite(t, root, profile+"release.yml", string(body), 0644)
+			stageTestWrite(t, root, profile+"release-workflow.yml", string(body), 0644)
 			stageTestWrite(t, root, profile+"second-release.yml", string(body), 0644)
 			stageTestCommit(t, git, root)
 
@@ -98,7 +98,7 @@ func TestOriginalReviewerGPGExpressionCannotBypassRootBinding(t *testing.T) {
 
 			// Both actual committed source writers still exist with the original
 			// request-tag trigger, regardless of whether the expression is raw.
-			for _, workflow := range []string{"release.yml", "second-release.yml"} {
+			for _, workflow := range []string{"release-workflow.yml", "second-release.yml"} {
 				text, err := git.run(t.Context(), root, "show", "HEAD:"+profile+workflow)
 				if err != nil || !strings.Contains(text, `"release-request/v*"`) {
 					t.Fatal("second-writer native fixture premise was lost")
@@ -132,7 +132,7 @@ func TestGitHubGPGProfileLiteralInputsUseDecodedYAML(t *testing.T) {
 		t.Run(scalar, func(t *testing.T) {
 			root, git := gpgProfileTestSource(t)
 
-			body, err := os.ReadFile(filepath.Join(root, "test/live/github/workflows/release.yml"))
+			body, err := os.ReadFile(filepath.Join(root, "test/live/github/workflows/release-workflow.yml"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -140,7 +140,7 @@ func TestGitHubGPGProfileLiteralInputsUseDecodedYAML(t *testing.T) {
 			// Unknown roots/basenames must not gain approval just because a raw
 			// value is unequal to the fixed GPG filename. Both writers stay put.
 			body = []byte(strings.Replace(string(body), "artifacts-config: .forge-ci/artifacts.yml", "artifacts-config: "+scalar, 1))
-			for _, name := range []string{"release.yml", "second-release.yml"} {
+			for _, name := range []string{"release-workflow.yml", "second-release.yml"} {
 				stageTestWrite(t, root, "custom/profile/workflows/"+name, string(body), 0644)
 			}
 
@@ -165,7 +165,7 @@ func TestGitHubGPGProfileExpressionAliasRootAndOverridesRefuse(t *testing.T) {
 
 			var overrides map[string]string
 
-			body, err := os.ReadFile(filepath.Join(root, fixtures, "workflows/release.yml"))
+			body, err := os.ReadFile(filepath.Join(root, fixtures, "workflows/release-workflow.yml"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -207,7 +207,7 @@ func TestGitHubGPGProfileExpressionAliasRootAndOverridesRefuse(t *testing.T) {
 				}
 			}
 
-			name := "release.yml"
+			name := "release-workflow.yml"
 			if fixtures == githubGPGFixtures {
 				name = githubGPGWorkflow
 			}
@@ -290,7 +290,7 @@ func TestOriginalReviewerGPGIsolationClosure(t *testing.T) {
 				stageTestWrite(t, root, profile+githubGPGWorkflow, strings.Replace(string(body), githubGPGConfig, alias, 1), 0644)
 
 				if secondWriter {
-					second, err := os.ReadFile(filepath.Join(root, "test/live/github/workflows/release.yml"))
+					second, err := os.ReadFile(filepath.Join(root, "test/live/github/workflows/release-workflow.yml"))
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -327,11 +327,11 @@ func TestGitHubGPGProfileNonConfigExpressionsStillStageDefault(t *testing.T) {
 	trial := &GitHubTrial{tb: t}
 	dir, _ := trial.stageConsumer(root, "test/live/github", trialEngine, overrides)
 
-	if names := strings.TrimSpace(trial.git(dir, "ls-tree", "--name-only", "HEAD:.github/workflows")); names != "pullrequest.yml\nrelease.yml" {
+	if names := strings.TrimSpace(trial.git(dir, "ls-tree", "--name-only", "HEAD:.github/workflows")); names != "pullrequest-workflow.yml\nrelease-workflow.yml" {
 		t.Fatalf("actual default installed inventory: %q", names)
 	}
 
-	if body := trial.git(dir, "show", "HEAD:.github/workflows/release.yml"); !strings.Contains(body, "branch: ${{ github.ref_name }}") {
+	if body := trial.git(dir, "show", "HEAD:.github/workflows/release-workflow.yml"); !strings.Contains(body, "branch: ${{ github.ref_name }}") {
 		t.Fatal("admission must not ban or erase expressions outside config/profile inputs")
 	}
 }

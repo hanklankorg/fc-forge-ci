@@ -172,7 +172,7 @@ func TestGitLabReleaseDemosDeclareTheirImagesOnce(t *testing.T) {
 			continue
 		}
 
-		forgejo := filepath.Join(consumer, ".forgejo", "workflows", "release.yml")
+		forgejo := filepath.Join(consumer, ".forgejo", "workflows", "release-workflow.yml")
 		if _, err := os.Stat(forgejo); !images || err != nil {
 			continue
 		}

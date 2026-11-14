@@ -137,7 +137,7 @@ func TestReleaseCommitScopeFindings(t *testing.T) {
 		"every module of a reactor":       {changed: []string{"CHANGELOG.md", "app/pom.xml", "library/pom.xml", "pom.xml"}, bumps: []releaseBump{maven}},
 		"no changelog":                    {changed: []string{"pom.xml"}, bumps: []releaseBump{maven}, findings: 1},
 		"an unrelated edit":               {changed: []string{"CHANGELOG.md", "src/main.go"}, findings: 1},
-		"a workflow":                      {changed: []string{"CHANGELOG.md", ".forgejo/workflows/release.yml"}, findings: 1},
+		"a workflow":                      {changed: []string{"CHANGELOG.md", ".forgejo/workflows/release-workflow.yml"}, findings: 1},
 		"a version file nobody planned":   {changed: []string{"CHANGELOG.md", "Cargo.toml"}, findings: 1},
 		"another project type's file":     {changed: []string{"CHANGELOG.md", "package.json", "pom.xml"}, bumps: []releaseBump{npm}, findings: 1},
 		"a manifest outside the project": {

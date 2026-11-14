@@ -49,7 +49,7 @@ enum:VALUE/VALUE (one of the listed values, for example enum:none/public). A
 job that does not pass the input is left to the called workflow.
 
 EXAMPLE:
-   forge-ci validate isolation --workflow .github/workflows/release.yml \
+   forge-ci validate isolation --workflow .github/workflows/release-workflow.yml \
      --build-job build --signing-secret RELEASE_GPG_PRIVATE_KEY --signing-secret COSIGN_PRIVATE_KEY`,
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: flagWorkflow, Required: true, Usage: "path to the workflow file to check"},

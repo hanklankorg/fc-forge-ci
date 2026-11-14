@@ -13,7 +13,7 @@ import (
 func TestCLISnapshotBuildsWithoutPublicationOrSecrets(t *testing.T) {
 	t.Parallel()
 
-	workflow := loadWorkflow(t, "examples/go-cli/forgejo/snapshot.yml")
+	workflow := loadWorkflow(t, "examples/go-cli/forgejo/release-snapshot-workflow.yml")
 	require.Len(t, workflow.jobs, 1)
 	build := workflow.jobs["build"]
 	require.False(t, anyString(build.node, secretReference.MatchString))
@@ -47,8 +47,8 @@ func TestSnapshotCallerDelegatesWithoutReleaseAuthority(t *testing.T) {
 	t.Parallel()
 
 	for path, producerImage := range map[string]string{
-		"examples/go-service/forgejo/snapshot.yml": "artifact-job-image-go",
-		"examples/maven-app/forgejo/snapshot.yml":  "artifact-job-image-java",
+		"examples/go-service/forgejo/release-snapshot-workflow.yml": "artifact-job-image-go",
+		"examples/maven-app/forgejo/release-snapshot-workflow.yml":  "artifact-job-image-java",
 	} {
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()

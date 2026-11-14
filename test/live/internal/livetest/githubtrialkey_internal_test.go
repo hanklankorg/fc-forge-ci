@@ -20,7 +20,7 @@ import (
 func TestTrialKeySigningOfEveryShippedRelease(t *testing.T) {
 	t.Parallel()
 
-	releases, err := filepath.Glob(filepath.Join(reporoot.Path(t), "test/live/fixtures/consumers/*/consumer", githubDemoWorkflows, "release.yml"))
+	releases, err := filepath.Glob(filepath.Join(reporoot.Path(t), "test/live/fixtures/consumers/*/consumer", githubDemoWorkflows, "release-workflow.yml"))
 	if err != nil || len(releases) == 0 {
 		t.Fatalf("shipped hosted releases: %v, %v", releases, err)
 	}
@@ -28,7 +28,7 @@ func TestTrialKeySigningOfEveryShippedRelease(t *testing.T) {
 	keyless := 0
 
 	for _, release := range releases {
-		consumer := strings.TrimSuffix(release, filepath.Join(githubDemoWorkflows, "release.yml"))
+		consumer := strings.TrimSuffix(release, filepath.Join(githubDemoWorkflows, "release-workflow.yml"))
 
 		artifacts, err := os.ReadFile(filepath.Join(consumer, ".forge-ci/artifacts.yml"))
 		if err != nil {

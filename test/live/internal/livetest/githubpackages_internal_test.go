@@ -244,12 +244,12 @@ func TestGitHubReleaseSharesPackagesOfTheCells(t *testing.T) {
 // the repository: both visibilities would publish it.
 func TestGitHubReleaseSharesAnImageName(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "test", "live", "github", "workflows", "release.yml"),
+	writeFile(t, filepath.Join(root, "test", "live", "github", "workflows", "release-workflow.yml"),
 		"jobs:\n  release:\n    with:\n      artifacts-config: .forge-ci/artifacts.yml\n")
 	writeFile(t, filepath.Join(root, ".forge-ci", "artifacts.yml"),
 		"artifacts:\n  - name: app\n    project-type: meta\ncontainers:\n  - name: app\n    from: [app]\n    container-file: Containerfile\n    image-name: example-org/shared-image\n")
 
-	shared, err := GitHubReleaseSharesPackages(root, "test/live/github", "release.yml")
+	shared, err := GitHubReleaseSharesPackages(root, "test/live/github", "release-workflow.yml")
 	require.NoError(t, err)
 	assert.True(t, shared)
 }

@@ -122,7 +122,7 @@ func TestSign_LedgerImages_ProducesAVerifiableSignature(t *testing.T) {
 const (
 	signReleaseSource   = "https://example.invalid/livetest"
 	signReleaseCommit   = "cccccccccccccccccccccccccccccccccccccccc"
-	signReleaseWorkflow = ".forgejo/workflows/release.yml"
+	signReleaseWorkflow = ".forgejo/workflows/release-workflow.yml"
 )
 
 // writePredicate supplies a fixture release identity that ledger sign enriches

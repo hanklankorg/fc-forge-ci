@@ -221,8 +221,8 @@ const (
 	settingReleaseOption       = "release-option"
 	settingFixtures            = "fixtures"
 
-	trialPullRequestWorkflow = "pullrequest.yml"
-	trialReleaseWorkflow     = "release.yml"
+	trialPullRequestWorkflow = "pullrequest-workflow.yml"
+	trialReleaseWorkflow     = "release-workflow.yml"
 )
 
 // ParseTrialSettings reads the words after the checkout and the event. Each

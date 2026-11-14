@@ -384,7 +384,7 @@ with read access to its Actions in `GH_TOKEN`; GitHub serves no artifact
 anonymously, a public repository's included.
 
 ```bash
-REPO=owner/project BRANCH=feat/login WORKFLOW=snapshot.yml
+REPO=owner/project BRANCH=feat/login WORKFLOW=release-snapshot-workflow.yml
 # The newest successful run of the caller's workflow file on the branch; for
 # a commit, replace --branch "$BRANCH" with --commit <sha>.
 run=$(gh run list --repo "$REPO" --branch "$BRANCH" --workflow "$WORKFLOW" --status success --limit 1 --json databaseId --jq '.[0].databaseId')

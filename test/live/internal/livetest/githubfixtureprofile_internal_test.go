@@ -70,7 +70,7 @@ func TestGitHubGPGProfileStagesExactlyOneRelease(t *testing.T) {
 		directory string
 		want      string
 	}{
-		{"test/live/github", "pullrequest.yml\nrelease.yml"},
+		{"test/live/github", "pullrequest-workflow.yml\nrelease-workflow.yml"},
 		{"test/live/github-gpg", "release-gpg.yml"},
 	} {
 		t.Run(profile.directory, func(t *testing.T) {
@@ -120,7 +120,7 @@ func TestGitHubGPGProfileStagesExactlyOneRelease(t *testing.T) {
 			}
 
 			// Unselected fixture source remains data outside the executing path.
-			for _, path := range []string{"test/live/github/workflows/release.yml", "test/live/github-gpg/workflows/release-gpg.yml", "cmd/my-cli/main.go", ".forge-ci/artifacts.yml", ".forge-ci/artifacts-gpg.yml"} {
+			for _, path := range []string{"test/live/github/workflows/release-workflow.yml", "test/live/github-gpg/workflows/release-gpg.yml", "cmd/my-cli/main.go", ".forge-ci/artifacts.yml", ".forge-ci/artifacts-gpg.yml"} {
 				original, err := git.output(t.Context(), root, nil, "show", head+":"+path)
 				if err != nil {
 					t.Fatal(err)
@@ -189,7 +189,7 @@ func TestGitHubGPGProfileKeepsOtherFixtureContracts(t *testing.T) {
 		fixtures  string
 		workflows map[string]string
 	}{
-		{"test/live/github", map[string]string{"release.yml": ordinary, "other-release.yml": ordinary}},
+		{"test/live/github", map[string]string{"release-workflow.yml": ordinary, "other-release.yml": ordinary}},
 		{githubGPGFixtures, map[string]string{githubGPGWorkflow: "config: &profile .forge-ci/artifacts-gpg.yml\njobs:\n  release:\n    with:\n      artifacts-config: *profile\n"}},
 	} {
 		workflows := profile.workflows
@@ -260,7 +260,7 @@ func TestIndependentGPGIsolationEquivalentConfigPath(t *testing.T) {
 			changed := strings.Replace(string(body), githubGPGConfig, alias, 1)
 			stageTestWrite(t, root, profile+githubGPGWorkflow, changed, 0644)
 
-			second, err := os.ReadFile(filepath.Join(root, "test/live/github/workflows/release.yml"))
+			second, err := os.ReadFile(filepath.Join(root, "test/live/github/workflows/release-workflow.yml"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -362,7 +362,7 @@ func TestGitHubGPGProfileDefaultAndOverrideBinding(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			root, git := gpgProfileTestSource(t)
 
-			name := "release.yml"
+			name := "release-workflow.yml"
 			if scenario.fixtures == githubGPGFixtures {
 				name = githubGPGWorkflow
 			}

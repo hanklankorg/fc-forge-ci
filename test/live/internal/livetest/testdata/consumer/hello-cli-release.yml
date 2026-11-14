@@ -147,7 +147,7 @@ jobs:
       dist-digest: ${{ needs.build.outputs.dist-digest }}
       artifact-name: build-dist
       artifact-path: dist/
-      caller-workflow: release.yml
+      caller-workflow: release-workflow.yml
       forge-ci-repository: examplescope/forge-ci
       forge-ci-sha: b369db7d70af68fa93a4b404841c4ce2ddbf90c0
       signer-image: forge.example/examplescope/forge-ci-signer@sha256:9a51d9f761cd269cadb2066710c9d2dd293f4e1020e229ff4f47ee1e6bce6234

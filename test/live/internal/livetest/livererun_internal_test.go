@@ -22,7 +22,7 @@ const (
 	rerunUnreached = `        2026-11-11T12:23:38.9347345Z Error: download t.tar.gz: dial tcp: lookup github.com on 10.201.0.1:53: i/o timeout: dependency unavailable`
 	rerunExit69    = `        2026-11-11T12:23:39.0000000Z exitcode '69': failure`
 	rerunMark      = liveConclusionPrefix + rerunLeaf
-	rerunEnded     = `    layer_test.go:321: run 7 of release.yml ended "failure", want success`
+	rerunEnded     = `    layer_test.go:321: run 7 of release-workflow.yml ended "failure", want success`
 )
 
 // rowLog is the log of one row's process: its leaf's output, how the leaf
@@ -114,7 +114,7 @@ func TestRerunRowsAreTheRowsThatFailedOnAnUnreachedHostAlone(t *testing.T) {
 		{"an assertion that failed before the conclusion, which is then not marked", failed(lines(forgejoJob("Build: image", rerunUnreached, rerunExit69),
 			"    layer_test.go:402: the release has no asset", rerunEnded)), false},
 		{"a run the wait gave up because it could never end", failed(lines(`    workflowrun.go:371: livetest: forgejo:   job "Publish: image": blocked`,
-			`    workflowrun.go:223: livetest: run 7 of release.yml can never end: no job of it is running or waiting for a runner, and for 10m0s these have stayed blocked on jobs that will not run: "Publish: image"`)), false},
+			`    workflowrun.go:223: livetest: run 7 of release-workflow.yml can never end: no job of it is running or waiting for a runner, and for 10m0s these have stayed blocked on jobs that will not run: "Publish: image"`)), false},
 		{"no conclusion of a run at all", failed(lines(forgejoJob("Build: image", rerunUnreached, rerunExit69), "    layer_test.go:402: image digest differs")), false},
 		{"another failed job with no engine error", failed(lines(forgejoJob("Build: image", rerunUnreached, rerunExit69),
 			forgejoJob("Check: tests", "        [ERROR] BUILD FAILURE", "        exitcode '1': failure"), rerunMark, rerunEnded)), false},

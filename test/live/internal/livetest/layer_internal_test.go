@@ -210,7 +210,7 @@ func TestLayerFixtures_RenderToWorkflowsThatPinTheLayer(t *testing.T) {
 func TestLayerRenderReleaseExample_IsAWorkflowTheIsolationGateCanRead(t *testing.T) {
 	t.Parallel()
 
-	example, err := os.ReadFile(filepath.Join(reporoot.Path(t), "examples/go-cli/forgejo/release.yml"))
+	example, err := os.ReadFile(filepath.Join(reporoot.Path(t), "examples/go-cli/forgejo/release-workflow.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -19,7 +19,7 @@ func TestConsumerDraftRendersCoordinatesAndPolicyBeforeServing(t *testing.T) {
 	source := strings.NewReplacer(consumerPinned, marker, consumerSignerImage, "PIN_SIGNER_IMAGE_DIGEST", consumerKeyDigest, "PIN_COSIGN_PUBLIC_KEY_SHA256").Replace(consumerWorkflow(t, "hello-cli-release.yml"))
 	layer := sampleLayer()
 
-	plan, err := layer.PlanConsumer(map[string]string{"release.yml": source}, releaseFacts())
+	plan, err := layer.PlanConsumer(map[string]string{"release-workflow.yml": source}, releaseFacts())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,8 +43,8 @@ func TestConsumerDraftAcceptsUniformPinAcrossWorkflows(t *testing.T) {
 	const marker = "PIN_FORGE_CI_SHA"
 
 	pin, err := ReadConsumerPin(map[string]string{
-		"pullrequest.yml": "uses: https://forge.example/owner/engine/.forgejo/actions/setup-forge-ci@" + marker + "\n",
-		"release.yml":     "uses: owner/engine/.forgejo/workflows/sign-and-publish-release.yml@" + marker + "\n",
+		"pullrequest-workflow.yml": "uses: https://forge.example/owner/engine/.forgejo/actions/setup-forge-ci@" + marker + "\n",
+		"release-workflow.yml":     "uses: owner/engine/.forgejo/workflows/sign-and-publish-release.yml@" + marker + "\n",
 	})
 	if err != nil || pin.Commit != marker {
 		t.Fatalf("uniform draft pin = %+v, %v", pin, err)

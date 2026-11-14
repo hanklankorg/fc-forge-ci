@@ -63,7 +63,7 @@ func TestMetaGitHubFixtureStagesItsSourceAndReadsAsAChangelogOnlyRelease(t *test
 		}
 	}
 
-	for _, name := range []string{"release.yml", "pullrequest.yml"} {
+	for _, name := range []string{"release-workflow.yml", "pullrequest-workflow.yml"} {
 		body := mustLayerGit(t, git, dir, "show", "HEAD:.github/workflows/"+name)
 		if !strings.Contains(body, trialEngine.Owner+"/"+trialEngine.Repository+"/.github/workflows/") || !strings.Contains(body, "@"+trialEngine.Commit) {
 			t.Fatalf("%s does not call the engine under test", name)
@@ -71,7 +71,7 @@ func TestMetaGitHubFixtureStagesItsSourceAndReadsAsAChangelogOnlyRelease(t *test
 	}
 
 	want := githubReleaseProfile{GitSigning: config.GitSignGPG, Changelog: true, Prepares: false, SBOMBundle: sbomBundleWithheld, NoFiles: true}
-	if got, err := githubReleaseProfileOf(dir, "release.yml"); err != nil || got != want {
+	if got, err := githubReleaseProfileOf(dir, "release-workflow.yml"); err != nil || got != want {
 		t.Fatalf("profile = %+v, %v; want %+v", got, err, want)
 	}
 }
