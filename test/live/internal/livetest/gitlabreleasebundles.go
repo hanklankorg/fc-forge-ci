@@ -471,7 +471,7 @@ func dropChecksumLine(root, checksums, name string) error {
 		}
 	}
 
-	return os.WriteFile(filepath.Join(root, checksums), kept, 0o600) //nolint:gosec // G703: a manifest-validated path in the test's own copy.
+	return os.WriteFile(filepath.Join(root, checksums), kept, 0o600)
 }
 
 func compareProducerSubjects(producer, signer string, original apprelease.FileManifest) error {

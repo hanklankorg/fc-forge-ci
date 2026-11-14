@@ -53,13 +53,13 @@ func TestImportGoReleaserFileManifest_BeforeSigningThenFinalize(t *testing.T) {
 
 	// GoReleaser's checksums file keeps its name and its other lines; the
 	// SBOM's line is replaced by the bundle's.
-	wantChecksums := ""
+	var wantChecksums strings.Builder
 	for _, name := range []string{"app.tar.gz", "app.deb", "app.rpm", "app.apk", testSBOMBundle} {
-		wantChecksums += testFileSHA256(t, "dist/"+name) + "  " + name + "\n"
+		wantChecksums.WriteString(testFileSHA256(t, "dist/"+name) + "  " + name + "\n")
 	}
 
-	if got := readFile(t, "dist/app_checksums.txt"); got != wantChecksums {
-		t.Fatalf("checksums = %q, want %q", got, wantChecksums)
+	if got := readFile(t, "dist/app_checksums.txt"); got != wantChecksums.String() {
+		t.Fatalf("checksums = %q, want %q", got, wantChecksums.String())
 	}
 
 	if validateErr := apprelease.ValidateReleaseChecksums(apprelease.ValidateReleaseChecksumsInput{}); validateErr != nil {

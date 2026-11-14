@@ -39,6 +39,8 @@ type buildTool struct {
 
 // buildTools is the one table of build commands, one or more rows per
 // project type forge-ci builds an artifact from.
+//
+//nolint:goconst // the rows are data: a tool's own words read best written out where they apply.
 var buildTools = []buildTool{
 	{
 		ecosystem: projecttype.Maven, names: []string{"mvn", "mvnw"}, anywhere: true,
@@ -164,16 +166,12 @@ func runInstructions(body string) []runInstruction {
 		script := execFormScript(strings.Join(words, " "))
 
 		if delimiter := heredocStart.FindStringSubmatch(script); delimiter != nil {
-			var document strings.Builder
+			var document string
 
-			for index++; index < len(lines) && strings.TrimSpace(lines[index]) != delimiter[1]; index++ {
-				if line := strings.TrimSpace(lines[index]); !strings.HasPrefix(line, "#") {
-					document.WriteString(strings.TrimSuffix(line, `\`) + "\n")
-				}
-			}
+			document, index = readHeredoc(lines, index+1, delimiter[1])
 
 			if strings.HasPrefix(script, "<<") {
-				script = document.String()
+				script = document
 			}
 		}
 
@@ -181,6 +179,21 @@ func runInstructions(body string) []runInstruction {
 	}
 
 	return runs
+}
+
+// readHeredoc reads the lines of a here-document from index up to its
+// delimiter, without the comment lines. It returns them with the index of
+// the delimiter line, or the number of lines when the document is not closed.
+func readHeredoc(lines []string, index int, delimiter string) (string, int) {
+	var document strings.Builder
+
+	for ; index < len(lines) && strings.TrimSpace(lines[index]) != delimiter; index++ {
+		if line := strings.TrimSpace(lines[index]); !strings.HasPrefix(line, "#") {
+			document.WriteString(strings.TrimSuffix(line, `\`) + "\n")
+		}
+	}
+
+	return document.String(), index
 }
 
 // execFormScript returns the script of a RUN instruction written in the JSON
@@ -200,9 +213,10 @@ func execFormScript(command string) string {
 }
 
 // classify names the ecosystem a simple command builds, and whether it is a
-// build or only fetches dependencies. Leading VAR=value assignments are
-// skipped, and the tool is matched by its file name, so ./mvnw is mvnw.
-func classify(words []string) (ecosystem projecttype.Type, isBuild, ok bool) {
+// build or only fetches dependencies; the last result is false when the
+// command is neither. Leading VAR=value assignments are skipped, and the tool
+// is matched by its file name, so ./mvnw is mvnw.
+func classify(words []string) (projecttype.Type, bool, bool) {
 	for index := range words {
 		words[index] = strings.Trim(words[index], `"'()`)
 	}

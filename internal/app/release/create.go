@@ -102,83 +102,96 @@ func CreateRelease(
 	return prov.CreateRelease(ctx, in.Repository, spec)
 }
 
-//nolint:cyclop // walks the assembly manifest, classifying each entry into one asset bucket — a flat dispatch, not nested logic.
 func collectCreateAssetsFromAssembly(path string) ([]string, error) {
 	asm, err := readAssembly(path)
 	if err != nil {
 		return nil, err
 	}
 
-	assets := make([]string, 0, len(asm.Assets)+4)
-	seen := map[string]string{}
-	add := func(path string, required bool) error {
-		if path == "" {
-			return nil
-		}
-
-		if !regularFileExists(path) {
-			if required {
-				return fmt.Errorf("assembly release asset %q is missing or not a regular file: %w", path, errs.ErrMissingInput)
-			}
-
-			return nil
-		}
-
-		base := filepath.Base(path)
-		if previous, ok := seen[base]; ok {
-			if previous == path {
-				return nil
-			}
-
-			return fmt.Errorf("release asset basename %q is duplicated by %s and %s: %w", base, previous, path, errs.ErrValidation)
-		}
-
-		seen[base] = path
-		assets = append(assets, path)
-
-		return nil
-	}
-
-	addWithSidecars := func(path string, required bool) error {
-		if path == "" {
-			return nil
-		}
-
-		if err := add(path, required); err != nil {
-			return err
-		}
-
-		for _, sidecar := range release.SignatureSidecars(path) {
-			if err := add(sidecar, false); err != nil {
-				return err
-			}
-		}
-
-		return nil
+	collector := createAssetCollector{
+		assets: make([]string, 0, len(asm.Assets)+4),
+		seen:   map[string]string{},
 	}
 
 	for _, asset := range asm.Assets {
-		if err := addWithSidecars(asset.Path, true); err != nil {
+		if err := collector.addWithSidecars(asset.Path, true); err != nil {
 			return nil, err
 		}
 	}
 
-	if err := addWithSidecars(asm.SBOMBundleFile, len(asm.SBOMs) > 0); err != nil {
+	if err := collector.addWithSidecars(asm.SBOMBundleFile, len(asm.SBOMs) > 0); err != nil {
 		return nil, err
 	}
 
 	if asm.ChecksumFile != "" && regularFileNonEmpty(asm.ChecksumFile) {
-		if err := addWithSidecars(asm.ChecksumFile, true); err != nil {
+		if err := collector.addWithSidecars(asm.ChecksumFile, true); err != nil {
 			return nil, err
 		}
 	}
 
 	// The signing job writes the statement; an unsigned release has none.
-	if err := addWithSidecars(asm.ProvenanceFile, false); err != nil {
+	if err := collector.addWithSidecars(asm.ProvenanceFile, false); err != nil {
 		return nil, err
 	}
 
-	return assets, nil
+	return collector.assets, nil
+}
+
+// createAssetCollector gathers the files a release is created with, in the
+// order they are added, and remembers each base name so that two different
+// files cannot claim one asset name.
+type createAssetCollector struct {
+	assets []string
+	seen   map[string]string
+}
+
+// add records one file. An empty path is ignored, and so is a missing file
+// unless it is required.
+func (c *createAssetCollector) add(path string, required bool) error {
+	if path == "" {
+		return nil
+	}
+
+	if !regularFileExists(path) {
+		if required {
+			return fmt.Errorf("assembly release asset %q is missing or not a regular file: %w", path, errs.ErrMissingInput)
+		}
+
+		return nil
+	}
+
+	base := filepath.Base(path)
+	if previous, ok := c.seen[base]; ok {
+		if previous == path {
+			return nil
+		}
+
+		return fmt.Errorf("release asset basename %q is duplicated by %s and %s: %w", base, previous, path, errs.ErrValidation)
+	}
+
+	c.seen[base] = path
+	c.assets = append(c.assets, path)
+
+	return nil
+}
+
+// addWithSidecars records a file and whichever of its signature files exist.
+func (c *createAssetCollector) addWithSidecars(path string, required bool) error {
+	if path == "" {
+		return nil
+	}
+
+	if err := c.add(path, required); err != nil {
+		return err
+	}
+
+	for _, sidecar := range release.SignatureSidecars(path) {
+		if err := c.add(sidecar, false); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func normalizeMakeLatest(value string) (provider.MakeLatestMode, error) {

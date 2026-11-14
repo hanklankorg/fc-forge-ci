@@ -586,7 +586,7 @@ func skipAssemblyReleaseFile(path, rel string) bool {
 		return true
 	case base == "bom.json":
 		return true
-	case strings.HasSuffix(base, ".asc") || strings.HasSuffix(base, ".bundle"):
+	case strings.HasSuffix(base, openPGPSignatureSuffix) || strings.HasSuffix(base, signatureBundleSuffix):
 		return true
 	case strings.HasPrefix(base, "original-") && strings.HasSuffix(base, ".jar"):
 		return true
@@ -980,7 +980,7 @@ func assemblyChecksumSubjects(asm domainrelease.Assembly) (map[string]string, er
 // as pre-existing sidecars. Check both production backends, plus the selected
 // signer's extensions for defense in depth before its first invocation.
 func validateAssemblySignerOutputs(paths, extensions []string) error {
-	extensions = append([]string{".asc", ".bundle"}, extensions...)
+	extensions = append([]string{openPGPSignatureSuffix, signatureBundleSuffix}, extensions...)
 	for _, path := range paths {
 		for _, ext := range extensions {
 			if strings.HasSuffix(path, ext) {

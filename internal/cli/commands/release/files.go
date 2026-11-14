@@ -92,14 +92,14 @@ func filesCollectCmd() *cli.Command {
 // version to the release tag the release jobs export.
 func sbomBundleFlags() []cli.Flag {
 	return []cli.Flag{
-		&cli.StringFlag{Name: "project-name", Sources: cli.EnvVars("PROJECT_NAME"), Usage: "project in the SBOM bundle name <project>-<version>-sboms.tar.gz (default: the name of --repository)"},
+		&cli.StringFlag{Name: flagProjectName, Sources: cli.EnvVars("PROJECT_NAME"), Usage: "project in the SBOM bundle name <project>-<version>-sboms.tar.gz (default: the name of --repository)"},
 		&cli.StringFlag{Name: flagRepository, Sources: cienv.Repository(), Usage: "\"owner/repo\" slug whose name is the default --project-name"},
 		&cli.StringFlag{Name: flagVersion, Sources: cli.EnvVars("RELEASE_TAG"), Usage: "release version or tag in the SBOM bundle name; a v prefix is dropped; required when the release has an SBOM"},
 	}
 }
 
 func sbomBundleNaming(cmd *cli.Command) apprelease.SBOMBundleNaming {
-	project := cmd.String("project-name")
+	project := cmd.String(flagProjectName)
 	if repository := cmd.String(flagRepository); project == "" && repository != "" {
 		project = domainrelease.ProjectNameFromRepo("", repository)
 	}
@@ -141,15 +141,14 @@ checks it.`,
 
 func filesDeclareCmd() *cli.Command {
 	// The shared pair describes a manifest that is read; this one is written.
-	flags := []cli.Flag{
+	flags := append([]cli.Flag{
 		&cli.StringFlag{Name: flagDistDir, Value: defaultDistDir, Usage: "workspace-relative dist directory containing the declared files"},
 		&cli.StringFlag{Name: flagManifest, Value: apprelease.DefaultReleaseFilesManifest, Sources: cli.EnvVars("RELEASE_FILES_MANIFEST"), Usage: "release file manifest to write; it must not exist"},
 		&cli.StringSliceFlag{Name: flagAsset, Usage: "dist file to publish, as a path or a glob pattern the command expands; directories a pattern matches are skipped (repeatable)"},
 		&cli.StringSliceFlag{Name: "sbom", Usage: "dist SBOM file to publish in the SBOM bundle, as a path or a glob pattern (repeatable)"},
 		&cli.StringSliceFlag{Name: flagEvidenceFile, Usage: "additional dist file to sign and publish as evidence (repeatable)"},
 		&cli.StringFlag{Name: flagChecksumsFile, Usage: "checksums file to write; it must not exist (default: checksums.sha256 in --dist-dir)"},
-	}
-	flags = append(flags, sbomBundleFlags()...)
+	}, sbomBundleFlags()...)
 
 	return &cli.Command{
 		Name:  "declare",

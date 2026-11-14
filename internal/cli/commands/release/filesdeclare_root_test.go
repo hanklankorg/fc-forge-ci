@@ -137,7 +137,7 @@ func TestReleaseFilesRoot_DeclareBundlesEverySBOMUnderTheNamedProject(t *testing
 func tarGzipEntries(t *testing.T, path string) map[string]string {
 	t.Helper()
 
-	file, err := os.Open(path) //nolint:gosec // G304: a file the test wrote.
+	file, err := os.Open(path)
 	require.NoError(t, err)
 
 	defer func() { _ = file.Close() }()

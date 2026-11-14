@@ -126,7 +126,7 @@ func (s *CosignSigner) Extensions() []string { return s.method.SignatureExtensio
 func (s *CosignSigner) SignFile(ctx context.Context, file string) error {
 	in := domainrelease.BlobSignRequest{
 		Artifact:   file,
-		BundlePath: file + ".bundle",
+		BundlePath: file + signatureBundleSuffix,
 	}
 
 	switch s.method {

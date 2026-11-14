@@ -347,6 +347,7 @@ func TestCreateSBOMBundle_IsReproducibleAndHoldsExactlyItsInputs(t *testing.T) {
 	const bundlePath = "release-files/app-1.0.0-sboms.tar.gz"
 
 	asm := domainrelease.Assembly{Version: domainrelease.AssemblyVersion, SBOMBundleFile: bundlePath}
+
 	for _, sbom := range sboms {
 		fsys.WriteFile(sbom.path, []byte(sbom.body))
 		asm.SBOMs = append(asm.SBOMs, domainrelease.AssemblyFile{Path: sbom.path, Name: sbom.name, Required: true})

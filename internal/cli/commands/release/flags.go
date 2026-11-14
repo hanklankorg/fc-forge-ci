@@ -32,6 +32,7 @@ const (
 	flagArtifactTransferPlanJSON = "artifact-transfer-plan-json"
 	flagPath                     = "path"
 	flagEvidenceFile             = "evidence-file"
+	flagProjectName              = "project-name"
 )
 
 // Shared flag defaults and credential labels, declared once for the same

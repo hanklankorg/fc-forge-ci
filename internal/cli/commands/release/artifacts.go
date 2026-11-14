@@ -541,7 +541,7 @@ func checksumsCmd() *cli.Command {
 func sbomBundleCmd() *cli.Command {
 	flags := append([]cli.Flag{
 		&cli.StringFlag{
-			Name:     "project-name",
+			Name:     flagProjectName,
 			Required: true,
 			Sources:  cli.EnvVars("PROJECT_NAME"),
 			Usage:    "project slug used as the bundle filename prefix",
@@ -587,7 +587,7 @@ func sbomBundleCmd() *cli.Command {
 			}
 
 			_, err := apprelease.CreateSBOMBundle(ctx, signer, apprelease.SBOMBundleInput{
-				ProjectName:   cmd.String("project-name"),
+				ProjectName:   cmd.String(flagProjectName),
 				Version:       cmd.String(flagVersion),
 				SBOMDir:       cmd.String(flagSBOMDir),
 				SignArtifacts: cmd.Bool("sign"),

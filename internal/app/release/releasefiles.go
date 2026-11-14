@@ -46,6 +46,12 @@ const (
 	// packageSignatureSuffix ends the detached signature `release gpg
 	// sign-packages` writes next to a distro package.
 	packageSignatureSuffix = ".sig"
+	// signatureBundleSuffix ends the cosign bundle a signing verb writes
+	// next to the file it signs.
+	signatureBundleSuffix = ".bundle"
+	// openPGPSignatureSuffix ends the armoured OpenPGP signature `release
+	// sign --method gpg` writes next to the file it signs.
+	openPGPSignatureSuffix = ".asc"
 )
 
 // isChecksumsFileName reports whether a file is a release checksums file by
@@ -67,8 +73,8 @@ type releaseSignature struct{ suffix, source string }
 // for declared files, and nothing else decides what a signature file is.
 func releaseSignatures() []releaseSignature {
 	return []releaseSignature{
-		{suffix: ".bundle", source: "signature_bundle"},
-		{suffix: ".asc", source: "openpgp_signature"},
+		{suffix: signatureBundleSuffix, source: "signature_bundle"},
+		{suffix: openPGPSignatureSuffix, source: "openpgp_signature"},
 		{suffix: packageSignatureSuffix, source: "package_signature"},
 	}
 }
@@ -478,7 +484,7 @@ func requireFinalizedManifest(ctx releaseFilesCtx, manifest *FileManifest) error
 	}
 
 	for _, signed := range append([]string{ctx.provenancePath()}, entryPaths(manifest.Evidence)...) {
-		bundle := filepath.Clean(signed) + ".bundle"
+		bundle := filepath.Clean(signed) + signatureBundleSuffix
 		if _, ok := declared[bundle]; !ok {
 			return fmt.Errorf("release file manifest %s is not finalized: it declares %s without its signature bundle %s; %s: %w", ctx.manifestFile, signed, bundle, hint, errs.ErrValidation)
 		}
@@ -486,11 +492,11 @@ func requireFinalizedManifest(ctx releaseFilesCtx, manifest *FileManifest) error
 
 	signedFiles := map[string][]string{}
 	for _, checksums := range entryPaths(manifest.Checksums) {
-		signedFiles[filepath.Clean(checksums)] = []string{".bundle", ".asc"}
+		signedFiles[filepath.Clean(checksums)] = []string{signatureBundleSuffix, openPGPSignatureSuffix}
 	}
 
 	for _, subject := range manifestChecksumSubjectPaths(manifest) {
-		signedFiles[filepath.Clean(subject)] = []string{".bundle", ".asc", packageSignatureSuffix}
+		signedFiles[filepath.Clean(subject)] = []string{signatureBundleSuffix, openPGPSignatureSuffix, packageSignatureSuffix}
 	}
 
 	for _, signed := range slices.Sorted(maps.Keys(signedFiles)) {
@@ -874,7 +880,7 @@ func addProvenanceAssetEntries(ctx releaseFilesCtx, collector *releaseFileCollec
 		return err
 	}
 
-	return collector.add(ctx, ctx.provenancePath()+".bundle", "provenance_bundle")
+	return collector.add(ctx, ctx.provenancePath()+signatureBundleSuffix, "provenance_bundle")
 }
 
 func addSignatureBundleEntries(ctx releaseFilesCtx, collector *releaseFileCollector) error {
@@ -883,8 +889,8 @@ func addSignatureBundleEntries(ctx releaseFilesCtx, collector *releaseFileCollec
 		return err
 	}
 
-	if checksumFile != "" && regularReleaseFile(checksumFile+".bundle") {
-		if addErr := collector.add(ctx, checksumFile+".bundle", "signature_bundle"); addErr != nil {
+	if checksumFile != "" && regularReleaseFile(checksumFile+signatureBundleSuffix) {
+		if addErr := collector.add(ctx, checksumFile+signatureBundleSuffix, "signature_bundle"); addErr != nil {
 			return addErr
 		}
 	}
@@ -895,7 +901,7 @@ func addSignatureBundleEntries(ctx releaseFilesCtx, collector *releaseFileCollec
 	}
 
 	for _, sbom := range sboms {
-		bundle := sbom.Path + ".bundle"
+		bundle := sbom.Path + signatureBundleSuffix
 		if regularReleaseFile(bundle) {
 			if err := collector.add(ctx, bundle, "signature_bundle"); err != nil {
 				return err
@@ -1014,7 +1020,7 @@ func addDeclaredSignatureEntries(ctx releaseFilesCtx, collector *releaseFileColl
 	}
 
 	for _, entry := range existing.Evidence {
-		if _, signed := collector.paths[entry.Path+".bundle"]; !signed {
+		if _, signed := collector.paths[entry.Path+signatureBundleSuffix]; !signed {
 			return fmt.Errorf("evidence file %s has no signature bundle %s.bundle; sign the evidence section before finalizing: %w", entry.Path, entry.Path, errs.ErrValidation)
 		}
 	}
