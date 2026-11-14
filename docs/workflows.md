@@ -51,6 +51,17 @@ graph TD
 - `pullrequest-quality-stage.yml` owns quality check fanout and quality-stage result normalization
 - leaf `lint-*` and `security-*` workflows stay focused on one check each
 
+### Checks of your own
+
+Forge CI owns only the jobs inside its own call. It places no limits on what
+else your workflow runs, on any forge. A check it cannot run goes in a job of
+your own beside the call, with your project's own commands: tests, a formatter
+that needs your installed dependencies, an API compatibility check, a link or
+spelling check of a built site. The same holds for a release: a step Forge CI
+does not take, such as moving a shared npm dist-tag, is a job of your own that
+`needs` the release call. Require your own jobs as status checks beside the
+Forge CI ones.
+
 ### Stage Result Contract
 
 Each stage workflow ends with `forge-ci report stage-result`, which turns the

@@ -265,7 +265,8 @@ runs one general lint engine, chosen with `lint-engine`:
 
 Swift checks (`linters.swiftlint`, `linters.swiftformat`) run separately on
 macOS, because nanolinter has no macOS binary. The orchestrator writes one
-aggregated step summary. Project tests are not run by it: wire them in your own workflow beside it. [Lint
+aggregated step summary. Project tests are not run by it: wire them, and any other
+[check of your own](workflows.md#checks-of-your-own), in your own workflow beside it. [Lint
 Workflows](components.md#lint-workflows) has the flavour table and direct-call
 snippets, and [Linting](verification.md#linting) the caller/project policy
 boundary.
