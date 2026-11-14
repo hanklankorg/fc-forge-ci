@@ -244,4 +244,5 @@ var (
 	_ provider.RunArtifactLister       = (*Provider)(nil)
 	_ provider.SigningIdentityResolver = (*Provider)(nil)
 	_ provider.RegistryAuthResolver    = (*Provider)(nil)
+	_ provider.ForgePackageLinker      = (*Provider)(nil)
 )

@@ -186,16 +186,7 @@ func deployMavenBuild(ctx context.Context, cmd *cli.Command, dependencies *deps.
 		return err
 	}
 
-	if cmd.Bool(flagSnapshot) {
-		registry, err := resolver.ResolveForgeMavenRegistry()
-		if err != nil {
-			return err
-		}
-
-		return apppublish.UploadMavenSnapshots(ctx, snapshotMavenAdapter(), registry, os.Stderr, directory)
-	}
-
-	return apppublish.UploadMavenPublication(ctx, mavenregistry.Client{}, resolver, os.Stderr, directory, version)
+	return uploadForgeMaven(ctx, resolver, directory, version, cmd.Bool(flagSnapshot))
 }
 
 func deployExportedMaven(ctx context.Context, cmd *cli.Command, dependencies *deps.Deps) error {
@@ -204,14 +195,30 @@ func deployExportedMaven(ctx context.Context, cmd *cli.Command, dependencies *de
 		return err
 	}
 
-	if cmd.Bool(flagSnapshot) {
-		registry, resolveErr := resolver.ResolveForgeMavenRegistry()
-		if resolveErr != nil {
-			return resolveErr
+	return uploadForgeMaven(ctx, resolver, cmd.String("working-dir"), strings.TrimPrefix(cmd.String(flagVersion), "v"), cmd.Bool(flagSnapshot))
+}
+
+// uploadForgeMaven uploads the publications of a directory to the forge's
+// Maven registry and, once they are there, links their packages to the
+// repository on a forge that keeps packages under the owner.
+func uploadForgeMaven(ctx context.Context, resolver provider.ForgeMavenRegistryResolver, directory, version string, snapshot bool) error {
+	if snapshot {
+		registry, err := resolver.ResolveForgeMavenRegistry()
+		if err != nil {
+			return err
 		}
 
-		return apppublish.UploadMavenSnapshots(ctx, snapshotMavenAdapter(), registry, os.Stderr, cmd.String("working-dir"))
+		if err := apppublish.UploadMavenSnapshots(ctx, snapshotMavenAdapter(), registry, os.Stderr, directory); err != nil {
+			return err
+		}
+
+		// A snapshot directory holds the versions its build gave it.
+		version = ""
+	} else if err := apppublish.UploadMavenPublication(ctx, mavenregistry.Client{}, resolver, os.Stderr, directory, version); err != nil {
+		return err
 	}
 
-	return apppublish.UploadMavenPublication(ctx, mavenregistry.Client{}, resolver, os.Stderr, cmd.String("working-dir"), strings.TrimPrefix(cmd.String(flagVersion), "v"))
+	apppublish.LinkMavenPublications(ctx, resolver, os.Stderr, directory, version, snapshot)
+
+	return nil
 }

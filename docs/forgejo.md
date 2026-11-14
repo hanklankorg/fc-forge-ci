@@ -1185,6 +1185,28 @@ goes to the registry of the repository's owner on this Forgejo:
 - `snapshot: 'true'` publishes Maven-format snapshots only, as on the other
   forges; npm has no snapshot mode.
 
+Forgejo keeps a package under its owner, not under a repository. Once the
+package is in the registry, the deploy links it to the repository the job
+runs in, so the package is listed on the repository's page and its page
+leads back to the source. This holds for an npm package, for a Maven
+library published with `from-build: 'true'` and for exported Gradle
+publications, each named by its `groupId:artifactId`. The plain `maven`
+form is not linked: there Maven decides what `mvn deploy` publishes.
+Container images need no link from the deploy, since Forgejo links an image
+by its source label.
+
+- A package this repository already has is left as it is, so a rerun is no
+  error. A package another repository has is never taken from it.
+- The link is made after the publication and cannot undo it. When Forgejo
+  refuses the link, the job stays green and prints one warning that names
+  the package and the reason, such as
+  `Warning: npm package @owner/pkg is published but not linked to the
+  repository: this Forgejo has no API that links a package to a repository`.
+  The package is complete and installable without the link, and the next
+  publication of the package links it.
+- Two reasons have their own wording: a Forgejo without the link API, and a
+  token Forgejo refuses the link. Forgejo 17.0.1 has the API.
+
 The layer plans no job from `publish-to`: the job is yours, as the build
 job is. [Publishing](publishing.md) describes the targets, which are the
 same on every forge.

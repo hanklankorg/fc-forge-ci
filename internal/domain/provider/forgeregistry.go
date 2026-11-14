@@ -70,6 +70,18 @@ type ForgeNPMRegistryResolver interface {
 	ResolveForgeNPMRegistry() (ForgeNPMRegistry, error)
 }
 
+// ForgePackageLinker is the provider role of a forge whose packages belong
+// to the owner and are linked to a repository afterwards, which is Forgejo.
+// GitHub and GitLab bind a package to its repository when it is published
+// and do not implement the role.
+//
+// name is the package's name in its own ecosystem: the npm package name, or
+// groupId:artifactId for Maven. Linking a package that is already linked to
+// the run's repository is no error.
+type ForgePackageLinker interface {
+	LinkForgePackage(ctx context.Context, packageType, name string) error
+}
+
 // DistroPackageFormat is a distribution package format a forge has a
 // registry for.
 type DistroPackageFormat string

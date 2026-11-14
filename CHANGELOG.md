@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- On Forgejo, `forge-ci publish forge-packages deploy` links the package it
+  has published to the repository the job runs in: an npm package, a Maven
+  library published with `--from-build` and exported Gradle publications.
+  Forgejo keeps packages under the owner, so they were listed under no
+  repository before. A package the repository already has is left alone and
+  one another repository has is never taken from it. A link Forgejo refuses
+  does not fail the job, since the package is published by then: the job
+  prints one warning that names the package and the reason, with a plain
+  sentence for a Forgejo without the link API and for a token Forgejo
+  refuses. The plain `mvn deploy` form is not linked. GitHub and GitLab are
+  unchanged: their packages belong to the repository already. See
+  `docs/forgejo.md#maven-npm-and-gradle-packages-in-the-owners-registry`.
 - The Forgejo layer has the `publish-forge-packages` action: the publish
   step of a consumer's own job for a project that lists `forge-packages`
   under `publish-to`. It runs `forge-ci publish forge-packages deploy`, as

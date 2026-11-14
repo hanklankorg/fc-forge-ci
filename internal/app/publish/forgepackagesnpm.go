@@ -67,17 +67,8 @@ func ForgePackagesNPMPublish(ctx context.Context, ops NPMPublishOps, resolver pr
 		return err
 	}
 
-	// npm publishes a scoped package to its scope's registry before any
-	// other, so every registry the package names is held to the forge's.
-	for key, registry := range meta.PublishConfig {
-		if key != "registry" && !strings.HasSuffix(strings.ToLower(key), ":registry") {
-			continue
-		}
-
-		named, isString := registry.(string)
-		if !isString || strings.TrimRight(named, "/") != strings.TrimRight(reg.Registry, "/") {
-			return fmt.Errorf("packed publishConfig.%s conflicts with the selected registry: %w", key, errs.ErrInvalidConfig)
-		}
+	if err := requireForgeRegistry(meta, reg); err != nil {
+		return err
 	}
 
 	npmrcPath, cleanup, err := writeTempSecretFile("forge-ci-npmrc-*", reg.RenderNPMRC())
@@ -103,6 +94,8 @@ func ForgePackagesNPMPublish(ctx context.Context, ops NPMPublishOps, resolver pr
 
 		_, _ = fmt.Fprintf(stdout, "%s@%s is already published with tag %s and this content to %s\n", meta.Name, meta.Version, tag, reg.Registry)
 
+		linkPackages(ctx, resolver, stderr, "npm", meta.Name)
+
 		return nil
 	}
 
@@ -120,7 +113,31 @@ func ForgePackagesNPMPublish(ctx context.Context, ops NPMPublishOps, resolver pr
 	// which fails for everyone, and reaches out to github.com from a job that
 	// asked to publish to its own forge. The leading "./" is what makes npm treat
 	// it as a path unconditionally, so no filename can ever be read as a spec.
-	return ops.RunInherit(ctx, dir, stdout, stderr, "publish", "./"+filepath.Base(tarball), "--userconfig", npmrcPath, "--registry", reg.Registry, "--tag", tag, "--ignore-scripts")
+	if err := ops.RunInherit(ctx, dir, stdout, stderr, "publish", "./"+filepath.Base(tarball), "--userconfig", npmrcPath, "--registry", reg.Registry, "--tag", tag, "--ignore-scripts"); err != nil {
+		return err
+	}
+
+	linkPackages(ctx, resolver, stderr, "npm", meta.Name)
+
+	return nil
+}
+
+// requireForgeRegistry holds every registry the packed package names to the
+// forge's: npm publishes a scoped package to its scope's registry before any
+// other.
+func requireForgeRegistry(meta npmPackedMetadata, reg provider.ForgeNPMRegistry) error {
+	for key, registry := range meta.PublishConfig {
+		if key != "registry" && !strings.HasSuffix(strings.ToLower(key), ":registry") {
+			continue
+		}
+
+		named, isString := registry.(string)
+		if !isString || strings.TrimRight(named, "/") != strings.TrimRight(reg.Registry, "/") {
+			return fmt.Errorf("packed publishConfig.%s conflicts with the selected registry: %w", key, errs.ErrInvalidConfig)
+		}
+	}
+
+	return nil
 }
 
 func prepareNPMPublication(tarball, setting string, stderr io.Writer) (npmPackedMetadata, string, error) {
