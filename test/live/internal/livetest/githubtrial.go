@@ -1194,7 +1194,7 @@ func (trial *GitHubTrial) CheckRelease(repo string, tree GitHubConsumerTree, wor
 		trial.checkReleaseGitSignatures(repo, tree, final, head, profile, key)
 	}
 
-	release, _, err := trial.api.Repositories.GetReleaseByTag(ctx, trial.org, repo, final)
+	release, err := trial.releaseOf(repo, final, profile.Draft)
 	if err != nil {
 		trial.tb.Fatalf("livetest: the GitHub release %s: %v", final, err)
 	}
@@ -1267,6 +1267,45 @@ func (trial *GitHubTrial) CheckImage(repo, image, final string, engine GitHubEng
 	trial.tb.Errorf("no promoted tag of %s for %s verifies", reference, final)
 
 	return ""
+}
+
+// releaseOf reads the release of tag. A published release has a tag address.
+// A draft has none, so a release the workflow keeps as a draft is the one
+// release of that tag in the list, and must be a draft; a release found at
+// the tag address is published, whatever the workflow asked for.
+func (trial *GitHubTrial) releaseOf(repo, tag string, draft bool) (*github.RepositoryRelease, error) {
+	ctx := trial.tb.Context()
+
+	if !draft {
+		release, _, err := trial.api.Repositories.GetReleaseByTag(ctx, trial.org, repo, tag)
+
+		return release, err
+	}
+
+	releases, _, err := trial.api.Repositories.ListReleases(ctx, trial.org, repo, &github.ListOptions{PerPage: 100})
+	if err != nil {
+		return nil, err
+	}
+
+	var found *github.RepositoryRelease
+
+	for _, release := range releases {
+		if release.GetTagName() != tag {
+			continue
+		}
+
+		if found != nil || !release.GetDraft() {
+			return nil, fmt.Errorf("want one draft release of %s, got release %d (draft=%t) and more: %w", tag, release.GetID(), release.GetDraft(), errs.ErrValidation)
+		}
+
+		found = release
+	}
+
+	if found == nil {
+		return nil, fmt.Errorf("no draft release of %s among %d listed: %w", tag, len(releases), errs.ErrValidation)
+	}
+
+	return found, nil
 }
 
 func (trial *GitHubTrial) setVariable(ctx context.Context, repo, name, value string) error {

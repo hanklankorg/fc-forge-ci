@@ -42,6 +42,7 @@ const (
 	inputChangelogCreator = "changelog-creator"
 	inputSkipVersionBump  = "changelog.skipversionbump"
 	inputAttach           = "release.attachartifacts"
+	inputDraft            = "release.draft"
 	inputSBOMsDefault     = "all"
 	inputGitCliff         = "git-cliff"
 )
@@ -66,6 +67,9 @@ type githubReleaseProfile struct {
 	// workflow attaches nothing. The engine then publishes the tag and the
 	// notes alone, since an empty checksum list has nothing to sign.
 	NoFiles bool
+	// Draft is whether the release stays a draft, which GitHub offers under
+	// no tag address: the oracle finds it in the release list.
+	Draft bool
 }
 
 // githubReleaseProfileOf reads the profile of the release workflow in the
@@ -94,6 +98,7 @@ func githubReleaseProfileOf(dir, workflow string) (githubReleaseProfile, error) 
 
 	profile.Changelog = inputs.changelogCreator == inputGitCliff
 	profile.Prepares = pipeline.VersionBumpRuns(profile.Changelog, inputs.skipVersionBump)
+	profile.Draft = inputs.draft
 
 	profile.NoFiles = declared != nil && len(declared.Artifacts) > 0 && len(declared.Containers) == 0 && inputs.attach == "" &&
 		!slices.ContainsFunc(declared.Artifacts, func(artifact config.Artifact) bool { return artifact.ProjectType != projecttype.Meta })
@@ -182,6 +187,7 @@ type orchestratorInputs struct {
 	changelogCreator string
 	skipVersionBump  bool
 	attach           string
+	draft            bool
 }
 
 // githubOrchestratorInputs reads them from the one job that calls the release
@@ -233,7 +239,7 @@ func (inputs *orchestratorInputs) take(name, input string, value any) error {
 		text = fmt.Sprint(value)
 	}
 
-	if input != inputSBOMs && input != inputChangelogCreator && input != inputSkipVersionBump && input != inputAttach {
+	if !slices.Contains([]string{inputSBOMs, inputChangelogCreator, inputSkipVersionBump, inputAttach, inputDraft}, input) {
 		return nil
 	}
 
@@ -252,13 +258,17 @@ func (inputs *orchestratorInputs) take(name, input string, value any) error {
 		}
 
 		inputs.changelogCreator = text
-	case inputSkipVersionBump:
-		skip, err := strconv.ParseBool(text)
-		if err != nil || strconv.FormatBool(skip) != text {
+	case inputSkipVersionBump, inputDraft:
+		value, err := strconv.ParseBool(text)
+		if err != nil || strconv.FormatBool(value) != text {
 			return fmt.Errorf("release workflow %s passes %s %q; the oracle needs true or false: %w", name, input, text, errs.ErrValidation)
 		}
 
-		inputs.skipVersionBump = skip
+		if input == inputDraft {
+			inputs.draft = value
+		} else {
+			inputs.skipVersionBump = value
+		}
 	}
 
 	return nil

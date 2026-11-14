@@ -97,6 +97,7 @@ func TestGitHubReleaseProfile_Inputs(t *testing.T) {
 		"null changelog creator":  {workflow("      changelog-creator:\n"), declared, githubReleaseProfile{GitSigning: config.GitSignGPG, SBOMBundle: sbomBundleOffered}},
 		"version bump skipped":    {workflow("      changelog.skipversionbump: true\n"), declared, githubReleaseProfile{GitSigning: config.GitSignGPG, Changelog: true, SBOMBundle: sbomBundleOffered}},
 		"version bump kept":       {workflow("      changelog.skipversionbump: 'false'\n"), declared, githubReleaseProfile{GitSigning: config.GitSignGPG, Changelog: true, Prepares: true, SBOMBundle: sbomBundleOffered}},
+		"draft":                   {workflow("      release.draft: true\n"), declared, githubReleaseProfile{GitSigning: config.GitSignGPG, Changelog: true, Prepares: true, SBOMBundle: sbomBundleOffered, Draft: true}},
 		"release sboms none":      {workflow("      release.sboms: none\n"), declared, githubReleaseProfile{GitSigning: config.GitSignGPG, Changelog: true, Prepares: true, SBOMBundle: sbomBundleWithheld}},
 		"artifact sboms none":     {workflow(""), declared + "    sboms: none\n", githubReleaseProfile{GitSigning: config.GitSignGPG, Changelog: true, Prepares: true, SBOMBundle: sbomBundleWithheld}},
 		"disjoint layers":         {workflow("      release.sboms: analyzed-artifact\n"), declared + "    sboms: build\n", githubReleaseProfile{GitSigning: config.GitSignGPG, Changelog: true, Prepares: true, SBOMBundle: sbomBundleWithheld}},
