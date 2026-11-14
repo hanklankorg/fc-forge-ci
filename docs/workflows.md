@@ -6,6 +6,36 @@ For the authoritative workflow inventory and direct-call contracts, see
 For administrator-owned check enforcement and the consumer trust boundary, see
 [Administrator check enforcement](admin-policy.md).
 
+## Names
+
+One set of names holds on GitHub, Forgejo and GitLab.
+
+- **Words.** The three flows are the pull request, the snapshot and the
+  release. A snapshot is what a build of a branch publishes; GitLab's own
+  screens say merge request for the pull request.
+- **A project's main workflows** are `pullrequest-workflow.yml`,
+  `release-snapshot-workflow.yml` and `release-workflow.yml`, under
+  `.github/workflows/` or `.forgejo/workflows/`. GitLab reads one
+  `.gitlab-ci.yml`, which holds the pull request and snapshot includes; the
+  release runs from a policy project.
+- **A project's tests** are `test.yml`, or `test-<kind>.yml` where it has
+  several.
+- **Entry points** a project calls are `<flow>-orchestrator.yml`:
+  `pullrequest-orchestrator.yml`, `release-snapshot-orchestrator.yml` and
+  `release-orchestrator.yml`.
+- **Building blocks** are `<verb>-<thing>`, such as `build-go`,
+  `lint-nanolinter` and `generate-changelog`. GitLab's components
+  `nanolinter`, `megalinter`, `build-gradle` and `check` keep their earlier
+  names: a component's name is its default job name, which pipelines and
+  policies refer to.
+- **The jobs of a composed release** are `prepare`, `build` and
+  `sign-and-publish`, in that order, with `preflight` before them where a
+  project checks its request first.
+- **Job display names** start with the stage: `Check`, `Prepare`, `Build`,
+  `Sign`, `Publish`, `Summary`. GitLab's release image jobs (`Images: …`) and
+  the jobs of its snapshot child pipeline (`Snapshot: …`) are named for their
+  group.
+
 ## Pull Request Workflow Architecture
 
 Primary high-level entry point: `pullrequest-orchestrator.yml`

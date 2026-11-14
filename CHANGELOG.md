@@ -352,6 +352,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Three GitLab jobs are named for their stage, as the jobs of the other
+  forges are: `Release: plan` is `Check: release plan`, `Snapshot: plan` is
+  `Check: snapshot plan` and `Snapshot: execute` is `Build: snapshot`. A
+  policy or a required check that names one of these jobs follows.
+- The Forgejo action `render-changelog` is `generate-changelog`, the name of
+  GitHub's workflow for the same step. `prepare-release.yml` calls it; a
+  consumer that called the action directly renames the `uses:` path.
+
 - The three main workflows have one file name on every forge:
   `pullrequest-workflow.yml`, `release-snapshot-workflow.yml` and
   `release-workflow.yml`. The Forgejo examples were `pullrequest.yml`,
