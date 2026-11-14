@@ -55,7 +55,7 @@ func TestNanolinterJudgesAPullRequestAgainstItsTargetBranch(t *testing.T) {
 
 			script := "#!/bin/sh\necho \"$*\" > '" + log + "'\n" +
 				`echo '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"nanolinter"}},"results":[]}]}'` + "\n"
-			if err := os.WriteFile(tool, []byte(script), 0o700); err != nil { //nolint:gosec // an executable test double.
+			if err := os.WriteFile(tool, []byte(script), 0o700); err != nil {
 				t.Fatal(err)
 			}
 
@@ -74,9 +74,17 @@ func TestNanolinterJudgesAPullRequestAgainstItsTargetBranch(t *testing.T) {
 	}
 }
 
-func githubEnv(t *testing.T) func(key, value string) { return ghaenv.Setup(t).Setenv }
+func githubEnv(t *testing.T) func(key, value string) {
+	t.Helper()
 
-func gitlabEnv(t *testing.T) func(key, value string) { return glabenv.Setup(t).Setenv }
+	return ghaenv.Setup(t).Setenv
+}
+
+func gitlabEnv(t *testing.T) func(key, value string) {
+	t.Helper()
+
+	return glabenv.Setup(t).Setenv
+}
 
 func TestNanolinterTypedModeRefusesAmbiguousOrMalformedInputs(t *testing.T) {
 	t.Parallel()

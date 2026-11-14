@@ -93,6 +93,7 @@ func TestLintCheckoutHoldsThePullRequestBaseline(t *testing.T) {
 	}
 
 	github := read(".github/workflows/lint-nanolinter.yml")
+
 	require.Equal(t, "true", workflowStepEnv(t, "lint-nanolinter.yml", "nanolinter-lint", "Checkout repository")["CHECKOUT_FETCH_ALL_REFS"])
 	require.Contains(t, github, `"$NANOLINTER_IMAGE" verify "$@" --report sarif --out - || rc=$?`+"\n")
 
