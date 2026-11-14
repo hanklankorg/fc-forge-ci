@@ -49,6 +49,11 @@ const (
 	githubPoll           = 20 * time.Second
 	githubEngineTimeout  = 75 * time.Minute
 	githubRunAppears     = 5 * time.Minute
+	// githubRunCreated is the wait for the run of a request GitHub accepted;
+	// it was measured at two to four seconds. githubRequestSends is how often
+	// a request is sent before the trial gives up on it.
+	githubRunCreated   = 40 * time.Second
+	githubRequestSends = 6
 	githubIndexTimeout   = 5 * time.Minute
 	githubIssuer         = "https://token.actions.githubusercontent.com"
 	githubEngineWorkflow = "self-runtime-container.yml"
@@ -1160,7 +1165,46 @@ func (trial *GitHubTrial) PushReleaseRequest(repo string, tree GitHubConsumerTre
 	trial.git(tree.Dir, "-c", "user.name="+githubTrialAuthor, "-c", "user.email="+githubTrialEmail,
 		"-c", "gpg.format=openpgp", "-c", "gpg.program="+program, "-c", "user.signingkey="+key.Fingerprint,
 		"tag", "-s", request, "-m", "Release "+version, tree.Main)
-	trial.push(tree.Dir, trial.remote(repo), "refs/tags/"+request)
+
+	if !trial.history {
+		trial.push(tree.Dir, trial.remote(repo), "refs/tags/"+request)
+
+		return
+	}
+
+	// After the first push of a long history GitHub starts no run for the
+	// pushes that follow, and replays none of them. Measured with 542 commits:
+	// request tags pushed up to 35 seconds after main started no run, those
+	// from 43 seconds on did, and the same tree as one commit was answered
+	// after two seconds. No API tells the two states apart, so a request that
+	// starts no run is withdrawn and sent again.
+	send := func(again bool) {
+		if again {
+			trial.tb.Logf("GitHub started no run for %s of %s within %s: the request is pushed again", request, repo, githubRunCreated)
+			trial.push(tree.Dir, trial.remote(repo), ":refs/tags/"+request)
+		}
+
+		trial.push(tree.Dir, trial.remote(repo), "refs/tags/"+request)
+	}
+
+	if !sendUntilAnswered(githubRequestSends, send, func() bool { return trial.requestRunCreated(repo, request) }) {
+		trial.tb.Fatalf("livetest: GitHub started no run for %s of %s, pushed %d times", request, repo, githubRequestSends)
+	}
+}
+
+// sendUntilAnswered sends an event until answered reports that it took
+// effect, at most sends times. A send after the first is told so, to withdraw
+// what the one before it left.
+func sendUntilAnswered(sends int, send func(again bool), answered func() bool) bool {
+	for attempt := range sends {
+		send(attempt > 0)
+
+		if answered() {
+			return true
+		}
+	}
+
+	return false
 }
 
 // CheckRelease checks what the engine promises of a GitHub release beyond a
@@ -1664,6 +1708,24 @@ func (trial *GitHubTrial) failureEvidence(ctx context.Context, repo string, run 
 	retainJobLogText(trial.tb, target, trial.org+"/"+repo, RunJob{RunID: run.GetID(), ID: job.GetID(), Attempt: int64(max(1, run.GetRunAttempt()))}, log, trial.secrets[repo])
 
 	return readFailureExcerpt(strings.NewReader(log), 40)
+}
+
+// requestRunCreated reports whether GitHub created a push run for the request
+// tag within githubRunCreated.
+func (trial *GitHubTrial) requestRunCreated(repo, request string) bool {
+	trial.tb.Helper()
+
+	for deadline := time.Now().Add(githubRunCreated); ; trial.sleep() {
+		runs, _, err := trial.api.Actions.ListRepositoryWorkflowRuns(trial.tb.Context(), trial.org, repo,
+			&github.ListWorkflowRunsOptions{Branch: request, Event: eventPush})
+		if err == nil && len(runs.WorkflowRuns) > 0 {
+			return true
+		}
+
+		if time.Now().After(deadline) {
+			return false
+		}
+	}
 }
 
 // waitWorkflows waits until GitHub lists every workflow just pushed to a new

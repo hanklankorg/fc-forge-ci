@@ -2353,6 +2353,14 @@ request stay. Forge Lab's session cleanup deletes only the repositories it
 created, by ID, so it never removes a demo. A GitHub demo has no lab account;
 its token is the session's personal access token, which the owner revokes.
 
+GitHub starts no run for a push that follows the first push of a long history
+closely, and replays none: with 542 commits, request tags pushed up to 35
+seconds after main went unanswered, and the same tree as one commit was
+answered after two seconds. A demo therefore withdraws a request tag that
+starts no run within 40 seconds and pushes it again, at most six times, and
+its log says so each time. A trial pushes one commit and sends its request
+once.
+
 ## Lightweight prerelease API checks
 
 For admission, native release metadata and immutable-retry checks without

@@ -196,6 +196,33 @@ func TestGitHubWaitRunReturnsCancelledTerminalRun(t *testing.T) {
 	}
 }
 
+func TestSendUntilAnsweredSendsAgainWhatGitHubDropped(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name         string
+		answeredFrom int // the send GitHub answers, from 1; 0 for never
+		wantSends    []bool
+		want         bool
+	}{
+		{name: "answered at once", answeredFrom: 1, wantSends: []bool{false}, want: true},
+		{name: "dropped twice", answeredFrom: 3, wantSends: []bool{false, true, true}, want: true},
+		{name: "never answered", wantSends: []bool{false, true, true, true}, want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var sends []bool
+
+			got := sendUntilAnswered(4, func(again bool) { sends = append(sends, again) },
+				func() bool { return test.answeredFrom != 0 && len(sends) >= test.answeredFrom })
+			if got != test.want || !slices.Equal(sends, test.wantSends) {
+				t.Fatalf("answered %v after sends %v, want %v after %v", got, sends, test.want, test.wantSends)
+			}
+		})
+	}
+}
+
 func TestGitHubConsumerPreservesTrackedIgnoredSource(t *testing.T) {
 	t.Parallel()
 	trial := &GitHubTrial{tb: t}
