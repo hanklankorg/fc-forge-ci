@@ -425,7 +425,7 @@ Without either variable, JVM trust is left as it is.
 | xcconfig overrides | ✅ | base64-encoded `XCCONFIG_BASE64` secret | For team ID, bundle ID, app group, etc. |
 | Workspace vs project | ✅ | `workspace` and `project` config fields | One must be set; forge-ci doesn't auto-detect. |
 | Scheme selection | ✅ | `scheme` config field | Required; `.xcscheme` must be shared in the project. |
-| Version-bump | ✅ (marketing version) | `forge-ci version bump --project-type xcode-ios --version 1.2.3` | Creates/updates `MARKETING_VERSION` in `versions.xcconfig` by default. It does not increment `CURRENT_PROJECT_VERSION`. |
+| Version-bump | ✅ (marketing version) | `forge-ci version bump --project-type xcode-ios --version 1.2.3` | Creates/updates `MARKETING_VERSION` in `versions.xcconfig` by default. It does not increment `CURRENT_PROJECT_VERSION`: the build number is `config.build-number`, or the `xcode-build-number` input of the GitHub release orchestrator for a caller that computes one. |
 | Release prerequisite checks | shared release checks | `validate-release-prerequisites.yml` | No Xcode-specific check; the App Store Connect secrets are not checked there. |
 | Publish: App Store Connect | ✅ | `publish-apple-appstore.yml` | Validates unless skipped, then uploads the IPA with `xcrun altool`. The `submit-for-review` value records intent in the summary only. |
 | App Store review submission | manual | App Store Connect | The workflow does not submit a build for review; `submit-for-review: true` only changes the post-upload guidance. |

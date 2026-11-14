@@ -642,6 +642,14 @@ and Google Play publisher agree.
 - **Example:** `export-options-var: EXPORT_OPTIONS_BASE64`
 - **Note:** Variable should contain base64-encoded exportOptions.plist for IPA export
 
+#### `config.build-number`
+
+- **Type:** `string`
+- **Description:** The build number of the archive, passed to `xcodebuild` as `CURRENT_PROJECT_VERSION`. A fixed value: every release builds with it until it is changed.
+- **Default:** empty (the project's own `CURRENT_PROJECT_VERSION`)
+- **Example:** `build-number: "42"`
+- **Note:** App Store Connect refuses a build number it has already received for the version. A caller that computes one for each release, such as a commit count in a job of its own, passes it as the `xcode-build-number` input of the GitHub `release-orchestrator.yml`, which takes its place.
+
 The macOS runner is not an artifact setting: the caller's workflow names it
 with the `runs-on-darwin-arm64` input of the orchestrator, default
 `["macos-26"]`. See [Runners](runners.md#github-runners).

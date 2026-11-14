@@ -285,6 +285,11 @@
         "required": false,
         "type": "string",
         "default": ""
+      },
+      "xcode-build-number": {
+        "required": false,
+        "type": "string",
+        "default": ""
       }
     },
     "secrets": [

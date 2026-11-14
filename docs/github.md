@@ -153,6 +153,7 @@ carries a description. The orchestrator inputs most callers set:
 | `runtime-image*` | all | The runtime image of each toolchain family. `runtime-image` is required on every orchestrator and admitted only as an `@sha256:` digest; it is the control-plane, release-notes, SARIF-upload and cosign signing container. |
 | `canonical-builder-image` | all | Required: the Go runtime image digest the canonical CLI is built in. |
 | `runs-on`, `runs-on-darwin-arm64` | PR, release, snapshot | JSON arrays of runner labels for the ordinary jobs, default `["ubuntu-26.04"]`, and the unsigned Xcode and the Swift jobs, default `["macos-26"]`; signed Android and Xcode builds stay on hosted runners. See [GitHub runners](runners.md#github-runners). |
+| `xcode-build-number` | release | The build number (`CURRENT_PROJECT_VERSION`) of the Xcode builds, for a caller that computes one for each release, such as a commit count in a job of its own. Empty uses `config.build-number` of the declaration, or the project's own. App Store Connect refuses a build number it has already received for the version. |
 | `build-runs-on-linux-amd64`, `build-runs-on-linux-arm64` | release, snapshot | JSON arrays of runner labels for the image builds per platform, default `["ubuntu-26.04"]` and `["ubuntu-26.04-arm"]`. Signing, promotion and publication jobs stay on GitHub-hosted runners. |
 
 Configuration of what is built, published and signed lives in

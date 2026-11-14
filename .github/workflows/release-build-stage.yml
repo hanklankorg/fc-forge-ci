@@ -45,6 +45,11 @@ on:
         required: false
         default: '["macos-26"]'
         type: string
+      xcode-build-number:
+        description: "Build number of the Xcode builds, in place of config.build-number of the declaration."
+        required: false
+        default: ""
+        type: string
       forge-ci-binary-ref:
         required: true
         type: string
@@ -360,7 +365,7 @@ jobs:
       xcodegen-spec: ${{ matrix.artifact.xcode_ios.xcodegen_spec || 'project.yml' }}
       artifact-name: ${{ matrix.artifact.name }}
       include-tag: false
-      build-number: ${{ matrix.artifact.xcode_ios.build_number }}
+      build-number: ${{ inputs['xcode-build-number'] || matrix.artifact.xcode_ios.build_number }}
       working-directory: ${{ matrix.artifact.working_directory }}
       forge-ci-binary-ref: ${{ inputs['forge-ci-binary-ref'] }}
   # Container-first cargo and container-first Go produce nothing at the

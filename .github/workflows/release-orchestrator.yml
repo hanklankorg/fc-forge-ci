@@ -156,6 +156,11 @@ on:
         required: false
         default: '["macos-26"]'
         type: string
+      xcode-build-number:
+        description: "Build number (CURRENT_PROJECT_VERSION) of the Xcode builds of this release, for a caller that computes one for each release, such as a commit count. Empty uses config.build-number of the declaration, or the project's own."
+        required: false
+        default: ""
+        type: string
       build-runs-on-linux-amd64:
         description: "JSON array of runner labels for the linux/amd64 image builds, read with fromJSON. The runner must permit the user namespaces Buildah needs."
         required: false
@@ -686,6 +691,7 @@ jobs:
     with:
       runs-on: ${{ inputs['runs-on'] }}
       runs-on-darwin-arm64: ${{ inputs['runs-on-darwin-arm64'] }}
+      xcode-build-number: ${{ inputs['xcode-build-number'] }}
       go-test-selections-json: ${{ inputs['go-test-selections-json'] }}
       cargo-test-selections-json: ${{ inputs['cargo-test-selections-json'] }}
       enforce-application-tests: ${{ inputs['enforce-application-tests'] }}

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The GitHub release orchestrator takes `xcode-build-number`, the build
+  number of the release's Xcode builds, from a caller that computes one for
+  each release. `config.build-number` of the declaration is a fixed value,
+  and App Store Connect refuses a build number it has already received.
 - A GitHub release of an Android application attaches the release APK
   beside the AAB, signed and listed in the checksums like the other release
   files, so the application can be installed from the release page. A
