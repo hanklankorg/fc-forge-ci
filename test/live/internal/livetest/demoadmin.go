@@ -37,7 +37,9 @@ type DemoRepository struct {
 type DemoPackage struct {
 	Type string
 	Name string
-	ID   int64
+	// Version is set where the forge lists a package version by version.
+	Version string
+	ID      int64
 }
 
 // DemoSet is one demo and every repository that belongs to it, the demo's
@@ -143,13 +145,114 @@ func ListLabDemos(ctx context.Context, target Target) ([]DemoSet, error) {
 		return nil, err
 	}
 
+	// Forgejo keeps packages with the owner; GitLab keeps them in the project
+	// and deletes them with it.
+	if target.Forge == provider.ForgeForgejo {
+		packages, err := ownerPackages(ctx, target)
+		if err != nil {
+			return nil, err
+		}
+
+		for index := range repositories {
+			repositories[index].Packages = linkedPackages(packages, repositories[index].ID)
+		}
+	}
+
 	return GroupDemos(repositories), nil
+}
+
+// deleteWithPackages deletes each repository after its packages. A package
+// that could not be deleted leaves its repository, and the rest, in place:
+// the repository is what still says whose the package is.
+func deleteWithPackages(ctx context.Context, repositories []DemoRepository, packages, repository func(context.Context, DemoRepository) error) error {
+	for _, listed := range repositories {
+		if err := packages(ctx, listed); err != nil {
+			return err
+		}
+
+		if err := repository(ctx, listed); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// linkedPackages returns the package versions the forge links to the
+// repository of that ID. The link is the forge's own record of whose a
+// package is; a package linked to no repository is no demo's, whatever its
+// name.
+func linkedPackages(packages []OwnerPackage, repositoryID int64) []DemoPackage {
+	var linked []DemoPackage
+
+	for _, pkg := range packages {
+		if repositoryID > 0 && pkg.RepositoryID == repositoryID {
+			linked = append(linked, DemoPackage{Type: pkg.Type, Name: pkg.Name, Version: pkg.Version, ID: pkg.ID})
+		}
+	}
+
+	return linked
+}
+
+// deleteLinkedPackages deletes the package versions listed with a repository,
+// before the repository goes and takes the link with it. Each is deleted only
+// while the forge still lists that ID as that version linked to that
+// repository; one already gone is no error. A second listing must show none
+// of them.
+func deleteLinkedPackages(ctx context.Context, repository DemoRepository,
+	list func(context.Context) ([]OwnerPackage, error), remove func(context.Context, DemoPackage) error,
+) error {
+	if len(repository.Packages) == 0 {
+		return nil
+	}
+
+	current, err := list(ctx)
+	if err != nil {
+		return err
+	}
+
+	byID := map[int64]OwnerPackage{}
+	for _, pkg := range current {
+		byID[pkg.ID] = pkg
+	}
+
+	for _, listed := range repository.Packages {
+		now, found := byID[listed.ID]
+		if !found {
+			continue
+		}
+
+		if now.Type != listed.Type || now.Name != listed.Name || now.Version != listed.Version || now.RepositoryID != repository.ID {
+			return fmt.Errorf("%s package %s %s of %s: %w", listed.Type, listed.Name, listed.Version, repository.Name, errPackageIdentityDrift)
+		}
+
+		if err := remove(ctx, listed); err != nil {
+			return fmt.Errorf("delete %s package %s %s of %s: %w", listed.Type, listed.Name, listed.Version, repository.Name, err)
+		}
+	}
+
+	left, err := list(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, pkg := range left {
+		for _, listed := range repository.Packages {
+			if pkg.ID == listed.ID {
+				return fmt.Errorf("%s package %s %s of %s: %w", listed.Type, listed.Name, listed.Version, repository.Name, errPackageDeletionUnconfirmed)
+			}
+		}
+	}
+
+	return nil
 }
 
 // DeleteLabDemo deletes every repository of a demo through the lab client's
 // own deletion, which on Forgejo cancels the runs first and on GitLab empties
 // the registry and finishes GitLab's deferred deletion. Each repository is
-// deleted only while the forge still gives its name the listed ID. When the
+// deleted only while the forge still gives its name the listed ID. On Forgejo
+// the package versions the forge links to a repository go before it: the
+// owner keeps them otherwise, and the next demo of that name meets them. When the
 // account holds no demo afterwards, the Forgejo layer binary package the demos
 // shared is deleted too.
 func DeleteLabDemo(ctx context.Context, target Target, set DemoSet) error {
@@ -169,10 +272,23 @@ func DeleteLabDemo(ctx context.Context, target Target, set DemoSet) error {
 
 	lookup := func(ctx context.Context, name string) (int64, bool, error) { return repositoryID(ctx, target, name) }
 
-	for _, repository := range set.Repositories {
-		if err = deleteListed(ctx, target.Owner, repository, lookup, repos.Delete); err != nil {
-			return err
-		}
+	list := func(ctx context.Context) ([]OwnerPackage, error) { return ownerPackages(ctx, target) }
+	remove := func(ctx context.Context, pkg DemoPackage) error {
+		endpoint := target.BaseURL() + "/api/v1/packages/" + url.PathEscape(target.Owner) + "/" + url.PathEscape(pkg.Type) +
+			"/" + url.PathEscape(pkg.Name) + "/" + url.PathEscape(pkg.Version)
+
+		return discard(ctx, target, http.MethodDelete, endpoint, nil, http.StatusNoContent, http.StatusNotFound)
+	}
+
+	err = deleteWithPackages(ctx, set.Repositories,
+		func(ctx context.Context, repository DemoRepository) error {
+			return deleteLinkedPackages(ctx, repository, list, remove)
+		},
+		func(ctx context.Context, repository DemoRepository) error {
+			return deleteListed(ctx, target.Owner, repository, lookup, repos.Delete)
+		})
+	if err != nil {
+		return err
 	}
 
 	if target.Forge != provider.ForgeForgejo {

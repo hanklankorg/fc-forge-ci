@@ -2341,6 +2341,16 @@ takes `confirm=<name>`), and deletes each repository by the lab client or the
 GitHub client only while the forge still gives its name the listed ID. On
 Forgejo the layer binary package the demos share goes with the last demo.
 
+Forgejo keeps packages with the owner, so a deleted demo's packages would
+meet the next demo of that name. The listing shows the package versions
+Forgejo links to each repository, and `demo-delete` deletes them before the
+repository: each only while Forgejo still lists it as that version linked to
+that repository, and a second listing must show them gone. The link is the
+only thing that makes a package a demo's. Forgejo links a container image by
+its source label and an npm package by the repository in its `package.json`;
+a package it links to no repository is never deleted, whatever its name.
+GitLab keeps packages in the project and deletes them with it.
+
 GitHub keeps the packages of a deleted repository and unbinds them, and a new
 demo of the same name is then refused those package names. So on GitHub the
 listing also shows the container, npm and Maven packages bound to each

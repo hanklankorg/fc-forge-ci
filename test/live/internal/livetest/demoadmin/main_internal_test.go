@@ -55,7 +55,7 @@ func (fake *fakeDemos) Delete(_ context.Context, set livetest.DemoSet) error {
 // Nothing is deleted unless the demo's own name comes back, typed or given.
 func TestRemove_DeletesOnlyWhatTheOperatorConfirms(t *testing.T) {
 	sets := []livetest.DemoSet{{Name: "service", Repositories: []livetest.DemoRepository{{
-		Name: "demo-service", ID: 1, Packages: []livetest.DemoPackage{{Type: "npm", Name: "service-package", ID: 7}},
+		Name: "demo-service", ID: 1, Packages: []livetest.DemoPackage{{Type: "npm", Name: "service-package", ID: 7}, {Type: "maven", Name: "org.example:service", Version: "1.0.0", ID: 8}},
 	}}}}
 
 	for name, test := range map[string]struct {
@@ -83,7 +83,7 @@ func TestRemove_DeletesOnlyWhatTheOperatorConfirms(t *testing.T) {
 				t.Fatalf("err = %v, want errAborted", err)
 			}
 
-			if !strings.Contains(out.String(), "demo-service") || !strings.Contains(out.String(), "npm package service-package\n") {
+			if !strings.Contains(out.String(), "demo-service") || !strings.Contains(out.String(), "    npm package service-package\n    maven package org.example:service 1.0.0\n") {
 				t.Fatalf("the set and its packages were not shown before the question:\n%s", out.String())
 			}
 		})

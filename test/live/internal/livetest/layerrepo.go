@@ -294,6 +294,9 @@ type OwnerPackage struct {
 	Name       string
 	Version    string
 	Repository string // the repository it is linked to, or ""
+	// RepositoryID is the forge's ID of that repository, 0 when it is linked
+	// to none.
+	RepositoryID int64
 }
 
 // OwnerPackages lists every package version of the owner, ordered by id.
@@ -330,6 +333,7 @@ func ownerPackages(ctx context.Context, target Target) ([]OwnerPackage, error) {
 			Name       string `json:"name"`
 			Version    string `json:"version"`
 			Repository *struct {
+				ID   int64  `json:"id"`
 				Name string `json:"name"`
 			} `json:"repository"`
 		}
@@ -343,7 +347,7 @@ func ownerPackages(ctx context.Context, target Target) ([]OwnerPackage, error) {
 		for _, row := range rows {
 			pkg := OwnerPackage{ID: row.ID, Type: row.Type, Name: row.Name, Version: row.Version}
 			if row.Repository != nil {
-				pkg.Repository = row.Repository.Name
+				pkg.Repository, pkg.RepositoryID = row.Repository.Name, row.Repository.ID
 			}
 
 			packages = append(packages, pkg)

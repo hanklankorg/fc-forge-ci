@@ -379,6 +379,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and lists them first. GitHub keeps and unbinds the packages of a deleted
   repository, and a new demo of the same name was then refused its package
   names. A package bound to no repository is never deleted.
+- `just demo-delete forgejo` deletes the package versions Forgejo links to
+  a demo's repositories before it deletes the repositories, and lists them
+  first. A package linked to no repository is never deleted.
 
 - A lint-runner check that could not complete now follows the enforcement of
   the gate it belongs to. With `enforce-lint` or `enforce-vulnerabilities` on,

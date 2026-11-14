@@ -274,7 +274,7 @@ func show(stdout io.Writer, set livetest.DemoSet) {
 		_, _ = fmt.Fprintf(stdout, "  %-48s id %-8d %s\n", repository.Name, repository.ID, repository.WebURL)
 
 		for _, pkg := range repository.Packages {
-			_, _ = fmt.Fprintf(stdout, "    %s package %s\n", pkg.Type, pkg.Name)
+			_, _ = fmt.Fprintln(stdout, strings.TrimRight("    "+pkg.Type+" package "+pkg.Name+" "+pkg.Version, " "))
 		}
 	}
 }
