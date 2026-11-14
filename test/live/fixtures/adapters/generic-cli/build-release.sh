@@ -54,6 +54,6 @@ jq -n --arg version "${RELEASE_VERSION}" --arg commit "${RELEASE_SHA}" \
 forge-ci release notes --changelog-file CHANGELOG.md --release-version "${RELEASE_TAG}" --target-file dist/release-notes.md
 forge-ci release files declare --dist-dir dist --asset "dist/${binary}" \
   --asset dist/source-identity.json --asset dist/build-identity.json \
-  --checksums-file dist/checksums.txt --evidence-file dist/release-notes.md
+  --evidence-file dist/release-notes.md
 printf 'Release handoff files (bytes, path relative to dist):\n'
 find dist -type f -printf '%s\t%P\n' | LC_ALL=C sort -k2

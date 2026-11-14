@@ -215,8 +215,9 @@ func TestReleaseFilesRoot_ManifestRefusesUnsignedEvidence(t *testing.T) {
 
 // Publish uploads the assets of a finalized manifest only. A producer's
 // manifest is refused before anything is uploaded, whether or not it names
-// evidence: the statement, its bundle and the bundle of each evidence file are
-// what finalization adds. The dry run reaches no forge and still refuses.
+// evidence: the statement, its bundle, the bundle of each evidence file and
+// the signature of the checksums and of each file they list are what
+// finalization adds. The dry run reaches no forge and still refuses.
 func TestReleaseRoot_PublishRequiresAFinalizedManifest(t *testing.T) {
 	publish := func(t *testing.T) error {
 		t.Helper()
@@ -271,6 +272,17 @@ func TestReleaseRoot_PublishRequiresAFinalizedManifest(t *testing.T) {
 	require.ErrorContains(t, err, "declares dist/SHA256SUMS without its signature, dist/SHA256SUMS.bundle or dist/SHA256SUMS.asc")
 
 	dist.plant(t, "SHA256SUMS.bundle")
+	dist.write(t)
+
+	// The checksums are signed, and the file they list has no signature of
+	// its own yet.
+	require.NoError(t, runReleaseFilesRoot(t, "manifest"))
+
+	err = publish(t)
+	require.ErrorIs(t, err, errs.ErrValidation)
+	require.ErrorContains(t, err, "declares dist/app.tgz without its signature, dist/app.tgz.bundle or dist/app.tgz.asc")
+
+	dist.plant(t, "app.tgz.bundle")
 	dist.write(t)
 
 	require.NoError(t, runReleaseFilesRoot(t, "manifest"))

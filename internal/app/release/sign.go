@@ -48,9 +48,10 @@ type SignInput struct {
 	AttachArtifacts         string // comma-separated glob list; signatures land in cwd as <basename>.asc
 	Files                   []string
 	AssemblyFile            string     // when set, sign exactly the staged release assembly
-	ReleaseFiles            FilesInput // release-file manifest and dist directory used by ManifestSections / ChecksumsFromManifest
+	ReleaseFiles            FilesInput // release-file manifest and dist directory used by ManifestSections / ChecksumsFromManifest / FilesFromManifest
 	ManifestSections        []string
 	ChecksumsFromManifest   bool
+	FilesFromManifest       bool // sign every file the manifest's checksums file lists, next to the file
 }
 
 // SignArtifacts signs the checksums file in place (if present), each release
@@ -196,6 +197,15 @@ func releaseFilesManifestSectionFiles(in SignInput) ([]string, error) {
 		}
 
 		files = append(files, paths...)
+	}
+
+	if in.FilesFromManifest {
+		subjects, err := checksumSubjectsToSign(in.ReleaseFiles)
+		if err != nil {
+			return nil, err
+		}
+
+		files = append(files, subjects...)
 	}
 
 	return files, nil

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"iter"
 	"maps"
 	"net"
 	"net/http"
@@ -2018,7 +2019,7 @@ func releaseSignatureGaps(method domainrelease.SignMethod, assets map[string]int
 		declared, other, otherName = bundles, signatures, "a GPG signature"
 	}
 
-	unsigned := unsignedSubjects(assets, declared, nil)
+	unsigned := unsignedSubjects(maps.Keys(assets), declared, nil)
 	if len(unsigned) == 0 {
 		if len(declared) == 0 {
 			return fmt.Errorf("offers no subject to sign: %w", errReleaseEvidence)
@@ -2062,12 +2063,12 @@ func offeredBundles(assets map[string]int64) []string {
 	return offered
 }
 
-// unsignedSubjects lists, sorted, the assets that are not signatures and have
-// no verified Cosign bundle or GPG signature.
-func unsignedSubjects(assets map[string]int64, bundles, signatures map[string]bool) []string {
+// unsignedSubjects lists, sorted, the offered files that are not signatures
+// and have no verified Cosign bundle or GPG signature.
+func unsignedSubjects(names iter.Seq[string], bundles, signatures map[string]bool) []string {
 	var unsigned []string
 
-	for name := range assets {
+	for name := range names {
 		if slices.ContainsFunc(releaseSignatureSuffixes, func(suffix string) bool { return strings.HasSuffix(name, suffix) }) {
 			continue
 		}

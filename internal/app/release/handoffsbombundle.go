@@ -1,0 +1,148 @@
+// SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+// SPDX-License-Identifier: EUPL-1.2 OR GPL-3.0-or-later
+
+package release
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/diggsweden/forge-ci/internal/archive"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/provenance"
+	"github.com/diggsweden/forge-ci/internal/domain/sbom"
+	"github.com/diggsweden/forge-ci/internal/domain/version"
+)
+
+// sbomBundleSource labels the SBOM bundle a hand-off's SBOMs are written into.
+const sbomBundleSource = "sbom_bundle"
+
+// SBOMBundleNaming names the SBOM bundle of an unsigned hand-off,
+// <project>-<version>-sboms.tar.gz. Both are required when the hand-off has
+// an SBOM, and unused when it has none.
+type SBOMBundleNaming struct {
+	ProjectName string
+	// Version is the release version or tag; a v prefix is dropped.
+	Version string
+}
+
+// bundleHandoffSBOMs writes the SBOMs of an unsigned hand-off into the one
+// SBOM bundle the release publishes, in the dist directory, and returns its
+// entry. The bundle holds each SBOM under its file name, in name order, so the
+// same SBOMs give the same bundle. One SBOM is bundled like several: a
+// release has the bundle or no SBOM. The SBOM files stay where they are and
+// are no longer release files.
+func bundleHandoffSBOMs(ctx releaseFilesCtx, sboms []FileEntry, naming SBOMBundleNaming) (FileEntry, error) {
+	project, ver := strings.TrimSpace(naming.ProjectName), version.StripVPrefix(strings.TrimSpace(naming.Version))
+	if project == "" || ver == "" {
+		return FileEntry{}, fmt.Errorf("the SBOM bundle is named <project>-<version>-sboms.tar.gz: pass --project-name and --version: %w", errs.ErrUsage)
+	}
+
+	sboms = slices.Clone(sboms)
+	slices.SortFunc(sboms, func(a, b FileEntry) int { return strings.Compare(a.Name, b.Name) })
+
+	for i := 1; i < len(sboms); i++ {
+		if sboms[i].Name == sboms[i-1].Name {
+			return FileEntry{}, fmt.Errorf("duplicate SBOM file name: %s (first: %s, second: %s): %w", sboms[i].Name, sboms[i-1].Path, sboms[i].Path, errs.ErrValidation)
+		}
+	}
+
+	name := sbom.BundleName(project, ver)
+	path := filepath.Join(ctx.distDir, name)
+
+	if err := requireAbsentOutput(path); err != nil {
+		return FileEntry{}, err
+	}
+
+	if _, err := writeBundleAtomic(path, func(bundle *archive.TarGzipWriter) (int, error) {
+		for _, entry := range sboms {
+			if err := addToBundle(bundle, entry.Path, entry.Name); err != nil {
+				return 0, err
+			}
+		}
+
+		return len(sboms), nil
+	}); err != nil {
+		return FileEntry{}, err
+	}
+
+	return FileEntry{Path: path, Name: name, Source: sbomBundleSource}, nil
+}
+
+// bundleGoReleaserSBOMs replaces the SBOMs GoReleaser wrote with their bundle
+// in an imported manifest. GoReleaser's checksums file lists each SBOM, so
+// its lines for them are replaced by the bundle's line: the checksums file
+// keeps its name and lists exactly the files the release publishes.
+func bundleGoReleaserSBOMs(ctx releaseFilesCtx, manifest *FileManifest, naming SBOMBundleNaming) error {
+	if len(manifest.SBOMs) == 0 {
+		return nil
+	}
+
+	bundle, err := bundleHandoffSBOMs(ctx, manifest.SBOMs, naming)
+	if err != nil {
+		return err
+	}
+
+	bundled := map[string]struct{}{}
+	paths := stringSet(entryPaths(manifest.SBOMs))
+
+	for _, entry := range manifest.SBOMs {
+		bundled[entry.Name] = struct{}{}
+	}
+
+	if err := replaceChecksumLines(manifest.Checksums[0].Path, bundled, bundle); err != nil {
+		// The bundle is this call's own output; left behind it would only
+		// block the next attempt.
+		return errors.Join(err, os.Remove(bundle.Path))
+	}
+
+	manifest.Assets = append(slices.DeleteFunc(manifest.Assets, func(entry FileEntry) bool {
+		_, ok := paths[entry.Path]
+
+		return ok
+	}), bundle)
+	manifest.SBOMs = []FileEntry{bundle}
+
+	return nil
+}
+
+// replaceChecksumLines rewrites the checksums file without the lines of the
+// removed names and with the line of the added file last. The other lines
+// keep their order and digests.
+func replaceChecksumLines(checksumsFile string, removed map[string]struct{}, added FileEntry) error {
+	body, err := readReleaseFile(checksumsFile)
+	if err != nil {
+		return fmt.Errorf("checksum file: %w", err)
+	}
+
+	subjects, err := provenance.ParseChecksums(bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+
+	digest, err := sha256File(added.Path)
+	if err != nil {
+		return err
+	}
+
+	var lines strings.Builder
+
+	for _, subject := range subjects {
+		if _, ok := removed[subject.Name]; !ok {
+			lines.WriteString(subject.SHA256 + "  " + subject.Name + "\n")
+		}
+	}
+
+	lines.WriteString(digest + "  " + added.Name + "\n")
+
+	if err := os.WriteFile(checksumsFile, []byte(lines.String()), 0o644); err != nil { //nolint:gosec // G306: a public release file, read above through the link-refusing opener.
+		return fmt.Errorf("write checksums file %s: %w", checksumsFile, err)
+	}
+
+	return nil
+}

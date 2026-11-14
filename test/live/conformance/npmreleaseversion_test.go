@@ -19,7 +19,8 @@ import (
 )
 
 // Read the signed tag, actual published package and Build SBOM independently of
-// the builder's success message. This is repeated for both consecutive releases.
+// the builder's success message. The Build SBOM is read out of the release's
+// SBOM bundle, the one place a release publishes its SBOMs. This is repeated for both consecutive releases.
 func requireNPMVersionContract(t *testing.T, target livetest.Target, repo, tag string) {
 	t.Helper()
 
@@ -50,17 +51,33 @@ func requireNPMVersionContract(t *testing.T, target livetest.Target, repo, tag s
 	packages, sboms := 0, 0
 
 	for _, filename := range livetest.ReleaseAssetNames(t, target, repo, tag) {
-		if !strings.HasSuffix(filename, ".tgz") && !strings.HasSuffix(filename, ".cdx.json") {
+		if strings.HasSuffix(filename, ".cdx.json") {
+			t.Fatalf("release %s publishes the SBOM %s beside its SBOM bundle", tag, filename)
+		}
+
+		bundle := strings.HasSuffix(filename, "-sboms.tar.gz")
+		if !strings.HasSuffix(filename, ".tgz") && !bundle {
 			continue
 		}
 
 		body := livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, tag, filename), maxReleaseFile)
-		if strings.HasSuffix(filename, ".cdx.json") {
-			if buildSBOMVersion(t, body) != version {
-				t.Fatalf("published Build SBOM disagrees with tag %s", tag)
+		if bundle {
+			documents, err := tarGzipFiles(body)
+			if err != nil {
+				t.Fatalf("read the SBOM bundle %s: %v", filename, err)
 			}
 
-			sboms++
+			for name, document := range documents {
+				if !strings.HasSuffix(name, ".cdx.json") {
+					t.Fatalf("the SBOM bundle %s holds %s, which is not a Build SBOM", filename, name)
+				}
+
+				if buildSBOMVersion(t, document) != version {
+					t.Fatalf("published Build SBOM %s disagrees with tag %s", name, tag)
+				}
+
+				sboms++
+			}
 
 			continue
 		}

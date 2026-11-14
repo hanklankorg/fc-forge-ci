@@ -275,11 +275,17 @@ Release SBOMs have two delivery paths:
 - The build and analyzed SBOMs selected by effective `release.sboms` policy are packaged in a signed
   `*-sboms.tar.gz` GitHub Release asset, a gzip-compressed tar. The release
   checksum manifest covers the bundle and the other release assets.
+- A Forgejo or GitLab release publishes the same bundle,
+  `<project>-<version>-sboms.tar.gz`: `release files declare` writes it from
+  the `--sbom` files of the build, and `release files import-goreleaser` from
+  the SBOMs GoReleaser wrote. No SBOM is a release file of its own.
+  [Verify a Forgejo or GitLab release](verification.md#verify-a-forgejo-or-gitlab-release)
+  has the commands.
 - Each per-architecture container digest receives its analyzed-container
   CycloneDX document as a signed cosign attestation. This path is registry- and
   forge-neutral; it does not depend on GitHub's attestation API.
 
-Verify release files in trust order: authenticate the checksum manifest, check
+Verify the files of a GitHub release in trust order: authenticate the checksum manifest, check
 downloaded files against it, then authenticate the optional detached SBOM
 bundle signature and unpack the bundle:
 

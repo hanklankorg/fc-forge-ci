@@ -27,6 +27,7 @@ import (
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
+	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 	"github.com/diggsweden/forge-ci/test/live/internal/livetest"
 )
 
@@ -59,13 +60,16 @@ All notable changes to this acceptance fixture will be documented in this file.
 	releaseFinalTag   = "v0.0.1"
 	releaseBotEmail   = "layer-acceptance@invalid.example"
 
-	releaseArchive    = "layer-release-canary_0.0.1_linux_amd64.tar.gz"
-	releaseSBOM       = releaseArchive + ".sbom.json"
-	releaseChecksums  = "layer-release-canary_0.0.1_checksums.txt"
-	releaseProvenance = "slsa-provenance.intoto.json"
-	releaseManifest   = "release-files.json"
-	releaseNotes      = "release-notes.md"
-	bundleSuffix      = ".bundle"
+	releaseArchive = "layer-release-canary_0.0.1_linux_amd64.tar.gz"
+	// releaseSBOMDocument is the SBOM the build declares. It travels in the
+	// hand-off and is published inside releaseSBOMBundle, not beside it.
+	releaseSBOMDocument = releaseArchive + ".sbom.json"
+	releaseSBOMBundle   = "layer-release-canary-0.0.1-sboms.tar.gz"
+	releaseChecksums    = domainrelease.ChecksumsFile
+	releaseProvenance   = "slsa-provenance.intoto.json"
+	releaseManifest     = "release-files.json"
+	releaseNotes        = "release-notes.md"
+	bundleSuffix        = ".bundle"
 
 	// releaseCanaryTest is where an adverse case puts the pull-request
 	// owner's test source: beside the command, in the package the build tests.
@@ -74,13 +78,14 @@ All notable changes to this acceptance fixture will be documented in this file.
 	maxReleaseFile = 64 << 20
 )
 
-// releaseAssets are the files a reader of the release can download: what the
-// build declared, the provenance statement, and a signature bundle for each
-// file that is signed.
+// releaseAssets are the files a reader of the release can download, as on
+// every forge: the checksums, the archive, the SBOM bundle and the provenance
+// statement, each with its own signature bundle.
 func releaseAssets() []string {
 	return []string{
 		releaseChecksums, releaseChecksums + bundleSuffix,
-		releaseArchive, releaseSBOM, releaseSBOM + bundleSuffix,
+		releaseArchive, releaseArchive + bundleSuffix,
+		releaseSBOMBundle, releaseSBOMBundle + bundleSuffix,
 		releaseProvenance, releaseProvenance + bundleSuffix,
 	}
 }
@@ -622,11 +627,11 @@ func requireReleaseHandOff(t *testing.T, scenario layerScenario, runID int64, fa
 		t.Errorf("the renderer handed over %v, want only %v", got, want)
 	}
 
-	if got, want := sortedNames(unsigned), sortedNames(namesOf(releaseArchive, releaseSBOM, releaseChecksums, releaseManifest, releaseNotes)); !slices.Equal(got, want) {
+	if got, want := sortedNames(unsigned), sortedNames(namesOf(releaseArchive, releaseSBOMDocument, releaseSBOMBundle, releaseChecksums, releaseManifest, releaseNotes)); !slices.Equal(got, want) {
 		t.Errorf("the build handed over %v, want %v", got, want)
 	}
 
-	if got, want := sortedNames(signed), sortedNames(namesOf(append(releaseAssets(), releaseManifest, releaseNotes)...)); !slices.Equal(got, want) {
+	if got, want := sortedNames(signed), sortedNames(namesOf(append(releaseAssets(), releaseSBOMDocument, releaseManifest, releaseNotes)...)); !slices.Equal(got, want) {
 		t.Errorf("the signer handed over %v, want %v", got, want)
 	}
 
@@ -701,19 +706,26 @@ func requireReleaseAssets(t *testing.T, scenario layerScenario, keys releaseKeys
 		}
 	}
 
-	digests := map[string]string{releaseArchive: sha256Hex(published[releaseArchive]), releaseSBOM: sha256Hex(published[releaseSBOM])}
+	digests := map[string]string{releaseArchive: sha256Hex(published[releaseArchive]), releaseSBOMBundle: sha256Hex(published[releaseSBOMBundle])}
 
-	wantChecksums := digests[releaseArchive] + "  " + releaseArchive + "\n" + digests[releaseSBOM] + "  " + releaseSBOM + "\n"
+	wantChecksums := digests[releaseArchive] + "  " + releaseArchive + "\n" + digests[releaseSBOMBundle] + "  " + releaseSBOMBundle + "\n"
 	if got := string(published[releaseChecksums]); !sameLines(got, wantChecksums) {
-		t.Errorf("the checksums file is %q, want the real digests of the archive and the SBOM:\n%s", got, wantChecksums)
+		t.Errorf("the checksums file is %q, want the real digests of the archive and the SBOM bundle:\n%s", got, wantChecksums)
 	}
 
 	if subjects, err := provenanceSubjects(published[releaseProvenance]); err != nil || len(subjects) != len(digests) ||
-		subjects[releaseArchive] != digests[releaseArchive] || subjects[releaseSBOM] != digests[releaseSBOM] {
-		t.Errorf("the provenance statement names subjects %v (%v), want the archive and the SBOM by their digests", subjects, err)
+		subjects[releaseArchive] != digests[releaseArchive] || subjects[releaseSBOMBundle] != digests[releaseSBOMBundle] {
+		t.Errorf("the provenance statement names subjects %v (%v), want the archive and the SBOM bundle by their digests", subjects, err)
 	}
 
-	for _, name := range []string{releaseChecksums, releaseSBOM, releaseProvenance} {
+	// The bundle holds the build's SBOM under its file name, and nothing else.
+	if sboms, err := tarGzipFiles(published[releaseSBOMBundle]); err != nil || len(sboms) != 1 || len(signed[releaseSBOMDocument]) == 0 ||
+		!bytes.Equal(sboms[releaseSBOMDocument], signed[releaseSBOMDocument]) {
+		t.Errorf("the SBOM bundle holds %v (%v), want only the build's %s", sortedNames(sboms), err, releaseSBOMDocument)
+	}
+
+	// Every published file has its own signature, not the checksums alone.
+	for _, name := range []string{releaseChecksums, releaseArchive, releaseSBOMBundle, releaseProvenance} {
 		if err := livetest.VerifyBlob(t, target, keys.cosignPublicPath, published[name], published[name+bundleSuffix]); err != nil {
 			t.Errorf("the bundle of %s does not verify against the release's public key: %v", name, err)
 		}
@@ -846,6 +858,35 @@ func provenanceSubjects(statement []byte) (map[string]string, error) {
 	}
 
 	return subjects, nil
+}
+
+// tarGzipFiles reads the regular files of a tar.gz, content by name.
+func tarGzipFiles(archive []byte) (map[string][]byte, error) {
+	unzipped, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		return nil, err
+	}
+
+	files := map[string][]byte{}
+
+	for reader := tar.NewReader(unzipped); ; {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return files, nil
+		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		if header.Typeflag != tar.TypeReg {
+			continue
+		}
+
+		if files[header.Name], err = io.ReadAll(io.LimitReader(reader, maxReleaseFile)); err != nil {
+			return nil, err
+		}
+	}
 }
 
 // archiveHoldsBinary checks that a gzipped tar holds exactly one regular

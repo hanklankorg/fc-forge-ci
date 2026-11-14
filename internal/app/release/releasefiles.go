@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,6 +19,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/cliio"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/provenance"
+	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
 )
 
@@ -36,7 +38,24 @@ const (
 	// ProvenanceStatementName is the file name of the SLSA provenance
 	// statement the engine writes into the dist directory.
 	ProvenanceStatementName = "slsa-provenance.intoto.json"
+
+	// goReleaserChecksumsSuffix ends the checksums file name the GoReleaser
+	// examples configure. A GoReleaser project names its own checksums file,
+	// so discovery takes this name as well as domainrelease.ChecksumsFile.
+	goReleaserChecksumsSuffix = "checksums.txt"
+	// packageSignatureSuffix ends the detached signature `release gpg
+	// sign-packages` writes next to a distro package.
+	packageSignatureSuffix = ".sig"
 )
+
+// isChecksumsFileName reports whether a file is a release checksums file by
+// its name: checksums.sha256, as `release files declare` writes it, or a name
+// ending in checksums.txt, as a GoReleaser configuration names one.
+func isChecksumsFileName(path string) bool {
+	name := filepath.Base(path)
+
+	return strings.HasSuffix(name, domainrelease.ChecksumsFile) || strings.HasSuffix(name, goReleaserChecksumsSuffix)
+}
 
 // releaseSignature is one kind of signature file a signing verb writes next
 // to a release file.
@@ -50,7 +69,7 @@ func releaseSignatures() []releaseSignature {
 	return []releaseSignature{
 		{suffix: ".bundle", source: "signature_bundle"},
 		{suffix: ".asc", source: "openpgp_signature"},
-		{suffix: ".sig", source: "package_signature"},
+		{suffix: packageSignatureSuffix, source: "package_signature"},
 	}
 }
 
@@ -116,6 +135,7 @@ type WriteReleaseFileManifestInput struct {
 // the GoReleaser assets. Import happens before signing creates provenance.
 type ImportGoReleaserFileManifestInput struct {
 	FilesInput
+	SBOMBundleNaming
 
 	EvidenceFiles []string
 }
@@ -266,16 +286,28 @@ func ImportGoReleaserFileManifest(in ImportGoReleaserFileManifestInput) (*FileMa
 		return nil, addErr
 	}
 
-	evidence, err := addEvidenceEntries(ctx, collector, in.EvidenceFiles)
-	if err != nil {
-		return nil, err
-	}
-
 	manifest, err := buildGoReleaserFileManifest(ctx, collector.entries)
 	if err != nil {
 		return nil, err
 	}
 
+	if bundleErr := bundleGoReleaserSBOMs(ctx, manifest, in.SBOMBundleNaming); bundleErr != nil {
+		return nil, bundleErr
+	}
+
+	collector = &releaseFileCollector{}
+	for _, entry := range manifest.Assets {
+		if addErr := collector.add(ctx, entry.Path, entry.Source); addErr != nil {
+			return nil, addErr
+		}
+	}
+
+	evidence, err := addEvidenceEntries(ctx, collector, in.EvidenceFiles)
+	if err != nil {
+		return nil, err
+	}
+
+	manifest.Assets = collector.entries
 	manifest.Evidence = evidence
 
 	if err := validateUnsignedReleaseFiles(ctx, manifest); err != nil {
@@ -428,9 +460,11 @@ func PublishableReleaseFiles(in FilesInput) ([]string, error) {
 // and a release whose signing left a signed file unsigned. Finalization
 // declares the provenance statement with its bundle and the bundle of every
 // evidence file; those are the published files no checksum line covers. It
-// declares a signature of each checksums file and each SBOM too, a Cosign
-// bundle or an OpenPGP .asc: the checksums bind every other file, so a
-// release without that signature would be published unauthenticated.
+// declares a signature of the checksums file too, a Cosign bundle or an
+// OpenPGP .asc: the checksums bind every other file, so a release without
+// that signature would be published unauthenticated. Every file the checksums
+// list, the SBOM bundle among them, has its own signature of one of those two
+// kinds, or the detached .sig of a signed distro package.
 func requireFinalizedManifest(ctx releaseFilesCtx, manifest *FileManifest) error {
 	const hint = "run `release files manifest` after signing"
 
@@ -450,16 +484,51 @@ func requireFinalizedManifest(ctx releaseFilesCtx, manifest *FileManifest) error
 		}
 	}
 
-	for _, signed := range append(entryPaths(manifest.Checksums), entryPaths(manifest.SBOMs)...) {
-		signed = filepath.Clean(signed)
+	signedFiles := map[string][]string{}
+	for _, checksums := range entryPaths(manifest.Checksums) {
+		signedFiles[filepath.Clean(checksums)] = []string{".bundle", ".asc"}
+	}
 
-		_, bundle := declared[signed+".bundle"]
-		if _, openPGP := declared[signed+".asc"]; !bundle && !openPGP {
-			return fmt.Errorf("release file manifest %s is not finalized: it declares %s without its signature, %s.bundle or %s.asc; sign the checksums and SBOMs, then %s: %w", ctx.manifestFile, signed, signed, signed, hint, errs.ErrValidation)
+	for _, subject := range manifestChecksumSubjectPaths(manifest) {
+		signedFiles[filepath.Clean(subject)] = []string{".bundle", ".asc", packageSignatureSuffix}
+	}
+
+	for _, signed := range slices.Sorted(maps.Keys(signedFiles)) {
+		if !slices.ContainsFunc(signedFiles[signed], func(suffix string) bool {
+			_, ok := declared[signed+suffix]
+
+			return ok
+		}) {
+			return fmt.Errorf("release file manifest %s is not finalized: it declares %s without its signature, %s.bundle or %s.asc; sign the release files, then %s: %w", ctx.manifestFile, signed, signed, signed, hint, errs.ErrValidation)
 		}
 	}
 
 	return nil
+}
+
+// checksumSubjectsToSign returns, sorted, the release files `release sign
+// --files-from-manifest` signs: every file the release's checksums file has to
+// list, which is every declared file but the checksums file, the evidence and
+// the provenance statement, each of which is signed on its own. A distro
+// package that `release gpg sign-packages` gave a detached .sig keeps that
+// one signature.
+func checksumSubjectsToSign(in FilesInput) ([]string, error) {
+	subjects, err := checksumSubjectPaths(releaseFilesContext(in))
+	if err != nil {
+		return nil, err
+	}
+
+	paths := make([]string, 0, len(subjects))
+
+	for _, path := range subjects {
+		if !regularReleaseFile(path + packageSignatureSuffix) {
+			paths = append(paths, path)
+		}
+	}
+
+	slices.Sort(paths)
+
+	return paths, nil
 }
 
 // discoverReleaseFilesSection lists one release files section by on-disk
@@ -995,8 +1064,12 @@ func publishableGoReleaserAsset(path, artifactType string) bool {
 		return false
 	}
 
+	if isChecksumsFileName(path) {
+		return true
+	}
+
 	for _, suffix := range []string{
-		"checksums.txt", ".tar.gz", ".tgz", ".zip", ".tar.xz", ".tar.bz2",
+		".tar.gz", ".tgz", ".zip", ".tar.xz", ".tar.bz2",
 		".deb", ".rpm", ".apk", ".sbom.json",
 	} {
 		if strings.HasSuffix(path, suffix) {
@@ -1066,7 +1139,7 @@ func discoverOptionalChecksum(ctx releaseFilesCtx) (string, error) {
 			return nil
 		}
 
-		if strings.HasSuffix(filepath.Base(path), "checksums.txt") {
+		if isChecksumsFileName(path) {
 			files = append(files, path)
 		}
 
@@ -1478,7 +1551,7 @@ func checksumSubjectPathsFromArtifacts(ctx releaseFilesCtx) (map[string]string, 
 	paths := make(map[string]string, len(artifacts))
 
 	for _, artifact := range artifacts {
-		if !publishableGoReleaserAsset(artifact.Path, artifact.Type) || strings.HasSuffix(artifact.Path, "checksums.txt") {
+		if !publishableGoReleaserAsset(artifact.Path, artifact.Type) || isChecksumsFileName(artifact.Path) {
 			continue
 		}
 

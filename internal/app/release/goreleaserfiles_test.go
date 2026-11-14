@@ -20,13 +20,15 @@ func TestImportGoReleaserFileManifest_BeforeSigningThenFinalize(t *testing.T) {
 	writeReleaseFilesTestFile(t, "dist/release-plan.json", `{"version":1}`)
 
 	manifest, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{
-		EvidenceFiles: []string{"dist/release-plan.json"},
+		SBOMBundleNaming: testSBOMBundleNaming,
+		EvidenceFiles:    []string{"dist/release-plan.json"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	want := []string{"app.apk", "app.deb", "app.rpm", "app.tar.gz", "app.tar.gz.sbom.json", "app_checksums.txt", "release-plan.json"}
+	// GoReleaser's SBOM is published in the SBOM bundle, not beside it.
+	want := []string{testSBOMBundle, "app.apk", "app.deb", "app.rpm", "app.tar.gz", "app_checksums.txt", "release-plan.json"}
 
 	names := make([]string, 0, len(manifest.Assets))
 	for _, entry := range manifest.Assets {
@@ -42,6 +44,22 @@ func TestImportGoReleaserFileManifest_BeforeSigningThenFinalize(t *testing.T) {
 	evidence, err := apprelease.ListReleaseFiles(apprelease.ListReleaseFilesInput{Section: "evidence"})
 	if err != nil || !slices.Equal(evidence, []string{"dist/release-plan.json"}) {
 		t.Fatalf("evidence = %v, err = %v", evidence, err)
+	}
+
+	sboms, err := apprelease.ListReleaseFiles(apprelease.ListReleaseFilesInput{Section: "sboms"})
+	if err != nil || !slices.Equal(sboms, []string{"dist/" + testSBOMBundle}) {
+		t.Fatalf("sboms = %v, err = %v", sboms, err)
+	}
+
+	// GoReleaser's checksums file keeps its name and its other lines; the
+	// SBOM's line is replaced by the bundle's.
+	wantChecksums := ""
+	for _, name := range []string{"app.tar.gz", "app.deb", "app.rpm", "app.apk", testSBOMBundle} {
+		wantChecksums += testFileSHA256(t, "dist/"+name) + "  " + name + "\n"
+	}
+
+	if got := readFile(t, "dist/app_checksums.txt"); got != wantChecksums {
+		t.Fatalf("checksums = %q, want %q", got, wantChecksums)
 	}
 
 	if validateErr := apprelease.ValidateReleaseChecksums(apprelease.ValidateReleaseChecksumsInput{}); validateErr != nil {
@@ -114,7 +132,7 @@ func TestImportGoReleaserFileManifest_RefusesInvalidEvidence(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			_, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{EvidenceFiles: test.evidence})
+			_, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{SBOMBundleNaming: testSBOMBundleNaming, EvidenceFiles: test.evidence})
 			if !errors.Is(err, test.wantErr) {
 				t.Fatalf("err = %v, want %v", err, test.wantErr)
 			}
@@ -131,7 +149,7 @@ func TestImportGoReleaserFileManifest_PreservesExistingManifest(t *testing.T) {
 	writeUnsignedReleaseFilesFixture(t)
 	writeReleaseFilesTestFile(t, "dist/release-files.json", "existing manifest\n")
 
-	_, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{})
+	_, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{SBOMBundleNaming: testSBOMBundleNaming})
 	if !errors.Is(err, errs.ErrValidation) {
 		t.Fatalf("err = %v, want existing manifest refusal", err)
 	}
@@ -161,7 +179,8 @@ func TestImportGoReleaserFileManifest_RefusesAnAlreadySignedDist(t *testing.T) {
 			writeReleaseFilesTestFile(t, planted, "producer supplied\n")
 
 			_, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{
-				EvidenceFiles: []string{"dist/release-plan.json"},
+				SBOMBundleNaming: testSBOMBundleNaming,
+				EvidenceFiles:    []string{"dist/release-plan.json"},
 			})
 			if !errors.Is(err, errs.ErrValidation) {
 				t.Fatalf("err = %v, want the signed dist refused", err)

@@ -275,6 +275,63 @@ func TestSign_ManifestSectionsAndChecksumFromManifest(t *testing.T) {
 	}
 }
 
+// --files-from-manifest signs every file the checksums list, next to the
+// file: the assets and the SBOM bundle. The checksums file is signed once, by
+// --checksums-from-manifest. Evidence has its own signing step, and a distro
+// package `release gpg sign-packages` signed keeps that one signature.
+func TestSign_FilesFromManifestSignsEveryChecksumSubjectOnce(t *testing.T) {
+	fsys := testfs.NewReal(t)
+
+	var checksums strings.Builder
+
+	for _, name := range []string{"linux-amd64/app", "app.deb", "app.rpm", "app-1.2.3-sboms.tar.gz"} {
+		fsys.WriteFile(filepath.Join("dist", name), []byte(name))
+		fmt.Fprintf(&checksums, "%x  %s\n", sha256.Sum256([]byte(name)), filepath.Base(name))
+	}
+
+	fsys.WriteFile(filepath.Join("dist", "app.deb.sig"), []byte("package signature"))
+	fsys.WriteFile(filepath.Join("dist", "checksums.sha256"), []byte(checksums.String()))
+	fsys.WriteFile(filepath.Join("dist", "doctor.json"), []byte("evidence"))
+	fsys.WriteFile(filepath.Join("dist", "release-files.json"), []byte(`{
+  "version": 1,
+  "assets": [
+    {"path":"dist/linux-amd64/app","name":"app","source":"producer"},
+    {"path":"dist/app.deb","name":"app.deb","source":"producer"},
+    {"path":"dist/app.rpm","name":"app.rpm","source":"producer"},
+    {"path":"dist/app-1.2.3-sboms.tar.gz","name":"app-1.2.3-sboms.tar.gz","source":"sbom_bundle"},
+    {"path":"dist/checksums.sha256","name":"checksums.sha256","source":"producer"},
+    {"path":"dist/doctor.json","name":"doctor.json","source":"evidence"}
+  ],
+  "checksums": [{"path":"dist/checksums.sha256","name":"checksums.sha256","source":"producer"}],
+  "sboms": [{"path":"dist/app-1.2.3-sboms.tar.gz","name":"app-1.2.3-sboms.tar.gz","source":"sbom_bundle"}],
+  "evidence": [{"path":"dist/doctor.json","name":"doctor.json","source":"evidence"}],
+  "provenance": []
+}
+`))
+	fsys.Chdir()
+
+	signer := &fakeSigner{}
+	if err := apprelease.SignArtifacts(context.Background(), signer, &bytes.Buffer{}, apprelease.SignInput{
+		SkipReleaseArtifactsDir: true,
+		ReleaseFiles:            apprelease.FilesInput{DistDir: "dist", ManifestFile: filepath.Join("dist", "release-files.json")},
+		ChecksumsFromManifest:   true,
+		FilesFromManifest:       true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"dist/checksums.sha256", "dist/app-1.2.3-sboms.tar.gz", "dist/app.rpm", "dist/linux-amd64/app"}
+	if !slices.Equal(signer.signed, want) {
+		t.Fatalf("signed %v, want %v", signer.signed, want)
+	}
+
+	for _, file := range want {
+		if _, err := os.Stat(file + ".asc"); err != nil {
+			t.Errorf("no signature next to %s: %v", file, err)
+		}
+	}
+}
+
 // The manifest names the checksums file, so a caller that also names one, or
 // skips it, is refused before the manifest is read and before anything is
 // signed. The default file name is a named file like any other.

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -616,7 +617,7 @@ func TestUnsignedSubjectsListsEveryAssetWithoutAVerifiedSignature(t *testing.T) 
 	bundles := map[string]bool{"app.tar.gz": true}
 	signatures := map[string]bool{"app.jar": true}
 
-	got := unsignedSubjects(assets, bundles, signatures)
+	got := unsignedSubjects(maps.Keys(assets), bundles, signatures)
 	want := []string{"checksums.txt", "sbom.cdx.json"}
 
 	if !slices.Equal(got, want) {

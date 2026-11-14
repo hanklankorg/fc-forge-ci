@@ -19,7 +19,7 @@ func TestUnsignedEvidenceDoesNotImposeNativeImageContractOnExistingLedgers(t *te
 			t.Chdir(t.TempDir())
 			writeUnsignedReleaseFilesFixture(t)
 
-			_, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{})
+			_, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{SBOMBundleNaming: testSBOMBundleNaming})
 			require.NoError(t, err)
 
 			digest := "sha256:" + strings.Repeat("a", 64)
@@ -48,7 +48,7 @@ func TestUnsignedManifestExtendsProducerEvidenceWithoutRediscovery(t *testing.T)
 	t.Chdir(t.TempDir())
 	writeUnsignedReleaseFilesFixture(t)
 
-	before, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{})
+	before, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{SBOMBundleNaming: testSBOMBundleNaming})
 	require.NoError(t, err)
 	require.NoError(t, os.Remove("dist/artifacts.json"))
 	writeReleaseFilesTestFile(t, "dist/plan.json", `{"version":1}`)
@@ -70,7 +70,7 @@ func TestUnsignedManifestEvidenceRefusalsPreserveOriginal(t *testing.T) {
 			t.Chdir(t.TempDir())
 			writeUnsignedReleaseFilesFixture(t)
 
-			_, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{})
+			_, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{SBOMBundleNaming: testSBOMBundleNaming})
 			require.NoError(t, err)
 			before := readFile(t, "dist/release-files.json")
 			writeReleaseFilesTestFile(t, "dist/plan.json", "evidence\n")

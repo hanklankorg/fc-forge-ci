@@ -3326,13 +3326,13 @@ admit native export jobs or print whether an architecture is selected
 
 ### `forge-ci plan release-file-signing`
 
-say whether the Forgejo or GitLab release signs its checksums and SBOMs with GPG or with its Cosign key
+say whether the Forgejo or GitLab release signs its checksums and release files with GPG or with its Cosign key
 
 ```
 Reads the declaration and sets the output release-file-signing: gpg
    when sign.method or sign.files-method is gpg, and cosign otherwise, also
    without a sign block and without the file. The Forgejo and GitLab releases
-   sign the checksums and SBOMs the way that output says. The provenance
+   sign the checksums and release files the way that output says. The provenance
    statement, the evidence and the images are signed with the Cosign key
    either way.
 
@@ -4231,12 +4231,15 @@ compare exact reproducible release subjects with caller-owned expected inventory
 write the checksums file and the unsigned release file manifest for the files a producer names
 
 ```
-The hand-off of a build that has no GoReleaser metadata to import. Writes the
-sha256sum-format checksums file over every --asset and --sbom file, by name,
-then the manifest: the assets, the SBOMs, the checksums file and the named
-evidence files. A pattern that names no file is refused.
+The hand-off of a build that has no GoReleaser metadata to import. Bundles
+the --sbom files into <project>-<version>-sboms.tar.gz in the dist directory,
+each under its file name: the release publishes that one bundle, also when it
+has one SBOM, and not the SBOM files. Then writes the sha256sum-format
+checksums file over every --asset file and the bundle, by name, and the
+manifest: the assets, the bundle, the checksums file and the named evidence
+files. A pattern that names no file is refused.
 
-It refuses an existing manifest or checksums file, two files with one name,
+It refuses an existing manifest, checksums file or SBOM bundle, two files with one name,
 and a dist that already holds the provenance statement or a <file>.bundle or
 <file>.sig of a declared file: the result is the unsigned hand-off, as "release
 files validate --unsigned" checks it.
@@ -4250,9 +4253,12 @@ EXAMPLE:
 | `--dist-dir` | workspace-relative dist directory containing the declared files | string | `"dist"` | n/a |
 | `--manifest` | release file manifest to write; it must not exist | string | `"dist/release-files.json"` | `$RELEASE_FILES_MANIFEST` |
 | `--asset` | dist file to publish, as a path or a glob pattern the command expands; directories a pattern matches are skipped (repeatable) | string | `""` | n/a |
-| `--sbom` | dist file to publish and classify as an SBOM, as a path or a glob pattern (repeatable) | string | `""` | n/a |
+| `--sbom` | dist SBOM file to publish in the SBOM bundle, as a path or a glob pattern (repeatable) | string | `""` | n/a |
 | `--evidence-file` | additional dist file to sign and publish as evidence (repeatable) | string | `""` | n/a |
-| `--checksums-file` | checksums file to write; it must not exist (default: checksums.txt in --dist-dir) | string | `""` | n/a |
+| `--checksums-file` | checksums file to write; it must not exist (default: checksums.sha256 in --dist-dir) | string | `""` | n/a |
+| `--project-name` | project in the SBOM bundle name <project>-<version>-sboms.tar.gz (default: the name of --repository) | string | `""` | `$PROJECT_NAME` |
+| `--repository` | "owner/repo" slug whose name is the default --project-name | string | `""` | `$REPOSITORY`, `$CI_REPO`, `$CI_PROJECT_PATH`, `$FORGEJO_REPOSITORY`, `$FORGEJO_REPO`, `$GITHUB_REPOSITORY` |
+| `--version` | release version or tag in the SBOM bundle name; a v prefix is dropped; required when the release has an SBOM | string | `""` | `$RELEASE_TAG` |
 
 #### `forge-ci release files import-goreleaser`
 
@@ -4260,7 +4266,12 @@ import GoReleaser metadata into an unsigned release file manifest before signing
 
 ```
 Writes the manifest from the publishable GoReleaser artifacts and the named
-evidence files. It refuses an existing manifest, and a dist that already holds
+evidence files. The SBOMs GoReleaser wrote are bundled into
+<project>-<version>-sboms.tar.gz, which the release publishes in their place:
+GoReleaser's checksums file keeps its name, and its lines for the SBOMs are
+replaced by the line of the bundle.
+
+It refuses an existing manifest or SBOM bundle, and a dist that already holds
 the provenance statement or a <file>.bundle or <file>.sig of an imported file:
 the import is the unsigned hand-off, as "release files validate --unsigned"
 checks it.
@@ -4271,6 +4282,9 @@ checks it.
 | `--dist-dir` | dist directory containing GoReleaser artifacts.json and release files; use a workspace-relative path for manifest/asset operations | string | `"dist"` | n/a |
 | `--manifest` | release file manifest path; a manifest named here must exist | string | `"dist/release-files.json"` | `$RELEASE_FILES_MANIFEST` |
 | `--evidence-file` | additional dist file to sign and publish as evidence (repeatable) | string | `""` | n/a |
+| `--project-name` | project in the SBOM bundle name <project>-<version>-sboms.tar.gz (default: the name of --repository) | string | `""` | `$PROJECT_NAME` |
+| `--repository` | "owner/repo" slug whose name is the default --project-name | string | `""` | `$REPOSITORY`, `$CI_REPO`, `$CI_PROJECT_PATH`, `$FORGEJO_REPOSITORY`, `$FORGEJO_REPO`, `$GITHUB_REPOSITORY` |
+| `--version` | release version or tag in the SBOM bundle name; a v prefix is dropped; required when the release has an SBOM | string | `""` | `$RELEASE_TAG` |
 
 #### `forge-ci release files list`
 
@@ -4640,9 +4654,10 @@ EXAMPLES:
 | `--no-release-artifacts-dir` | do not sign the default or configured release artifacts directory | bool | `false` | n/a |
 | `--attach-artifacts` | comma-separated globs for extra files to sign | string | `""` | `$ATTACH_ARTIFACTS` |
 | `--file` | exact file to sign in place (repeatable; sidecar stays next to the file) | string | `""` | n/a |
-| `--manifest` | release file manifest used by --manifest-section and --checksums-from-manifest; a manifest named here must exist | string | `"dist/release-files.json"` | `$RELEASE_FILES_MANIFEST` |
+| `--manifest` | release file manifest used by --manifest-section, --checksums-from-manifest and --files-from-manifest; a manifest named here must exist | string | `"dist/release-files.json"` | `$RELEASE_FILES_MANIFEST` |
 | `--dist-dir` | dist directory used with --manifest | string | `"dist"` | n/a |
 | `--manifest-section` | release file manifest section to sign exactly (repeatable): assets, checksums, sboms, evidence, provenance | string | `""` | n/a |
+| `--files-from-manifest` | sign every release file the checksums file of --manifest lists, the SBOM bundle among them, each next to the file; a distro package that already has its .sig is left with that signature | bool | `false` | n/a |
 | `--debug-allow-swap` | DEBUG ONLY — bypass the swap-refusal policy when /proc/swaps reports an active swap area; emits a loud Warning annotation. NOT FOR PRODUCTION RELEASES; the supported fix is to disable swap on the runner, or for the job container (memory-swap equal to memory). See https://github.com/diggsweden/forge-ci/blob/main/docs/verification.md#swap-policy. | bool | `false` | n/a |
 | `--method` | signing backend: gpg (default; key from --private-key-file or $GPG_PRIVATE_KEY), sigstore (keyless cosign + OIDC), or kms (cosign + --key) | string | `"gpg"` | `$SIGN_METHOD` |
 | `--key` | cosign --key reference for --method=kms: KMS URI (awskms:///alias/X, hashivault://transit/keys/X, gcpkms://..., azurekms://...), PKCS#11 URI, or local key-file path. Forbidden for --method=gpg/sigstore. | string | `""` | `$SIGN_KEY` |

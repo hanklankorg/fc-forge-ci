@@ -4,12 +4,16 @@
 package livetest
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -290,7 +294,15 @@ func verifyProducerDeclaration(producer string, original apprelease.FileManifest
 	// Recreate producer classification through the owning constructors. A
 	// non-empty but fabricated Source/section is not an accepted declaration.
 	args := []string{"import-goreleaser", evidenceDistFlag, evidenceDist, evidenceManifestFlag, evidenceExpectedManifest}
-	if _, err := os.Stat(filepath.Join(producer, "dist/artifacts.json")); os.IsNotExist(err) {
+
+	_, err := os.Stat(filepath.Join(producer, "dist/artifacts.json"))
+	declared := os.IsNotExist(err)
+
+	if err != nil && !declared {
+		return err
+	}
+
+	if declared {
 		args = []string{"declare", evidenceDistFlag, evidenceDist, evidenceManifestFlag, evidenceExpectedManifest, "--checksums-file", original.Checksums[0].Path}
 		for _, a := range original.Assets {
 			if slices.ContainsFunc(original.Checksums, func(e apprelease.FileEntry) bool { return e.Path == a.Path }) ||
@@ -301,18 +313,19 @@ func verifyProducerDeclaration(producer string, original apprelease.FileManifest
 
 			args = append(args, "--asset", a.Path)
 		}
-
-		for _, a := range original.SBOMs {
-			args = append(args, "--sbom", a.Path)
-		}
 		// Only the validated checksum file in this owned copy is replaced by
 		// the constructor; the retained signer/published bytes remain untouched.
 		if err := os.Remove(filepath.Join(producer, original.Checksums[0].Path)); err != nil {
 			return err
 		}
-	} else if err != nil {
+	}
+
+	bundleArgs, err := restageProducerSBOMBundle(producer, original, declared)
+	if err != nil {
 		return err
 	}
+
+	args = append(args, bundleArgs...)
 
 	for _, a := range original.Evidence {
 		args = append(args, "--evidence-file", a.Path)
@@ -332,6 +345,133 @@ func verifyProducerDeclaration(producer string, original apprelease.FileManifest
 	}
 
 	return nil
+}
+
+// restageProducerSBOMBundle puts the owned producer copy back to the state
+// before its constructor bundled the SBOMs, and returns the arguments that
+// make the constructor write the same bundle again: its name's project and
+// version, and for `declare` the SBOM files the hand-off still holds, found by
+// the names of the bundle's entries. The bundle is reproducible, so the
+// rewritten bundle and checksums must equal the signer's retained bytes, which
+// compareProducerSubjects holds them to. A hand-off has one bundle or no SBOM.
+func restageProducerSBOMBundle(producer string, original apprelease.FileManifest, declared bool) ([]string, error) {
+	if len(original.SBOMs) == 0 {
+		return nil, nil
+	}
+
+	bundle := original.SBOMs[0]
+
+	stem, isBundle := strings.CutSuffix(bundle.Name, sbomBundleSuffix)
+	dash := strings.LastIndex(stem, "-")
+
+	if len(original.SBOMs) != 1 || !isBundle || dash < 1 {
+		return nil, fmt.Errorf("producer manifest's SBOMs %v are not the one <project>-<version>%s: %w", original.SBOMs, sbomBundleSuffix, errReleaseEvidence)
+	}
+
+	// The constructor drops one v from the version it is given.
+	args := []string{"--project-name", stem[:dash], "--version", "v" + stem[dash+1:]}
+
+	body, err := readEvidenceFile(producer, bundle.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := tarGzipNames(body)
+	if err != nil {
+		return nil, fmt.Errorf("producer SBOM bundle %s: %w", bundle.Name, err)
+	}
+
+	if err := os.Remove(filepath.Join(producer, bundle.Path)); err != nil {
+		return nil, err
+	}
+
+	if !declared {
+		// GoReleaser's checksums listed its SBOMs, which the import replaced
+		// by the bundle's line; the import appends that line again.
+		return args, dropChecksumLine(producer, original.Checksums[0].Path, bundle.Name)
+	}
+
+	for _, entry := range entries {
+		matches, err := evidenceFilesNamed(filepath.Join(producer, evidenceDist), entry)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(matches) != 1 {
+			return nil, fmt.Errorf("producer hand-off holds %d files named %s, the SBOM bundle's entry, want one: %w", len(matches), entry, errReleaseEvidence)
+		}
+
+		args = append(args, "--sbom", filepath.Join(evidenceDist, matches[0]))
+	}
+
+	return args, nil
+}
+
+// tarGzipNames lists the entries of a tar.gz in order.
+func tarGzipNames(body []byte) ([]string, error) {
+	unzipped, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var names []string
+
+	for reader := tar.NewReader(unzipped); ; {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return names, nil
+		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		names = append(names, header.Name)
+	}
+}
+
+// evidenceFilesNamed lists the regular files called name under root, relative
+// to it.
+func evidenceFilesNamed(root, name string) ([]string, error) {
+	var matches []string
+
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if entry.Type().IsRegular() && entry.Name() == name {
+			relative, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+
+			matches = append(matches, relative)
+		}
+
+		return nil
+	})
+
+	return matches, err
+}
+
+// dropChecksumLine removes the line of name from the checksums file of an
+// owned copy.
+func dropChecksumLine(root, checksums, name string) error {
+	body, err := readEvidenceFile(root, checksums)
+	if err != nil {
+		return err
+	}
+
+	var kept []byte
+
+	for line := range bytes.Lines(body) {
+		if !bytes.HasSuffix(bytes.TrimRight(line, "\n"), []byte("  "+name)) {
+			kept = append(kept, line...)
+		}
+	}
+
+	return os.WriteFile(filepath.Join(root, checksums), kept, 0o600) //nolint:gosec // G703: a manifest-validated path in the test's own copy.
 }
 
 func compareProducerSubjects(producer, signer string, original apprelease.FileManifest) error {
@@ -461,8 +601,14 @@ func stagePublishedEvidence(signer, published, checksumName string, names []stri
 	return nil
 }
 
+// verifyPublishedBundles verifies every published signature, and requires
+// every published file to have one of its own (releaseFilesUnsigned).
 func verifyPublishedBundles(signer, published, checksum string, finalized apprelease.FileManifest, verify, verifyOpenPGP func([]byte, []byte) error, result GitLabReleaseBundleEvidence) (GitLabReleaseBundleEvidence, error) {
+	names, verified := make([]string, 0, len(finalized.Assets)), map[string]bool{}
+
 	for _, asset := range finalized.Assets {
+		names = append(names, asset.Name)
+
 		check := verify
 
 		plain, bundled := strings.CutSuffix(asset.Path, cosignBundle)
@@ -499,12 +645,14 @@ func verifyPublishedBundles(signer, published, checksum string, finalized apprel
 		}
 
 		result.Verified++
+		verified[filepath.Base(plain)] = true
+
 		if bundled && plain == checksum {
 			result.Bundle = bundle
 		}
 	}
 
-	return result, nil
+	return result, releaseFilesUnsigned(names, verified)
 }
 
 func readReleaseEvidenceManifest(root, name string) (apprelease.FileManifest, error) {

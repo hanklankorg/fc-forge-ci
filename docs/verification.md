@@ -354,7 +354,7 @@ Which method signs a release's files depends on the forge's release:
 
 - The GitHub release orchestrator signs them by `sign.method`. Without a
   `sign` block it uses the default, `gpg`.
-- The Forgejo and GitLab releases sign the checksums and SBOMs with their
+- The Forgejo and GitLab releases sign the checksums and release files with their
   OpenPGP key for `sign.method: gpg` and for `sign.files-method: gpg`, and
   with the organization's Cosign key, `RELEASE_COSIGN_PRIVATE_KEY`, for any
   other method and for a declaration without a `sign` block. The provenance
@@ -368,6 +368,56 @@ release plan warns in its job summary which key signs instead, and
 `forge-ci doctor` warns about the sign block for that forge. Neither release
 reads `sign.transparency` either: its `transparency-log` input decides, and
 a declaration that sets it gets the same warning.
+
+### Verify a Forgejo or GitLab release
+
+A Forgejo or GitLab release carries the same files as a GitHub release:
+
+- `checksums.sha256`, which lists every release file with its SHA-256;
+- a signature beside the checksums file and beside each file it lists:
+  `<file>.bundle` from the Cosign key, or `<file>.asc` when `artifacts.yml`
+  says `sign.method: gpg` or `sign.files-method: gpg`;
+- one SBOM bundle, `<project>-<version>-sboms.tar.gz`, when the release has
+  SBOMs. It is listed in the checksums and signed like the other files;
+- the provenance statement `slsa-provenance.intoto.json` and its bundle,
+  signed with the Cosign key.
+
+A distro package signed with `sign-distro-packages` keeps its OpenPGP
+`<package>.sig` and gets no second signature. A GoReleaser build keeps the
+name GoReleaser gives its checksums file, such as
+`<project>_<version>_checksums.txt`; use that name where the commands below
+say `checksums.sha256`.
+
+Download the release files into one directory and verify them in trust
+order. With the Cosign key:
+
+```bash
+# 1. The checksums file comes from the release's key
+cosign verify-blob --key cosign.pub --insecure-ignore-tlog \
+  --bundle checksums.sha256.bundle --new-bundle-format checksums.sha256
+
+# 2. Each downloaded file is the one the checksums list
+sha256sum --check --ignore-missing checksums.sha256
+
+# 3. One file's own signature
+cosign verify-blob --key cosign.pub --insecure-ignore-tlog \
+  --bundle app-1.2.3.tar.gz.bundle --new-bundle-format app-1.2.3.tar.gz
+
+# 4. The SBOMs
+tar -xzf app-1.2.3-sboms.tar.gz
+```
+
+Leave `--insecure-ignore-tlog` out for a release signed with
+`transparency-log: public`. With GPG, and the release's public OpenPGP key
+imported, steps 1 and 3 are:
+
+```bash
+gpg --verify checksums.sha256.asc checksums.sha256
+gpg --verify app-1.2.3.tar.gz.asc app-1.2.3.tar.gz
+```
+
+The SBOM bundle holds each SBOM under the file name the build gave it. The
+bundle is reproducible: the same SBOMs give the same bytes.
 
 ### `--method=gpg`: long-lived OpenPGP key (default)
 
@@ -387,7 +437,7 @@ Produces `<artifact>.asc`. Consumer verifies with `gpg --verify <art>.asc <art>`
 
 This is the lowest-friction backend for downstream consumers, because gpg is in every distro. It also has the heaviest operator burden. The long-lived private key requires rotation discipline, swap-page-safe handling (see [Swap policy](#swap-policy)), and a distribution mechanism for the matching pubkey.
 
-The Forgejo and GitLab releases sign the checksums and SBOMs with GPG only
+The Forgejo and GitLab releases sign the checksums and release files with GPG only
 when the declaration says `sign.method: gpg` or `sign.files-method: gpg`. A
 declaration without a `sign` section, and one with another method, has them
 signed with the Cosign key. With

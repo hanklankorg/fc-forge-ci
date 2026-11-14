@@ -207,8 +207,8 @@ Use **project-level** protected variables with these environment scopes:
 |---|---|---|
 | `COSIGN_PUBLIC_KEY` | `*` (public value) | The PEM text of your Cosign public key; it must hash to `cosign-public-key-sha256`. |
 | `RELEASE_SSH_SIGNING_KEY` | `release/prepare` | The signed release commit and final tag; a deploy key that may push to the project. |
-| `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE` | `release/registry/signing` | Provenance and image signatures and attestations, and checksum and SBOM signatures unless `artifacts.yml` says `sign.method: gpg` or `sign.files-method: gpg`. |
-| `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`, `RELEASE_GPG_FINGERPRINT` | `release/registry/signing` | Distro-package signatures, when `sign-distro-packages` is on, and checksum and SBOM signatures, when `artifacts.yml` says `sign.method: gpg` or `sign.files-method: gpg`. |
+| `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE` | `release/registry/signing` | Provenance and image signatures and attestations, and checksum and release file signatures unless `artifacts.yml` says `sign.method: gpg` or `sign.files-method: gpg`. |
+| `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`, `RELEASE_GPG_FINGERPRINT` | `release/registry/signing` | Distro-package signatures, when `sign-distro-packages` is on, and checksum and release file signatures, when `artifacts.yml` says `sign.method: gpg` or `sign.files-method: gpg`. |
 | `RELEASE_REGISTRY_USER`, `RELEASE_REGISTRY_TOKEN` | `release/registry/*` | Importing, signing, promoting and cleaning up images in the publication project. |
 | `RELEASE_TOKEN` | `release/publish` | Creating the GitLab release and its assets. |
 | `RELEASE_PACKAGE_TOKEN` | `release/packages` | Publishing the release's npm packages: a project deploy token with `read_package_registry` and `write_package_registry` only. See [Package publication](#package-publication). |
@@ -729,6 +729,10 @@ node)
 esac
 ```
 
+`release files declare` writes `checksums.sha256` and puts any `--sbom`
+files into one SBOM bundle, `<project>-<version>-sboms.tar.gz`, named after
+the project and `RELEASE_TAG`, which the release job exports.
+
 Without a declaration the release plans no family: `Build: release files`
 runs `build` alone, in `job-image`.
 
@@ -1121,7 +1125,7 @@ files, as below. A method other than `kms` or `gpg`, or a KMS key other than
 the release plan warn about it.
 
 A declaration that says `sign.method: gpg`, or `sign.files-method: gpg`
-beside a Cosign method, signs the checksums and SBOMs with the OpenPGP key:
+beside a Cosign method, signs the checksums and release files with the OpenPGP key:
 each gets an armored `.asc` beside it on the release page, and no Cosign
 bundle. `Check: signing access` reads the declaration before the release
 commit exists and requires `RELEASE_GPG_PRIVATE_KEY`,
@@ -1133,14 +1137,11 @@ signing and publishing secrets or its job token, and refuses a key whose
 fingerprint is not `RELEASE_GPG_FINGERPRINT`. The provenance statement, the
 evidence and the images are signed with the Cosign key all the same, so the
 Cosign variables stay required. Any other method, and a declaration without a
-`sign` section, signs the checksums and SBOMs with the Cosign key. With the
+`sign` section, signs the checksums and release files with the Cosign key. With the
 release's public OpenPGP key imported, the checksums verify and then the
 files they list:
-
-```bash
-gpg --verify checksums.txt.asc checksums.txt
-sha256sum --check --ignore-missing checksums.txt
-```
+[Verify a Forgejo or GitLab release](verification.md#verify-a-forgejo-or-gitlab-release)
+has the commands.
 
 With `sign.files-method: gpg`, GPG for the files beside Cosign for the
 images, the files are signed with GPG as above and the images with the
@@ -1149,7 +1150,7 @@ Cosign key, whatever `sign.method` names
 
 Swap matters for OpenPGP keys: the [swap policy](verification.md#swap-policy)
 keeps a GPG key off disk. Cosign reads its key in its own process. If you sign
-distro packages with `sign-distro-packages`, or the checksums and SBOMs with
+distro packages with `sign-distro-packages`, or the checksums and release files with
 GPG, keep swap off on the signer runner, or run its job containers with swap
 disabled: with the Docker executor, set `memory` and `memory_swap` to the same
 value under `[runners.docker]` in the runner's `config.toml`. The container
@@ -1177,7 +1178,7 @@ trusted registry jobs receive credentials for the publication project.
 | Object | Key | Variable |
 |---|---|---|
 | Release commit and final tag | SSH | `RELEASE_SSH_SIGNING_KEY` |
-| Checksums and SBOMs | Cosign key pair, or OpenPGP when `artifacts.yml` says `sign.method: gpg` or `sign.files-method: gpg` | `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE`; with `gpg`, `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`, `RELEASE_GPG_FINGERPRINT` |
+| Checksums and release files | Cosign key pair, or OpenPGP when `artifacts.yml` says `sign.method: gpg` or `sign.files-method: gpg` | `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE`; with `gpg`, `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`, `RELEASE_GPG_FINGERPRINT` |
 | SLSA provenance, images and their attestations | Cosign key pair | `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE`, checked against `COSIGN_PUBLIC_KEY` and `cosign-public-key-sha256` |
 | `.deb`, `.rpm`, `.apk` packages | OpenPGP | `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`, `RELEASE_GPG_FINGERPRINT` |
 | Request tag (verified, not made) | The signer's SSH key | `request-allowed-signers` |
@@ -1193,7 +1194,7 @@ to Rekor. With `none`, verify with the key and waive the log:
 
 ```shell
 cosign verify-blob --key cosign.pub --insecure-ignore-tlog \
-  --bundle checksums.txt.bundle --new-bundle-format checksums.txt
+  --bundle checksums.sha256.bundle --new-bundle-format checksums.sha256
 cosign verify --key cosign.pub --insecure-ignore-tlog \
   registry.example.com/team/app-releases/app@sha256:<digest>
 ```

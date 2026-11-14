@@ -14,11 +14,13 @@ import (
 	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/domain/provenance"
+	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 )
 
 // VerifyReleaseReadback composes signature authentication and published
 // checksum verification with the release evidence owner, and refuses an
-// offered file that neither binds (releaseFilesUnbound). A .bundle is
+// offered file that neither binds (releaseFilesUnbound) and one without a
+// verified signature of its own (releaseFilesUnsigned). A .bundle is
 // verified with verify, the Cosign one, and an .asc with verifyOpenPGP. Bounded
 // provider reads and native signature verification are supplied by the
 // caller.
@@ -45,7 +47,7 @@ func VerifyReleaseReadback(evidence *ReleaseEvidence, names []string, download f
 				return err
 			}
 
-			if subject == "checksums.txt" || strings.HasSuffix(subject, "_checksums.txt") {
+			if isReleaseChecksums(subject) {
 				authenticatedChecksums[subject] = body
 			}
 
@@ -65,9 +67,35 @@ func VerifyReleaseReadback(evidence *ReleaseEvidence, names []string, download f
 		failures = append(failures, VerifyReleaseChecksums(body, names, read))
 	}
 
-	failures = append(failures, releaseFilesUnbound(names, verified, authenticatedChecksums))
+	failures = append(failures, releaseFilesUnbound(names, verified, authenticatedChecksums), releaseFilesUnsigned(names, verified))
 
 	return verified, errors.Join(failures...)
+}
+
+// isReleaseChecksums reports whether a release file is the checksums file by
+// its name: checksums.sha256, as `release files declare` and the GitHub
+// release write it, or the checksums.txt or <project>_<version>_checksums.txt
+// of a GoReleaser configuration.
+func isReleaseChecksums(name string) bool {
+	return name == domainrelease.ChecksumsFile || name == "checksums.txt" || strings.HasSuffix(name, "_checksums.txt")
+}
+
+// releaseFilesUnsigned refuses an offered file that has no verified signature
+// of its own: a Forgejo or GitLab release signs the checksums, every file they
+// list, the provenance statement and the evidence, as a GitHub release signs
+// its files (releaseSignatureGaps). A signature file is no subject, and a
+// distro package that offers its detached .sig is held to that signature by
+// the package checks (VerifyPackageSignatures), not to a second one here.
+func releaseFilesUnsigned(names []string, verified map[string]bool) error {
+	subjects := slices.DeleteFunc(slices.Clone(names), func(name string) bool {
+		return slices.Contains(names, name+packageSignature)
+	})
+
+	if unsigned := unsignedSubjects(slices.Values(subjects), verified, nil); len(unsigned) != 0 {
+		return fmt.Errorf("release files %q have no verified signature of their own: %w", unsigned, errReleaseEvidence)
+	}
+
+	return nil
 }
 
 // releaseFilesUnbound refuses an offered file that nothing verified binds:
@@ -77,7 +105,8 @@ func VerifyReleaseReadback(evidence *ReleaseEvidence, names []string, download f
 // signs: the checksums name every published file but the checksums, the
 // provenance statement and the evidence, each of which has a bundle
 // (manifestChecksumSubjectPaths, requireFinalizedManifest in
-// internal/app/release).
+// internal/app/release). A package signed with a .sig alone is bound by the
+// checksums only, so this stays the rule that covers it.
 func releaseFilesUnbound(names []string, verified map[string]bool, checksums map[string][]byte) error {
 	offered, bound := map[string]bool{}, map[string]bool{}
 	for _, name := range names {

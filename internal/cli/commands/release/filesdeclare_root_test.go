@@ -4,9 +4,13 @@
 package release_test
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,13 +21,19 @@ import (
 	"github.com/diggsweden/forge-ci/internal/testutil/testenv"
 )
 
+// declareBundle is the SBOM bundle of declareDist's release.
+const declareBundle = "dist/app-1.2.3-sboms.tar.gz"
+
 // declareDist is the dist of a build without build-tool metadata: one binary
 // per platform directory, as `build go run` and `build cargo run` leave it, an
-// SBOM, an evidence file and the release body.
+// SBOM, an evidence file and the release body. The job's environment names
+// the repository and the release tag, as a release build job's does.
 func declareDist(t *testing.T) *testenv.Env {
 	t.Helper()
 
 	env := provenanceRootEnv(t, "forgejo")
+	t.Setenv("REPOSITORY", "org/app")
+	t.Setenv("RELEASE_TAG", "v1.2.3")
 
 	for path, body := range map[string]string{
 		"dist/linux-amd64/app-linux-amd64": "amd64 binary\n",
@@ -70,36 +80,86 @@ func declaredNames(t *testing.T, env *testenv.Env) map[string][]string {
 	return names
 }
 
-// A producer names its files and gets the whole unsigned hand-off: the
-// checksums file over the assets and the SBOM, and a manifest the signer's
-// first two checks accept. A file two patterns name is declared once, and the
-// release body is not a release file unless it is named.
+// A producer names its files and gets the whole unsigned hand-off: the SBOM
+// bundle, the checksums file over the assets and that bundle, and a manifest
+// the signer's first two checks accept. The one SBOM is bundled too, under its
+// file name, and is no release file itself. The bundle is named after the
+// repository and the release tag of the job. A file two patterns name is
+// declared once, and the release body is not a release file unless it is named.
 func TestReleaseFilesRoot_DeclareWritesTheUnsignedHandOff(t *testing.T) {
 	env := declareDist(t)
 
 	require.NoError(t, runReleaseFilesRoot(t, "declare",
 		"--asset", "dist/*/*", "--asset", "dist/linux-amd64/app-linux-amd64", "--sbom", "dist/*.cdx.json", "--evidence-file", "dist/plan.json"))
 
-	checksums, err := os.ReadFile(env.Path("dist/checksums.txt"))
+	require.Equal(t, map[string]string{"app.cdx.json": "SBOM\n"}, tarGzipEntries(t, env.Path(declareBundle)))
+
+	bundle, err := os.ReadFile(env.Path(declareBundle))
+	require.NoError(t, err)
+
+	checksums, err := os.ReadFile(env.Path("dist/checksums.sha256"))
 	require.NoError(t, err)
 	require.Equal(t,
-		fmt.Sprintf("%x  app-linux-amd64\n%x  app-linux-arm64\n%x  app.cdx.json\n",
-			sha256.Sum256([]byte("amd64 binary\n")), sha256.Sum256([]byte("arm64 binary\n")), sha256.Sum256([]byte("SBOM\n"))),
+		fmt.Sprintf("%x  app-1.2.3-sboms.tar.gz\n%x  app-linux-amd64\n%x  app-linux-arm64\n",
+			sha256.Sum256(bundle), sha256.Sum256([]byte("amd64 binary\n")), sha256.Sum256([]byte("arm64 binary\n"))),
 		string(checksums))
 
 	require.Equal(t, map[string][]string{
 		"assets": {
-			"dist/linux-amd64/app-linux-amd64", "dist/linux-arm64/app-linux-arm64", "dist/app.cdx.json",
-			"dist/checksums.txt", "dist/plan.json",
+			"dist/linux-amd64/app-linux-amd64", "dist/linux-arm64/app-linux-arm64", declareBundle,
+			"dist/checksums.sha256", "dist/plan.json",
 		},
-		"checksums":  {"dist/checksums.txt"},
-		"sboms":      {"dist/app.cdx.json"},
+		"checksums":  {"dist/checksums.sha256"},
+		"sboms":      {declareBundle},
 		"evidence":   {"dist/plan.json"},
 		"provenance": {},
 	}, declaredNames(t, env))
 
 	require.NoError(t, runReleaseFilesRoot(t, "validate", "--unsigned"))
 	require.NoError(t, runReleaseFilesRoot(t, "validate-checksums"))
+}
+
+// The flags name the bundle where the job's environment does not, and several
+// SBOMs go into the one bundle in name order.
+func TestReleaseFilesRoot_DeclareBundlesEverySBOMUnderTheNamedProject(t *testing.T) {
+	env := declareDist(t)
+	require.NoError(t, os.WriteFile(env.Path("dist/linux-amd64/worker.cdx.json"), []byte("worker SBOM\n"), 0o600))
+
+	require.NoError(t, runReleaseFilesRoot(t, "declare", "--asset", "dist/*/app-*",
+		"--sbom", "dist/linux-amd64/worker.cdx.json", "--sbom", "dist/app.cdx.json", "--project-name", "suite", "--version", "2.0.0"))
+
+	require.Equal(t, []string{"dist/suite-2.0.0-sboms.tar.gz"}, declaredNames(t, env)["sboms"])
+	require.Equal(t, map[string]string{"app.cdx.json": "SBOM\n", "worker.cdx.json": "worker SBOM\n"},
+		tarGzipEntries(t, env.Path("dist/suite-2.0.0-sboms.tar.gz")))
+}
+
+// tarGzipEntries reads the regular entries of a tar.gz, content by name.
+func tarGzipEntries(t *testing.T, path string) map[string]string {
+	t.Helper()
+
+	file, err := os.Open(path) //nolint:gosec // G304: a file the test wrote.
+	require.NoError(t, err)
+
+	defer func() { _ = file.Close() }()
+
+	gz, err := gzip.NewReader(file)
+	require.NoError(t, err)
+
+	entries := map[string]string{}
+
+	for reader := tar.NewReader(gz); ; {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return entries
+		}
+
+		require.NoError(t, err)
+
+		body, err := io.ReadAll(reader)
+		require.NoError(t, err)
+
+		entries[header.Name] = string(body)
+	}
 }
 
 // The checksums file may carry the producer's own name, under the dist
@@ -109,12 +169,12 @@ func TestReleaseFilesRoot_DeclareNamesTheChecksumsFile(t *testing.T) {
 
 	require.NoError(t, runReleaseFilesRoot(t, "declare", "--asset", "dist/*/*", "--checksums-file", "dist/SHA256SUMS"))
 	require.Equal(t, []string{"dist/SHA256SUMS"}, declaredNames(t, env)["checksums"])
-	require.NoFileExists(t, env.Path("dist/checksums.txt"))
+	require.NoFileExists(t, env.Path("dist/checksums.sha256"))
 	require.NoError(t, runReleaseFilesRoot(t, "validate-checksums"))
 }
 
-// Every refusal leaves no manifest, and no checksums file of its own, so the
-// corrected call is not refused for the first one's leftovers.
+// Every refusal leaves no manifest, and no checksums file or SBOM bundle of
+// its own, so the corrected call is not refused for the first one's leftovers.
 func TestReleaseFilesRoot_DeclareRefusals(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -177,11 +237,34 @@ func TestReleaseFilesRoot_DeclareRefusals(t *testing.T) {
 			name: "an existing checksums file",
 			arrange: func(t *testing.T, env *testenv.Env) {
 				t.Helper()
-				require.NoError(t, os.WriteFile(env.Path("dist/checksums.txt"), []byte("stale\n"), 0o600))
+				require.NoError(t, os.WriteFile(env.Path("dist/checksums.sha256"), []byte("stale\n"), 0o600))
 			},
 			args: []string{"--asset", "dist/*/*"},
-			want: errs.ErrValidation, message: "release hand-off file already exists: dist/checksums.txt",
-			kept: "dist/checksums.txt",
+			want: errs.ErrValidation, message: "release hand-off file already exists: dist/checksums.sha256",
+			kept: "dist/checksums.sha256",
+		},
+		{
+			name: "an existing SBOM bundle",
+			arrange: func(t *testing.T, env *testenv.Env) {
+				t.Helper()
+				require.NoError(t, os.WriteFile(env.Path(declareBundle), []byte("stale\n"), 0o600))
+			},
+			args: []string{"--asset", "dist/*/*", "--sbom", "dist/app.cdx.json"},
+			want: errs.ErrValidation, message: "release hand-off file already exists: " + declareBundle,
+			kept: declareBundle,
+		},
+		{
+			name: "an SBOM and no release version",
+			arrange: func(t *testing.T, _ *testenv.Env) {
+				t.Helper()
+				t.Setenv("RELEASE_TAG", "")
+			},
+			args: []string{"--asset", "dist/*/*", "--sbom", "dist/app.cdx.json"},
+			want: errs.ErrUsage, message: "pass --project-name and --version",
+		},
+		{
+			name: "an SBOM that is also an asset", args: []string{"--asset", "dist/*/*", "--asset", "dist/app.cdx.json", "--sbom", "dist/app.cdx.json"},
+			want: errs.ErrValidation, message: "--sbom file is also an --asset: dist/app.cdx.json",
 		},
 		{
 			name: "evidence that is already an asset", args: []string{"--asset", "dist/*/*", "--asset", "dist/plan.json", "--evidence-file", "dist/plan.json"},
@@ -191,10 +274,10 @@ func TestReleaseFilesRoot_DeclareRefusals(t *testing.T) {
 			name: "a signature the build brought along",
 			arrange: func(t *testing.T, env *testenv.Env) {
 				t.Helper()
-				require.NoError(t, os.WriteFile(env.Path("dist/app.cdx.json.bundle"), []byte("planted\n"), 0o600))
+				require.NoError(t, os.WriteFile(env.Path(declareBundle+".bundle"), []byte("planted\n"), 0o600))
 			},
 			args: []string{"--asset", "dist/*/*", "--sbom", "dist/app.cdx.json"},
-			want: errs.ErrValidation, message: "unsigned dist must not hold dist/app.cdx.json.bundle",
+			want: errs.ErrValidation, message: "unsigned dist must not hold " + declareBundle + ".bundle",
 		},
 		{
 			name: "the image ledger as an asset",
@@ -216,7 +299,7 @@ func TestReleaseFilesRoot_DeclareRefusals(t *testing.T) {
 			require.ErrorIs(t, err, test.want)
 			require.ErrorContains(t, err, test.message)
 
-			for _, output := range []string{"dist/release-files.json", "dist/checksums.txt", "SHA256SUMS"} {
+			for _, output := range []string{"dist/release-files.json", "dist/checksums.sha256", declareBundle, "SHA256SUMS"} {
 				if output == test.kept {
 					require.FileExists(t, env.Path(output))
 

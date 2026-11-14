@@ -44,6 +44,7 @@ runs:
     - name: Import unsigned release hand-off
       shell: bash
       env:
+        RELEASE_TAG: ${{ inputs.release-tag }}
         RELEASE_NOTES: ${{ inputs.release-notes }}
         DIST_DIRECTORY: ${{ inputs.dist-directory }}
       run: |
@@ -52,4 +53,5 @@ runs:
         # shellcheck source=.engine/bin/lib-forge-ci.sh
         source "${GITHUB_ACTION_PATH}/../../../.engine/bin/lib-forge-ci.sh"
         FORGE_CI_PROVIDER=forgejo run_forge_ci release files import-goreleaser \
-          --dist-dir "$DIST_DIRECTORY" --manifest "$DIST_DIRECTORY/release-files.json"
+          --dist-dir "$DIST_DIRECTORY" --manifest "$DIST_DIRECTORY/release-files.json" \
+          --version "${RELEASE_TAG:?}"

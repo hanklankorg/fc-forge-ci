@@ -120,8 +120,9 @@ func TestSigningPreflightRequiresTheGPGKeyForGPGReleaseFiles(t *testing.T) {
 
 // The GPG release file signing runs here, release.sh against the engine
 // built from this tree, with a throwaway key: it writes an armored signature
-// of the checksums file and of the SBOM that the key verifies, dated at the
-// release commit's time, and no Cosign bundle. With a secret missing it stops
+// of the checksums file and of every file it lists, the release file and the
+// SBOM bundle, that the key verifies, dated at the release commit's time,
+// and no Cosign bundle. With a secret missing it stops
 // before the engine runs, and with a key that is not the pinned one, or
 // another passphrase, the engine refuses it; neither signs anything. The throwaway key sets the
 // test's environment, so it runs serially.
@@ -146,7 +147,7 @@ func TestGPGReleaseFileSigningThroughTheEngine(t *testing.T) {
 	for _, test := range []struct {
 		name, key, fingerprint, password, refused string
 	}{
-		{name: "signs the checksums and the SBOM", key: armored, fingerprint: key.Fingerprint, password: passphrase},
+		{name: "signs the checksums and the files they list", key: armored, fingerprint: key.Fingerprint, password: passphrase},
 		{name: "refuses a missing key", fingerprint: key.Fingerprint, password: passphrase, refused: "RELEASE_GPG_PRIVATE_KEY"},
 		{name: "refuses a missing fingerprint", key: armored, password: passphrase, refused: "RELEASE_GPG_FINGERPRINT"},
 		{name: "refuses a missing passphrase", key: armored, fingerprint: key.Fingerprint, refused: "RELEASE_GPG_PASSPHRASE"},
@@ -156,15 +157,16 @@ func TestGPGReleaseFileSigningThroughTheEngine(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			work := t.TempDir()
 			writeFixture(t, filepath.Join(work, "dist/app.jar"), "application\n")
-			writeFixture(t, filepath.Join(work, "dist/app.cdx.json"), "{}\n")
+			writeFixture(t, filepath.Join(work, "dist/app-1.2.3-sboms.tar.gz"), "SBOM bundle\n")
 			writeFixture(t, filepath.Join(work, "dist/checksums.sha256"),
-				sha256Hex(t, filepath.Join(work, "dist/app.jar"))+"  app.jar\n"+sha256Hex(t, filepath.Join(work, "dist/app.cdx.json"))+"  app.cdx.json\n")
+				sha256Hex(t, filepath.Join(work, "dist/app.jar"))+"  app.jar\n"+
+					sha256Hex(t, filepath.Join(work, "dist/app-1.2.3-sboms.tar.gz"))+"  app-1.2.3-sboms.tar.gz\n")
 			writeFixture(t, filepath.Join(work, "dist/release-files.json"), `{"version":1,`+
 				`"assets":[{"path":"dist/app.jar","name":"app.jar","source":"producer"},`+
-				`{"path":"dist/app.cdx.json","name":"app.cdx.json","source":"producer"},`+
+				`{"path":"dist/app-1.2.3-sboms.tar.gz","name":"app-1.2.3-sboms.tar.gz","source":"sbom_bundle"},`+
 				`{"path":"dist/checksums.sha256","name":"checksums.sha256","source":"producer"}],`+
-				`"checksums":[{"path":"dist/checksums.sha256","name":"checksums.sha256","source":"checksum"}],`+
-				`"sboms":[{"path":"dist/app.cdx.json","name":"app.cdx.json","source":"sbom"}],"evidence":[],"provenance":[]}`)
+				`"checksums":[{"path":"dist/checksums.sha256","name":"checksums.sha256","source":"producer"}],`+
+				`"sboms":[{"path":"dist/app-1.2.3-sboms.tar.gz","name":"app-1.2.3-sboms.tar.gz","source":"sbom_bundle"}],"evidence":[],"provenance":[]}`)
 			// The runner's swap state, injected: the engine refuses to load a
 			// GPG key while swap is on, and this host's is not the test's.
 			swaps := filepath.Join(work, "swaps")
@@ -180,7 +182,7 @@ func TestGPGReleaseFileSigningThroughTheEngine(t *testing.T) {
 				t.Fatalf("refused=%t, want refusal %t naming %q:\n%s", err != nil, test.refused != "", test.refused, output)
 			}
 
-			for _, signed := range []string{"dist/checksums.sha256", "dist/app.cdx.json"} {
+			for _, signed := range []string{"dist/checksums.sha256", "dist/app.jar", "dist/app-1.2.3-sboms.tar.gz"} {
 				_, err := os.Stat(filepath.Join(work, signed+".asc"))
 
 				switch {

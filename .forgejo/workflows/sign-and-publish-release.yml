@@ -12,7 +12,7 @@
 #
 #   coordinates [NONE] Validates the public helper repository and signer image
 #                      coordinates before any secret-bearing container starts.
-#   sign     [COSIGN, GPG, REGISTRY]  Signs checksums and SBOMs with the
+#   sign     [COSIGN, GPG, REGISTRY]  Signs checksums and release files with the
 #                                     Cosign key, or with the GPG key (.asc)
 #                                     when artifacts.yml says sign.method or
 #                                     sign.files-method gpg;
@@ -173,7 +173,7 @@ on:
         default: ""
       artifacts-config:
         description: >-
-          The prepare job's artifacts-config output (needs.prepare.outputs.artifacts-config), which check-l3-isolation requires: the declaration the release planned its bump from. Every job re-checks the release commit against the release plan of that declaration: it may change CHANGELOG.md and the planned version bump, nothing else. Its sign.method or sign.files-method gpg signs the checksums and SBOMs with RELEASE_GPG_PRIVATE_KEY, pinned to RELEASE_GPG_FINGERPRINT; without it the Cosign key signs them. Empty reads .forge-ci/artifacts.yml.
+          The prepare job's artifacts-config output (needs.prepare.outputs.artifacts-config), which check-l3-isolation requires: the declaration the release planned its bump from. Every job re-checks the release commit against the release plan of that declaration: it may change CHANGELOG.md and the planned version bump, nothing else. Its sign.method or sign.files-method gpg signs the checksums and release files with RELEASE_GPG_PRIVATE_KEY, pinned to RELEASE_GPG_FINGERPRINT; without it the Cosign key signs them. Empty reads .forge-ci/artifacts.yml.
         type: string
         required: false
         default: ''
@@ -520,9 +520,9 @@ jobs:
       # Read as data before anything is signed: gpg when the declaration at
       # the release commit says sign.method or sign.files-method gpg, cosign
       # otherwise, also without a sign block. One of the two steps that sign
-      # the checksums and SBOMs runs, each holding its own key alone. Any
+      # the checksums and release files runs, each holding its own key alone. Any
       # other answer stops the job here, before either is skipped;
-      # finalization refuses unsigned checksums and SBOMs besides.
+      # finalization refuses unsigned checksums and release files besides.
       - name: Read the release file signing method
         id: file-signing
         env:
@@ -555,7 +555,7 @@ jobs:
             --fingerprint "${GPG_SIGNING_FINGERPRINT:?}" \
             --dir "${DIST_DIR:?}"
 
-      - name: Cosign sign-blob checksums and SBOMs
+      - name: Cosign sign-blob checksums and release files
         if: ${{ steps.file-signing.outputs.release-file-signing == 'cosign' }}
         env:
           COSIGN_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
@@ -576,11 +576,11 @@ jobs:
               --checksums-from-manifest \
               --manifest "${RELEASE_FILES_MANIFEST:?}" \
               --dist-dir "${DIST_DIR:?}" \
-              --manifest-section sboms \
+              --files-from-manifest \
               --no-release-artifacts-dir
-          echo "checksums + SBOMs cosign-signed"
+          echo "checksums + release files cosign-signed"
 
-      - name: GPG-sign checksums and SBOMs
+      - name: GPG-sign checksums and release files
         if: ${{ steps.file-signing.outputs.release-file-signing == 'gpg' }}
         env:
           GPG_SIGNING_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
@@ -611,9 +611,9 @@ jobs:
               --checksums-from-manifest \
               --manifest "${RELEASE_FILES_MANIFEST:?}" \
               --dist-dir "${DIST_DIR:?}" \
-              --manifest-section sboms \
+              --files-from-manifest \
               --no-release-artifacts-dir
-          echo "checksums + SBOMs GPG-signed"
+          echo "checksums + release files GPG-signed"
 
       - name: Generate and sign SLSA provenance
         env:

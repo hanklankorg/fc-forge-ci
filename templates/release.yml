@@ -104,7 +104,7 @@ spec:
       type: boolean
       default: false
     artifacts-config:
-      description: Path of the artifacts.yml declaring the release's artifacts and containers. Its sign.method gpg or sign.files-method gpg signs the checksums and SBOMs with RELEASE_GPG_PRIVATE_KEY, pinned to RELEASE_GPG_FINGERPRINT, which the signing access check requires before the release commit; without it the Cosign key signs them. Empty reads .forge-ci/artifacts.yml. Without that file the release plans no version bump and no family build.
+      description: Path of the artifacts.yml declaring the release's artifacts and containers. Its sign.method gpg or sign.files-method gpg signs the checksums and release files with RELEASE_GPG_PRIVATE_KEY, pinned to RELEASE_GPG_FINGERPRINT, which the signing access check requires before the release commit; without it the Cosign key signs them. Empty reads .forge-ci/artifacts.yml. Without that file the release plans no version bump and no family build.
       regex: '^$|^[A-Za-z0-9_.][A-Za-z0-9_./-]*$'
       default: ''
     release-platforms:

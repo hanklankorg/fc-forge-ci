@@ -1390,10 +1390,12 @@ target, acknowledgement, resource, locking and cleanup gates remain. The
 consumer's own workflows and packaging run without a replacement build.
 
 The release oracle verifies offered Cosign bundles. For authenticated
-`checksums.txt` or `*_checksums.txt` it also verifies every uniquely named
-published subject's SHA-256, refusing missing or substituted payloads. It does
-not check that the release holds every file intended, embedded package
-signatures, or image signatures on the local registry.
+`checksums.sha256`, `checksums.txt` or `*_checksums.txt` it also verifies
+every uniquely named published subject's SHA-256, refusing missing or
+substituted payloads, and refuses a release file that has no verified
+signature of its own. It does not check that the release holds every file
+intended, embedded package signatures, or image signatures on the local
+registry.
 
 #### Release refusal and interrupted recovery
 

@@ -35,22 +35,29 @@ manifest lists the public `assets` and marks which of them are `checksums`
 
 The commands, in the order a release runs them:
 
-1. `forge-ci release files declare` writes the checksums file and the manifest
-   from `--asset` and `--sbom` paths, which may be glob patterns
-   (`--asset 'dist/*/*'`). For a GoReleaser build, use
-   `release files import-goreleaser` instead.
+1. `forge-ci release files declare` writes `checksums.sha256` and the
+   manifest from `--asset` and `--sbom` paths, which may be glob patterns
+   (`--asset 'dist/*/*'`). It puts the `--sbom` files into one SBOM bundle,
+   `<project>-<version>-sboms.tar.gz`, which the release publishes in their
+   place. The project name is the repository's unless `--project-name` says
+   otherwise, and the version is `--version` or `RELEASE_TAG`. For a
+   GoReleaser build, use `release files import-goreleaser` instead: it
+   bundles GoReleaser's SBOMs the same way and keeps the name of
+   GoReleaser's checksums file.
 2. `forge-ci release files validate --unsigned` checks the manifest and
    refuses a `dist/` that already holds signatures or provenance, so every
    signature comes from the signing job.
 3. `release sign` and `release provenance` with `--checksums-from-manifest`
-   check every checksum against its file, then sign.
+   check every checksum against its file, then sign. `release sign` with
+   `--files-from-manifest` signs each file the checksums list.
 4. `forge-ci release files manifest` adds the provenance and the signatures
    to the manifest. When `release publish` picks files through a manifest, it
    accepts only such a finished one.
 
-Every published file is covered: an asset by its line in the checksums file,
-the checksums file, each evidence file and the provenance by their own
-signature bundles. See the [CLI reference](cli-reference.md#forge-ci-release-files)
+Every published file is covered: an asset by its line in the checksums file
+and by its own signature, and the checksums file, each evidence file and the
+provenance by their own signatures. `release files manifest` refuses a
+`dist/` in which a listed file has no signature. See the [CLI reference](cli-reference.md#forge-ci-release-files)
 for each command's flags.
 
 ## Targets at a glance

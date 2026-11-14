@@ -71,15 +71,16 @@ func TestReleaseFileSigningMethodThroughTheEngine(t *testing.T) {
 
 // The GPG release file signing step runs here, its own shell against the
 // engine built from this tree, with a throwaway key: it writes an armored
-// signature of the checksums file and of the SBOM that the key verifies,
-// dated at the release commit's time, and no Cosign bundle. With a secret
+// signature of the checksums file and of every file it lists, the release
+// file and the SBOM bundle, that the key verifies, dated at the release
+// commit's time, and no Cosign bundle. With a secret
 // missing it stops before the engine runs, and with a key that is not the
 // pinned one the engine refuses it; neither signs anything. The throwaway keys set the test's
 // environment, so it runs serially.
 func TestGPGReleaseFileSigningThroughTheEngine(t *testing.T) {
 	engine := forgeCIEngine(t)
 	lib := string(reporoot.ReadFile(t, ".engine/bin/lib-forge-ci.sh"))
-	run := workflowStep(t, "sign-and-publish-release.yml", "sign", "GPG-sign checksums and SBOMs").Run
+	run := workflowStep(t, "sign-and-publish-release.yml", "sign", "GPG-sign checksums and release files").Run
 
 	// The fixture exports only an unprotected key; the engine signs with one
 	// whatever passphrase the step passes.
@@ -99,7 +100,7 @@ func TestGPGReleaseFileSigningThroughTheEngine(t *testing.T) {
 	for _, test := range []struct {
 		name, key, fingerprint, password, refused string
 	}{
-		{name: "signs the checksums and the SBOM", key: armored, fingerprint: key.Fingerprint, password: passphrase},
+		{name: "signs the checksums and the files they list", key: armored, fingerprint: key.Fingerprint, password: passphrase},
 		{name: "refuses a missing key", fingerprint: key.Fingerprint, password: passphrase, refused: "GPG_SIGNING_KEY"},
 		{name: "refuses a missing fingerprint", key: armored, password: passphrase, refused: "GPG_SIGNING_FINGERPRINT"},
 		{name: "refuses a missing passphrase", key: armored, fingerprint: key.Fingerprint, refused: "GPG_SIGNING_PASSWORD"},
@@ -109,15 +110,16 @@ func TestGPGReleaseFileSigningThroughTheEngine(t *testing.T) {
 			box := newSandbox(t, "sign-and-publish-release")
 			box.write(".engine/bin/lib-forge-ci.sh", lib, 0o600)
 			box.write("dist/app.jar", "application\n", 0o600)
-			box.write("dist/app.cdx.json", "{}\n", 0o600)
+			box.write("dist/app-1.2.3-sboms.tar.gz", "SBOM bundle\n", 0o600)
 			box.write("dist/checksums.sha256",
-				fileSHA256(t, filepath.Join(box.root, "dist/app.jar"))+"  app.jar\n"+fileSHA256(t, filepath.Join(box.root, "dist/app.cdx.json"))+"  app.cdx.json\n", 0o600)
+				fileSHA256(t, filepath.Join(box.root, "dist/app.jar"))+"  app.jar\n"+
+					fileSHA256(t, filepath.Join(box.root, "dist/app-1.2.3-sboms.tar.gz"))+"  app-1.2.3-sboms.tar.gz\n", 0o600)
 			box.write("dist/release-files.json", `{"version":1,`+
 				`"assets":[{"path":"dist/app.jar","name":"app.jar","source":"producer"},`+
-				`{"path":"dist/app.cdx.json","name":"app.cdx.json","source":"producer"},`+
+				`{"path":"dist/app-1.2.3-sboms.tar.gz","name":"app-1.2.3-sboms.tar.gz","source":"sbom_bundle"},`+
 				`{"path":"dist/checksums.sha256","name":"checksums.sha256","source":"producer"}],`+
-				`"checksums":[{"path":"dist/checksums.sha256","name":"checksums.sha256","source":"checksum"}],`+
-				`"sboms":[{"path":"dist/app.cdx.json","name":"app.cdx.json","source":"sbom"}],"evidence":[],"provenance":[]}`, 0o600)
+				`"checksums":[{"path":"dist/checksums.sha256","name":"checksums.sha256","source":"producer"}],`+
+				`"sboms":[{"path":"dist/app-1.2.3-sboms.tar.gz","name":"app-1.2.3-sboms.tar.gz","source":"sbom_bundle"}],"evidence":[],"provenance":[]}`, 0o600)
 			// The runner's swap state, injected: the engine refuses to load a
 			// GPG key while swap is on, and this host's is not the test's.
 			swaps := box.write("swaps", "Filename\tType\tSize\tUsed\tPriority\n", 0o600)
@@ -134,7 +136,7 @@ func TestGPGReleaseFileSigningThroughTheEngine(t *testing.T) {
 					got.status, test.refused != "", test.refused, got.stdout, got.stderr)
 			}
 
-			for _, signed := range []string{"dist/checksums.sha256", "dist/app.cdx.json"} {
+			for _, signed := range []string{"dist/checksums.sha256", "dist/app.jar", "dist/app-1.2.3-sboms.tar.gz"} {
 				_, err := os.Stat(filepath.Join(box.root, signed+".asc"))
 
 				switch {

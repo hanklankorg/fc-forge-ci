@@ -37,14 +37,19 @@ func requireCLIRelease(t *testing.T, target livetest.Target, repo string, keys r
 		return livetest.Download(t, target, livetest.ReleaseAssetURL(t, target, repo, tag, name), 256<<20)
 	}
 
-	checksums := download("checksums.txt")
-	if err := livetest.VerifyBlob(t, target, keys.cosignPublicPath, checksums, download("checksums.txt.bundle")); err != nil {
+	checksums := download("checksums.sha256")
+	if err := livetest.VerifyBlob(t, target, keys.cosignPublicPath, checksums, download("checksums.sha256.bundle")); err != nil {
 		t.Fatal(err)
 	}
 
-	payloads := map[string][]byte{"checksums.txt": checksums}
+	payloads := map[string][]byte{"checksums.sha256": checksums}
 	for _, file := range []string{name, "source-identity.json", "build-identity.json"} {
 		payloads[file] = download(file)
+
+		// Each release file has its own signature beside the checksums'.
+		if err := livetest.VerifyBlob(t, target, keys.cosignPublicPath, payloads[file], download(file+".bundle")); err != nil {
+			t.Fatalf("the bundle of %s: %v", file, err)
+		}
 	}
 
 	if err := checkCLIIdentity(kind, strings.TrimPrefix(tag, "v"), prepared, admitted, payloads); err != nil {

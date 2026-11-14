@@ -113,7 +113,7 @@ func TestPublishCommand_ForwardsEveryAssetInOrder(t *testing.T) {
 			t.Chdir(t.TempDir())
 			require.NoError(t, os.Mkdir("dist", 0o700))
 
-			for _, name := range []string{"notes.md", "z.tgz", "a.tgz", "checksums.sha256", "checksums.sha256.bundle", "slsa-provenance.intoto.json", "slsa-provenance.intoto.json.bundle"} {
+			for _, name := range []string{"notes.md", "z.tgz", "z.tgz.bundle", "a.tgz", "a.tgz.bundle", "checksums.sha256", "checksums.sha256.bundle", "slsa-provenance.intoto.json", "slsa-provenance.intoto.json.bundle"} {
 				require.NoError(t, os.WriteFile(filepath.Join("dist", name), []byte("fixture"), 0o600))
 			}
 
@@ -127,7 +127,7 @@ func TestPublishCommand_ForwardsEveryAssetInOrder(t *testing.T) {
 
 			args := []string{New().Name, "publish", "--dry-run", "--draft=" + strconv.FormatBool(manifest), "--tag", "v1.2.3", "--repository", "owner/repo", "--release-notes-file", "dist/notes.md"}
 			if manifest {
-				require.NoError(t, os.WriteFile("dist/release-files.json", []byte(`{"version":1,"assets":[{"name":"z.tgz","path":"dist/z.tgz","source":"fixture"},{"name":"a.tgz","path":"dist/a.tgz","source":"fixture"},{"name":"checksums.sha256","path":"dist/checksums.sha256","source":"fixture"},{"name":"checksums.sha256.bundle","path":"dist/checksums.sha256.bundle","source":"fixture"},{"name":"slsa-provenance.intoto.json","path":"dist/slsa-provenance.intoto.json","source":"fixture"},{"name":"slsa-provenance.intoto.json.bundle","path":"dist/slsa-provenance.intoto.json.bundle","source":"fixture"}],"checksums":[{"name":"checksums.sha256","path":"dist/checksums.sha256","source":"fixture"}],"provenance":[{"name":"slsa-provenance.intoto.json","path":"dist/slsa-provenance.intoto.json","source":"fixture"}]}`), 0o600))
+				require.NoError(t, os.WriteFile("dist/release-files.json", []byte(`{"version":1,"assets":[{"name":"z.tgz","path":"dist/z.tgz","source":"fixture"},{"name":"a.tgz","path":"dist/a.tgz","source":"fixture"},{"name":"z.tgz.bundle","path":"dist/z.tgz.bundle","source":"fixture"},{"name":"a.tgz.bundle","path":"dist/a.tgz.bundle","source":"fixture"},{"name":"checksums.sha256","path":"dist/checksums.sha256","source":"fixture"},{"name":"checksums.sha256.bundle","path":"dist/checksums.sha256.bundle","source":"fixture"},{"name":"slsa-provenance.intoto.json","path":"dist/slsa-provenance.intoto.json","source":"fixture"},{"name":"slsa-provenance.intoto.json.bundle","path":"dist/slsa-provenance.intoto.json.bundle","source":"fixture"}],"checksums":[{"name":"checksums.sha256","path":"dist/checksums.sha256","source":"fixture"}],"provenance":[{"name":"slsa-provenance.intoto.json","path":"dist/slsa-provenance.intoto.json","source":"fixture"}]}`), 0o600))
 			} else {
 				args = append(args, "--asset", "dist/z.tgz", "--asset", "dist/a.tgz", "--asset", "dist/checksums.sha256")
 			}
@@ -148,7 +148,7 @@ func TestPublishCommand_ForwardsEveryAssetInOrder(t *testing.T) {
 
 			want := []string{"dist/z.tgz", "dist/a.tgz", "dist/checksums.sha256"}
 			if manifest {
-				want = []string{"dist/z.tgz", "dist/a.tgz", "dist/checksums.sha256", "dist/checksums.sha256.bundle", "dist/slsa-provenance.intoto.json", "dist/slsa-provenance.intoto.json.bundle"}
+				want = []string{"dist/z.tgz", "dist/a.tgz", "dist/z.tgz.bundle", "dist/a.tgz.bundle", "dist/checksums.sha256", "dist/checksums.sha256.bundle", "dist/slsa-provenance.intoto.json", "dist/slsa-provenance.intoto.json.bundle"}
 			}
 
 			require.Equal(t, want, assets)

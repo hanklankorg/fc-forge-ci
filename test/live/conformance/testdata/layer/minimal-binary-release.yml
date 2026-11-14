@@ -107,7 +107,6 @@ jobs:
           test "${version}" = 0.0.1
           archive="layer-release-canary_${version}_linux_amd64.tar.gz"
           sbom="${archive}.sbom.json"
-          checksums="layer-release-canary_${version}_checksums.txt"
           built=dist/linux-amd64/layer-release-canary-linux-amd64
           test "$("${built}")" = "layer-release-canary ${version}"
           stage=$(mktemp -d)
@@ -126,13 +125,15 @@ jobs:
             "${version}" >"dist/${sbom}"
           forge-ci release notes --changelog-file CHANGELOG.md \
             --release-version "${RELEASE_TAG}" --target-file dist/release-notes.md
-          # The producer's hand-off: the checksums file over the archive and
-          # the SBOM, and the manifest that declares the three. release-notes.md
-          # is the release body, not a public file, so it is not declared.
+          # The producer's hand-off: the SBOM bundle that holds the SBOM,
+          # named after the project and RELEASE_TAG, checksums.sha256 over the
+          # archive and that bundle, and the manifest that declares the three.
+          # release-notes.md is the release body, not a public file, so it is
+          # not declared.
           forge-ci release files declare \
             --asset "dist/${archive}" \
             --sbom "dist/${sbom}" \
-            --checksums-file "dist/${checksums}"
+            --project-name layer-release-canary
 
       - name: Upload unsigned dist hand-off
         id: dist

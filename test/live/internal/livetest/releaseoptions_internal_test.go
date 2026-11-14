@@ -41,13 +41,13 @@ func TestReleaseOptionFindings(t *testing.T) {
 	}
 }
 
-// Retention leaves an older release its checksums, signatures and SBOMs,
+// Retention leaves an older release its checksums, signatures and SBOM bundle,
 // removes something else, and leaves the newest release whole.
 func TestReleaseRetentionFindings(t *testing.T) {
 	t.Parallel()
 
-	before := []string{"app-linux-amd64", "app-linux-arm64", "app-linux-amd64.bundle", "app.cdx.json", "checksums.txt", "checksums.txt.bundle", "slsa-provenance.intoto.json"}
-	kept := []string{"app-linux-amd64.bundle", "app.cdx.json", "checksums.txt", "checksums.txt.bundle", "slsa-provenance.intoto.json"}
+	before := []string{"app-linux-amd64", "app-linux-arm64", "app-linux-amd64.bundle", "app-1.2.3-sboms.tar.gz", "checksums.sha256", "checksums.sha256.bundle", "slsa-provenance.intoto.json"}
+	kept := []string{"app-linux-amd64.bundle", "app-1.2.3-sboms.tar.gz", "checksums.sha256", "checksums.sha256.bundle", "slsa-provenance.intoto.json"}
 
 	for name, test := range map[string]struct {
 		after, newest []string
@@ -56,8 +56,8 @@ func TestReleaseRetentionFindings(t *testing.T) {
 		"trimmed":                 {after: kept, newest: before},
 		"nothing removed":         {after: before, newest: before, findings: 2},
 		"one of two left":         {after: append(slices.Clone(kept), "app-linux-arm64"), newest: before, findings: 1},
-		"the SBOM removed":        {after: slices.DeleteFunc(slices.Clone(kept), func(n string) bool { return n == "app.cdx.json" }), newest: before, findings: 1},
-		"a signature removed":     {after: []string{"app.cdx.json", "checksums.txt", "checksums.txt.bundle", "slsa-provenance.intoto.json"}, newest: before, findings: 1},
+		"the SBOM removed":        {after: slices.DeleteFunc(slices.Clone(kept), func(n string) bool { return n == "app-1.2.3-sboms.tar.gz" }), newest: before, findings: 1},
+		"a signature removed":     {after: []string{"app-1.2.3-sboms.tar.gz", "checksums.sha256", "checksums.sha256.bundle", "slsa-provenance.intoto.json"}, newest: before, findings: 1},
 		"a file added":            {after: append(slices.Clone(kept), "late.txt"), newest: before, findings: 1},
 		"the newest trimmed, too": {after: kept, newest: kept, findings: 1},
 	} {

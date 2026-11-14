@@ -24,7 +24,7 @@ func checkCLIIdentity(kind, version, prepared string, admitted []byte, payloads 
 		return fmt.Errorf("unsupported CLI kind %q", kind)
 	}
 
-	subjects, err := provenance.ParseChecksums(bytes.NewReader(payloads["checksums.txt"]))
+	subjects, err := provenance.ParseChecksums(bytes.NewReader(payloads["checksums.sha256"]))
 	if err != nil {
 		return err
 	}
@@ -131,7 +131,7 @@ func TestCLIIdentityRejectsSubstitutions(t *testing.T) {
 		fresh := func() map[string][]byte {
 			p := map[string][]byte{name: bytes.Clone(binary), "source-identity.json": bytes.Clone(source), "build-identity.json": bytes.Clone(build)}
 			for _, file := range []string{name, "source-identity.json", "build-identity.json"} {
-				p["checksums.txt"] = fmt.Appendf(p["checksums.txt"], "%x  %s\n", sha256.Sum256(p[file]), file)
+				p["checksums.sha256"] = fmt.Appendf(p["checksums.sha256"], "%x  %s\n", sha256.Sum256(p[file]), file)
 			}
 
 			return p
@@ -140,7 +140,7 @@ func TestCLIIdentityRejectsSubstitutions(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		for _, field := range []string{name, "source-identity.json", "build-identity.json", "checksums.txt"} {
+		for _, field := range []string{name, "source-identity.json", "build-identity.json", "checksums.sha256"} {
 			t.Run(kind+"/"+field, func(t *testing.T) {
 				p := fresh()
 
@@ -153,7 +153,7 @@ func TestCLIIdentityRejectsSubstitutions(t *testing.T) {
 
 		duplicate := fresh()
 
-		duplicate["checksums.txt"] = append(duplicate["checksums.txt"], duplicate["checksums.txt"]...)
+		duplicate["checksums.sha256"] = append(duplicate["checksums.sha256"], duplicate["checksums.sha256"]...)
 		if checkCLIIdentity(kind, "0.8.6", prepared, source, duplicate) == nil {
 			t.Fatal("accepted duplicate checksum subjects")
 		}
@@ -177,9 +177,9 @@ func TestCLIIdentityRejectsSubstitutions(t *testing.T) {
 					payloads["build-identity.json"] = bytes.ReplaceAll(build, []byte(name), []byte("unrelated-cli"))
 				}
 
-				payloads["checksums.txt"] = nil
+				payloads["checksums.sha256"] = nil
 				for _, file := range []string{name, "source-identity.json", "build-identity.json"} {
-					payloads["checksums.txt"] = fmt.Appendf(payloads["checksums.txt"], "%x  %s\n", sha256.Sum256(payloads[file]), file)
+					payloads["checksums.sha256"] = fmt.Appendf(payloads["checksums.sha256"], "%x  %s\n", sha256.Sum256(payloads[file]), file)
 				}
 
 				if checkCLIIdentity(kind, "0.8.6", prepared, source, payloads) == nil {

@@ -79,12 +79,18 @@ func TestGoReleaserBuildImportsThroughThePinnedEngine(t *testing.T) {
 	box.write("notes.md", "public release notes", 0o600)
 	box.write("dist tree/.keep", "", 0o600)
 
-	got := box.run(action.Runs.Steps[1].Run, "RELEASE_NOTES=notes.md", "DIST_DIRECTORY=dist tree", "FAKE_ENGINE_STATUS=17")
+	// The release tag names the SBOM bundle of GoReleaser's SBOMs.
+	action.requireStepEnv(t, 1, map[string]string{
+		"RELEASE_TAG": "${{ inputs.release-tag }}", "RELEASE_NOTES": "${{ inputs.release-notes }}",
+		"DIST_DIRECTORY": "${{ inputs.dist-directory }}",
+	})
+
+	got := box.run(action.Runs.Steps[1].Run, "RELEASE_TAG=v1.2.3", "RELEASE_NOTES=notes.md", "DIST_DIRECTORY=dist tree", "FAKE_ENGINE_STATUS=17")
 	if got.status != 17 {
 		t.Fatalf("engine status lost: %d: %s", got.status, got.stderr)
 	}
 
-	want := []string{"release", "files", "import-goreleaser", "--dist-dir", "dist tree", "--manifest", "dist tree/release-files.json"}
+	want := []string{"release", "files", "import-goreleaser", "--dist-dir", "dist tree", "--manifest", "dist tree/release-files.json", "--version", "v1.2.3"}
 	if !slices.Equal(box.argv(), want) {
 		t.Fatalf("manifest import argv %q, expected %q", box.argv(), want)
 	}

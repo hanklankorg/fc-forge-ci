@@ -60,7 +60,7 @@ func TestMigrationHandoffPreservesProducerManifestAndBindsImageEvidence(t *testi
   {"path":"dist/app_linux_amd64/app","type":"Binary"}
 ]`)
 
-	producer, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{})
+	producer, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{SBOMBundleNaming: testSBOMBundleNaming})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestMigrationHandoffPreservesProducerManifestAndBindsImageEvidence(t *testi
 		t.Fatalf("signer-side verification refused the intact fan-in: %v", err)
 	}
 
-	for _, name := range []string{"app.tar.gz", "app.tar.gz.sbom.json", "release-files.json", "release-notes.md", "release-images.json", "trivy-results-app-amd64.json"} {
+	for _, name := range []string{"app.tar.gz", testSBOMBundle, "release-files.json", "release-notes.md", "release-images.json", "trivy-results-app-amd64.json"} {
 		t.Run("tampered/"+name, func(t *testing.T) {
 			path := filepath.Join("dist", name)
 			original := readFile(t, path)

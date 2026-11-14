@@ -415,9 +415,10 @@ func signCmd() *cli.Command {
 		&cli.BoolFlag{Name: "no-release-artifacts-dir", Sources: planfile.Vars(planScopeSign, "no-release-artifacts-dir"), Usage: "do not sign the default or configured release artifacts directory"},
 		&cli.StringFlag{Name: flagAttachArtifacts, Sources: planfile.Vars(planScopeSign, flagAttachArtifacts, "ATTACH_ARTIFACTS"), Usage: "comma-separated globs for extra files to sign"},
 		&cli.StringSliceFlag{Name: "file", Sources: planfile.Vars(planScopeSign, "file"), Usage: "exact file to sign in place (repeatable; sidecar stays next to the file)"},
-		&cli.StringFlag{Name: flagManifest, Value: apprelease.DefaultReleaseFilesManifest, Sources: planfile.Vars(planScopeSign, flagManifest, "RELEASE_FILES_MANIFEST"), Usage: "release file manifest used by --manifest-section and --checksums-from-manifest; a manifest named here must exist"},
+		&cli.StringFlag{Name: flagManifest, Value: apprelease.DefaultReleaseFilesManifest, Sources: planfile.Vars(planScopeSign, flagManifest, "RELEASE_FILES_MANIFEST"), Usage: "release file manifest used by --manifest-section, --checksums-from-manifest and --files-from-manifest; a manifest named here must exist"},
 		&cli.StringFlag{Name: flagDistDir, Value: defaultDistDir, Sources: planfile.Vars(planScopeSign, flagDistDir), Usage: "dist directory used with --manifest"},
 		&cli.StringSliceFlag{Name: "manifest-section", Sources: planfile.Vars(planScopeSign, "manifest-section"), Usage: "release file manifest section to sign exactly (repeatable): assets, checksums, sboms, evidence, provenance"},
+		&cli.BoolFlag{Name: "files-from-manifest", Sources: planfile.Vars(planScopeSign, "files-from-manifest"), Usage: "sign every release file the checksums file of --manifest lists, the SBOM bundle among them, each next to the file; a distro package that already has its .sig is left with that signature"},
 		debugAllowSwapFlag(),
 	}, signMethodFlags(planScopeSign)...)
 
@@ -457,6 +458,7 @@ EXAMPLES:
 				ReleaseFiles:            releaseFilesInput(cmd),
 				ManifestSections:        cmd.StringSlice("manifest-section"),
 				ChecksumsFromManifest:   cmd.Bool(flagChecksumsFromManifest),
+				FilesFromManifest:       cmd.Bool("files-from-manifest"),
 			})
 		},
 	}

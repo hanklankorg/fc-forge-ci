@@ -277,8 +277,10 @@ jobs:
       # The hand-off the signer takes: the public files, exactly one checksums
       # file covering them, release-notes.md for the release body, and
       # dist/release-files.json, the manifest that declares the public files.
-      # `release files declare` writes the checksums file and the manifest
-      # from the files named here; the signer runs
+      # `release files declare` writes checksums.sha256 and the manifest from
+      # the files named here, and puts any --sbom files into one SBOM bundle,
+      # <project>-<version>-sboms.tar.gz, named after the repository and
+      # RELEASE_TAG; the signer runs
       #   forge-ci release files validate --unsigned
       # first, and signs and publishes what the manifest names. The hand-off
       # is unsigned: dist/ holds no <file>.sig or <file>.bundle and no

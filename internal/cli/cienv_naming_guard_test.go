@@ -211,7 +211,7 @@ func TestNoFlagCarriesAPartialRunContextChain(t *testing.T) {
 // that is a decision to make deliberately rather than as a side effect of
 // adding this check. The guard's job here is to stop the list growing.
 //
-// Three of the four also invert precedence: runcontext.Tag() reads TAG_NAME
+// Three of them also invert precedence: runcontext.Tag() reads TAG_NAME
 // before RELEASE_TAG, and these read RELEASE_TAG first. On a runner with both
 // set they resolve to a different tag than every other binding of the concept,
 // which is a real difference and not obviously the intended one.
@@ -224,6 +224,12 @@ func declaredPartialChains() map[string][]string {
 		// provenance envelope, not the tag this run is producing. If that is
 		// right it should say so in the flag; if not it should bind cienv.Tag().
 		"forge-ci container release-images validate --expected-tag": {"RELEASE_TAG"},
+
+		// The final tag in the SBOM bundle name of an unsigned hand-off. The
+		// build job runs for the release-request tag, so the ref-name
+		// fallbacks of cienv.Tag() would name the bundle after the request.
+		"forge-ci release files declare --version":           {"RELEASE_TAG"},
+		"forge-ci release files import-goreleaser --version": {"RELEASE_TAG"},
 
 		// Truncated AND in the opposite precedence to runcontext.Tag(), which
 		// reads TAG_NAME first. On a runner with both set these resolve to a

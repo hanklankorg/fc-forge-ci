@@ -299,6 +299,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failed at `xcode-select` once it signed. A caller that names no runner
   still gets `macos-26`. On GitLab the caller already names the macOS
   runner.
+- **BREAKING**: A Forgejo or GitLab release carries the same files as a
+  GitHub release. `release files declare` writes `checksums.sha256`, where
+  it wrote `checksums.txt`, and puts the `--sbom` files into one SBOM
+  bundle, `<project>-<version>-sboms.tar.gz`, which the release publishes in
+  their place: no SBOM is a release file of its own any more. `release files
+  import-goreleaser` bundles GoReleaser's SBOMs the same way and replaces
+  their lines in GoReleaser's checksums file, which keeps its name, with the
+  bundle's. The signer signs every file the checksums list, not only the
+  checksums and the SBOMs, with the same key and suffix (`.bundle`, or
+  `.asc` with GPG); a distro package keeps its `.sig` and gets no second
+  signature. `release files manifest` refuses a `dist/` in which a listed
+  file has no signature, so `release publish` and
+  `release validate-published` require them all. What a caller changes: a
+  step that runs `release files declare --sbom` or `release files
+  import-goreleaser` over SBOMs needs `RELEASE_TAG` in its environment, or
+  `--version`, and the repository in its CI environment, or
+  `--project-name`; an `--sbom` file may no longer also match an `--asset`
+  pattern; and a signer of its own runs `release sign --files-from-manifest`
+  where it ran `--manifest-section sboms`. Whoever verifies a release reads
+  `checksums.sha256` and unpacks the bundle to read an SBOM. The GitHub
+  release and forge-ci's own release are unchanged. See
+  `docs/verification.md#verify-a-forgejo-or-gitlab-release`.
 - The default lint floor (`required-lints`) is `secrets` on every forge; it
   was `secrets,sast`. SAST still runs where a project's plan lists it and its
   findings are reported, but they no longer fail a pull request by default.

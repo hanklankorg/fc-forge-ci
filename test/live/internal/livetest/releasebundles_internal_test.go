@@ -162,7 +162,7 @@ func TestReleaseBundlesRejectGitHubOrphanDespiteCompleteSignatureCoverage(t *tes
 		t.Fatalf("orphan accepted or wrong diagnostic: %v", err)
 	}
 
-	if unsigned := unsignedSubjects(assets, bundles, map[string]bool{"app": true}); len(unsigned) != 0 {
+	if unsigned := unsignedSubjects(maps.Keys(assets), bundles, map[string]bool{"app": true}); len(unsigned) != 0 {
 		t.Fatalf("GPG-covered subject or signature sidecars incorrectly treated as unsigned: %v", unsigned)
 	}
 }

@@ -17,11 +17,12 @@ import (
 
 // DefaultAssetRetentionKeepFiles matches the files an old release keeps: the
 // checksum manifests (checksums.sha256, as `release checksums` writes it,
-// among them), every signature and bundle, the SBOMs (<name>.cdx.json, as
-// `release files declare --sbom` names one, among them, and native
-// sbom-<image>-<arch>.json inventories), the GitHub SBOM bundle
-// <project>-<version>-sboms.tar.gz (and the -sboms.zip of a release made
-// before the bundle became a tar.gz), and release-plan.json. They are
+// among them), every signature and bundle, the SBOM bundle
+// <project>-<version>-sboms.tar.gz every forge's release publishes (and the
+// -sboms.zip of a release made before the bundle became a tar.gz), the SBOMs
+// an older release published as files of their own (<name>.cdx.json among
+// them) and native sbom-<image>-<arch>.json inventories, and
+// release-plan.json. They are
 // small, and with them a file rebuilt from the tag can still be checked
 // against what was released: by its checksum, and by its own signature when
 // the build is reproducible.

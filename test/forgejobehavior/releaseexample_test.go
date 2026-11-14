@@ -14,9 +14,11 @@ import (
 // The build job of the release example, from its build step to the hand-off,
 // against the CLI of this tree: the build action leaves the binaries and the
 // Build SBOM, and the example's own next step stages the SBOM, writes the
-// release body and declares the files. The result passes the signer's first
-// check, `release files validate --unsigned`, and its checksums file covers
-// every public file.
+// release body and declares the files. The step names neither the project
+// nor the version: the SBOM bundle is named after the runner's repository
+// and the step's RELEASE_TAG. The result passes the signer's first check,
+// `release files validate --unsigned`, and its checksums file covers every
+// public file.
 func TestReleaseExampleBuildJobHandsOffWhatTheSignerAccepts(t *testing.T) {
 	t.Parallel()
 
@@ -35,18 +37,23 @@ func TestReleaseExampleBuildJobHandsOffWhatTheSignerAccepts(t *testing.T) {
 	}
 
 	got = box.run(declare.Run+"\nforge-ci release files validate --unsigned\nforge-ci release files validate-checksums\n",
-		append(env, "ARTIFACT_NAME=app", "RELEASE_TAG=v1.2.3", "RELEASE_SHA="+commit)...)
+		append(env, "ARTIFACT_NAME=app", "RELEASE_TAG=v1.2.3", "RELEASE_SHA="+commit, "FORGEJO_REPOSITORY=owner/my-cli")...)
 	if got.status != 0 {
 		t.Fatalf("status %d\nstdout %s\nstderr %s", got.status, got.stdout, got.stderr)
 	}
 
 	manifest := readSandboxFile(t, box, "dist/release-files.json")
 	for _, declared := range []string{
-		"dist/linux-amd64/app-linux-amd64", "dist/linux-arm64/app-linux-arm64", "dist/app.cdx.json", "dist/checksums.txt",
+		"dist/linux-amd64/app-linux-amd64", "dist/linux-arm64/app-linux-arm64", "dist/my-cli-1.2.3-sboms.tar.gz", "dist/checksums.sha256",
 	} {
 		if !strings.Contains(manifest, `"path": "`+declared+`"`) {
 			t.Errorf("the hand-off does not declare %s:\n%s", declared, manifest)
 		}
+	}
+
+	// The SBOM is published in the bundle, not beside it.
+	if strings.Contains(manifest, "app.cdx.json") {
+		t.Errorf("the hand-off declares the loose SBOM:\n%s", manifest)
 	}
 
 	// The release body is handed off and is not a release file.

@@ -18,7 +18,7 @@ import (
 )
 
 // ForgejoSignsReleaseFilesWithGPG reports whether the Forgejo release of the
-// consumer at root signs its checksums and SBOMs with GPG: the declaration
+// consumer at root signs its checksums and release files with GPG: the declaration
 // its release workflow (a file name under .forgejo/workflows) passes
 // prepare-release.yml says so (SignsReleaseFilesWithGPG).
 func ForgejoSignsReleaseFilesWithGPG(root, workflow string) (bool, error) {
@@ -32,7 +32,7 @@ func ForgejoSignsReleaseFilesWithGPG(root, workflow string) (bool, error) {
 
 // SignsReleaseFilesWithGPG reports whether the Forgejo or GitLab release of
 // the consumer at root, reading the declaration artifactsConfig (empty, the
-// default one), signs its checksums and SBOMs with GPG: the declaration
+// default one), signs its checksums and release files with GPG: the declaration
 // says sign.method gpg or sign.files-method gpg. A consumer without the
 // declaration, or one that names neither, signs them with its Cosign key.
 func SignsReleaseFilesWithGPG(root, artifactsConfig string) (bool, error) {
@@ -70,7 +70,7 @@ func GPGReleaseFileFindings(names []string) []string {
 			continue
 		}
 
-		if subject == "checksums.txt" || strings.HasSuffix(subject, "_checksums.txt") {
+		if isReleaseChecksums(subject) {
 			checksums = true
 		}
 

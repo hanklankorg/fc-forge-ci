@@ -497,12 +497,12 @@ func TestImageStepsLeaveTheEngineNoFallbackCredential(t *testing.T) {
 	}
 }
 
-// Checksums and SBOMs exist for every release, so their signing must not be
+// Checksums and release files exist for every release, so their signing must not be
 // skipped along with an absent image ledger.
 func TestBlobSigningDoesNotDependOnTheImageLedger(t *testing.T) {
 	t.Parallel()
 
-	const stepName = "Cosign sign-blob checksums and SBOMs"
+	const stepName = "Cosign sign-blob checksums and release files"
 
 	step, found := loadWorkflow(t, signPublishWorkflow).findStep(stepName)
 	if !found {

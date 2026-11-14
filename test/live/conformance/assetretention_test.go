@@ -37,7 +37,7 @@ func TestRelease_AssetRetentionPreservesEvidence(t *testing.T) {
 
 			const archive = "app.tar.gz"
 
-			names := []string{archive, "checksums.txt", "checksums.txt.bundle", "app.tar.gz.sbom.json", "app.tar.gz.cdx.sbom.json", "slsa-provenance.intoto.json", "slsa-provenance.intoto.json.bundle"}
+			names := []string{archive, "checksums.txt", "checksums.txt.bundle", "checksums.sha256", "checksums.sha256.bundle", "app-0.0.1-sboms.tar.gz", "app-0.0.1-sboms.tar.gz.bundle", "app.tar.gz.sbom.json", "app.tar.gz.cdx.sbom.json", "slsa-provenance.intoto.json", "slsa-provenance.intoto.json.bundle"}
 			slices.Sort(names)
 
 			before := make(map[string]rawref.Release)

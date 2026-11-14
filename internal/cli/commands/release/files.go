@@ -14,7 +14,9 @@ import (
 	"github.com/urfave/cli/v3"
 
 	apprelease "github.com/diggsweden/forge-ci/internal/app/release"
+	"github.com/diggsweden/forge-ci/internal/cli/cienv"
 	"github.com/diggsweden/forge-ci/internal/cliio"
+	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 )
 
 func filesGroup() *cli.Command {
@@ -85,24 +87,51 @@ func filesCollectCmd() *cli.Command {
 	}
 }
 
+// sbomBundleFlags name the SBOM bundle a hand-off's SBOMs are written into.
+// The project defaults to the repository's name, as on GitHub, and the
+// version to the release tag the release jobs export.
+func sbomBundleFlags() []cli.Flag {
+	return []cli.Flag{
+		&cli.StringFlag{Name: "project-name", Sources: cli.EnvVars("PROJECT_NAME"), Usage: "project in the SBOM bundle name <project>-<version>-sboms.tar.gz (default: the name of --repository)"},
+		&cli.StringFlag{Name: flagRepository, Sources: cienv.Repository(), Usage: "\"owner/repo\" slug whose name is the default --project-name"},
+		&cli.StringFlag{Name: flagVersion, Sources: cli.EnvVars("RELEASE_TAG"), Usage: "release version or tag in the SBOM bundle name; a v prefix is dropped; required when the release has an SBOM"},
+	}
+}
+
+func sbomBundleNaming(cmd *cli.Command) apprelease.SBOMBundleNaming {
+	project := cmd.String("project-name")
+	if repository := cmd.String(flagRepository); project == "" && repository != "" {
+		project = domainrelease.ProjectNameFromRepo("", repository)
+	}
+
+	return apprelease.SBOMBundleNaming{ProjectName: project, Version: cmd.String(flagVersion)}
+}
+
 func filesImportGoReleaserCmd() *cli.Command {
 	flags := append(releaseFilesFlags(),
 		&cli.StringSliceFlag{Name: flagEvidenceFile, Usage: "additional dist file to sign and publish as evidence (repeatable)"},
 	)
+	flags = append(flags, sbomBundleFlags()...)
 
 	return &cli.Command{
 		Name:  "import-goreleaser",
 		Usage: "import GoReleaser metadata into an unsigned release file manifest before signing",
 		Description: `Writes the manifest from the publishable GoReleaser artifacts and the named
-evidence files. It refuses an existing manifest, and a dist that already holds
+evidence files. The SBOMs GoReleaser wrote are bundled into
+<project>-<version>-sboms.tar.gz, which the release publishes in their place:
+GoReleaser's checksums file keeps its name, and its lines for the SBOMs are
+replaced by the line of the bundle.
+
+It refuses an existing manifest or SBOM bundle, and a dist that already holds
 the provenance statement or a <file>.bundle or <file>.sig of an imported file:
 the import is the unsigned hand-off, as "release files validate --unsigned"
 checks it.`,
 		Flags: flags,
 		Action: func(_ context.Context, cmd *cli.Command) error {
 			_, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{
-				FilesInput:    releaseFilesInput(cmd),
-				EvidenceFiles: cmd.StringSlice(flagEvidenceFile),
+				FilesInput:       releaseFilesInput(cmd),
+				SBOMBundleNaming: sbomBundleNaming(cmd),
+				EvidenceFiles:    cmd.StringSlice(flagEvidenceFile),
 			})
 
 			return err
@@ -116,20 +145,24 @@ func filesDeclareCmd() *cli.Command {
 		&cli.StringFlag{Name: flagDistDir, Value: defaultDistDir, Usage: "workspace-relative dist directory containing the declared files"},
 		&cli.StringFlag{Name: flagManifest, Value: apprelease.DefaultReleaseFilesManifest, Sources: cli.EnvVars("RELEASE_FILES_MANIFEST"), Usage: "release file manifest to write; it must not exist"},
 		&cli.StringSliceFlag{Name: flagAsset, Usage: "dist file to publish, as a path or a glob pattern the command expands; directories a pattern matches are skipped (repeatable)"},
-		&cli.StringSliceFlag{Name: "sbom", Usage: "dist file to publish and classify as an SBOM, as a path or a glob pattern (repeatable)"},
+		&cli.StringSliceFlag{Name: "sbom", Usage: "dist SBOM file to publish in the SBOM bundle, as a path or a glob pattern (repeatable)"},
 		&cli.StringSliceFlag{Name: flagEvidenceFile, Usage: "additional dist file to sign and publish as evidence (repeatable)"},
-		&cli.StringFlag{Name: flagChecksumsFile, Usage: "checksums file to write; it must not exist (default: checksums.txt in --dist-dir)"},
+		&cli.StringFlag{Name: flagChecksumsFile, Usage: "checksums file to write; it must not exist (default: checksums.sha256 in --dist-dir)"},
 	}
+	flags = append(flags, sbomBundleFlags()...)
 
 	return &cli.Command{
 		Name:  "declare",
 		Usage: "write the checksums file and the unsigned release file manifest for the files a producer names",
-		Description: `The hand-off of a build that has no GoReleaser metadata to import. Writes the
-sha256sum-format checksums file over every --asset and --sbom file, by name,
-then the manifest: the assets, the SBOMs, the checksums file and the named
-evidence files. A pattern that names no file is refused.
+		Description: `The hand-off of a build that has no GoReleaser metadata to import. Bundles
+the --sbom files into <project>-<version>-sboms.tar.gz in the dist directory,
+each under its file name: the release publishes that one bundle, also when it
+has one SBOM, and not the SBOM files. Then writes the sha256sum-format
+checksums file over every --asset file and the bundle, by name, and the
+manifest: the assets, the bundle, the checksums file and the named evidence
+files. A pattern that names no file is refused.
 
-It refuses an existing manifest or checksums file, two files with one name,
+It refuses an existing manifest, checksums file or SBOM bundle, two files with one name,
 and a dist that already holds the provenance statement or a <file>.bundle or
 <file>.sig of a declared file: the result is the unsigned hand-off, as "release
 files validate --unsigned" checks it.
@@ -139,11 +172,12 @@ EXAMPLE:
 		Flags: flags,
 		Action: func(_ context.Context, cmd *cli.Command) error {
 			manifest, err := apprelease.DeclareReleaseFiles(apprelease.DeclareReleaseFilesInput{
-				FilesInput:    releaseFilesInput(cmd),
-				Assets:        cmd.StringSlice(flagAsset),
-				SBOMs:         cmd.StringSlice("sbom"),
-				EvidenceFiles: cmd.StringSlice(flagEvidenceFile),
-				ChecksumsFile: cmd.String(flagChecksumsFile),
+				FilesInput:       releaseFilesInput(cmd),
+				SBOMBundleNaming: sbomBundleNaming(cmd),
+				Assets:           cmd.StringSlice(flagAsset),
+				SBOMs:            cmd.StringSlice("sbom"),
+				EvidenceFiles:    cmd.StringSlice(flagEvidenceFile),
+				ChecksumsFile:    cmd.String(flagChecksumsFile),
 			})
 			if err != nil {
 				return err

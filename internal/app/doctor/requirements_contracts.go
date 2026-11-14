@@ -197,7 +197,7 @@ func setupPreparedArtifactsConfig(inputs, jobs *yaml.Node) *yaml.Node {
 const setupDefaultArtifactsConfig = ".forge-ci/artifacts.yml"
 
 // releaseFileSigning is the GPG demand of the declaration a Forgejo or GitLab
-// release signs its checksums and SBOMs by: sign.method gpg or
+// release signs its checksums and release files by: sign.method gpg or
 // sign.files-method gpg needs the GPG key, its passphrase and its
 // fingerprint. Any other declaration, and none, signs them with the Cosign
 // key.

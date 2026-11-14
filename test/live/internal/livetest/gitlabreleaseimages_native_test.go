@@ -28,7 +28,7 @@ func TestGitLabReleaseEvidenceNativeImageJourney(t *testing.T) {
 			fixture := newNativeReleaseJourney(t, Binary(t), HostTool(t, "cosign"), goMetadata, true)
 
 			got, err := fixture.checkWithPublisher(t, fixture.producer, fixture.publisher, fixture.signer, fixture.published)
-			if err != nil || got.Verified != 8 {
+			if err != nil || got.Verified != 9 {
 				t.Fatalf("native build/image-publisher/signer/published chain: %+v, %v", got, err)
 			}
 		})

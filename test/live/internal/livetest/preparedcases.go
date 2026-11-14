@@ -195,7 +195,7 @@ const (
 	// alone: the other forges refuse the declaration.
 	LaneDistroPackages = "distro-packages"
 	// LaneGPGFiles: the release of a demo whose declaration says sign.method
-	// gpg: its checksums and SBOMs signed with the release's GPG key, pinned
+	// gpg: its checksums and release files signed with the release's GPG key, pinned
 	// by fingerprint, and its provenance, evidence and image with the Cosign
 	// key. Forgejo and GitLab: GitHub's is a cell of its own table.
 	LaneGPGFiles = "gpg-files"

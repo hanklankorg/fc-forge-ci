@@ -23,15 +23,15 @@ const (
 )
 
 // releaseFileSigningCmd reads, for the Forgejo and GitLab releases, which key
-// signs the release's checksums and SBOMs.
+// signs the release's checksums and release files.
 func releaseFileSigningCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "release-file-signing",
-		Usage: "say whether the Forgejo or GitLab release signs its checksums and SBOMs with GPG or with its Cosign key",
+		Usage: "say whether the Forgejo or GitLab release signs its checksums and release files with GPG or with its Cosign key",
 		Description: `Reads the declaration and sets the output release-file-signing: gpg
    when sign.method or sign.files-method is gpg, and cosign otherwise, also
    without a sign block and without the file. The Forgejo and GitLab releases
-   sign the checksums and SBOMs the way that output says. The provenance
+   sign the checksums and release files the way that output says. The provenance
    statement, the evidence and the images are signed with the Cosign key
    either way.
 
@@ -60,7 +60,7 @@ EXAMPLE:
 					signing = releaseFileSigningGPG
 				}
 
-				_, _ = fmt.Fprintf(os.Stderr, "the release's checksums and SBOMs are signed with %s\n", signing)
+				_, _ = fmt.Fprintf(os.Stderr, "the release's checksums and release files are signed with %s\n", signing)
 
 				return dep.OutputSink.Set(ctx, outputReleaseFileSigning, signing)
 			})

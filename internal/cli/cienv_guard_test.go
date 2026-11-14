@@ -50,6 +50,8 @@ func runContextFlagExemptions() map[runContextFlagKey]string {
 		{"forge-ci version commit-changelog-release", "tag", "RELEASE_TAG"}:           "explicit final stable tag to commit and create",
 		{"forge-ci version commit-changelog-release", "tag", "TAG_NAME"}:              "explicit final stable tag to commit and create",
 		{"forge-ci container release-images validate", "expected-tag", "RELEASE_TAG"}: "explicit SLSA expected tag, not the current ref",
+		{"forge-ci release files declare", "version", "RELEASE_TAG"}:                  "explicit final tag in the SBOM bundle name; the build job's ref is the release request",
+		{"forge-ci release files import-goreleaser", "version", "RELEASE_TAG"}:        "explicit final tag in the SBOM bundle name; the build job's ref is the release request",
 	}
 }
 

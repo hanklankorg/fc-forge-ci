@@ -683,7 +683,7 @@ rc_public_key() {
 }
 
 # rc_release_file_signing asks the engine how the checkout's declaration
-# has its checksums and SBOMs signed, and sets rc_file_signing to the answer:
+# has its checksums and release files signed, and sets rc_file_signing to the answer:
 # gpg when it says sign.method gpg or sign.files-method gpg, cosign
 # otherwise, also without a sign block or a declaration. Any other answer stops the job.
 rc_release_file_signing() {
@@ -704,7 +704,7 @@ rc_release_file_signing() {
 
 # rc_signing_preflight checks the signer's tools and keys. Its arguments say
 # whether the job signs distro packages, and how it signs the checksums and
-# SBOMs, gpg or cosign: either of distro packages and gpg needs the GPG key.
+# release files, gpg or cosign: either of distro packages and gpg needs the GPG key.
 rc_signing_preflight() {
   local distro_packages=${1:?rc_signing_preflight needs the sign-distro-packages value}
   local files=${2:?rc_signing_preflight needs the release file signing method}
@@ -724,7 +724,7 @@ rc_signing_preflight() {
   if [ "${distro_packages}" = true ]; then
     gpg_required='is required while sign-distro-packages is true; set it, or set sign-distro-packages: false'
   elif [ "${files}" = gpg ]; then
-    gpg_required='is required while artifacts.yml says sign.method or sign.files-method gpg: it signs the checksums and SBOMs'
+    gpg_required='is required while artifacts.yml says sign.method or sign.files-method gpg: it signs the checksums and release files'
   fi
   if [ -n "${gpg_required}" ]; then
     : "${RELEASE_GPG_PRIVATE_KEY:?${gpg_required}}" "${RELEASE_GPG_PASSPHRASE:?${gpg_required}}" \
@@ -742,7 +742,7 @@ rc_check_signing_access() {
   rc_signing_preflight "${RC_SIGN_DISTRO_PACKAGES}" "${rc_file_signing}"
 }
 
-# rc_sign_release_files signs the checksums and SBOMs the way $1 says. gpg
+# rc_sign_release_files signs the checksums and release files the way $1 says. gpg
 # signs them with the GPG key, which the engine refuses unless its
 # fingerprint is RELEASE_GPG_FINGERPRINT and refuses to load while the runner
 # has swap on, and writes an .asc beside each, dated at the release commit
@@ -764,13 +764,13 @@ rc_sign_release_files() {
         CI_JOB_TOKEN CI_REGISTRY_PASSWORD CI_DEPENDENCY_PROXY_PASSWORD CI_DEPLOY_PASSWORD
       GPG_PRIVATE_KEY="${key}" GPG_PASSPHRASE="${passphrase}" SOURCE_DATE_EPOCH="${epoch}" \
         rc_engine release sign --method gpg --fingerprint "${fingerprint}" --checksums-from-manifest \
-        --manifest "${RELEASE_FILES_MANIFEST:?}" --dist-dir "${DIST_DIR:?}" --manifest-section sboms --no-release-artifacts-dir
+        --manifest "${RELEASE_FILES_MANIFEST:?}" --dist-dir "${DIST_DIR:?}" --files-from-manifest --no-release-artifacts-dir
     )
     ;;
   cosign)
     COSIGN_KEY="${RELEASE_COSIGN_PRIVATE_KEY:?}" COSIGN_PASSWORD="${RELEASE_COSIGN_PASSPHRASE:?}" \
       rc_engine release sign --method kms --key env://COSIGN_KEY --checksums-from-manifest \
-      --manifest "${RELEASE_FILES_MANIFEST:?}" --dist-dir "${DIST_DIR:?}" --manifest-section sboms --no-release-artifacts-dir
+      --manifest "${RELEASE_FILES_MANIFEST:?}" --dist-dir "${DIST_DIR:?}" --files-from-manifest --no-release-artifacts-dir
     ;;
   *)
     echo "ERROR: the release files are signed with gpg or cosign, not '${1}'." >&2

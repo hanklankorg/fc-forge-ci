@@ -13,36 +13,34 @@ import (
 	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 )
 
-const (
-	// producerSource labels the files a producer declared itself.
-	producerSource = "producer"
-	// defaultProducerChecksumsName is the checksums file `release files
-	// declare` writes into the dist directory when the caller names none.
-	defaultProducerChecksumsName = "checksums.txt"
-)
+// producerSource labels the files a producer declared itself.
+const producerSource = "producer"
 
 // DeclareReleaseFilesInput drives DeclareReleaseFiles. Assets and SBOMs are
 // paths or glob patterns of files under the dist directory.
 type DeclareReleaseFilesInput struct {
 	FilesInput
+	SBOMBundleNaming
 
 	Assets        []string
 	SBOMs         []string
 	EvidenceFiles []string
 	// ChecksumsFile is the checksums file to write. Empty selects
-	// checksums.txt in the dist directory.
+	// checksums.sha256 in the dist directory.
 	ChecksumsFile string
 }
 
 // DeclareReleaseFiles writes a producer's unsigned hand-off for a build that
-// has no build-tool metadata to import: the checksums file over the declared
-// assets and SBOMs, and the release file manifest that names them. It is the
-// sibling of ImportGoReleaserFileManifest and refuses the same things: an
-// existing manifest, and a dist that already carries what signing writes. It
-// also refuses an existing checksums file, because a hand-off has exactly one
-// and this one is written here.
+// has no build-tool metadata to import: the SBOM bundle of the declared
+// SBOMs, the checksums file over the declared assets and that bundle, and the
+// release file manifest that names them. It is the sibling of
+// ImportGoReleaserFileManifest and refuses the same things: an existing
+// manifest, and a dist that already carries what signing writes. It also
+// refuses an existing checksums file or SBOM bundle, because a hand-off has
+// exactly one of each and they are written here.
 func DeclareReleaseFiles(in DeclareReleaseFilesInput) (*FileManifest, error) {
 	ctx := releaseFilesContext(in.FilesInput)
 
@@ -56,17 +54,28 @@ func DeclareReleaseFiles(in DeclareReleaseFilesInput) (*FileManifest, error) {
 		return nil, err
 	}
 
+	// What this call wrote; without a manifest it would only block the next
+	// attempt.
+	written := entryPaths(sboms)
+	discard := func(err error) (*FileManifest, error) {
+		for _, path := range written {
+			err = errors.Join(err, os.Remove(path))
+		}
+
+		return nil, err
+	}
+
 	// Everything declared so far is a checksum subject. The checksums file
 	// and the evidence files join the assets after it is written.
 	if writeErr := writeProducerChecksums(checksumsFile, collector.entries); writeErr != nil {
-		return nil, writeErr
+		return discard(writeErr)
 	}
+
+	written = append(written, checksumsFile)
 
 	manifest, err := declaredFileManifest(ctx, collector, sboms, checksumsFile, in.EvidenceFiles)
 	if err != nil {
-		// The checksums file is this call's own output; without a manifest
-		// it would only block the next attempt.
-		return nil, errors.Join(err, os.Remove(checksumsFile))
+		return discard(err)
 	}
 
 	return manifest, nil
@@ -77,7 +86,7 @@ func DeclareReleaseFiles(in DeclareReleaseFilesInput) (*FileManifest, error) {
 func declaredChecksumsPath(ctx releaseFilesCtx, named string) (string, error) {
 	checksumsFile := strings.TrimSpace(named)
 	if checksumsFile == "" {
-		checksumsFile = filepath.Join(ctx.distDir, defaultProducerChecksumsName)
+		checksumsFile = filepath.Join(ctx.distDir, domainrelease.ChecksumsFile)
 	}
 
 	checksumsFile = filepath.Clean(checksumsFile)
@@ -94,8 +103,9 @@ func declaredChecksumsPath(ctx releaseFilesCtx, named string) (string, error) {
 	return checksumsFile, nil
 }
 
-// declaredSubjects collects the assets and the SBOMs the caller named: the
-// files the checksums file covers.
+// declaredSubjects collects the files the checksums file covers: the assets
+// the caller named and the bundle of the SBOMs it named, which is written
+// here. The returned SBOM section holds that bundle, or nothing.
 func declaredSubjects(ctx releaseFilesCtx, in DeclareReleaseFilesInput) (*releaseFileCollector, []FileEntry, error) {
 	collector := &releaseFileCollector{}
 
@@ -108,18 +118,37 @@ func declaredSubjects(ctx releaseFilesCtx, in DeclareReleaseFilesInput) (*releas
 		return nil, nil, fmt.Errorf("at least one --asset is required: %w", errs.ErrUsage)
 	}
 
-	sboms, err := declaredEntries(ctx, "sbom", in.SBOMs)
+	declared, err := declaredEntries(ctx, "sbom", in.SBOMs)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	for _, entry := range append(assets, sboms...) {
+	for _, entry := range assets {
 		if err := collector.add(ctx, entry.Path, entry.Source); err != nil {
 			return nil, nil, err
 		}
 	}
 
-	return collector, sboms, nil
+	if len(declared) == 0 {
+		return collector, []FileEntry{}, nil
+	}
+
+	for _, entry := range declared {
+		if _, asset := collector.paths[entry.Path]; asset {
+			return nil, nil, fmt.Errorf("--sbom file is also an --asset: %s: the SBOMs are published in the SBOM bundle: %w", entry.Path, errs.ErrValidation)
+		}
+	}
+
+	bundle, err := bundleHandoffSBOMs(ctx, declared, in.SBOMBundleNaming)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := collector.add(ctx, bundle.Path, bundle.Source); err != nil {
+		return nil, nil, errors.Join(err, os.Remove(bundle.Path))
+	}
+
+	return collector, []FileEntry{bundle}, nil
 }
 
 // declaredFileManifest completes the collected assets with the checksums file

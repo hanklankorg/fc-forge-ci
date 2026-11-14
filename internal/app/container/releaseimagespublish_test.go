@@ -424,16 +424,17 @@ func TestNativePublicImageEvidenceManifestJourney(t *testing.T) {
 			}))
 			require.Len(t, signer.files, 4)
 			// The independent provenance stage contributes its usual two files,
-			// and the checksums stage its signature; neither is part of the
-			// eight image-evidence additions.
+			// and the release file stage the signatures of the checksums and
+			// the archive; none is part of the eight image-evidence additions.
 			require.NoError(t, os.WriteFile("dist/slsa-provenance.intoto.json", []byte("{}"), 0o600))
 			require.NoError(t, os.WriteFile("dist/slsa-provenance.intoto.json.bundle", []byte("inert provenance bundle"), 0o600))
-			require.NoError(t, os.WriteFile("dist/checksums.txt.bundle", []byte("inert checksums bundle"), 0o600))
+			require.NoError(t, os.WriteFile("dist/checksums.sha256.bundle", []byte("inert checksums bundle"), 0o600))
+			require.NoError(t, os.WriteFile("dist/app.tar.gz.bundle", []byte("inert archive bundle"), 0o600))
 
 			final, err := apprelease.WriteReleaseFileManifest(apprelease.WriteReleaseFileManifestInput{})
 			require.NoError(t, err)
 			require.Len(t, final.Provenance, 1)
-			require.Len(t, final.Assets, len(before.Assets)+8+2+1)
+			require.Len(t, final.Assets, len(before.Assets)+8+2+2)
 
 			public, err := apprelease.PublishableReleaseFiles(apprelease.FilesInput{})
 			require.NoError(t, err)

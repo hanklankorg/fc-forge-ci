@@ -170,8 +170,7 @@ jobs:
             "${RELEASE_TAG}" >dist/release-notes.md
           forge-ci release files declare \
             --asset "dist/${asset}" \
-            --sbom "dist/${sbom}" \
-            --checksums-file "dist/registry-signer-smoke_${version}_checksums.txt"
+            --sbom "dist/${sbom}"
 
       - name: Record registry smoke image
         uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/record-release-image@PIN_FORGE_CI_SHA

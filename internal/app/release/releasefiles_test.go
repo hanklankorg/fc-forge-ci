@@ -222,6 +222,28 @@ func TestValidateReleaseChecksums_RejectsAmbiguousArtifactBasenames(t *testing.T
 	}
 }
 
+// A dist directory without a manifest is read by its files: the checksums
+// file is found under either name a release gives it, checksums.sha256 as
+// `release files declare` writes it and GoReleaser's <project>_checksums.txt.
+func TestValidateReleaseChecksums_FindsTheChecksumsFileUnderEitherName(t *testing.T) {
+	for _, name := range []string{"checksums.sha256", "app_checksums.txt"} {
+		t.Run(name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+
+			writeReleaseFilesTestFile(t, "dist/app.tar.gz", "archive\n")
+			writeReleaseFilesTestFile(t, "dist/"+name, testFileSHA256(t, "dist/app.tar.gz")+"  app.tar.gz\n")
+			writeReleaseFilesTestFile(t, "dist/artifacts.json", `[
+  {"path":"dist/app.tar.gz","type":"Archive"},
+  {"path":"dist/`+name+`","type":"Checksum"}
+]`)
+
+			if err := apprelease.ValidateReleaseChecksums(apprelease.ValidateReleaseChecksumsInput{}); err != nil {
+				t.Fatalf("the checksums file %s was not found and checked: %v", name, err)
+			}
+		})
+	}
+}
+
 func TestWriteReleaseFileManifest_PreservesExplicitEvidence(t *testing.T) {
 	t.Chdir(t.TempDir())
 
@@ -300,9 +322,10 @@ func TestWriteReleaseFileManifest_PreservesExplicitEvidence(t *testing.T) {
 	}
 }
 
-// A release whose checksums and SBOM `release sign --method gpg` signed
-// publishes their armored signatures, and a producer's hand-off that already
-// holds one is refused, as a Cosign bundle is.
+// A release whose checksums and release files `release sign --method gpg`
+// signed publishes their armored signatures, and a producer's hand-off that
+// already holds one is refused, as a Cosign bundle is. Every file the
+// checksums list needs its own signature before the release is published.
 func TestWriteReleaseFileManifest_PublishesOpenPGPSignatures(t *testing.T) {
 	t.Chdir(t.TempDir())
 
@@ -354,16 +377,27 @@ func TestWriteReleaseFileManifest_PublishesOpenPGPSignatures(t *testing.T) {
 
 	writeReleaseFilesTestFile(t, "dist/app.cdx.json.asc", "SBOM signature\n")
 
+	// The checksums bind the jar, and it still needs its own signature.
+	if _, err := apprelease.WriteReleaseFileManifest(apprelease.WriteReleaseFileManifestInput{FilesInput: files}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := apprelease.PublishableReleaseFiles(files); err == nil || !strings.Contains(err.Error(), "declares dist/app.jar without its signature") {
+		t.Fatalf("publishing an unsigned release file: %v", err)
+	}
+
+	writeReleaseFilesTestFile(t, "dist/app.jar.asc", "jar signature\n")
+
 	manifest, err := apprelease.WriteReleaseFileManifest(apprelease.WriteReleaseFileManifestInput{FilesInput: files})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if _, err := apprelease.PublishableReleaseFiles(files); err != nil {
-		t.Fatalf("publishing OpenPGP-signed checksums and SBOM: %v", err)
+		t.Fatalf("publishing OpenPGP-signed checksums and release files: %v", err)
 	}
 
-	for _, name := range []string{"checksums.sha256.asc", "app.cdx.json.asc"} {
+	for _, name := range []string{"checksums.sha256.asc", "app.cdx.json.asc", "app.jar.asc"} {
 		if source := releaseFileEntrySource(manifest.Assets, name); source != "openpgp_signature" {
 			t.Errorf("%s source = %q, want openpgp_signature", name, source)
 		}
@@ -560,6 +594,12 @@ func TestReleaseFileManifest_RejectsImageLedger(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// testSBOMBundleNaming names the SBOM bundle of the fixture's release,
+// testSBOMBundle.
+var testSBOMBundleNaming = apprelease.SBOMBundleNaming{ProjectName: "app", Version: "v1.2.3"}
+
+const testSBOMBundle = "app-1.2.3-sboms.tar.gz"
 
 // appreleaseVersionForTest deliberately mirrors the public JSON contract, not an
 // unexported implementation constant.

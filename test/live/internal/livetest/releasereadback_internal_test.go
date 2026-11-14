@@ -24,7 +24,7 @@ func TestReleaseReadbackAuthenticatesCapturedChecksums(t *testing.T) {
 					t.Setenv("FORGE_CI_LIVE_SNAPSHOT_EVIDENCE_DIR", t.TempDir())
 				}
 
-				names := []string{"app.tar.gz", "checksums.txt", "checksums.txt.bundle"}
+				names := []string{"app.tar.gz", "checksums.sha256", "checksums.sha256.bundle"}
 				if !substitute {
 					names = append(names, "app.tar.gz.bundle")
 				}
@@ -40,7 +40,7 @@ func TestReleaseReadbackAuthenticatesCapturedChecksums(t *testing.T) {
 				download := func(name string) ([]byte, error) {
 					calls[name]++
 
-					if name == "checksums.txt" {
+					if name == "checksums.sha256" {
 						if calls[name] > 1 {
 							return manifestB, nil
 						}
@@ -64,13 +64,13 @@ func TestReleaseReadbackAuthenticatesCapturedChecksums(t *testing.T) {
 						return nil
 					}
 
-					if !bytes.Equal(body, manifestA) || string(signature) != "checksums.txt.bundle" {
+					if !bytes.Equal(body, manifestA) || string(signature) != "checksums.sha256.bundle" {
 						return errors.New("inert signature mismatch")
 					}
 
 					return nil
 				}, noOpenPGP)
-				if (err != nil) != substitute || !verified["checksums.txt"] {
+				if (err != nil) != substitute || !verified["checksums.sha256"] {
 					t.Errorf("composed readback: verified=%v err=%v", verified, err)
 				}
 
@@ -85,7 +85,7 @@ func TestReleaseReadbackAuthenticatesCapturedChecksums(t *testing.T) {
 						t.Fatal("readback lost complete observation evidence")
 					}
 
-					retained, err := evidence.readRetained("checksums.txt")
+					retained, err := evidence.readRetained("checksums.sha256")
 					if err != nil || !bytes.Equal(retained, manifestA) {
 						t.Fatalf("retained authenticated document changed: %q, %v", retained, err)
 					}
@@ -98,7 +98,7 @@ func TestReleaseReadbackAuthenticatesCapturedChecksums(t *testing.T) {
 func TestReleaseReadbackRetainsFailedVerification(t *testing.T) {
 	t.Setenv("FORGE_CI_LIVE_SNAPSHOT_EVIDENCE_DIR", t.TempDir())
 
-	names := []string{"checksums.txt", "checksums.txt.bundle", "payload.tar.gz"}
+	names := []string{"checksums.sha256", "checksums.sha256.bundle", "payload.tar.gz"}
 
 	evidence, err := NewReleaseEvidence(Target{}, "repo", "v1", "request", names)
 	if err != nil {
@@ -121,7 +121,7 @@ func TestReleaseReadbackRefusesAnUnboundFile(t *testing.T) {
 	t.Setenv("FORGE_CI_LIVE_SNAPSHOT_EVIDENCE", "")
 
 	checksums := fmt.Appendf(nil, "%x  app.jar\n%x  app.deb\n", sha256.Sum256([]byte("app.jar")), sha256.Sum256([]byte("app.deb")))
-	bound := []string{"app.jar", "app.deb", "app.deb.sig", "checksums.txt", "checksums.txt.bundle", "provenance.json", "provenance.json.bundle"}
+	bound := []string{"app.jar", "app.jar.bundle", "app.deb", "app.deb.sig", "checksums.sha256", "checksums.sha256.bundle", "provenance.json", "provenance.json.bundle"}
 
 	for name, test := range map[string]struct {
 		extra []string
@@ -143,12 +143,52 @@ func TestReleaseReadbackRefusesAnUnboundFile(t *testing.T) {
 		}
 
 		_, err = VerifyReleaseReadback(evidence, names, func(name string) ([]byte, error) {
-			if name == "checksums.txt" {
+			if name == "checksums.sha256" {
 				return checksums, nil
 			}
 
 			return []byte(name), nil
 		}, func([]byte, []byte) error { return nil }, func([]byte, []byte) error { return nil })
+		if (err == nil) != (test.want == "") || (err != nil && !strings.Contains(err.Error(), test.want)) {
+			t.Errorf("%s: %v, want an error naming %q", name, err, test.want)
+		}
+	}
+}
+
+// Every file a release offers has a verified signature of its own, as on
+// GitHub: being listed in the signed checksums is not enough. A distro
+// package with its detached .sig is held to that signature elsewhere.
+func TestReleaseReadbackRefusesAFileWithoutItsOwnSignature(t *testing.T) {
+	t.Setenv("FORGE_CI_LIVE_SNAPSHOT_EVIDENCE_DIR", "")
+	t.Setenv("FORGE_CI_LIVE_SNAPSHOT_EVIDENCE", "")
+
+	checksums := fmt.Appendf(nil, "%x  app.jar\n%x  app.deb\n%x  app-1.0.0-sboms.tar.gz\n",
+		sha256.Sum256([]byte("app.jar")), sha256.Sum256([]byte("app.deb")), sha256.Sum256([]byte("app-1.0.0-sboms.tar.gz")))
+	signed := []string{"app.jar", "app.jar.bundle", "app.deb", "app.deb.sig", "app-1.0.0-sboms.tar.gz", "app-1.0.0-sboms.tar.gz.bundle",
+		"checksums.sha256", "checksums.sha256.bundle", "provenance.json", "provenance.json.bundle"}
+
+	for name, test := range map[string]struct {
+		missing string
+		want    string
+	}{
+		"every file signed":       {},
+		"an unsigned file":        {"app.jar.bundle", `["app.jar"] have no verified signature of their own`},
+		"an unsigned SBOM bundle": {"app-1.0.0-sboms.tar.gz.bundle", `["app-1.0.0-sboms.tar.gz"] have no verified signature of their own`},
+	} {
+		names := slices.DeleteFunc(slices.Clone(signed), func(n string) bool { return n == test.missing })
+
+		evidence, err := NewReleaseEvidence(Target{}, "repo", "v1", "request", names)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = VerifyReleaseReadback(evidence, names, func(name string) ([]byte, error) {
+			if name == "checksums.sha256" {
+				return checksums, nil
+			}
+
+			return []byte(name), nil
+		}, func([]byte, []byte) error { return nil }, noOpenPGP)
 		if (err == nil) != (test.want == "") || (err != nil && !strings.Contains(err.Error(), test.want)) {
 			t.Errorf("%s: %v, want an error naming %q", name, err, test.want)
 		}
@@ -168,8 +208,8 @@ func TestReleaseReadbackAuthenticatesOpenPGPChecksums(t *testing.T) {
 	t.Setenv("FORGE_CI_LIVE_SNAPSHOT_EVIDENCE_DIR", "")
 	t.Setenv("FORGE_CI_LIVE_SNAPSHOT_EVIDENCE", "")
 
-	checksums := fmt.Appendf(nil, "%x  app.jar\n%x  app.cdx.json\n", sha256.Sum256([]byte("app.jar")), sha256.Sum256([]byte("app.cdx.json")))
-	names := []string{"app.jar", "app.cdx.json", "app.cdx.json.asc", "checksums.txt", "checksums.txt.asc", "provenance.json", "provenance.json.bundle"}
+	checksums := fmt.Appendf(nil, "%x  app.jar\n%x  app-1.0.0-sboms.tar.gz\n", sha256.Sum256([]byte("app.jar")), sha256.Sum256([]byte("app-1.0.0-sboms.tar.gz")))
+	names := []string{"app.jar", "app.jar.asc", "app-1.0.0-sboms.tar.gz", "app-1.0.0-sboms.tar.gz.asc", "checksums.sha256", "checksums.sha256.asc", "provenance.json", "provenance.json.bundle"}
 
 	for _, valid := range []bool{true, false} {
 		evidence, err := NewReleaseEvidence(Target{}, "repo", "v1", "request", names)
@@ -178,7 +218,7 @@ func TestReleaseReadbackAuthenticatesOpenPGPChecksums(t *testing.T) {
 		}
 
 		verified, err := VerifyReleaseReadback(evidence, names, func(name string) ([]byte, error) {
-			if name == "checksums.txt" {
+			if name == "checksums.sha256" {
 				return checksums, nil
 			}
 
@@ -196,11 +236,11 @@ func TestReleaseReadbackAuthenticatesOpenPGPChecksums(t *testing.T) {
 
 			return nil
 		})
-		if valid && (err != nil || !verified["checksums.txt"] || !verified["app.cdx.json"] || !verified["provenance.json"]) {
+		if valid && (err != nil || !verified["checksums.sha256"] || !verified["app-1.0.0-sboms.tar.gz"] || !verified["provenance.json"]) {
 			t.Errorf("valid OpenPGP signatures: verified=%v err=%v", verified, err)
 		}
 
-		if !valid && (err == nil || !strings.Contains(err.Error(), `verify release OpenPGP signature "checksums.txt.asc"`) || verified["checksums.txt"]) {
+		if !valid && (err == nil || !strings.Contains(err.Error(), `verify release OpenPGP signature "checksums.sha256.asc"`) || verified["checksums.sha256"]) {
 			t.Errorf("failed OpenPGP signatures: verified=%v err=%v", verified, err)
 		}
 	}
@@ -215,10 +255,10 @@ func TestGPGReleaseFileFindings(t *testing.T) {
 		names []string
 		want  string
 	}{
-		"signed with GPG":     {names: []string{"app.jar", "checksums.txt", "checksums.txt.asc", "app.cdx.json", "app.cdx.json.asc", "provenance.json", "provenance.json.bundle"}},
+		"signed with GPG":     {names: []string{"app.jar", "checksums.sha256", "checksums.sha256.asc", "app-1.0.0-sboms.tar.gz", "app-1.0.0-sboms.tar.gz.asc", "provenance.json", "provenance.json.bundle"}},
 		"checksums of a file": {names: []string{"app_checksums.txt", "app_checksums.txt.asc"}},
-		"signed with Cosign":  {names: []string{"checksums.txt", "checksums.txt.bundle"}, want: "no OpenPGP signature of its checksums"},
-		"both on one file":    {names: []string{"checksums.txt", "checksums.txt.asc", "app.cdx.json", "app.cdx.json.asc", "app.cdx.json.bundle"}, want: "app.cdx.json carries both"},
+		"signed with Cosign":  {names: []string{"checksums.sha256", "checksums.sha256.bundle"}, want: "no OpenPGP signature of its checksums"},
+		"both on one file":    {names: []string{"checksums.sha256", "checksums.sha256.asc", "app-1.0.0-sboms.tar.gz", "app-1.0.0-sboms.tar.gz.asc", "app-1.0.0-sboms.tar.gz.bundle"}, want: "app-1.0.0-sboms.tar.gz carries both"},
 	} {
 		findings := GPGReleaseFileFindings(test.names)
 		if (len(findings) == 0) != (test.want == "") || (test.want != "" && !strings.Contains(strings.Join(findings, "\n"), test.want)) {

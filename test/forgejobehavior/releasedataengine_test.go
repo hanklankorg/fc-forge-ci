@@ -136,14 +136,14 @@ func TestUnsignedHandOffStepThroughTheEngine(t *testing.T) {
 
 	const manifest = `{"version":1,` +
 		`"assets":[{"path":"dist/app.tar.gz","name":"app.tar.gz","source":"producer"},` +
-		`{"path":"dist/checksums.txt","name":"checksums.txt","source":"producer"}],` +
-		`"checksums":[{"path":"dist/checksums.txt","name":"checksums.txt","source":"producer"}],` +
+		`{"path":"dist/checksums.sha256","name":"checksums.sha256","source":"producer"}],` +
+		`"checksums":[{"path":"dist/checksums.sha256","name":"checksums.sha256","source":"producer"}],` +
 		`"sboms":[],"evidence":[],"provenance":[]}`
 
 	for _, test := range []struct{ name, planted string }{
 		{name: "admits an unsigned hand-off"},
 		{name: "refuses a planted package signature", planted: "dist/app.tar.gz.sig"},
-		{name: "refuses a planted bundle", planted: "dist/checksums.txt.bundle"},
+		{name: "refuses a planted bundle", planted: "dist/checksums.sha256.bundle"},
 		{name: "refuses a planted provenance statement", planted: "dist/slsa-provenance.intoto.json"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -152,7 +152,7 @@ func TestUnsignedHandOffStepThroughTheEngine(t *testing.T) {
 			box := newSandbox(t, "sign-and-publish-release")
 			box.write(".engine/bin/lib-forge-ci.sh", lib, 0o600)
 			box.write("dist/app.tar.gz", "archive\n", 0o600)
-			box.write("dist/checksums.txt", "not read by this step\n", 0o600)
+			box.write("dist/checksums.sha256", "not read by this step\n", 0o600)
 			box.write("dist/release-files.json", manifest, 0o600)
 
 			if test.planted != "" {

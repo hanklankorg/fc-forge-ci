@@ -108,7 +108,7 @@ or provider.
 `gpg`, `sigstore`, `kms`
 <!-- /schema-values:sign.method -->
 
-On Forgejo and GitLab, `gpg` signs the release's checksums and SBOMs with
+On Forgejo and GitLab, `gpg` signs the release's checksums and release files with
 the OpenPGP key, as does [`sign.files-method: gpg`](#signfiles-method), and
 the provenance, the evidence and the images with the Cosign key. A
 declaration there without a `sign` section, or with another method, has

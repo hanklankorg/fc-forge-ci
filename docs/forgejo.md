@@ -401,7 +401,7 @@ names, which are not these.
 |---|---|---|---|
 | `RELEASE_SSH_SIGNING_KEY` | SSH private key of the release bot | The signed changelog commit and the final release tag. | same name |
 | `RELEASE_TOKEN` | Forge API token | Creating the release and uploading its assets. | same name |
-| `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE` | OpenPGP signing key and its passphrase | `.sig` sidecars of `.deb`, `.rpm` and `.apk` packages, when `sign-distro-packages` is on, and `.asc` sidecars of the checksums and SBOMs, when `artifacts.yml` says `sign.method: gpg`. | same names |
+| `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE` | OpenPGP signing key and its passphrase | `.sig` sidecars of `.deb`, `.rpm` and `.apk` packages, when `sign-distro-packages` is on, and `.asc` sidecars of the checksums and release files, when `artifacts.yml` says `sign.method: gpg`. | same names |
 | `RELEASE_GPG_FINGERPRINT` | Fingerprint the OpenPGP key must have | The same package and release file signatures: a key with another fingerprint is refused. | no such secret |
 | `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE` | Cosign private key and its passphrase | Provenance, evidence and image signatures and attestations, and checksum and SBOM signatures unless `artifacts.yml` says `sign.method: gpg`. | same names, for `sign.key: env://COSIGN_KEY` |
 | `RELEASE_REGISTRY_TOKEN` | Token that may write packages of the owner, or, for images on another registry, a token for that registry | Signing, promoting and cleaning up container images, and, in the signer-image workflow, pushing the signer image and uploading the layer's binary; and publishing `.deb`, `.rpm` and `.apk` packages to the owner's registries, when `artifacts.yml` declares `distro-packages`. A release with neither an image ledger nor that block does not need it. | no such secret |
@@ -641,7 +641,7 @@ example shows the two workflows they add up to.
 | Build, Go | `build-go` | `build go run`: `go mod download`, `go test ./...`, the Build SBOM, one binary per platform. |
 | Build, Cargo | `build-cargo` | `build cargo run`: `cargo fetch`, `cargo test --locked`, the Build SBOM, one binary per platform. |
 | Build, Maven | `build-maven` | `build maven run --expect-version`: `mvn install`, a refusal unless the POM declares the release version, the app or library lifecycle with its tests, the Build SBOM, all in `target/`. |
-| Hand-off | a `run:` step | `release files declare`, which writes the checksums file and `dist/release-files.json`; then `upload-dist`. |
+| Hand-off | a `run:` step | `release files declare`, which writes `checksums.sha256`, the SBOM bundle of the `--sbom` files and `dist/release-files.json`; then `upload-dist`. |
 | Image | `release-images.yml` reusable workflow | Native per-architecture builds, scan-before-publication assembly and a release image ledger. |
 
 **Where the tools come from.** No action assumes a runtime image; each runs
@@ -714,7 +714,9 @@ is the complete caller: copy it as `release.yml`, beside the example's
 `release files manifest --unsigned --evidence-file <file>`.
 
 Other ecosystems keep their own build tools and end their build job with
-`release files declare` and `upload-dist`. A custom Cargo producer can fetch
+`release files declare` and `upload-dist`. The declare step needs
+`RELEASE_TAG` in its environment when it passes `--sbom`: the SBOM bundle is
+named `<project>-<version>-sboms.tar.gz`, after the repository and that tag. A custom Cargo producer can fetch
 locked dependencies with retries, without compiling, through
 `build cargo fetch --attempts 5 --retry-delay 10s`.
 
@@ -1054,8 +1056,9 @@ owner's packages, or runs the instance, can publish under it. The registry
 key is not a release key.
 
 The release's own signatures are on the release page: the checksums file
-with its Cosign bundle, or its OpenPGP `.asc` when `artifacts.yml` says
-`sign.method: gpg`, and, with `sign-distro-packages: 'true'`, an OpenPGP
+and each file it lists with a Cosign bundle, or an OpenPGP `.asc` when
+`artifacts.yml` says `sign.method: gpg`, and, with
+`sign-distro-packages: 'true'`, an OpenPGP
 `<package>.sig` for each package, made with `RELEASE_GPG_PRIVATE_KEY`. The
 published package is that file byte for byte, so a downloaded package is
 verified against them:
@@ -1066,8 +1069,8 @@ sha256sum hello_1.2.3_amd64.deb       # the line in the release's checksums file
 gpg --verify hello_1.2.3_amd64.deb.sig hello_1.2.3_amd64.deb
 ```
 
-[Verification](verification.md) has the Cosign command for the checksums
-file.
+[Verify a Forgejo or GitLab release](verification.md#verify-a-forgejo-or-gitlab-release)
+has the commands for the checksums file.
 
 ```bash
 # Debian and derivatives
@@ -1416,7 +1419,7 @@ The layer signs with keys the organization holds:
 | Object | Key | Secret |
 |---|---|---|
 | Release commit and final tag | SSH | `RELEASE_SSH_SIGNING_KEY` |
-| Checksums and SBOMs | Cosign key pair, or OpenPGP when `artifacts.yml` says `sign.method: gpg` or `sign.files-method: gpg` | `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE`; with `gpg`, `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`, `RELEASE_GPG_FINGERPRINT` |
+| Checksums and release files | Cosign key pair, or OpenPGP when `artifacts.yml` says `sign.method: gpg` or `sign.files-method: gpg` | `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE`; with `gpg`, `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`, `RELEASE_GPG_FINGERPRINT` |
 | Provenance, evidence, images and their attestations | Cosign key pair | `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE`, checked against `cosign-public-key` and its digest |
 | `.deb`, `.rpm`, `.apk` packages, when `sign-distro-packages` is on | OpenPGP | `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`, `RELEASE_GPG_FINGERPRINT` |
 
@@ -1428,7 +1431,7 @@ no KMS input. Whether signatures also go to the public transparency log is the
 about it.
 
 A declaration that says `sign.method: gpg`, or `sign.files-method: gpg`
-beside a Cosign method, signs the checksums and SBOMs with
+beside a Cosign method, signs the checksums and release files with
 the OpenPGP key: each gets an armored `.asc` beside it on the release page,
 and no Cosign bundle. The sign job reads the methods from the declaration at
 the release commit, signs in its own step with only the three
@@ -1436,16 +1439,13 @@ the release commit, signs in its own step with only the three
 `RELEASE_GPG_FINGERPRINT`. The provenance statement, the evidence and the
 images are signed with the Cosign key all the same, so the Cosign secrets
 stay required. Any other method, and a declaration without a `sign`
-section, signs the checksums and SBOMs with the Cosign key. A different
+section, signs the checksums and release files with the Cosign key. A different
 `sign.method` or signing key in `artifacts.yml` is not used, and `forge-ci
 doctor` and the release plan warn about it. With the
 release's public OpenPGP key imported, the checksums verify and then the
 files they list:
-
-```bash
-gpg --verify checksums.txt.asc checksums.txt
-sha256sum --check --ignore-missing checksums.txt
-```
+[Verify a Forgejo or GitLab release](verification.md#verify-a-forgejo-or-gitlab-release)
+has the commands.
 
 With `sign.files-method: gpg`, GPG for the files beside Cosign for the
 images, the files are signed with GPG as above and the images with the
@@ -1578,7 +1578,7 @@ With the default, verification names the key and waives the log:
 ```shell
 # A release file and its bundle
 cosign verify-blob --key cosign.pub --insecure-ignore-tlog \
-  --bundle checksums.txt.bundle --new-bundle-format checksums.txt
+  --bundle checksums.sha256.bundle --new-bundle-format checksums.sha256
 
 # A release image, by digest
 cosign verify --key cosign.pub --insecure-ignore-tlog \

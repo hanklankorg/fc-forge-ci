@@ -46,7 +46,9 @@ func TestGitLabReleaseEvidenceNativeChain(t *testing.T) {
 			fixture := newNativeReleaseFixture(t, binary, cosignPath, goMetadata)
 
 			got, err := fixture.check(t, fixture.producer, fixture.signer, fixture.published)
-			if err != nil || got.ChecksumName != fixture.checksum || got.Verified != 4 {
+			// The checksums, the archive, the SBOM bundle, the provenance
+			// statement and the evidence each carry a verified signature.
+			if err != nil || got.ChecksumName != fixture.checksum || got.Verified != 5 {
 				t.Fatalf("native producer/signer/published chain: %+v, %v", got, err)
 			}
 		})
@@ -205,14 +207,18 @@ func newNativeReleaseJourney(t *testing.T, binary, cosignPath string, goMetadata
 	write(filepath.Join(producer, "dist/app.tar.gz.sbom.json"), sbom)
 	write(filepath.Join(producer, "dist/release-notes.md"), []byte("# Native fixture release\n"))
 
-	checksum := "checksums.txt"
+	const sbomBundle = "hello-cli-0.94.0-sboms.tar.gz"
+
+	naming := []string{"--project-name", "hello-cli", "--version", "v0.94.0"}
+
+	checksum := domainrelease.ChecksumsFile
 	if goMetadata {
 		checksum = "hello-cli_0.94.0_checksums.txt"
 		write(filepath.Join(producer, "dist/"+checksum), []byte(fmt.Sprintf("%x  app.tar.gz\n%x  app.tar.gz.sbom.json\n", sha256.Sum256(archive.Bytes()), sha256.Sum256(sbom))))
 		write(filepath.Join(producer, "dist/artifacts.json"), []byte(`[{"path":"dist/app.tar.gz","type":"Archive"},{"path":"dist/app.tar.gz.sbom.json","type":"SBOM"},{"path":"dist/`+checksum+`","type":"Checksum"}]`))
-		runNativeEvidenceCLI(t, binary, producer, "import-goreleaser", "--manifest", "dist/release-files.json", "--evidence-file", "dist/release-notes.md")
+		runNativeEvidenceCLI(t, binary, producer, append([]string{"import-goreleaser", "--manifest", "dist/release-files.json", "--evidence-file", "dist/release-notes.md"}, naming...)...)
 	} else {
-		runNativeEvidenceCLI(t, binary, producer, "declare", "--asset", "dist/app.tar.gz", "--sbom", "dist/app.tar.gz.sbom.json", "--evidence-file", "dist/release-notes.md")
+		runNativeEvidenceCLI(t, binary, producer, append([]string{"declare", "--asset", "dist/app.tar.gz", "--sbom", "dist/app.tar.gz.sbom.json", "--evidence-file", "dist/release-notes.md"}, naming...)...)
 	}
 
 	input := producer
@@ -259,7 +265,9 @@ func newNativeReleaseJourney(t *testing.T, binary, cosignPath string, goMetadata
 	write(filepath.Join(signer, "dist/"+checksum+".bundle"), fixture.sign(t, sum))
 	write(filepath.Join(signer, "dist/"+apprelease.ProvenanceStatementName+".bundle"), fixture.sign(t, prov))
 
-	for _, name := range append([]string{"app.tar.gz.sbom.json", "release-notes.md"}, imageNames...) {
+	// Every file the checksums list has its own signature: the archive and
+	// the SBOM bundle. The SBOM file itself is no release file.
+	for _, name := range append([]string{"app.tar.gz", sbomBundle, "release-notes.md"}, imageNames...) {
 		body, err := os.ReadFile(filepath.Join(signer, "dist/"+name))
 		if err != nil {
 			t.Fatal(err)

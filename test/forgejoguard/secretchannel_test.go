@@ -330,20 +330,20 @@ func TestDistroPackageSigningIsConditional(t *testing.T) {
 	}
 }
 
-// The checksums and SBOMs are signed by one of two steps, each holding its
-// own key alone: the Cosign key or the GPG key. Neither holds the registry or
-// the forge token.
+// The checksums and release files are signed by one of two steps, each
+// holding its own key alone: the Cosign key or the GPG key. Neither holds the
+// registry or the forge token.
 func TestReleaseFileSigningStepsHoldOnlyTheirOwnKey(t *testing.T) {
 	t.Parallel()
 
 	parsed := loadWorkflow(t, signPublishWorkflow)
 
 	for step, channel := range map[string]struct{ allow, deny []string }{
-		"Cosign sign-blob checksums and SBOMs": {
+		"Cosign sign-blob checksums and release files": {
 			allow: []string{"COSIGN_KEY", "COSIGN_PASSWORD"},
 			deny:  []string{"GPG_SIGNING_KEY", "GPG_SIGNING_FINGERPRINT", "GPG_SIGNING_PASSWORD", "REGISTRY_TOKEN", "FORGEJO_TOKEN"},
 		},
-		"GPG-sign checksums and SBOMs": {
+		"GPG-sign checksums and release files": {
 			allow: []string{"GPG_SIGNING_KEY", "GPG_SIGNING_FINGERPRINT", "GPG_SIGNING_PASSWORD"},
 			deny:  []string{"COSIGN_KEY", "COSIGN_PASSWORD", "REGISTRY_TOKEN", "FORGEJO_TOKEN"},
 		},
@@ -379,15 +379,16 @@ func TestReleaseFileSigningFollowsTheDeclaration(t *testing.T) {
 	t.Parallel()
 
 	const (
-		readStep = "Read the release file signing method"
-		gpgStep  = "GPG-sign checksums and SBOMs"
-		output   = "steps.file-signing.outputs.release-file-signing"
+		readStep   = "Read the release file signing method"
+		gpgStep    = "GPG-sign checksums and release files"
+		cosignStep = "Cosign sign-blob checksums and release files"
+		output     = "steps.file-signing.outputs.release-file-signing"
 	)
 
 	for path, conditions := range map[string]map[string]string{
 		signPublishWorkflow: {
-			"Cosign sign-blob checksums and SBOMs": "${{ " + output + " == 'cosign' }}",
-			gpgStep:                                "${{ " + output + " == 'gpg' }}",
+			cosignStep: "${{ " + output + " == 'cosign' }}",
+			gpgStep:    "${{ " + output + " == 'gpg' }}",
 		},
 		".forgejo/workflows/prepare-release.yml": {},
 	} {
@@ -440,6 +441,13 @@ func TestReleaseFileSigningFollowsTheDeclaration(t *testing.T) {
 	step, _ := loadWorkflow(t, signPublishWorkflow).findStep(gpgStep)
 	assertOrderedFragments(t, gpgStep, scalarString(mappingValue(step, "run")), []string{
 		"run_forge_ci release sign", "--method gpg", `--fingerprint "${gpg_fingerprint}"`, "--checksums-from-manifest",
-		`--manifest "${RELEASE_FILES_MANIFEST:?}"`, `--dist-dir "${DIST_DIR:?}"`, "--manifest-section sboms",
+		`--manifest "${RELEASE_FILES_MANIFEST:?}"`, `--dist-dir "${DIST_DIR:?}"`, "--files-from-manifest",
+	})
+
+	// Both methods sign the same set: the checksums and every file they list.
+	step, _ = loadWorkflow(t, signPublishWorkflow).findStep(cosignStep)
+	assertOrderedFragments(t, cosignStep, scalarString(mappingValue(step, "run")), []string{
+		"run_forge_ci release sign", "--method kms", "--key env://COSIGN_KEY", "--checksums-from-manifest",
+		`--manifest "${RELEASE_FILES_MANIFEST:?}"`, `--dist-dir "${DIST_DIR:?}"`, "--files-from-manifest",
 	})
 }

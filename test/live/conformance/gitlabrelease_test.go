@@ -1627,7 +1627,7 @@ tar --format=ustar --sort=name --mtime='@946684800' --owner=0 --group=0 \
 cp -- .forge-ci/go-build-sbom/layer-release-canary/bom.json dist/go-build-sbom.json
 forge-ci release notes --changelog-file CHANGELOG.md --release-version "$RELEASE_TAG" --target-file dist/release-notes.md
 forge-ci release files declare --dist-dir dist --asset "dist/${package}.tar.gz" --sbom dist/go-build-sbom.json \
-  --checksums-file dist/checksums.txt --evidence-file dist/release-notes.md
+  --evidence-file dist/release-notes.md
 `
 
 // requireGitLabBases holds a release with base stages to its graph: every
