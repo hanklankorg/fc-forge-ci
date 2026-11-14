@@ -3585,7 +3585,7 @@ run full Nanolinter SARIF and independently gate lint and vulnerability findings
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|
 | `--sarif-file` | write the invocation's security-only SARIF for provider upload | string | `""` | n/a |
-| `--required-lints` | typed verify mode: mandatory check IDs; explicitly empty selects no floor | string | `"secrets,sast"` | n/a |
+| `--required-lints` | typed verify mode: mandatory check IDs; explicitly empty selects no floor | string | `"secrets"` | n/a |
 | `--disable-checks` | typed verify mode: check IDs excluded from this invocation | string | `""` | n/a |
 | `--offline` | typed verify mode: exactly true or false; true uses Nanolinter's offline checks | string | `"false"` | n/a |
 

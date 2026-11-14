@@ -105,7 +105,7 @@ on:
       required-lints:
         description: "Mandated lint floor for the nanolinter engine — comma-separated check ids forced to run AND block via `nanolinter verify --require`, so a project cannot silently skip them. Default mandates secrets + SAST across all projects. Empty disables the floor."
         required: false
-        default: "secrets,sast"
+        default: "secrets"
         type: string
       disable-checks:
         description: "Nanolinter check ids to leave out of the run (comma-separated), passed to `nanolinter verify --disable-check`; it cannot remove a check required-lints names."

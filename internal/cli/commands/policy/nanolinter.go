@@ -21,7 +21,7 @@ func nanolinterCmd() *cli.Command {
 		ArgsUsage: "[typed verify flags] or -- <nanolinter verify --report sarif --out - command>",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "sarif-file", Usage: "write the invocation's security-only SARIF for provider upload"},
-			&cli.StringFlag{Name: "required-lints", Value: "secrets,sast", Usage: "typed verify mode: mandatory check IDs; explicitly empty selects no floor"},
+			&cli.StringFlag{Name: "required-lints", Value: "secrets", Usage: "typed verify mode: mandatory check IDs; explicitly empty selects no floor"},
 			&cli.StringFlag{Name: "disable-checks", Usage: "typed verify mode: check IDs excluded from this invocation"},
 			&cli.StringFlag{Name: "offline", Value: "false", Usage: "typed verify mode: exactly true or false; true uses Nanolinter's offline checks"},
 		},

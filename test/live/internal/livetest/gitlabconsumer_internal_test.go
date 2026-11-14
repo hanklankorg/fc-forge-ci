@@ -29,7 +29,7 @@ include:
       server-url: $CI_SERVER_URL
       job-image: $CI_JOB_IMAGE
       commands:
-        - 'nanolinter verify --require secrets,sast'
+        - 'nanolinter verify --require secrets'
         - 'go test -race ./...'
 `
 	layer := Layer{ServerURL: "https://gitlab.k3s.forgelab", Repository: "forgeci/fci-engine", Commit: strings.Repeat("b", 40)}
@@ -65,7 +65,7 @@ include:
 	}
 
 	commands := entry.Inputs.Commands
-	if len(commands) != 2 || commands[0] != "nanolinter verify --require secrets,sast" || commands[1] != "go test -race ./..." {
+	if len(commands) != 2 || commands[0] != "nanolinter verify --require secrets" || commands[1] != "go test -race ./..." {
 		t.Fatal("the trial changed the consumer's check commands")
 	}
 

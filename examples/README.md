@@ -111,7 +111,7 @@ see their guides.
    - Verify paths (working-directory, container-file)
    - Replace every placeholder and `FIXME` the file's header lists
    - Extend `nanolinter.toml` as you like; the gate's `required-lints` floor
-     (default `secrets,sast`) runs whatever the plan says. Findings are reported
+     (default `secrets`) runs whatever the plan says. Findings are reported
      by default; administrator lint enforcement makes them block. See
      [check enforcement](../docs/admin-policy.md) for administrator-owned policy.
 

@@ -266,6 +266,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The default lint floor (`required-lints`) is `secrets` on every forge; it
+  was `secrets,sast`. SAST still runs where a project's plan lists it and its
+  findings are reported, but they no longer fail a pull request by default.
+  A caller that wants them to block sets `required-lints: secrets,sast`, or
+  the project lists `sast` under `[policy] block`. The example plans no
+  longer block on it.
 - The GitLab release renders its changelog beside the consumer checks,
   once `Check: release request` has authorized the request, rather than
   after them. `Prepare: release commit and tag` now needs

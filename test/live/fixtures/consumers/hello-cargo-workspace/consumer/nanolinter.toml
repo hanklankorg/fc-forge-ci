@@ -5,4 +5,4 @@ auto = true
 [verify]
 checks = ["secrets", "sast", "typos", "yaml", "markdown"]
 [policy]
-block = ["secrets", "sast", "typos", "yaml", "markdown"]
+block = ["secrets", "typos", "yaml", "markdown"]

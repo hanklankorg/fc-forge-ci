@@ -61,7 +61,7 @@
       "required-lints": {
         "required": false,
         "type": "string",
-        "default": "secrets,sast"
+        "default": "secrets"
       },
       "runs-on": {
         "required": false,

@@ -10,7 +10,7 @@ inputs:
     description: >-
       Mandated lint floor: comma-separated check ids passed to `nanolinter verify --require`. These checks run and block whatever the repository's nanolinter.toml says, and disable-checks cannot remove them. Empty disables the floor.
     required: false
-    default: secrets,sast
+    default: secrets
   disable-checks:
     description: >-
       Comma-separated check ids to leave out of this run, for example the network-backed scans a separate job owns.

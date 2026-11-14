@@ -4,7 +4,7 @@
 # Forge CI pull-request gate for a container-first Cargo service. No job
 # receives a secret or installs anything:
 #
-#   lint            nanolinter.toml's plan with the secrets,sast floor
+#   lint            nanolinter.toml's plan with the secrets floor
 #   trust-boundary  statically verifies release.yml's secret boundaries
 #   build           cargo test and a build, with Forge CI's Cargo action
 #
@@ -36,7 +36,7 @@ jobs:
         with:
           fetch-base: ${{ forgejo.base_ref }}
 
-      # nanolinter.toml's plan with the secrets,sast floor. Forgejo ingests no
+      # nanolinter.toml's plan with the secrets floor. Forgejo ingests no
       # SARIF, so the findings are in this step's log.
       - name: Lint
         uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/lint-nanolinter@c08b59fe61f4b926d80875ce850f6bdc695b1d9a

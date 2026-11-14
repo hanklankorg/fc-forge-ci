@@ -41,7 +41,7 @@ stages:
 
 include:
   # The lint gate: the project's nanolinter.toml plan in the core flavour,
-  # with the secrets,sast floor, and its findings as a SAST report.
+  # with the secrets floor, and its findings as a SAST report.
   - component: $CI_SERVER_FQDN/itiquette/forge-ci/nanolinter@0.90.0
     inputs:
       forge-ci-repository: itiquette/forge-ci

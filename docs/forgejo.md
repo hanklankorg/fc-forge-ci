@@ -226,7 +226,7 @@ the steps are these.
    a draft directory outside `.forgejo/workflows/`. Optionally copy the example's
    `nanolinter.toml` if you want custom lint policy: the pull-request workflow's lint
    job runs `nanolinter verify` with normal configuration discovery and requires at least the
-   `required-lints` floor, default `secrets,sast`.
+   `required-lints` floor, default `secrets`.
 2. **Replace the placeholders**: `FORGE_HOST`, `OWNER`, `PIN_FORGE_CI_SHA`,
    `PIN_SIGNER_IMAGE_DIGEST` and `PIN_COSIGN_PUBLIC_KEY_SHA256`. The header of
    `release.yml` says what each one is. The tokens are the same in both files,
@@ -596,7 +596,7 @@ for them; every `pullrequest.yml` in the examples, such as
 [Go CLI](../examples/go-cli/forgejo/pullrequest.yml), wires both:
 
 - **`lint-nanolinter`**: `nanolinter verify --require <floor>` against the
-  repository's `nanolinter.toml`. The default floor is `secrets,sast`, as on
+  repository's `nanolinter.toml`. The default floor is `secrets`, as on
   the other forges; `disable-checks` leaves out checks another job owns, and
   `offline` is for a runner without network. It stops with a message when the
   job image has no `nanolinter`; it does not download one. The `commits`
@@ -635,7 +635,7 @@ example shows the two workflows they add up to.
 
 | Step | Action | Runs |
 |---|---|---|
-| Lint | `lint-nanolinter` | `nanolinter verify --require <floor>`, with `disable-checks` and `offline` for what another job or the runner's network decides. The default floor is `secrets,sast`, as on the other forges. |
+| Lint | `lint-nanolinter` | `nanolinter verify --require <floor>`, with `disable-checks` and `offline` for what another job or the runner's network decides. The default floor is `secrets`, as on the other forges. |
 | Release isolation | `check-l3-isolation` | `validate isolation` over the consumer's `release.yml`. |
 | Build, Go | `build-go` | `build go run`: `go mod download`, `go test ./...`, the Build SBOM, one binary per platform. |
 | Build, Cargo | `build-cargo` | `build cargo run`: `cargo fetch`, `cargo test --locked`, the Build SBOM, one binary per platform. |

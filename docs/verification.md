@@ -61,12 +61,17 @@ findings (SAST, dependencies, secrets) are uploaded to GitHub Code Scanning as
 SARIF. Swift/iOS projects additionally run `lint-swift.yml` on macOS.
 
 The caller selects the **mandated lint floor** through `required-lints`
-(default `secrets,sast`). For a nonempty value, the nanolinter job passes
+(default `secrets`). For a nonempty value, the nanolinter job passes
 `nanolinter verify --require "$REQUIRED_LINTS"`, forcing those checks to run
 *and* block regardless of the project's `nanolinter.toml`. The scanned project's
 plan can add checks but cannot remove that selected floor. The caller workflow
 can change the input or set it empty to disable the floor. An organization that
 mandates a floor must protect that caller workflow and its selected lint engine.
+
+SAST is not in the default floor. A plan that lists `sast` under `[verify]`
+runs the scan and reports its findings, and they fail the pull request only
+when the project lists `sast` under `[policy] block` or the caller adds it to
+the floor with `required-lints: secrets,sast`.
 
 Your project needs a `nanolinter.toml` verify plan; the flavour image provides
 the tools, so no `just`/`justfile` is required. (A local `.mise.toml` + `just`

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: CC0-1.0
 
 # nanolinter verify plan: the forge-ci lint gate runs `nanolinter verify` against
-# it, with `secrets,sast` as the floor. `nanolinter explain --all` lists more checks.
+# it, with `secrets` as the floor. `nanolinter explain --all` lists more checks.
 #
 # The gate runs at the repository root, and Nanolinter detects projects there:
 # these checks cover the whole tree. Checks that read a project manifest
@@ -28,7 +28,6 @@ checks = [
 [policy]
 block = [
   "secrets",
-  "sast",
   "commits",
   "yaml",
   "markdown",

@@ -24,7 +24,7 @@ func TestAdminPolicyActionsRejectConsumerEngineReplacement(t *testing.T) {
 		{"build-go", "Build Go module", goBuildInputs("abc")},
 		{"build-cargo", "Build Cargo project", nil},
 		{"build-maven", "Build Maven project", mavenInputs()},
-		{"lint-nanolinter", "Run nanolinter verify", []string{"LINT_OFFLINE=false", "LINT_REQUIRED_LINTS=secrets,sast", "LINT_DISABLE_CHECKS="}},
+		{"lint-nanolinter", "Run nanolinter verify", []string{"LINT_OFFLINE=false", "LINT_REQUIRED_LINTS=secrets", "LINT_DISABLE_CHECKS="}},
 	}
 	for _, test := range cases {
 		t.Run(test.action, func(t *testing.T) {

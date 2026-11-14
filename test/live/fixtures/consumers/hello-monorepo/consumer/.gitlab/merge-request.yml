@@ -54,7 +54,7 @@ stages:
   - build
 
 include:
-  # The lint gate: the project's nanolinter.toml plan, with the secrets,sast
+  # The lint gate: the project's nanolinter.toml plan, with the secrets
   # floor. The gate runs at the repository root, where a monorepo has no
   # project manifest, so the plan lists only tree-wide checks and the core
   # flavour carries them all; see nanolinter.toml.

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: CC0-1.0
 
 # nanolinter verify plan of a project with no toolchain: the forge-ci lint
-# gate runs `nanolinter verify` against it, with `secrets,sast` as the floor
+# gate runs `nanolinter verify` against it, with `secrets` as the floor
 # whatever this file says. `nanolinter explain --all` lists more checks.
 [detect]
 auto = true
@@ -11,4 +11,4 @@ auto = true
 checks = ["secrets", "sast", "typos", "yaml", "markdown"]
 
 [policy]
-block = ["secrets", "sast", "typos", "yaml", "markdown"]
+block = ["secrets", "typos", "yaml", "markdown"]

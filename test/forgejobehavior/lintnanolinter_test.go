@@ -46,8 +46,8 @@ func TestLintNanolinter(t *testing.T) {
 		"LINT_ADMIN_VULNERABILITIES": "${{ inputs.enforce-vulnerabilities }}",
 	})
 
-	if floor := action.Inputs["required-lints"].Default; floor != "secrets,sast" {
-		t.Fatalf("default lint floor = %v, want secrets,sast as on the other forges", floor)
+	if floor := action.Inputs["required-lints"].Default; floor != "secrets" {
+		t.Fatalf("default lint floor = %v, want secrets as on the other forges", floor)
 	}
 
 	script := action.Runs.Steps[0].Run
@@ -92,8 +92,8 @@ func TestLintNanolinter(t *testing.T) {
 	}{
 		{
 			"the default floor",
-			[]string{"LINT_REQUIRED_LINTS=secrets,sast", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false"},
-			[]string{"verify", "--require", "secrets,sast", "--report", "sarif", "--out", "-"},
+			[]string{"LINT_REQUIRED_LINTS=secrets", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false"},
+			[]string{"verify", "--require", "secrets", "--report", "sarif", "--out", "-"},
 		},
 		{
 			"exclusions and offline",
@@ -119,7 +119,7 @@ func TestLintNanolinter(t *testing.T) {
 	t.Run("a blocking finding fails the policy gate", func(t *testing.T) {
 		t.Parallel()
 
-		got, argv := run(t, "LINT_REQUIRED_LINTS=secrets,sast", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false", "FAKE_NANOLINTER_STATUS=1")
+		got, argv := run(t, "LINT_REQUIRED_LINTS=secrets", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false", "FAKE_NANOLINTER_STATUS=1")
 		if got.status != 1 || argv == nil || !strings.Contains(got.stdout, "result=findings") {
 			t.Fatalf("status %d argv %q", got.status, argv)
 		}
@@ -130,12 +130,12 @@ func TestLintNanolinter(t *testing.T) {
 	t.Run("the administrator's setting reaches the policy gate", func(t *testing.T) {
 		t.Parallel()
 
-		got, argv := run(t, "LINT_REQUIRED_LINTS=secrets,sast", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false", "FAKE_NANOLINTER_STATUS=1", "LINT_ADMIN_LINT=false")
+		got, argv := run(t, "LINT_REQUIRED_LINTS=secrets", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false", "FAKE_NANOLINTER_STATUS=1", "LINT_ADMIN_LINT=false")
 		if got.status != 0 || argv == nil || !strings.Contains(got.stdout, "result=findings count=1 enforcement=false source=flag") {
 			t.Fatalf("status %d argv %q stdout %s stderr %s", got.status, argv, got.stdout, got.stderr)
 		}
 
-		got, _ = run(t, "LINT_REQUIRED_LINTS=secrets,sast", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false", "LINT_ADMIN_LINT=yes")
+		got, _ = run(t, "LINT_REQUIRED_LINTS=secrets", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false", "LINT_ADMIN_LINT=yes")
 		if got.status != 2 || !strings.Contains(got.stderr, "enforce-lint must be exactly true or false") {
 			t.Fatalf("a non-boolean setting: status %d stderr %s", got.status, got.stderr)
 		}
@@ -144,7 +144,7 @@ func TestLintNanolinter(t *testing.T) {
 	t.Run("an offline value that is not a boolean is refused before nanolinter", func(t *testing.T) {
 		t.Parallel()
 
-		got, argv := run(t, "LINT_REQUIRED_LINTS=secrets,sast", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=yes")
+		got, argv := run(t, "LINT_REQUIRED_LINTS=secrets", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=yes")
 		if got.status == 0 || argv != nil || !strings.Contains(got.stderr, "offline must be true or false") {
 			t.Fatalf("status %d argv %q stderr %q", got.status, argv, got.stderr)
 		}
@@ -157,7 +157,7 @@ func TestLintNanolinter(t *testing.T) {
 
 		// The step uses shell builtins only until it calls nanolinter.
 		got := box.run(script, "PATH="+filepath.Join(box.root, "empty"),
-			"LINT_REQUIRED_LINTS=secrets,sast", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false")
+			"LINT_REQUIRED_LINTS=secrets", "LINT_DISABLE_CHECKS=", "LINT_OFFLINE=false")
 		if got.status != 78 || !strings.Contains(got.stderr, "nanolinter is not on PATH") {
 			t.Fatalf("status %d stderr %q", got.status, got.stderr)
 		}

@@ -25,7 +25,7 @@ rebuilding the engine, by a flag on the command line that runs the gate:
 
 ```bash
 forge-ci policy nanolinter --enforce-lint=false --enforce-vulnerabilities=true -- \
-  nanolinter verify --require secrets,sast --report sarif --out -
+  nanolinter verify --require secrets --report sarif --out -
 ```
 
 The flags `--enforce-lint`, `--enforce-vulnerabilities`,
@@ -314,7 +314,7 @@ the two policies independently:
 ```bash
 forge-ci policy nanolinter --enforce-lint=true --enforce-vulnerabilities=true \
   --sarif-file nanolinter-security.sarif -- \
-  nanolinter verify --require secrets,sast --report sarif --out -
+  nanolinter verify --require secrets --report sarif --out -
 ```
 
 OSV, Trivy filesystem, Go vulnerability and Rust audit findings use

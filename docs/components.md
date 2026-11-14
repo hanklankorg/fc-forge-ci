@@ -435,7 +435,7 @@ with:
   project-type: maven              # Required: maven, npm, gradle, gradle-android, xcode-ios, cargo, or go
   base-branch: ""                  # Optional: auto-detects PR target
   lint-engine: nanolinter          # General lint engine: nanolinter (default) | megalinter | none — mutually exclusive
-  required-lints: secrets,sast     # Caller-selected floor; the project's nanolinter.toml cannot remove it
+  required-lints: secrets     # Caller-selected floor; the project's nanolinter.toml cannot remove it
   nanolinter-image: ghcr.io/itiquette/nanolinter:java@sha256:PIN_DIGEST  # Required for nanolinter: the flavour for project-type, pinned by digest
   megalinter-image: ""             # Required for megalinter; see the digest-pinned example below
   linters.swiftformat: false       # Swift format for iOS/macOS (separate macOS job, orthogonal to the engine)
@@ -522,7 +522,7 @@ branch, which is why the checkouts fetch it; every flavour image carries
 gommitlint.
 
 **Mandated lint floor.** The caller selects `required-lints` (default
-`secrets,sast`). A nonempty floor forces those checks to run and block regardless
+`secrets`). A nonempty floor forces those checks to run and block regardless
 of the project's `nanolinter.toml`; an empty input disables the floor. See
 [Linting](verification.md#linting) for the caller/project policy boundary.
 

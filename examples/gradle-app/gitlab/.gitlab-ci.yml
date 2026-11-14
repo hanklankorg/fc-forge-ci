@@ -43,7 +43,7 @@ stages:
 
 include:
   # The lint gate: the project's nanolinter.toml plan in the java flavour
-  # (kotlin for a Kotlin build), with the secrets,sast floor, and its findings
+  # (kotlin for a Kotlin build), with the secrets floor, and its findings
   # as a SAST report.
   - component: gitlab.example.com/team/ci/forge-ci/nanolinter@0.90.0
     inputs:

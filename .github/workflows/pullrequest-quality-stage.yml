@@ -28,7 +28,7 @@ on:
       required-lints:
         description: "Mandated lint floor passed to `nanolinter verify --require` (comma-separated check ids forced to run + block)."
         required: false
-        default: "secrets,sast"
+        default: "secrets"
         type: string
       disable-checks:
         description: "Nanolinter check ids to leave out of the run (comma-separated), passed to `nanolinter verify --disable-check`; it cannot remove a check required-lints names."

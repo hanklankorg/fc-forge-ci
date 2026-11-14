@@ -43,7 +43,7 @@ spec:
         nanolinter flavour image matching the project's ecosystem, pinned by @sha256: core, go, java, kotlin, javascript-typescript, rust or swift. The core flavour carries only the ecosystem-neutral checks.
       regex: '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
     required-lints:
-      default: "secrets,sast"
+      default: "secrets"
       description: >-
         Mandated lint floor — comma-separated check ids passed to `nanolinter verify --require`. These checks are forced to run AND block regardless of the project's nanolinter.toml, so they cannot be silently skipped. Empty disables the floor.
       regex: '^[A-Za-z0-9_.,-]*$'

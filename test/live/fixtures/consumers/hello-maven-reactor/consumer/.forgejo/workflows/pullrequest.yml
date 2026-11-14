@@ -4,7 +4,7 @@
 # Forge CI pull-request gate for a multi-module Maven project. No job receives a
 # secret or installs anything:
 #
-#   lint            nanolinter.toml's plan with the secrets,sast floor
+#   lint            nanolinter.toml's plan with the secrets floor
 #   trust-boundary  statically verifies release.yml's secret boundaries
 #   build           mvn tests and package, with the action the release uses
 #
@@ -35,7 +35,7 @@ jobs:
         with:
           fetch-base: ${{ forgejo.base_ref }}
 
-      # nanolinter.toml's plan with the secrets,sast floor. Forgejo ingests no
+      # nanolinter.toml's plan with the secrets floor. Forgejo ingests no
       # SARIF, so the findings are in this step's log.
       - name: Lint
         uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/lint-nanolinter@2f4e845cee96973d1082bf00a5a18689c1482148

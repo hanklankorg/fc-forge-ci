@@ -85,7 +85,7 @@ By hand:
    example's `nanolinter.toml` when you want custom lint policy. The lint gate
    runs `nanolinter verify`, which discovers root `nanolinter.toml`, then
    `development/nanolinter.toml`, then uses defaults. It requires at least the `required-lints`
-   floor, default `secrets,sast`.
+   floor, default `secrets`.
 3. **Pin the references.** Replace the examples' `PIN_FORGE_CI_SHA` and
    `v0.90.0` with the commit and tag of the release you install (the commit
    is `git rev-parse vX.Y.Z^{commit}`, not the tag object):
@@ -137,7 +137,7 @@ carries a description. The orchestrator inputs most callers set:
 |---|---|---|
 | `project-type` | PR | `maven`, `npm`, `gradle`, `gradle-android`, `xcode-ios`, `cargo` or `go`; selects the nanolinter flavour. |
 | `lint-engine` | PR | `nanolinter` (default), `megalinter` or `none`. |
-| `required-lints` | PR | The mandated nanolinter floor, default `secrets,sast`. |
+| `required-lints` | PR | The mandated nanolinter floor, default `secrets`. |
 | `disable-checks` | PR | Nanolinter check ids to leave out of the run, comma-separated; empty by default. It cannot remove a check `required-lints` names. Name here each check the job cannot run, for example a scan another job owns; see [check enforcement](admin-policy.md). |
 | `nanolinter-image`, `megalinter-image` | PR | The lint engine's image, pinned by digest: `nanolinter-image` is required with `lint-engine: nanolinter` and `megalinter-image` with `megalinter`. Neither has a default; pin your flavour as the examples show. |
 | `branch` | release, snapshot | The branch to prepare and release from, or the snapshot branch. |

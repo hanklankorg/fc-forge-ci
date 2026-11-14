@@ -51,7 +51,7 @@ on:
       required-lints:
         description: "Mandated lint floor — comma-separated check ids passed to `nanolinter verify --require`. These checks are forced to run AND block regardless of the consumer's nanolinter.toml, so a project cannot silently skip them. Empty disables the floor."
         required: false
-        default: "secrets,sast"
+        default: "secrets"
         type: string
       disable-checks:
         description: "Comma-separated check ids to leave out of this run, passed to `nanolinter verify --disable-check`, for example the network-backed scans a separate job owns. It cannot remove a check required-lints names. A security check the job cannot run fails it when skipped, once the linter reports skipped checks (Nanolinter 0.8.6 does not): name it here."

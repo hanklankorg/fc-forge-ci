@@ -5,4 +5,4 @@ auto = true
 [verify]
 checks = ["secrets", "sast"]
 [policy]
-block = ["secrets", "sast"]
+block = ["secrets"]

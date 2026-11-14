@@ -33,7 +33,7 @@ func TestNanolinterVerifyOwnsTheStandardPRArguments(t *testing.T) {
 		input NanolinterVerifyInput
 		args  []string
 	}{
-		{"floor", NanolinterVerifyInput{RequiredLints: "secrets,sast"}, []string{"nanolinter", "verify", "--require", "secrets,sast", "--report", "sarif", "--out", "-"}},
+		{"floor", NanolinterVerifyInput{RequiredLints: "secrets"}, []string{"nanolinter", "verify", "--require", "secrets", "--report", "sarif", "--out", "-"}},
 		{"offline exclusions", NanolinterVerifyInput{RequiredLints: "secrets", DisableChecks: "osv,trivy-fs", Offline: true}, []string{"nanolinter", "verify", "--require", "secrets", "--disable-check", "osv,trivy-fs", "--offline", "--report", "sarif", "--out", "-"}},
 		{"explicit no floor", NanolinterVerifyInput{}, []string{"nanolinter", "verify", "--report", "sarif", "--out", "-"}},
 		{"opaque values", NanolinterVerifyInput{RequiredLints: "one value", DisableChecks: "other value"}, []string{"nanolinter", "verify", "--require", "one value", "--disable-check", "other value", "--report", "sarif", "--out", "-"}},

@@ -134,7 +134,7 @@ the steps are these.
 
    Optionally copy the example's `nanolinter.toml` to the consumer's
    repository root. The lint component runs `nanolinter verify`, with the
-   `required-lints` floor (default `secrets,sast`) applying either way.
+   `required-lints` floor (default `secrets`) applying either way.
 4. **Configure the project** to require successful pipelines and refuse
    merging on skipped pipelines, and protect the target branch.
 5. **For releases**, create an independently controlled policy project that
@@ -189,7 +189,7 @@ images and pins, a validating regex. The inputs that are not obvious:
 | | `release-asset-retention` | How many of the newest releases keep every file; older ones keep their checksums and signatures, upload and link both deleted. Empty, the default, deletes nothing. See [Old releases' files](#old-releases-files). |
 | | `base-stages`, `base-plan` | The project's graph of base images and its planner; empty, the default, builds none. See [Base images](#base-images). |
 | | `enforce-lint`, `enforce-vulnerabilities`, `enforce-application-tests`, `enforce-reproducible-builds` | The administrator's [check enforcement](admin-policy.md) for the checks and build jobs and the image scans, those of the base stages included; default `false`. |
-| `nanolinter` | `forge-ci-repository`, `server-url`, `nanolinter-image`, `required-lints`, `disable-checks`, `enable-gitlab-sast` | The project serving the component and its engine package (required), the flavour image (required, pinned by digest, as the examples show), the mandated floor (default `secrets,sast`), the checks to leave out of the run (empty by default; it cannot remove one the floor names), and the SAST report. `enforce-lint` and `enforce-vulnerabilities`, default `false`, are the administrator's [check enforcement](admin-policy.md). |
+| `nanolinter` | `forge-ci-repository`, `server-url`, `nanolinter-image`, `required-lints`, `disable-checks`, `enable-gitlab-sast` | The project serving the component and its engine package (required), the flavour image (required, pinned by digest, as the examples show), the mandated floor (default `secrets`), the checks to leave out of the run (empty by default; it cannot remove one the floor names), and the SAST report. `enforce-lint` and `enforce-vulnerabilities`, default `false`, are the administrator's [check enforcement](admin-policy.md). |
 | `megalinter` | `forge-ci-repository`, `server-url`, `megalinter-image`, `enable-gitlab-sast` | Required digest-pinned image; the rest as for `nanolinter`. |
 | `check`, `nanolinter`, `megalinter`, `build-*`, `publish-*` | `runner-tags` | Runner tags of the component's job; empty, the default, leaves it untagged. `publish-apple-appstore` takes `runner-tags-darwin-arm64` instead, which defaults to a hosted macOS runner's. |
 | `build-*` | `working-directory`, `skip-tests`, `enable-build-sbom`, `runtime-image` | Common to every build component; `runtime-image` is required and pinned by `@sha256:`. `build-go`, `build-cargo`, `build-gradle` and `build-gradle-android` also take `version`; `build-go` and `build-cargo` add `platforms` and `artifact-name`, `build-go` also `main-package` (relative to `working-directory`), `build-maven` `build-type` and `profile`, `build-gradle-android` the module, flavour and signing inputs. `enforce-application-tests`, default `false`, is the administrator's [check enforcement](admin-policy.md). |

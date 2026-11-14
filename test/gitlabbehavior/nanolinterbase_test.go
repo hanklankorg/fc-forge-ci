@@ -193,7 +193,7 @@ func TestNanolinterLeavesOutDisabledChecksAndFailsOnALostSASTReport(t *testing.T
 	}
 
 	args, err := os.ReadFile(filepath.Join(dir, "nanolinter-args"))
-	if want := "verify --require secrets,sast --disable-check osv,trivy-fs --report sarif --out -\n"; err != nil || string(args) != want {
+	if want := "verify --require secrets --disable-check osv,trivy-fs --report sarif --out -\n"; err != nil || string(args) != want {
 		t.Fatalf("nanolinter got %q, want %q (%v)", args, want, err)
 	}
 
@@ -276,7 +276,7 @@ func runNanolinterScriptWith(t *testing.T, dir, workspace string, inputs map[str
 	// The local forge stands in for the instance, under the name the job
 	// holds CI_SERVER_URL to.
 	rendered := strings.NewReplacer("$[[ component.sha ]]", strings.TrimSpace(string(pin)), "$[[ inputs.server-url ]]", "file://"+dir,
-		"$[[ inputs.required-lints ]]", "secrets,sast", "$[[ inputs.disable-checks ]]", inputs["disable-checks"],
+		"$[[ inputs.required-lints ]]", "secrets", "$[[ inputs.disable-checks ]]", inputs["disable-checks"],
 		"$[[ inputs.enable-gitlab-sast ]]", cmp.Or(inputs["enable-gitlab-sast"], "false"),
 		"$[[ inputs.enforce-lint ]]", inputs["enforce-lint"], "$[[ inputs.enforce-vulnerabilities ]]", inputs["enforce-vulnerabilities"]).Replace(script[0])
 	command := exec.CommandContext(ctx, componentBash(t), "--noprofile", "--norc", "-c", rendered)
