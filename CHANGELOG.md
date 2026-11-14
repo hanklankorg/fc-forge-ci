@@ -613,10 +613,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `<project>-<version>-sboms.tar.gz`, a reproducible gzip-compressed tar,
   instead of `<project>-<version>-sboms.zip`. The content and its place in
   the release are the same: it is listed in `checksums.sha256`, signed and
-  uploaded as before. `release sbom-zip` is now `release sbom-bundle`,
-  `sbom assemble --create-zip` is now `--create-bundle`, and the release
-  assembly field `sbom_zip_file` is now `sbom_bundle_file`. No zip is
-  produced and there is no compatibility switch; unpack the bundle with
+  uploaded as before. `release sbom-zip` is now `release sbom-bundle`, and
+  the release assembly field `sbom_zip_file` is now `sbom_bundle_file`.
+  `sbom assemble --create-zip` is removed with no replacement flag:
+  `release sbom-bundle` is the one command that makes the bundle. No zip
+  is produced and there is no compatibility switch; unpack the bundle with
   `tar -xzf`.
 
 ### Removed

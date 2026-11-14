@@ -5259,9 +5259,6 @@ EXAMPLES:
    forge-ci sbom assemble --project-type=go \
        --layers=build,analyzed-container \
        --container-image=ghcr.io/examplescope/myapp:v1.2.3
-
-   # Bundle the assembled layers into a release-attached tar.gz
-   forge-ci sbom assemble --project-type=maven --create-bundle
 ```
 
 | Flag | Description | Type | Default | Env vars |
@@ -5272,7 +5269,6 @@ EXAMPLES:
 | `--name` | project slug used as the SBOM filename prefix | string | `""` | n/a |
 | `--working-dir` | directory syft scans | string | `"."` | n/a |
 | `--container-image` | container image to analyze (required for the analyzed-container layer) | string | `""` | n/a |
-| `--create-bundle` | additionally bundle the layers into a release-attached tar.gz | bool | `false` | n/a |
 | `--plan` | typed config-plan JSON: assemble one layer set per artifact in the plan (from "config parse-artifacts") | string | `""` | `$CONFIG_PLAN_JSON` |
 | `--acquisition-dir` | plan mode: use only this fresh producer tree for build BOMs, artifact scans, and generated outputs; requires --version | string | `""` | `$ACQUISITION_DIR` |
 | `--sboms` | plan mode: sboms enum ("all", "build,source", …) selecting which layers to produce per artifact | string | `"all"` | `$SBOMS` |

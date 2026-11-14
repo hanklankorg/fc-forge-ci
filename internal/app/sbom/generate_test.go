@@ -4,9 +4,7 @@
 package sbom_test
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"errors"
 	"io"
@@ -24,7 +22,6 @@ import (
 	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
 	domainsbom "github.com/diggsweden/forge-ci/internal/domain/sbom"
 	"github.com/diggsweden/forge-ci/internal/testutil/testfs"
-	"github.com/stretchr/testify/require"
 )
 
 // fakeSyft writes a deterministic body to each requested output file.
@@ -608,77 +605,6 @@ func TestGenerate_UnknownLayerErrors(t *testing.T) {
 	}
 }
 
-func TestGenerate_CreateBundleBundlesSBOMs(t *testing.T) {
-	fsys := testfs.NewReal(t)
-	fsys.WriteFile("package.json", []byte(`{"name":"demo","version":"1.2.3"}`))
-	fsys.WriteFile("bom.json", []byte(`{"bomFormat":"CycloneDX"}`))
-	fsys.Chdir()
-
-	err := appsbom.Generate(context.Background(), &fakeSyft{}, nil, &fakeGit{}, nil, io.Discard, io.Discard, appsbom.GenerateInput{
-		Layers:       "build",
-		CreateBundle: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// The archive is what gets attached to a release, so its contents are the
-	// contract: the SBOMs that were generated, byte-for-byte, and nothing else.
-	// Asserting only that a file exists would pass on an empty archive.
-	assertBundleMembers(t, fsys.Path("demo-1.2.3-sboms.tar.gz"), map[string]string{
-		"demo-1.2.3-build-sbom.cyclonedx.json": `{"bomFormat":"CycloneDX"}`,
-	})
-}
-
-// assertBundleMembers pins the exact member set and bytes of an archive: a missing
-// or unrelated entry, a duplicate name and an emptied member all fail here.
-func assertBundleMembers(t *testing.T, path string, want map[string]string) {
-	t.Helper()
-
-	file, err := os.Open(path)
-	require.NoError(t, err)
-
-	defer func() { require.NoError(t, file.Close()) }()
-
-	gz, err := gzip.NewReader(file)
-	require.NoError(t, err)
-
-	got := map[string]string{}
-
-	for reader := tar.NewReader(gz); ; {
-		member, nextErr := reader.Next()
-		if errors.Is(nextErr, io.EOF) {
-			break
-		}
-
-		require.NoError(t, nextErr)
-		require.NotContains(t, got, member.Name, "duplicate archive member")
-
-		content, readErr := io.ReadAll(reader)
-		require.NoError(t, readErr)
-		require.NotEmpty(t, content, "archive member %s is empty", member.Name)
-		got[member.Name] = string(content)
-	}
-
-	require.Equal(t, want, got)
-}
-
-func TestGenerate_CreateBundleFailureIsReturned(t *testing.T) {
-	fsys := testfs.NewReal(t)
-	fsys.WriteFile("package.json", []byte(`{"name":"demo","version":"1.2.3"}`))
-	fsys.WriteFile("bom.json", []byte(`{"bomFormat":"CycloneDX"}`))
-	fsys.MkdirAll("demo-1.2.3-sboms.tar.gz")
-	fsys.Chdir()
-
-	err := appsbom.Generate(context.Background(), &fakeSyft{}, nil, &fakeGit{}, nil, io.Discard, io.Discard, appsbom.GenerateInput{
-		Layers:       "build",
-		CreateBundle: true,
-	})
-	if err == nil || !strings.Contains(err.Error(), "create SBOM bundle") {
-		t.Fatalf("bundle failure = %v, want propagated error", err)
-	}
-}
-
 func TestGenerate_RejectsSymlinkedWorkingDirectoryRoot(t *testing.T) {
 	t.Parallel()
 
@@ -750,10 +676,9 @@ func TestGenerate_RejectsSymlinkedSBOMCollectionInput(t *testing.T) {
 	}
 
 	err := appsbom.Generate(context.Background(), &fakeSyft{}, nil, &fakeGit{}, nil, io.Discard, io.Discard, appsbom.GenerateInput{
-		WorkingDir:   dir,
-		ProjectType:  "npm",
-		Layers:       "build",
-		CreateBundle: true,
+		WorkingDir:  dir,
+		ProjectType: "npm",
+		Layers:      "build",
 	})
 	if !errors.Is(err, errs.ErrValidation) {
 		t.Fatalf("symlinked SBOM input error = %v, want ErrValidation", err)

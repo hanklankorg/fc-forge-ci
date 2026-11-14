@@ -16,11 +16,9 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
-	"github.com/diggsweden/forge-ci/internal/archive"
 	"github.com/diggsweden/forge-ci/internal/clicolor"
 	domainbuild "github.com/diggsweden/forge-ci/internal/domain/build"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
@@ -91,7 +89,6 @@ type GenerateInput struct {
 	// FS overrides read-only workspace access for tests. It must be rooted at WorkingDir.
 	FS             fs.FS
 	ContainerImage string // analyzed-container target
-	CreateBundle   bool
 	// RequireFreshOutputs prevents generated release evidence from overwriting
 	// acquired producer members that already have a canonical SBOM filename.
 	RequireFreshOutputs bool
@@ -175,7 +172,7 @@ func Generate(
 		return err
 	}
 
-	return generateSummary(out, ws, resolvedName, resolvedVersion, in.CreateBundle)
+	return generateSummary(out, ws)
 }
 
 func emitGenerateHeader(out io.Writer, root, projectTypeIn, layers string) {
@@ -435,9 +432,9 @@ func readName(ctx context.Context, ws workspace, mvn MavenOps, projectType proje
 	return ""
 }
 
-// generateSummary mirrors the `generate_summary` function: lists the
-// SBOMs produced in the working dir, optionally bundles them.
-func generateSummary(out io.Writer, ws workspace, projectName, ver string, createBundle bool) error {
+// generateSummary lists the SBOMs produced in the working dir. Bundling them
+// for a release is `release sbom-bundle`.
+func generateSummary(out io.Writer, ws workspace) error {
 	_, _ = fmt.Fprintln(out, "================================================")
 	_, _ = fmt.Fprintln(out, "SBOM Assembly Complete")
 	_, _ = fmt.Fprintln(out, "================================================")
@@ -473,31 +470,6 @@ func generateSummary(out io.Writer, ws workspace, projectName, ver string, creat
 
 	_, _ = fmt.Fprintln(out)
 
-	if createBundle {
-		bundleName := domainsbom.BundleName(version.SanitizePathToken(projectName), version.SanitizePathToken(ver))
-
-		_, _ = fmt.Fprintln(out, "📦 Creating SBOM bundle...")
-
-		if err := bundleFiles(ws, bundleName, matches); err != nil {
-			_, _ = fmt.Fprintf(out, "   ⚠️  Failed to create SBOM bundle: %v\n", err)
-
-			return fmt.Errorf("create SBOM bundle %s: %w", bundleName, err)
-		}
-
-		_, _ = fmt.Fprintf(out, "%s Created: %s\n\n", clicolor.Check(out), bundleName)
-		// List what the bundle holds.
-		for _, m := range matches {
-			info, err := ws.outputInfo(m)
-			if err != nil {
-				return fmt.Errorf("stat archived SBOM %s: %w", m, err)
-			}
-
-			_, _ = fmt.Fprintf(out, "  %8d  %s\n", info.Size(), m)
-		}
-
-		_, _ = fmt.Fprintln(out)
-	}
-
 	return nil
 }
 
@@ -528,55 +500,6 @@ func listSBOMs(ws workspace, dir string) ([]string, error) {
 	}
 
 	return out, nil
-}
-
-// bundleFiles archives files into outputPath as a gzip-compressed tar. Files
-// are stored with their basename inside the archive.
-func bundleFiles(ws workspace, outputPath string, files []string) error {
-	out, err := ws.createOutput(outputPath, 0o600)
-	if err != nil {
-		return err
-	}
-
-	bundle := archive.NewTarGzipWriter(out)
-
-	complete := false
-	defer func() {
-		if !complete {
-			_ = bundle.Close()
-			_ = out.Close()
-			_ = ws.removeOutput(outputPath)
-		}
-	}()
-
-	for _, f := range files {
-		if err := addFileToBundle(ws, bundle, f); err != nil {
-			return err
-		}
-	}
-
-	if err := bundle.Close(); err != nil {
-		return fmt.Errorf("finalize SBOM bundle: %w", err)
-	}
-
-	if err := out.Close(); err != nil {
-		return fmt.Errorf("close SBOM bundle: %w", err)
-	}
-
-	complete = true
-
-	return nil
-}
-
-func addFileToBundle(ws workspace, bundle *archive.TarGzipWriter, name string) error {
-	src, err := ws.openOutputRegular(name)
-	if err != nil {
-		return err
-	}
-
-	defer func() { _ = src.Close() }()
-
-	return bundle.AddFile(path.Base(name), src)
 }
 
 // walkAllFiles returns every regular file under root as a slash-form
