@@ -97,9 +97,10 @@ func releaseCommitScopeFindings(changed []string, bumps []releaseBump, requested
 
 // releaseChangelogFindings holds the changelog to the release: the version is
 // named in the release commit's changelog more often than in the request's,
-// as a whole version and not as part of another.
+// as a whole version and not as part of another: 2.7.0-SNAPSHOT and
+// 2.7.0+build are other versions than 2.7.0.
 func releaseChangelogFindings(before, after, version string) []string {
-	mention := regexp.MustCompile(`(^|[^0-9.])` + regexp.QuoteMeta(version) + `([^0-9.]|$)`)
+	mention := regexp.MustCompile(`(^|[^0-9.])` + regexp.QuoteMeta(version) + `([^0-9.+-]|$)`)
 	if len(mention.FindAllString(after, -1)) <= len(mention.FindAllString(before, -1)) {
 		return []string{releaseChangelog + " of the release commit names version " + version + " no more often than the request's did"}
 	}
@@ -169,6 +170,10 @@ func TestReleaseChangelogFindings(t *testing.T) {
 		"unchanged":               {before: "## [0.0.1]\n", after: "## [0.0.1]\n", findings: 1},
 		"part of another version": {after: "## [10.0.10]\n## [0.0.11]\n", findings: 1},
 		"absent":                  {after: "# Changelog\n", findings: 1},
+		"a pre-release becomes the release": {
+			before: "## [0.0.1-SNAPSHOT]\n\n- Use tool 0.0.1\n", after: "## [0.0.1] - 2026-01-01\n\n- Use tool 0.0.1\n",
+		},
+		"a pre-release alone": {after: "## [0.0.1-rc.1]\n## [0.0.1+build]\n", findings: 1},
 	} {
 		if findings := releaseChangelogFindings(test.before, test.after, "0.0.1"); len(findings) != test.findings {
 			t.Errorf("%s: findings are %v, want %d", name, findings, test.findings)
