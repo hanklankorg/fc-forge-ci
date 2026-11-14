@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A GitHub release of an Android application attaches the release APK
+  beside the AAB, signed and listed in the checksums like the other release
+  files, so the application can be installed from the release page. A
+  library and a build without the `release` build type attach none.
 - The GitLab release signs its checksums and SBOMs with GPG when
   `artifacts.yml` says `sign.method: gpg` or `sign.files-method: gpg`, as
   the Forgejo release does. `Sign: files and images` signs them with

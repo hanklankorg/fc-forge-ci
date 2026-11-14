@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/diggsweden/forge-ci/internal/domain/build"
 	"github.com/diggsweden/forge-ci/internal/domain/config"
 	domaincontainer "github.com/diggsweden/forge-ci/internal/domain/container"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
@@ -551,6 +552,30 @@ func newReleasePublishStagePlan(configPlan ConfigPlan, buildSBOM bool) ReleasePu
 	}
 }
 
+// androidReleaseAPKName is the upload that holds the release APK of an
+// Android application, which a release carries beside the AAB so that the
+// application can be installed from the release itself. Empty for a library
+// and for a build without the release build type.
+func androidReleaseAPKName(artifact PlannedArtifact) string {
+	if artifact.ProjectType != projecttype.GradleAndroid || artifact.BuildType == config.BuildTypeLibrary {
+		return ""
+	}
+
+	declared := config.Artifact{BuildType: artifact.BuildType, GradleAndroid: artifact.GradleAndroid}
+
+	buildTypes, err := build.ParseAndroidBuildTypes(declared.AndroidBuildTypes())
+	if err != nil || !buildTypes.Release {
+		return ""
+	}
+
+	names, err := build.ResolveAndroidArtifactNames(build.AndroidArtifactNamesInput{Override: artifact.Name})
+	if err != nil {
+		return ""
+	}
+
+	return names.ReleaseName
+}
+
 // newReleaseArtifactTransferPlan builds the release-create artifact download
 // plan without wildcard artifact names.
 func newReleaseArtifactTransferPlan(configPlan ConfigPlan, policy ReleasePolicy) ArtifactTransferPlan {
@@ -562,6 +587,15 @@ func newReleaseArtifactTransferPlan(configPlan ConfigPlan, policy ReleasePolicy)
 				Kind:     ArtifactTransferBuildArtifact,
 				Name:     artifact.BuildArtifactName,
 				Path:     "./release-artifacts/", //nolint:goconst // test fixture / generic identifier — extracting would explode setup boilerplate.
+				Required: true,
+			})
+		}
+
+		if name := androidReleaseAPKName(artifact); name != "" {
+			items = append(items, ArtifactTransfer{
+				Kind:     ArtifactTransferBuildArtifact,
+				Name:     name,
+				Path:     "./release-artifacts/",
 				Required: true,
 			})
 		}

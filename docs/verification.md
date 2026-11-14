@@ -1018,10 +1018,10 @@ The forge-ci uploads, with their retention windows and content:
 | SARIF security reports | 5 days | Vulnerability findings; may contain code snippets, not credentials |
 
 Android's build workflow uploads each requested APK/AAB as a run artifact, but
-the production GitHub Release transfer selects only a release AAB when
-`include-aab` is true. APKs are not automatically release assets. Selection is
-independent of `enable-android-signing`, so an unsigned AAB can reach release
-assembly (and a configured Google Play upload); forge-ci does not validate
+the production GitHub Release transfer selects an application's release APK,
+and its release AAB when `include-aab` is true. A debug APK is never a release
+asset. Selection is independent of `enable-android-signing`, so an unsigned
+APK or AAB can reach release assembly (and a configured Google Play upload); forge-ci does not validate
 that coupling.
 
 **Two rules that must hold for the upload-artifact contract to stay safe:**

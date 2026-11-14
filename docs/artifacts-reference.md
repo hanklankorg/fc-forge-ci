@@ -694,10 +694,10 @@ strict parsing rejects `config.destination`.
 #### Android upload selection
 
 `build-gradle-android.yml` uploads each requested debug APK, release APK, and
-release AAB as a GitHub Actions run artifact. The production release transfer
-selects only the AAB, and only when `build-types` includes `release` and
-`include-aab` is true. APK run artifacts are not automatically attached to the
-GitHub Release. `publish-to: [google-play]` also selects the AAB; configuration
+release AAB as a GitHub Actions run artifact. The production release of an
+application attaches the release APK to the GitHub Release when `build-types`
+includes `release`, and the AAB when `include-aab` is true as well. A debug
+APK is never attached. `publish-to: [google-play]` also selects the AAB; configuration
 validation does not currently require `enable-android-signing: true`, although
 Google Play normally requires a signed bundle.
 

@@ -223,6 +223,25 @@ func TestReleaseExecution_SelectedConcreteTransferCollisions(t *testing.T) {
 	}
 }
 
+// A release of an Android application carries its release APK beside the
+// AAB; a library and a debug-only build have none to carry.
+func TestReleaseExecution_AndroidApplicationTransfersItsAPK(t *testing.T) {
+	t.Parallel()
+
+	plan := executionConfigPlan(t, &config.Config{Artifacts: []config.Artifact{
+		{Name: "app", ProjectType: projecttype.GradleAndroid, SBOMs: "none", GradleAndroid: &config.GradleAndroidConfig{BuildTypes: "release"}},
+		{Name: "debug-app", ProjectType: projecttype.GradleAndroid, SBOMs: "none", GradleAndroid: &config.GradleAndroidConfig{BuildTypes: "debug"}},
+		{Name: "lib", ProjectType: projecttype.GradleAndroid, SBOMs: "none", BuildType: config.BuildTypeLibrary},
+	}})
+	release, err := pipeline.NewReleasePlan(pipeline.ReleasePlanInput{ConfigPlan: plan, ReleaseSBOMs: "none"})
+	require.NoError(t, err)
+	require.Equal(t, []pipeline.ArtifactTransfer{
+		{Kind: "build_artifact", Name: "app", Path: "./release-artifacts/", Required: true},
+		{Kind: "build_artifact", Name: "app-release", Path: "./release-artifacts/", Required: true},
+		{Kind: "build_artifact", Name: "lib", Path: "./release-artifacts/", Required: true},
+	}, release.ArtifactTransfers.Items)
+}
+
 func TestReleaseExecution_TransferSelectionControls(t *testing.T) {
 	t.Parallel()
 	plan := executionConfigPlan(t, &config.Config{Artifacts: []config.Artifact{
