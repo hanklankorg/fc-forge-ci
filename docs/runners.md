@@ -70,7 +70,7 @@ and so does how an administrator restricts it:
 |---|---|---|
 | GitLab | The policy project. It includes the component that runs the signer jobs and writes `signer-runner-tags` as literals; the components take tags only from inputs. | By writing the tags. A tag written as a `$VARIABLE` would let a project variable choose the runner that sees the credentials. |
 | Forgejo | The caller's release workflow, in `signer-runs-on`, which only the job that reads the signing key runs on. The examples pass the repository variable `CI_RUNNER_LABEL`, so whoever may set repository variables chooses. | By writing the labels in the workflow, on a protected branch whose changes the administrator's code owners review. Forgejo has no policy project, and the layer has no list to hold the labels to. |
-| GitHub | The layer, as a hosted literal. Two jobs run where their caller says instead: the signed Xcode build, on `runs-on-darwin-arm64`, and `slsa-attestor.yml`, on its `runs-on`. | With `signer-runs-on-allowed`, in the entry point the consumer cannot change: the labels the signed Xcode build may run on. It does not reach `slsa-attestor.yml`, which its operator calls directly with the KMS key and the runner. See [GitHub runners](#github-runners). |
+| GitHub | The layer, as a hosted literal. Two jobs run where their caller says instead: the signed Xcode build, on `runs-on-darwin-arm64`, and `slsa-attestor.yml`, on its `runs-on`. | With `enforce-signer-runs-on`, in the entry point the consumer cannot change: the labels the signed Xcode build may run on. It does not reach `slsa-attestor.yml`, which its operator calls directly with the KMS key and the runner. See [GitHub runners](#github-runners). |
 
 GitHub threads its role-specific inputs through the orchestrators. Its
 signing, trust-root and publication jobs retain hosted literals; see
@@ -87,10 +87,40 @@ Every runner input is named `[role-]<keyword>[-<os>-<arch>]`:
   `RELEASE_PLATFORMS` name with `/` turned into `-`, such as `linux-arm64` or
   `darwin-arm64`.
 
+### In plain words
+
+A runner input is a list of labels. The forge gives the job to a runner that
+has all of them, so the labels decide the machine. The name of the input
+decides only which jobs get that list.
+
+One list is not enough, because one release runs jobs on different kinds of
+machine. An iOS release prepares the changelog on Linux and builds on a Mac. A
+service with an image for amd64 and arm64 builds each on a machine of that
+architecture.
+
+| Input (GitHub names) | Its jobs | What the machine must offer |
+|---|---|---|
+| `runs-on` | everything ordinary: lint, tests, plans, SBOMs, the application build | Linux with Bash and Git; any runner does |
+| `build-runs-on-linux-amd64`, `build-runs-on-linux-arm64` | the container image build, one per architecture | that architecture natively, and user namespaces for Buildah |
+| `runs-on-darwin-arm64` | every job that needs a Mac: the Xcode build and the Swift lint | macOS with the Xcode the project builds with |
+
+`runs-on` and `build-runs-on-…` differ in what they ask of the machine, not
+in what a project calls a build. Compiling a Go or Java application is an
+ordinary job on `runs-on`. `build-` means the container image build alone,
+which many shared runner pools cannot run. With two inputs an installation
+keeps its cheap, shared runners for the ordinary jobs and sends only the
+image builds to the machines that can run them.
+
+The Mac input has no `build-` because it is the ordinary input of that
+platform: lint runs there too, and an image is never built there. A platform
+stands in a name only where the jobs can run on no other.
+
+Most projects set none of these on GitHub, where each has a hosted default.
+
 So `build-runner-tags-linux-arm64` chooses GitLab's arm64 image build runner
 and `runs-on-darwin-arm64` the GitHub macOS runner. GitHub has no `signer-`
 input: its signer jobs run on a hosted literal, with two exceptions named
-under [GitHub runners](#github-runners). `signer-runs-on-allowed` is not a
+under [GitHub runners](#github-runners). `enforce-signer-runs-on` is not a
 runner input: it selects no runner, and restricts the one a caller names.
 
 On Forgejo, runner selection is a repository or organization variable that
@@ -193,7 +223,7 @@ GitHub-hosted label there; a runner of your own that holds the signing
 certificate must be one you trust with it.
 
 Who may name that runner is the administrator's choice. The release and
-snapshot orchestrators take `signer-runs-on-allowed`, a JSON array of the
+snapshot orchestrators take `enforce-signer-runs-on`, a JSON array of the
 labels a signing job on a caller-named runner may run on. The default `[]`
 lets the caller choose. With a list, every label in `runs-on-darwin-arm64`
 must be in it, compared as written:
@@ -201,14 +231,14 @@ must be in it, compared as written:
 ```yaml
     with:
       runs-on-darwin-arm64: ${{ vars.MACOS_RUNNER }}
-      signer-runs-on-allowed: '["macos-26", "macos-27"]'
+      enforce-signer-runs-on: '["macos-26", "macos-27"]'
 ```
 
 A runner with any other label is refused by the job `Check: signer runner`,
 which names the input, the refused labels and the allowed ones:
 
 ```text
-runs-on-darwin-arm64 names the runner of a job that holds signing material, and signer-runs-on-allowed does not allow its label mac-mini (allowed: macos-26, macos-27): name an allowed runner in runs-on-darwin-arm64, or have the administrator add the label to signer-runs-on-allowed
+runs-on-darwin-arm64 names the runner of a job that holds signing material, and enforce-signer-runs-on does not allow its label mac-mini (allowed: macos-26, macos-27): name an allowed runner in runs-on-darwin-arm64, or have the administrator add the label to enforce-signer-runs-on
 ```
 
 That job runs `forge-ci plan admit-signer-runner` on the hosted

@@ -236,7 +236,7 @@ func (in *Inputs) refusal(name string, need Need) error {
 // SignerAllowlistInput is the GitHub layer's administrator setting that
 // restricts the runner a caller names for a job that holds signing material.
 // It is no runner input: it selects no runner.
-const SignerAllowlistInput = "signer-runs-on-allowed"
+const SignerAllowlistInput = "enforce-signer-runs-on"
 
 // SignerAllowlist reads the value of SignerAllowlistInput, a JSON array of
 // runner labels. An empty array lets the caller choose; anything else that

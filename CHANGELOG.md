@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - The GitHub release and snapshot orchestrators take
-  `signer-runs-on-allowed`, an administrator setting: a JSON array of the
+  `enforce-signer-runs-on`, an administrator setting: a JSON array of the
   runner labels the signed Xcode build may run on. The default `[]` lets
   the caller choose the runner in `runs-on-darwin-arm64`, as before. With a
   list, a runner with any other label is refused by the new job

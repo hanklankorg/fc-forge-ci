@@ -25,11 +25,11 @@ func TestAdmitSignerRunnerCLI(t *testing.T) {
 		return cmd.Run(t.Context(), append([]string{"forge-ci", "--provider", "local", "--runner", "local", "plan", "admit-signer-runner"}, args...))
 	}
 
-	if err := run("--build-stage-plan-json", plan, "--runs-on-darwin-arm64", `["macos-27"]`, "--signer-runs-on-allowed", `["macos-26","macos-27"]`); err != nil {
+	if err := run("--build-stage-plan-json", plan, "--runs-on-darwin-arm64", `["macos-27"]`, "--enforce-signer-runs-on", `["macos-26","macos-27"]`); err != nil {
 		t.Fatalf("an allowed runner is refused: %v", err)
 	}
 
-	err := run("--build-stage-plan-json", plan, "--runs-on-darwin-arm64", `["mac-mini"]`, "--signer-runs-on-allowed", `["macos-26","macos-27"]`)
+	err := run("--build-stage-plan-json", plan, "--runs-on-darwin-arm64", `["mac-mini"]`, "--enforce-signer-runs-on", `["macos-26","macos-27"]`)
 	if err == nil || !strings.Contains(err.Error(), "does not allow its label mac-mini (allowed: macos-26, macos-27)") {
 		t.Fatalf("a runner outside the list is admitted or unnamed: %v", err)
 	}

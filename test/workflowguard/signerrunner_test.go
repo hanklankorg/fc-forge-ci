@@ -104,7 +104,7 @@ var callerRunnerSigners = map[string]string{
 // A signing job that runs where its caller says is held to the administrator's
 // allowlist: every job that calls its workflow needs a job on an approved
 // hosted literal, which no caller names, that admits the same runner input
-// against signer-runs-on-allowed, for the plan the call takes its builds
+// against enforce-signer-runs-on, for the plan the call takes its builds
 // from. Every caller of a workflow that takes the list forwards its own, so
 // the value the administrator gives the entry point is the one compared.
 func TestCallerRunnerSignersAreHeldToTheAllowlist(t *testing.T) {
