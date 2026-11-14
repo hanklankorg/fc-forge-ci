@@ -30,7 +30,7 @@ var (
 )
 
 const (
-	snapshotPlanJob    = "Snapshot: plan"
+	snapshotPlanJob    = "Check: snapshot plan"
 	snapshotContextJob = "Snapshot: context"
 )
 

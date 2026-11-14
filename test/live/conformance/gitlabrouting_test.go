@@ -19,7 +19,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/domain/runners"
 )
 
-// Pure fixtures use the same declaration-to-plan owner as Release: plan.
+// Pure fixtures use the same declaration-to-plan owner as Check: release plan.
 // They never accept a target or invoke a provider, even with the live tag.
 func gitLabRoutingPlans(t *testing.T) appconfig.ReleaseStagePlans {
 	t.Helper()

@@ -122,7 +122,7 @@ func planGitLabRelease(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	// "Release: plan", which writes the jobs, warns once a run; the release
+	// "Check: release plan", which writes the jobs, warns once a run; the release
 	// jobs' re-checks of the same declaration do not repeat it.
 	if cmd.String(flagOutput) != "" {
 		if err := warnReleaseSigning(ctx, cmd, plans, provider.ForgeGitLab); err != nil {

@@ -204,7 +204,7 @@ func TestGitLabReleasePlannerUsesOrdinaryTagsInsteadOfProjectDefaults(t *testing
 			t.Fatal(err)
 		}
 
-		planner := rendered["Release: plan"].(map[string]any)
+		planner := rendered["Check: release plan"].(map[string]any)
 
 		tags, overridesDefault := planner["tags"]
 		if !overridesDefault || !reflect.DeepEqual(tags, want) {

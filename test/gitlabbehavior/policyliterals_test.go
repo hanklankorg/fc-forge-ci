@@ -253,7 +253,7 @@ func snapshotStart(t *testing.T) string {
 func snapshotPlanPolicy(t *testing.T) string {
 	t.Helper()
 
-	return yamlStrings(releaseDocumentBody(t, "templates/snapshot-images.yml")["Snapshot: plan"].(map[string]any)["script"])[0]
+	return yamlStrings(releaseDocumentBody(t, "templates/snapshot-images.yml")["Check: snapshot plan"].(map[string]any)["script"])[0]
 }
 
 // checkStart is the check job's start pinned by its full commit.

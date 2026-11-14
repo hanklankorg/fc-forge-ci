@@ -79,7 +79,7 @@ spec:
       description: Enforcement setting; false lets publication report image vulnerability findings without failing. Every image is still scanned. See docs/admin-policy.md.
     context-job:
       description: Advanced prepared-context override. Parent producer needs Snapshot plan and exports _snapshot-context. Default builds required artifacts automatically.
-      default: 'Snapshot: plan'
+      default: 'Check: snapshot plan'
       regex: '^[^''[:cntrl:]]+$'
 ---
 include:
@@ -98,7 +98,7 @@ include:
       runner-tags: $[[ inputs.runner-tags ]]
       enforce-application-tests: $[[ inputs.enforce-application-tests ]]
       enforce-vulnerabilities: $[[ inputs.enforce-vulnerabilities ]]
-"Snapshot: plan":
+"Check: snapshot plan":
   extends: .forge-ci-snapshot
   stage: .pre
   # One more attempt when the engine found a dependency unavailable, exit
@@ -142,7 +142,7 @@ include:
   artifacts:
     expire_in: 1 day
     paths: [snapshot-plan.json, snapshot-child.yml]
-"Snapshot: execute":
+"Build: snapshot":
   stage: deploy
   # A trigger names no retry: GitLab refuses the key on a trigger job, and
   # with it the whole configuration.
@@ -167,4 +167,4 @@ include:
       pipeline_variables: false
     include:
       - artifact: snapshot-child.yml
-        job: "Snapshot: plan"
+        job: "Check: snapshot plan"

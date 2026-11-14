@@ -1254,7 +1254,7 @@ func createGitLabProtectedVariables(t *testing.T, client *gitlabapi.Client, proj
 	}
 }
 
-// Re-plan the same committed declaration that the trusted Release: plan job
+// Re-plan the same committed declaration that the trusted Check: release plan job
 // admitted. No worktree/default-branch file or observed job name selects the
 // expected family set. An absent default declaration means no family, just
 // as in the existing release planner; any other read/planning failure refuses.

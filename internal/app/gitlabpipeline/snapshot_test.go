@@ -69,7 +69,7 @@ func TestSnapshotPipelineKeepsFileOutputsAsJobArtifacts(t *testing.T) {
 		"extends": ".forge-ci-snapshot-files", "stage": "artifacts", "tags": []string{"amd64"},
 		"image":     map[string]any{"name": goImage, "entrypoint": []string{""}},
 		"script":    []string{"snapshot_gitlab_files 'cli'"},
-		"needs":     []any{map[string]any{"pipeline": "42", "job": "Snapshot: plan", "artifacts": true}},
+		"needs":     []any{map[string]any{"pipeline": "42", "job": "Check: snapshot plan", "artifacts": true}},
 		"artifacts": map[string]any{"name": "cli-1.2.3-snapshot-main-aaaaaaa", "paths": []string{"snapshot-files/cli/"}, "expire_in": "7 days"},
 	}, out["Snapshot: files cli"])
 

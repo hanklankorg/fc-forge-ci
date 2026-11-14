@@ -19,7 +19,7 @@ import (
 
 // releasePlans are the plan steps of the Forgejo and GitLab releases, the
 // calls that warn: Forgejo's prepare plan job writes the version matrix, and
-// GitLab's "Release: plan" the release jobs. Every family has its image.
+// GitLab's "Check: release plan" the release jobs. Every family has its image.
 func releasePlans(declaration, dir string) map[string][]string {
 	image := func(family string) string {
 		return "registry.example/" + family + "@sha256:" + strings.Repeat("1", 64)

@@ -76,7 +76,7 @@ func TestSnapshotNativeChildPipelineHasWholeBuildBarrierAndBoundContext(t *testi
 			t.Fatalf("%s must wait on plan and both builds: %#v", name, needs)
 		}
 
-		for i, want := range []string{"Snapshot: plan", "Snapshot: build api amd64", "Snapshot: build worker arm64"} {
+		for i, want := range []string{"Check: snapshot plan", "Snapshot: build api amd64", "Snapshot: build worker arm64"} {
 			if got := needs[i].(map[string]any)["job"]; got != want {
 				t.Fatalf("need %d = %v, want %s", i, got, want)
 			}
@@ -116,7 +116,7 @@ func TestSnapshotNativeChildPipelineHasWholeBuildBarrierAndBoundContext(t *testi
 }
 
 func TestSnapshotNativeEmptyPlanStillCollectsAndMissingArmRunnerRefuses(t *testing.T) {
-	jobs, output, err := generateSnapshot(t, `{"builds":[],"images":[]}`, "SNAPSHOT_CONTEXT_JOB=Snapshot: plan")
+	jobs, output, err := generateSnapshot(t, `{"builds":[],"images":[]}`, "SNAPSHOT_CONTEXT_JOB=Check: snapshot plan")
 	if err != nil {
 		t.Fatalf("empty: %v\n%s", err, output)
 	}
@@ -163,7 +163,7 @@ func TestSnapshotNativeAutomaticArtifactsUseToolchainFamiliesAndCompleteGatherBa
 		}
 
 		needs := producer["needs"].([]any)
-		if len(needs) != 1 || needs[0].(map[string]any)["pipeline"] != "42" || needs[0].(map[string]any)["job"] != "Snapshot: plan" {
+		if len(needs) != 1 || needs[0].(map[string]any)["pipeline"] != "42" || needs[0].(map[string]any)["job"] != "Check: snapshot plan" {
 			t.Fatalf("producer %s lost exact parent plan: %#v", name, needs)
 		}
 	}
@@ -280,7 +280,7 @@ func TestSnapshotGitLabPolicyDoesNotEnterReleasePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	execute := jobs["Snapshot: execute"].(map[string]any)
+	execute := jobs["Build: snapshot"].(map[string]any)
 	if execute["stage"] == ".post" {
 		t.Fatal("a standalone snapshot component cannot consist solely of .pre/.post jobs")
 	}
@@ -327,7 +327,7 @@ func TestSnapshotGitLabFilesAreForwardedBuiltAndKeptByTheJob(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	script, err := yaml.Marshal(jobs["Snapshot: plan"].(map[string]any)["script"])
+	script, err := yaml.Marshal(jobs["Check: snapshot plan"].(map[string]any)["script"])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +493,7 @@ func TestSnapshotGitLabPlanPassesEveryRunnerInput(t *testing.T) {
 		want[name+"="+string(encoded)] = true
 	}
 
-	script := yamlStrings(releaseDocumentBody(t, "templates/snapshot-images.yml")["Snapshot: plan"].(map[string]any)["script"])
+	script := yamlStrings(releaseDocumentBody(t, "templates/snapshot-images.yml")["Check: snapshot plan"].(map[string]any)["script"])
 	body := `jq() { :; }; snapshot_gitlab_generate() { :; }; snapshot_plan() { printf '%s\0' "$@"; }` + "\n" +
 		gitlabrender.Script(t, "templates/snapshot-images.yml", strings.Join(script, "\n"), given)
 

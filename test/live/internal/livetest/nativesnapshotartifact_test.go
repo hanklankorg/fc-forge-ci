@@ -555,7 +555,7 @@ include:
 			}
 		}
 
-		if job.Name != "Snapshot: plan" && job.Name != "Snapshot: context" && job.Name != "Snapshot: collect" {
+		if job.Name != "Check: snapshot plan" && job.Name != "Snapshot: context" && job.Name != "Snapshot: collect" {
 			continue
 		}
 
@@ -588,7 +588,7 @@ include:
 		t.Fatalf("GitLab snapshot pipeline %d ended %s", run.ID, run.Status)
 	}
 
-	receipt, file, err := checkSnapshotArtifactEvidence(trees["Snapshot: plan"]["snapshot-plan.json"], trees["Snapshot: collect"]["container-images.json"], trees["Snapshot: context"]["snapshot-context/files/snapshot-dependencies.json"], source, imageRepository)
+	receipt, file, err := checkSnapshotArtifactEvidence(trees["Check: snapshot plan"]["snapshot-plan.json"], trees["Snapshot: collect"]["container-images.json"], trees["Snapshot: context"]["snapshot-context/files/snapshot-dependencies.json"], source, imageRepository)
 	if err != nil {
 		t.Fatal(err)
 	}

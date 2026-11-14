@@ -109,7 +109,7 @@ rc_request_checkout() {
 }
 
 # rc_release_plan plans the checkout's release from the artifacts-config
-# declaration, as "Release: plan" did at the request: the arguments name what
+# declaration, as "Check: release plan" did at the request: the arguments name what
 # to write. Without a declaration it plans no bump and no family. The base
 # stages are the policy's, so the planned jobs name theirs as well.
 rc_release_plan() {
@@ -307,7 +307,7 @@ rc_family_handoff() {
 }
 
 # rc_planned_jobs writes the names of the release child's plan-driven jobs,
-# one a line, to $1, planned again from the checkout as "Release: plan"
+# one a line, to $1, planned again from the checkout as "Check: release plan"
 # planned them.
 rc_planned_jobs() {
   rc_release_plan --job-names-output "$1"

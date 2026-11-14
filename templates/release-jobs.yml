@@ -481,7 +481,7 @@ stages: [check, prepare, build, images, sign, publish]
     expire_in: 1 day
     paths: [_release-render/]
 # The plan's version jobs, one per toolchain family whose projects it bumps
-# with their native tool, named by "Release: plan" from these hidden jobs.
+# with their native tool, named by "Check: release plan" from these hidden jobs.
 # The tool rewrites the family's version files in its runtime image without
 # any credential; the release commit's job runs no build tool and takes only
 # the patches, after proving each a version substitution of a planned file.
@@ -557,7 +557,7 @@ stages: [check, prepare, build, images, sign, publish]
   script:
     - rc_prepare_release
 # The plan's build jobs, one per toolchain family it builds, named by
-# "Release: plan" from these hidden jobs: the build commands in the family's
+# "Check: release plan" from these hidden jobs: the build commands in the family's
 # runtime image on the release commit, with FORGE_CI_BUILD_FAMILY and
 # FORGE_CI_ARTIFACTS naming what to build. They hand on dist/ and
 # image-context/ without a manifest.
@@ -686,7 +686,7 @@ stages: [check, prepare, build, images, sign, publish]
     expire_in: 1 day
     paths: [_release-build/]
 # The base stage, the policy's base-stages: the jobs of one stage, named by
-# "Release: plan" from these hidden jobs with the stage and its parent as
+# "Check: release plan" from these hidden jobs with the stage and its parent as
 # literals, as it names the family jobs. A root is four jobs and a child
 # five. "Base: plan" runs the project's planner and "Base: build" its
 # Containerfiles; they hold no release secret. The others run nothing of the
@@ -1013,7 +1013,7 @@ stages: [check, prepare, build, images, sign, publish]
       artifacts: false
   script:
     - rc_cleanup_release
-# The plan's package job, named by "Release: plan" when an npm project lists
+# The plan's package job, named by "Check: release plan" when an npm project lists
 # forge-packages under publish-to: the packed packages of the signed release
 # go to this project's package registry once the release is published. The
 # job runs no consumer command, on the signer's runner, and holds one

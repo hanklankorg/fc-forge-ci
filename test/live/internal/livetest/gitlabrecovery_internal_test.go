@@ -86,7 +86,7 @@ func TestGitLabRecoveryPolicyDAG(t *testing.T) {
 		t.Fatal("engine pin drifted to the policy wrapper's commit")
 	}
 
-	if generated := includes[1].(map[string]any); generated["artifact"] != "_release-plan/release-families.yml" || generated["job"] != "Release: plan" {
+	if generated := includes[1].(map[string]any); generated["artifact"] != "_release-plan/release-families.yml" || generated["job"] != "Check: release plan" {
 		t.Fatalf("wrapper changed the generated jobs' source: %v", generated)
 	}
 

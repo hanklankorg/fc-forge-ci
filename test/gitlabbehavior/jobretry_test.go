@@ -25,7 +25,7 @@ var componentJob = []string{"$[[ inputs.job-name ]]"}
 // retriedJobs are the jobs and hidden jobs of each policy template that name
 // the retry: those that read or build and hand on files.
 var retriedJobs = map[string][]string{
-	"templates/release.yml": {"Release: plan"},
+	"templates/release.yml": {"Check: release plan"},
 	"templates/release-jobs.yml": {
 		"Check: signing access", "Check: publishing access", "Check: registry access",
 		"Check: release request", "Check: consumer checks", "Prepare: changelog",
@@ -34,7 +34,7 @@ var retriedJobs = map[string][]string{
 		".forge-ci-release-base-gate", ".forge-ci-release-exports", "Build: export amd64", "Build: export arm64",
 		"Images: plan", "Images: build amd64", "Images: build arm64", "Summary: release",
 	},
-	"templates/snapshot-images.yml": {"Snapshot: plan"},
+	"templates/snapshot-images.yml": {"Check: snapshot plan"},
 	// The single-job components: the check, the lints and the builds.
 	"templates/check.yml": componentJob, "templates/nanolinter.yml": componentJob, "templates/megalinter.yml": componentJob,
 	"templates/build-cargo.yml": componentJob, "templates/build-go.yml": componentJob, "templates/build-gradle.yml": componentJob,

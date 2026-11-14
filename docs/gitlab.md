@@ -167,7 +167,7 @@ images and pins, a validating regex. The inputs that are not obvious:
 | | `server-url` | As for `check`. |
 | | `registry` | This instance's container registry as `CI_REGISTRY` reads, `host[:port]`, for example `registry.gitlab.example.com`, or empty when the project has none; required. GitLab configures it apart from the web host, so it is stated, not derived. Each job refuses to start when `CI_REGISTRY` differs; the project's image repository is derived from it. |
 | | `job-image`, `signer-image` | Digest-pinned images for the key-free jobs, `Build: release files` among them, and for the signing jobs. |
-| | `runtime-image-java`, `-node`, `-go`, `-rust`, `-android` | Digest-pinned runtime images of the toolchain families: the plan's version and build jobs of each family run in its image. Empty, the default, for a family the plan has none of; a planned family without one is refused at `Release: plan`. See [Plan-driven release jobs](#plan-driven-release-jobs). |
+| | `runtime-image-java`, `-node`, `-go`, `-rust`, `-android` | Digest-pinned runtime images of the toolchain families: the plan's version and build jobs of each family run in its image. Empty, the default, for a family the plan has none of; a planned family without one is refused at `Check: release plan`. See [Plan-driven release jobs](#plan-driven-release-jobs). |
 | | `job-user` | UID or `UID:GID` the `job-image` jobs run as, for example `65532:65532` with a runtime image. Empty, the default, keeps the image's user. |
 | | `publication-project`, `publication-image-repository` | The separate project that owns final images, and the exact registry repository in it. |
 | | `cosign-public-key-sha256` | SHA-256 of your Cosign public key, written out. |
@@ -684,7 +684,7 @@ export:
 
 The release child is one pipeline, as GitHub's release is one run: checks,
 version, release commit, builds, images, signing and publication, its jobs
-handing their files on through native `needs:`. `Release: plan`, in the
+handing their files on through native `needs:`. `Check: release plan`, in the
 parent pipeline before the child starts, plans the request commit's
 `artifacts-config` (empty is `.forge-ci/artifacts.yml`) with
 `forge-ci plan gitlab-release-pipeline`, the planner GitHub's release uses,
@@ -692,7 +692,7 @@ and writes the child's plan-driven jobs. The child is two files: the policy's
 `templates/release-jobs.yml`, included with the policy's inputs as written,
 and that generated file, which only names jobs, each extending its family's
 hidden job in `release-jobs.yml`. It holds no policy value and no consumer
-string, so what a job may do stays in the pinned template. `Release: plan`
+string, so what a job may do stays in the pinned template. `Check: release plan`
 holds the job token alone and runs no consumer code.
 
 | Job | When | Image | Does |
@@ -703,7 +703,7 @@ holds the job token alone and runs no consumer code.
 
 The families are java (Maven, Gradle), node (npm), go, rust (Cargo) and
 android (Gradle Android); a family the plan uses needs its
-`runtime-image-<family>`, and `Release: plan` refuses the release without it.
+`runtime-image-<family>`, and `Check: release plan` refuses the release without it.
 A Cargo or Go artifact built `container-first` is built by its Containerfile
 (see [Files exported from a Containerfile](#files-exported-from-a-containerfile)),
 not by a family job, though it is still version-bumped.
@@ -942,7 +942,7 @@ See the [base-images example](../examples/base-images/README.md).
 A release with `base-stages` needs `base-plan` and `builder-job-image`, and a
 child stage needs `image-builder: buildah`: its build job holds no registry
 credential, and kaniko has no local store to load the verified parent into.
-`Release: plan` refuses the release otherwise, before anything runs.
+`Check: release plan` refuses the release otherwise, before anything runs.
 
 Each stage is these jobs, named after it, in the `build` stage:
 
@@ -1101,12 +1101,12 @@ variable and no registry credential.
 `examples/go-cli/gitlab/snapshot-files-policy.yml` is such an include, for the
 policy project.
 
-With the default `context-job: 'Snapshot: plan'`, the child pipeline builds
+With the default `context-job: 'Check: snapshot plan'`, the child pipeline builds
 the Go, Cargo, Maven, Gradle JVM and npm artifacts the images need from the
 planned commit. They run in the digest-pinned `artifact-job-image-go`,
 `-java`, `-node` or `-rust` image when given, else in `job-image`, which must
 then carry the toolchains. To build them yourself instead, set `context-job`
-to a job of the parent pipeline that needs `Snapshot: plan` and exports
+to a job of the parent pipeline that needs `Check: snapshot plan` and exports
 `_snapshot-context/` with `forge-ci` `gather-context`, as
 [workflows](workflows.md#snapshot-container-contract-all-three-forges)
 describes.
@@ -1210,7 +1210,7 @@ signer jobs then need `rekor.sigstore.dev` and `tuf-repo-cdn.sigstore.dev`;
 verify without the flag. Every release of one organization takes the same
 value, because a signature is verified the way it was made. The input
 decides, not `artifacts.yml`: a declaration that writes `sign.transparency`
-is not read, and `forge-ci doctor` and `Release: plan` warn about it.
+is not read, and `forge-ci doctor` and `Check: release plan` warn about it.
 [The transparency log](forgejo.md#the-transparency-log) explains what each
 value gives up.
 

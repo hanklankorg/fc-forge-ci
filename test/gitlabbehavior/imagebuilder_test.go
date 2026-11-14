@@ -644,7 +644,7 @@ func releaseJobsBodyFor(t *testing.T, builder string) map[string]any {
 	}
 
 	// The child pipeline as GitLab composes it from both includes, with
-	// every family job "Release: plan" can name.
+	// every family job "Check: release plan" can name.
 	maps.Copy(body, everyReleaseFamily.Jobs())
 
 	return body

@@ -86,7 +86,7 @@ func TestReleaseChecksRoutingAndPreparationBarrier(t *testing.T) {
 	}
 
 	// The plan's version jobs, whichever it names, wait for the checks and
-	// carry no rule of their own: "Release: plan" decides that they exist.
+	// carry no rule of their own: "Check: release plan" decides that they exist.
 	version := jobs[".forge-ci-release-version"]
 	if !reflect.DeepEqual(version.Needs, []any{
 		map[string]any{"job": "Check: consumer checks", "artifacts": false},

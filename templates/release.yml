@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
 # SPDX-License-Identifier: CC0-1.0
 # Include this component from a pinned, independently controlled CI policy.
-# "Release: plan" plans the release from the request's artifacts.yml and
+# "Check: release plan" plans the release from the request's artifacts.yml and
 # writes the child's plan-driven jobs: a version job per toolchain family the
 # plan bumps and a build job per family it builds, each naming its hidden job
 # in templates/release-jobs.yml. The release child is that file and those
@@ -37,7 +37,7 @@ spec:
       default: ''
     runtime-image-java:
       description: >-
-        Digest-pinned image of the java family (Maven, Gradle), such as forge-ci-runtime-java-25. The plan's Maven projects are version-bumped in it, its Maven and Gradle projects built in it. Empty, the default, when the plan has none; a planned family without its image is refused at "Release: plan".
+        Digest-pinned image of the java family (Maven, Gradle), such as forge-ci-runtime-java-25. The plan's Maven projects are version-bumped in it, its Maven and Gradle projects built in it. Empty, the default, when the plan has none; a planned family without its image is refused at "Check: release plan".
       regex: '^$|^[^[:space:]]+@sha256:[0-9a-f]{64}$'
       default: ''
     runtime-image-node:
@@ -203,7 +203,7 @@ spec:
 # consumer code: the engine, verified by checksum, reads artifacts.yml as
 # data. Its file names jobs and nothing else; the policy's values reach the
 # child only through the trigger's own include below.
-"Release: plan":
+"Check: release plan":
   stage: .pre
   tags: $[[ inputs.runner-tags ]]
   interruptible: false
@@ -354,7 +354,7 @@ release:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_TAG =~ /^release-request\/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/'
   needs:
-    - job: "Release: plan"
+    - job: "Check: release plan"
       artifacts: true
   trigger:
     strategy: mirror
@@ -418,4 +418,4 @@ release:
           enforce-reproducible-builds: $[[ inputs.enforce-reproducible-builds ]]
       # The plan's family jobs, each extending its hidden job of release-jobs.yml.
       - artifact: _release-plan/release-families.yml
-        job: "Release: plan"
+        job: "Check: release plan"

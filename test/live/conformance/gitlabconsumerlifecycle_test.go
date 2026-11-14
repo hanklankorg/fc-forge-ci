@@ -28,7 +28,7 @@ import (
 // The jobs of the policy's snapshot-images component that hold a snapshot's
 // frozen plan, in the parent pipeline, and its receipts, in the child.
 const (
-	gitlabSnapshotPlanJob    = "Snapshot: plan"
+	gitlabSnapshotPlanJob    = "Check: snapshot plan"
 	gitlabSnapshotCollectJob = "Snapshot: collect"
 )
 
