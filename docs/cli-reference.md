@@ -1324,7 +1324,7 @@ defaults used by bespoke Buildah workflows, not a full Dockerfile frontend.
 
 ### `forge-ci container extract-npm-tarball`
 
-extract a top-level \*.tgz / \*.tar.gz with --strip-components=1 then remove it (no-op when none present)
+extract a top-level \*.tgz / \*.tar.gz with --strip-components=1 then remove it; none present is an error
 
 ```
 EXAMPLE:

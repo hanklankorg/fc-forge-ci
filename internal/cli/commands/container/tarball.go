@@ -15,7 +15,7 @@ import (
 func extractNPMTarballCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "extract-npm-tarball",
-		Usage: "extract a top-level *.tgz / *.tar.gz with --strip-components=1 then remove it (no-op when none present)",
+		Usage: "extract a top-level *.tgz / *.tar.gz with --strip-components=1 then remove it; none present is an error",
 		Description: `EXAMPLE:
    # Run in the directory holding the packed tarball (takes no flags)
    forge-ci container extract-npm-tarball`,

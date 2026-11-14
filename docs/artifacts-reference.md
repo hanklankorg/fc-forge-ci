@@ -1597,8 +1597,9 @@ declared once as `project-type: maven`, `build-type: application`,
 `publish-container.yml` downloads and unpacks outputs into its build workspace.
 A Maven or Gradle artifact is restored in its `working-directory`, so its jar
 is under `<working-directory>/target/` or `<working-directory>/build/libs/` as
-on Forgejo and GitLab. The npm output is unpacked at the repository root, in
-`dist/`. Typical paths for the combined Maven/Gradle/NPM example, with the
+on Forgejo and GitLab. The npm package is unpacked at the repository root,
+with the directories its `package.json` selects: `dist/` in one project,
+`.output/` in the next. Typical paths for the combined Maven/Gradle/NPM example, with the
 Maven module in `services/api` and the Gradle project in `services/worker`,
 are:
 
