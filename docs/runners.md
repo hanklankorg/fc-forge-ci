@@ -41,7 +41,7 @@ on Forgejo and GitHub, a JSON array of labels passed as text and decoded with
 | image-build | `build-runner-tags-linux-amd64` of `release` and `snapshot-images`, which the release's consumer checks take too; required, never empty | `build-runs-on-linux-amd64` of `release-images.yml`, `base-images.yml`, `snapshot-images.yml` and `runtime-images.yml`; required when amd64 is planned; callers pass `CI_RUNNER_LABEL_CONTAINER` or the pool | `build-runs-on-linux-amd64`, default `["ubuntu-26.04"]` |
 | image-build-arm64 | `build-runner-tags-linux-arm64` of `release` and `snapshot-images`; required when arm64 is planned, never `[]` then | `build-runs-on-linux-arm64` of `release-images.yml`, `base-images.yml`, `snapshot-images.yml` and `runtime-images.yml`; required when arm64 is planned | `build-runs-on-linux-arm64`, default `["ubuntu-26.04-arm"]` |
 | signer | `signer-runner-tags` of `release`; default `[]`; a literal of the separately pinned policy project | `signer-runs-on` of `sign-and-publish-release.yml`, `sign-container-images.yml` and `runtime-images.yml`; required, set by the caller workflow | none: the hosted `ubuntu-26.04` literal of the layer, which no caller input or variable changes; `slsa-attestor.yml` is the exception |
-| macos | `runner-tags-darwin-arm64` of `publish-apple-appstore`; default `[saas-macos-medium-m1]` | none: the Forgejo layer has no Apple workflows | `runs-on-darwin-arm64` for unsigned Xcode and Swift lint, default `["macos-26"]`; signed Xcode and App Store publication stay on literal `macos-26` |
+| macos | `runner-tags-darwin-arm64` of `publish-apple-appstore`; default `[saas-macos-medium-m1]` | none: the Forgejo layer has no Apple workflows | `runs-on-darwin-arm64` for the Xcode build, signed or not, and Swift lint, default `["macos-26"]`; App Store publication stays on literal `macos-26` |
 
 Each job takes its own role's input, and none falls back to another's. On
 GitLab the kaniko image jobs take the build inputs as Buildah's do, and the
@@ -92,7 +92,7 @@ Every runner input is named `[role-]<keyword>[-<os>-<arch>]`:
 
 So `build-runner-tags-linux-arm64` chooses GitLab's arm64 image build runner
 and `runs-on-darwin-arm64` the GitHub macOS runner. GitHub has no `signer-`
-input: its signer jobs run on a hosted literal, with one exception named
+input: its signer jobs run on a hosted literal, with two exceptions named
 under [GitHub runners](#github-runners).
 
 On Forgejo, runner selection is a repository or organization variable that
@@ -168,7 +168,7 @@ a GitHub-hosted label and never falls back to another input.
 | `runs-on` | `["ubuntu-26.04"]` | ordinary jobs: builds, lint, plans, SBOMs, changelogs, summaries |
 | `build-runs-on-linux-amd64` | `["ubuntu-26.04"]` | the linux/amd64 legs of `publish-container.yml` and `snapshot-images.yml`; each leg reads the input of its own arch, so a missing or empty one fails the leg instead of falling back |
 | `build-runs-on-linux-arm64` | `["ubuntu-26.04-arm"]` | the linux/arm64 legs of the same image builds |
-| `runs-on-darwin-arm64` | `["macos-26"]` | the unsigned Xcode build and the Swift lint jobs |
+| `runs-on-darwin-arm64` | `["macos-26"]` | the Xcode build, signed or not, and the Swift lint jobs |
 
 A reusable workflow declares only the inputs its own jobs or callees use, and
 the orchestrators pass theirs on. An image build runner must permit the user
@@ -183,9 +183,16 @@ exception is `slsa-attestor.yml`, a public `workflow_call` workflow that signs
 with the operator's KMS key on the runner its caller names in `runs-on`. Hosted
 runners are VMs that GitHub starts fresh for one job and destroys after it,
 so no earlier job on the machine could have touched the signer; a runner the
-caller chooses could be persistent or shared. Signed Android and Xcode builds
-run as a separate `build-variants-signed` job on those hosted runners, while
-unsigned and library builds take `runs-on` and `runs-on-darwin-arm64`.
+caller chooses could be persistent or shared. A signed Android build runs as
+a separate `build-variants-signed` job on that hosted runner, while unsigned
+and library builds take `runs-on`.
+
+The signed Xcode build is the second exception: it runs on
+`runs-on-darwin-arm64`, as the unsigned one does. The Xcode version a project
+builds with decides the macOS image, `xcode-version` 27.1 is not on
+`macos-26`, and only the caller knows which image has it. Name a
+GitHub-hosted label there; a runner of your own that holds the signing
+certificate must be one you trust with it.
 
 ## Runner lending
 

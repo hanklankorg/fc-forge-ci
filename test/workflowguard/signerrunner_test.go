@@ -78,11 +78,25 @@ func TestGitHubSigningJobsRunOnALiteralRunner(t *testing.T) {
 
 			signing++
 
+			if want, ok := callerRunnerSigners[entry.Name()+"/"+name]; ok {
+				require.Equal(t, want, job.RunsOn.Value, "%s/%s signs on the runner of exactly this input", entry.Name(), name)
+
+				continue
+			}
+
 			require.True(t, githubSigningRunnerAllowed(job.RunsOn), "%s/%s holds signing material; its runs-on must be an approved hosted literal", entry.Name(), name)
 		}
 	}
 
 	require.Positive(t, signing, "no signing job found: the guard checks nothing")
+}
+
+// callerRunnerSigners are the signing jobs that run where their caller says,
+// each with the one expression it may use. The signed Xcode build is one: the
+// Xcode version a project builds with decides the macOS image, so the build
+// takes the caller's macOS runner whether it signs or not.
+var callerRunnerSigners = map[string]string{
+	"build-xcode-ios.yml/build-variants-signed": "${{ fromJSON(inputs['runs-on-darwin-arm64']) }}",
 }
 
 // githubSigningRunnerAllowed is the approved GitHub signer runner policy.

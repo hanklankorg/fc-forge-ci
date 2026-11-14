@@ -295,8 +295,10 @@ jobs:
     needs: [resolve-bootstrap]
     if: ${{ inputs['enable-code-signing'] }}
     name: Build Xcode iOS (signed)
-    # Holds the signing credentials: the hosted runner, never the caller's.
-    runs-on: macos-26
+    # Holds the signing credentials, on the macOS runner the caller names: the
+    # Xcode a project builds with decides the image, and only the caller
+    # knows it. docs/runners.md, GitHub runners.
+    runs-on: ${{ fromJSON(inputs['runs-on-darwin-arm64']) }}
     timeout-minutes: 60
     permissions:
       contents: read

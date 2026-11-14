@@ -271,6 +271,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The signed Xcode build of the GitHub layer runs on the caller's
+  `runs-on-darwin-arm64`, as the unsigned one does, where it was fixed to
+  `macos-26`. The Xcode version a project builds with decides the macOS
+  image: a release that set `xcode-version` to one `macos-26` does not hold
+  failed at `xcode-select` once it signed. A caller that names no runner
+  still gets `macos-26`. On GitLab the caller already names the macOS
+  runner.
 - The default lint floor (`required-lints`) is `secrets` on every forge; it
   was `secrets,sast`. SAST still runs where a project's plan lists it and its
   findings are reported, but they no longer fail a pull request by default.
