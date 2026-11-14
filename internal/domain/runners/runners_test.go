@@ -205,3 +205,58 @@ func TestAdmitWithoutInputsChecksNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAdmitSignerRunner(t *testing.T) {
+	t.Parallel()
+
+	const input = "runs-on-darwin-arm64"
+
+	for _, tc := range []struct {
+		name, runsOn, allowed string
+		// refusal is what the error names; empty admits.
+		refusal []string
+	}{
+		{name: "an empty list lets the caller choose", runsOn: `["self-hosted", "mac-mini"]`, allowed: `[]`},
+		{name: "an empty list does not read the runner", runsOn: `not json`, allowed: `[]`},
+		{name: "every label allowed", runsOn: `["macos-27"]`, allowed: `["macos-26", "macos-27"]`},
+		{name: "one label outside the list", runsOn: `["macos-26", "mac-mini"]`, allowed: `["macos-26", "macos-27"]`,
+			refusal: []string{input, runners.SignerAllowlistInput, "label mac-mini (allowed: macos-26, macos-27)"}},
+		{name: "labels are compared as written", runsOn: `["MacOS-26"]`, allowed: `["macos-26"]`, refusal: []string{"label MacOS-26 "}},
+		{name: "no label names no allowed runner", runsOn: `[]`, allowed: `["macos-26"]`, refusal: []string{input, "not a JSON array of runner labels"}},
+		{name: "a single label is not a list", runsOn: `"macos-26"`, allowed: `["macos-26"]`, refusal: []string{input, "not a JSON array of runner labels"}},
+		{name: "a runner group is not a list", runsOn: `{"group": "mac", "labels": ["macos-26"]}`, allowed: `["macos-26"]`, refusal: []string{"not a JSON array of runner labels"}},
+		{name: "malformed list", runsOn: `["macos-26"]`, allowed: `["macos-26"`, refusal: []string{runners.SignerAllowlistInput + " must be a JSON array"}},
+		{name: "empty value", runsOn: `["macos-26"]`, allowed: ``, refusal: []string{runners.SignerAllowlistInput + " must be a JSON array"}},
+		{name: "null list", runsOn: `["macos-26"]`, allowed: `null`, refusal: []string{runners.SignerAllowlistInput + " must be a JSON array"}},
+		{name: "a label that is no string", runsOn: `["macos-26"]`, allowed: `["macos-26", 27]`, refusal: []string{runners.SignerAllowlistInput + " must be a JSON array"}},
+		{name: "an empty label", runsOn: `["macos-26"]`, allowed: `["macos-26", " "]`, refusal: []string{runners.SignerAllowlistInput + " must be a JSON array"}},
+		{name: "a list that is one label", runsOn: `["macos-26"]`, allowed: `"macos-26"`, refusal: []string{runners.SignerAllowlistInput + " must be a JSON array"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			allowed, err := runners.SignerAllowlist(tc.allowed)
+			if err == nil {
+				err = runners.AdmitSignerRunner(input, tc.runsOn, allowed)
+			}
+
+			if len(tc.refusal) == 0 {
+				if err != nil {
+					t.Fatalf("refused: %v", err)
+				}
+
+				return
+			}
+
+			if !errors.Is(err, errs.ErrUsage) {
+				t.Fatalf("got %v, want a usage refusal", err)
+			}
+
+			for _, want := range tc.refusal {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("refusal %q does not name %q", err, want)
+				}
+			}
+		})
+	}
+}

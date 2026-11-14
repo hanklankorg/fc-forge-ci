@@ -213,6 +213,11 @@ func TestForgejoRunnerInputsPerWorkflow(t *testing.T) {
 }
 
 func isRunnerInput(name string) bool {
+	// The signer allowlist restricts a runner input and selects no runner.
+	if name == runners.SignerAllowlistInput {
+		return false
+	}
+
 	return strings.Contains(name, "runner") || strings.Contains(name, "runs-on") || name == "macos-version"
 }
 

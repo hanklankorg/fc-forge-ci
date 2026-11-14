@@ -82,6 +82,7 @@
   "container write-digest-marker": [".github/workflows/publish-container.yml",".github/workflows/self-runtime-container.yml"],
   "lint swift format-lint": [".github/workflows/lint-swift.yml"],
   "lint swift swiftlint": [".github/workflows/lint-swift.yml"],
+  "plan admit-signer-runner": [".github/workflows/release-build-stage.yml",".github/workflows/release-snapshot-build-stage.yml"],
   "plan pr": [".github/workflows/pullrequest-orchestrator.yml"],
   "plan release": [".github/workflows/release-orchestrator.yml"],
   "plan release-file-signing": [".forgejo/workflows/prepare-release.yml",".forgejo/workflows/sign-and-publish-release.yml"],

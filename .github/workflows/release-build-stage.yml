@@ -45,6 +45,11 @@ on:
         required: false
         default: '["macos-26"]'
         type: string
+      signer-runs-on-allowed:
+        description: "Administrator setting: JSON array of the runner labels a signing job on a caller-named runner, the signed Xcode build on runs-on-darwin-arm64, may run on; a runner with any other label is refused before the job starts. [] lets the caller choose. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/runners.md."
+        required: false
+        default: "[]"
+        type: string
       xcode-version:
         description: "Xcode version of the Xcode builds, in place of config.xcode-version of the declaration."
         required: false
@@ -161,6 +166,29 @@ jobs:
             --build-stage-plan-json="$BUILD_STAGE_PLAN_JSON" \
             --go-test-selections-json="$ADMIN_GO_SELECTIONS_JSON" \
             --cargo-test-selections-json="$ADMIN_CARGO_SELECTIONS_JSON"
+  admit-signer-runner:
+    name: "Check: signer runner"
+    needs: [resolve-bootstrap]
+    if: ${{ fromJson(inputs['build-stage-plan-json']).targets.xcode_ios.runs }}
+    # A hosted literal, not runs-on: this job admits a runner the caller
+    # named, so the caller does not name its own. docs/runners.md, GitHub
+    # runners.
+    runs-on: ubuntu-26.04
+    container:
+      image: ${{ inputs['runtime-image'] }}
+    permissions:
+      contents: read
+    steps:
+      - name: Admit the caller's runner for the signed Xcode build
+        env:
+          BUILD_STAGE_PLAN_JSON: ${{ inputs['build-stage-plan-json'] }}
+          RUNNER_DARWIN_ARM64: ${{ inputs['runs-on-darwin-arm64'] }}
+          SIGNER_RUNS_ON_ALLOWED: ${{ inputs['signer-runs-on-allowed'] }}
+        run: |
+          forge-ci plan admit-signer-runner \
+            --build-stage-plan-json="$BUILD_STAGE_PLAN_JSON" \
+            --runs-on-darwin-arm64="$RUNNER_DARWIN_ARM64" \
+            --signer-runs-on-allowed="$SIGNER_RUNS_ON_ALLOWED"
   maven:
     needs: [resolve-bootstrap, validate-test-selections]
     name: "Build: ${{ matrix.artifact.name }} (Maven)"
@@ -341,7 +369,7 @@ jobs:
       enable-build-sbom: ${{ contains(matrix.artifact.effective_sboms, 'build') }}
       runtime-image: ${{ inputs['runtime-image-android'] }}
   xcode-ios:
-    needs: [resolve-bootstrap, validate-test-selections]
+    needs: [resolve-bootstrap, validate-test-selections, admit-signer-runner]
     name: "Build: ${{ matrix.artifact.name }} (Xcode)"
     if: ${{ fromJson(inputs['build-stage-plan-json']).targets.xcode_ios.runs }}
     strategy:
@@ -380,8 +408,8 @@ jobs:
   # build jobs by design. Artifact-first cargo + go run here.
   summarize-build-stage:
     name: Summary
-    needs: [resolve-bootstrap, validate-test-selections, maven, npm, gradle, go, cargo, gradle-android, xcode-ios]
-    if: always() && needs.resolve-bootstrap.result == 'success' && needs.validate-test-selections.result == 'success'
+    needs: [resolve-bootstrap, validate-test-selections, admit-signer-runner, maven, npm, gradle, go, cargo, gradle-android, xcode-ios]
+    if: always() && needs.resolve-bootstrap.result == 'success' && needs.validate-test-selections.result == 'success' && (needs.admit-signer-runner.result == 'success' || needs.admit-signer-runner.result == 'skipped')
     runs-on: ${{ fromJSON(inputs['runs-on']) }}
     container:
       image: ${{ inputs['runtime-image'] }}

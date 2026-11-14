@@ -232,3 +232,59 @@ func (in *Inputs) refusal(name string, need Need) error {
 	return fmt.Errorf("the plan has %s on %s, but the %s runner input %s has no value: set %s to a JSON list that selects a %s runner, or leave %s out of the plan: %w",
 		need.Jobs, need.Platform, in.forge, name, name, need.Platform, need.Platform, errs.ErrUsage)
 }
+
+// SignerAllowlistInput is the GitHub layer's administrator setting that
+// restricts the runner a caller names for a job that holds signing material.
+// It is no runner input: it selects no runner.
+const SignerAllowlistInput = "signer-runs-on-allowed"
+
+// SignerAllowlist reads the value of SignerAllowlistInput, a JSON array of
+// runner labels. An empty array lets the caller choose; anything else that
+// is not an array of labels is refused, never read as empty.
+func SignerAllowlist(value string) ([]string, error) {
+	allowed, ok := labelList(value)
+	if !ok {
+		return nil, fmt.Errorf("%s must be a JSON array of runner labels, [] to let the caller choose, got %q: %w", SignerAllowlistInput, value, errs.ErrUsage)
+	}
+
+	return allowed, nil
+}
+
+// AdmitSignerRunner refuses the runner a caller named, in the input named
+// input, for a job that holds signing material, unless every label of it is
+// in allowed. An empty allowed admits every runner. The runner is refused
+// when its value runsOn is not a JSON array of labels: a single label or a
+// runner group cannot be compared with the list.
+func AdmitSignerRunner(input, runsOn string, allowed []string) error {
+	if len(allowed) == 0 {
+		return nil
+	}
+
+	labels, ok := labelList(runsOn)
+	if !ok || len(labels) == 0 {
+		return fmt.Errorf("%s restricts the runner of a job that holds signing material, but %s is not a JSON array of runner labels to compare with it, got %q: %w",
+			SignerAllowlistInput, input, runsOn, errs.ErrUsage)
+	}
+
+	refused := slices.DeleteFunc(slices.Clone(labels), func(label string) bool { return slices.Contains(allowed, label) })
+	if len(refused) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("%s names the runner of a job that holds signing material, and %s does not allow its label %s (allowed: %s): name an allowed runner in %s, or have the administrator add the label to %s: %w",
+		input, SignerAllowlistInput, strings.Join(refused, ", "), strings.Join(allowed, ", "), input, SignerAllowlistInput, errs.ErrUsage)
+}
+
+// labelList decodes a JSON array of non-empty labels. null is no array.
+func labelList(value string) ([]string, bool) {
+	var labels []string
+	if json.Unmarshal([]byte(value), &labels) != nil || labels == nil {
+		return nil, false
+	}
+
+	if slices.ContainsFunc(labels, func(label string) bool { return strings.TrimSpace(label) == "" }) {
+		return nil, false
+	}
+
+	return labels, true
+}

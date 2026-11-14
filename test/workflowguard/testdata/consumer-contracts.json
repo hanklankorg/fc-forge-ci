@@ -286,6 +286,11 @@
         "type": "string",
         "default": ""
       },
+      "signer-runs-on-allowed": {
+        "required": false,
+        "type": "string",
+        "default": "[]"
+      },
       "xcode-build-number": {
         "required": false,
         "type": "string",
@@ -479,6 +484,11 @@
         "required": false,
         "type": "string",
         "default": "none"
+      },
+      "signer-runs-on-allowed": {
+        "required": false,
+        "type": "string",
+        "default": "[]"
       },
       "use-ci-token": {
         "required": false,

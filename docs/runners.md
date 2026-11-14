@@ -63,17 +63,14 @@ Where the names differ, each has a reason:
   because only that workflow runs the image it built as a job container, on
   the image's own architecture.
 
-Who chooses the signer runner differs by forge. GitLab runs the signer jobs
-from a component the policy project includes, so their tags are that
-project's literals; a tag written as a `$VARIABLE` would let a project
-variable choose the runner that sees the credentials, and the components take
-tags only from inputs. GitHub fixes the hosted runner in the layer. Forgejo
-has no policy project: the caller's release workflow passes
-`signer-runs-on`, which only the job that reads the signing key runs on. The
-examples pass the repository variable `CI_RUNNER_LABEL` there, so whoever may
-set repository variables chooses that runner; an installation with a runner
-kept for signing writes its labels in the workflow instead, where a change is
-a reviewed commit.
+Who names the runner of a job that holds signing material differs by forge,
+and so does how an administrator restricts it:
+
+| Forge | Who names the runner | How the administrator restricts it |
+|---|---|---|
+| GitLab | The policy project. It includes the component that runs the signer jobs and writes `signer-runner-tags` as literals; the components take tags only from inputs. | By writing the tags. A tag written as a `$VARIABLE` would let a project variable choose the runner that sees the credentials. |
+| Forgejo | The caller's release workflow, in `signer-runs-on`, which only the job that reads the signing key runs on. The examples pass the repository variable `CI_RUNNER_LABEL`, so whoever may set repository variables chooses. | By writing the labels in the workflow, on a protected branch whose changes the administrator's code owners review. Forgejo has no policy project, and the layer has no list to hold the labels to. |
+| GitHub | The layer, as a hosted literal. Two jobs run where their caller says instead: the signed Xcode build, on `runs-on-darwin-arm64`, and `slsa-attestor.yml`, on its `runs-on`. | With `signer-runs-on-allowed`, in the entry point the consumer cannot change: the labels the signed Xcode build may run on. It does not reach `slsa-attestor.yml`, which its operator calls directly with the KMS key and the runner. See [GitHub runners](#github-runners). |
 
 GitHub threads its role-specific inputs through the orchestrators. Its
 signing, trust-root and publication jobs retain hosted literals; see
@@ -93,7 +90,8 @@ Every runner input is named `[role-]<keyword>[-<os>-<arch>]`:
 So `build-runner-tags-linux-arm64` chooses GitLab's arm64 image build runner
 and `runs-on-darwin-arm64` the GitHub macOS runner. GitHub has no `signer-`
 input: its signer jobs run on a hosted literal, with two exceptions named
-under [GitHub runners](#github-runners).
+under [GitHub runners](#github-runners). `signer-runs-on-allowed` is not a
+runner input: it selects no runner, and restricts the one a caller names.
 
 On Forgejo, runner selection is a repository or organization variable that
 the caller's workflow maps to the inputs. Every value is a JSON array of
@@ -193,6 +191,39 @@ builds with decides the macOS image, `xcode-version` 27.1 is not on
 `macos-26`, and only the caller knows which image has it. Name a
 GitHub-hosted label there; a runner of your own that holds the signing
 certificate must be one you trust with it.
+
+Who may name that runner is the administrator's choice. The release and
+snapshot orchestrators take `signer-runs-on-allowed`, a JSON array of the
+labels a signing job on a caller-named runner may run on. The default `[]`
+lets the caller choose. With a list, every label in `runs-on-darwin-arm64`
+must be in it, compared as written:
+
+```yaml
+    with:
+      runs-on-darwin-arm64: ${{ vars.MACOS_RUNNER }}
+      signer-runs-on-allowed: '["macos-26", "macos-27"]'
+```
+
+A runner with any other label is refused by the job `Check: signer runner`,
+which names the input, the refused labels and the allowed ones:
+
+```text
+runs-on-darwin-arm64 names the runner of a job that holds signing material, and signer-runs-on-allowed does not allow its label mac-mini (allowed: macos-26, macos-27): name an allowed runner in runs-on-darwin-arm64, or have the administrator add the label to signer-runs-on-allowed
+```
+
+That job runs `forge-ci plan admit-signer-runner` on the hosted
+`ubuntu-26.04`, which no input moves, and the Xcode build needs it: a refused
+runner never starts the job that receives the certificate. The list is read
+strictly. A value that is not a JSON array of labels is refused, and so is a
+`runs-on-darwin-arm64` that is a single label or a runner group while a list
+is set. A build stage whose Xcode builds are all unsigned is not held to the
+list, and a release with no Xcode build does not run the check.
+
+A job requires all of its labels, so list only labels that each select
+runners you trust: `self-hosted` in the list admits every runner of your own.
+Like the [enforcement settings](admin-policy.md#a-flag-alone-is-not-administrator-policy),
+the list is the administrator's only where the call is written in an entry
+point the consumer cannot change, and no variable or file supplies it.
 
 ## Runner lending
 

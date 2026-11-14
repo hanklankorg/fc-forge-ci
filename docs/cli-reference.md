@@ -3087,6 +3087,28 @@ EXAMPLE:
 
 typed release, snapshot-release, and pull-request plan composition
 
+### `forge-ci plan admit-signer-runner`
+
+refuse a signed Xcode build on a macOS runner the administrator's allowlist does not cover
+
+```
+The signed Xcode build of the GitHub layer holds the signing certificate on
+the runner its caller names in runs-on-darwin-arm64. The administrator
+restricts that runner with signer-runs-on-allowed, a JSON array of labels:
+every label the caller named must be in it. [] lets the caller choose.
+
+The layer runs this on a hosted runner the caller cannot name, in a job the
+build needs, so a refused runner never starts the job that receives the
+certificate. A build stage with no signed Xcode build is admitted; a list
+that is not a JSON array of labels never is.
+```
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--build-stage-plan-json` | release or snapshot build-stage plan, as the Xcode build's caller reads it (required) | string | `""` | n/a |
+| `--runs-on-darwin-arm64` | the macOS runner the caller named: a JSON array of labels (required) | string | `""` | n/a |
+| `--signer-runs-on-allowed` | the administrator's JSON array of labels a signing job on a caller-named runner may run on; [] lets the caller choose (required) | string | `""` | n/a |
+
 ### `forge-ci plan gitlab-build-pipeline`
 
 emit a GitLab child-pipeline YAML that fans the build stage out over the plan

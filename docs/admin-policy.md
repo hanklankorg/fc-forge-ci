@@ -230,6 +230,18 @@ invocation must run at least one test and produce a complete summary;
 anything else blocks. Review the list when the project's test executables
 change.
 
+## Signer runner allowlist (GitHub)
+
+The signed Xcode build holds the signing certificate on the macOS runner its
+caller names in `runs-on-darwin-arm64`. The GitHub release and snapshot
+orchestrators take `signer-runs-on-allowed`, a JSON array of the labels that
+runner may have; the default `[]` lets the caller choose. Set it in the
+**administrator's protected entry point**, like the enforcement settings: it
+is an input and nothing else, never read from a variable, the environment or
+the consumer's checkout. A runner outside the list is refused on a hosted
+runner before the build starts. See [GitHub runners](runners.md#github-runners),
+which also says who names the signer runner on GitLab and Forgejo.
+
 ## Effective policy output
 
 Inspect the effective policy with:

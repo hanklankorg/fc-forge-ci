@@ -147,6 +147,11 @@ on:
         required: false
         default: '["macos-26"]'
         type: string
+      signer-runs-on-allowed:
+        description: "Administrator setting: JSON array of the runner labels a signing job on a caller-named runner, the signed Xcode build on runs-on-darwin-arm64, may run on; a runner with any other label is refused before the job starts. [] lets the caller choose. Set it only in the administrator's entry point, since whoever writes this call can pass it; it is the administrator's only where that file is. See docs/runners.md."
+        required: false
+        default: "[]"
+        type: string
       xcode-version:
         description: "Xcode version of the Xcode builds, for a caller that keeps it outside the repository, such as a repository variable. Empty uses config.xcode-version of the declaration."
         required: false
@@ -421,6 +426,7 @@ jobs:
     with:
       runs-on: ${{ inputs['runs-on'] }}
       runs-on-darwin-arm64: ${{ inputs['runs-on-darwin-arm64'] }}
+      signer-runs-on-allowed: ${{ inputs['signer-runs-on-allowed'] }}
       xcode-version: ${{ inputs['xcode-version'] }}
       enforce-application-tests: ${{ inputs['enforce-application-tests'] }}
       snapshot-release-plan-json: ${{ needs.setup-snapshot.outputs.snapshot-release-plan-json }}

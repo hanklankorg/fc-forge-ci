@@ -4,6 +4,12 @@
 package pipeline
 
 import (
+	"encoding/json"
+	"fmt"
+	"slices"
+
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/provider"
 	"github.com/diggsweden/forge-ci/internal/domain/runners"
 	"github.com/diggsweden/forge-ci/internal/listval"
 )
@@ -42,4 +48,49 @@ func (plan ReleaseImagesPlan) RunnerNeeds() []runners.Need {
 	}
 
 	return needs
+}
+
+// AdmitSignedXcodeRunner checks the macOS runner the caller of the GitHub
+// layer named against the administrator's allowlist, for a build stage with a
+// signed Xcode build: the one job that holds signing material and runs where
+// its caller says. stagePlanJSON is the release or snapshot build-stage plan,
+// read as build-xcode-ios.yml's caller reads it: a build signs unless its
+// declaration says enable_code_signing false. runsOn and allowed are the
+// values of runs-on-darwin-arm64 and runners.SignerAllowlistInput. The list
+// is read whatever the plan holds, so a malformed one is never passed over.
+func AdmitSignedXcodeRunner(stagePlanJSON, runsOn, allowed string) error {
+	allowlist, err := runners.SignerAllowlist(allowed)
+	if err != nil {
+		return err
+	}
+
+	// The part the release and the snapshot build-stage plans share.
+	var stage struct {
+		Targets struct {
+			XcodeIOS *TargetPlan[PlannedArtifact] `json:"xcode_ios"`
+		} `json:"targets"`
+	}
+
+	if err := json.Unmarshal([]byte(stagePlanJSON), &stage); err != nil {
+		return fmt.Errorf("parse build-stage plan: %w: %w", err, errs.ErrInvalidConfig)
+	}
+
+	xcode := stage.Targets.XcodeIOS
+	if xcode == nil || xcode.Runs != (len(xcode.Items) > 0) {
+		return fmt.Errorf("the build-stage plan has no coherent xcode_ios target to read the signed builds from: %w", errs.ErrInvalidConfig)
+	}
+
+	signs := func(artifact PlannedArtifact) bool {
+		return artifact.XcodeIOS == nil || artifact.XcodeIOS.EnableCodeSigning == nil || *artifact.XcodeIOS.EnableCodeSigning
+	}
+	if !slices.ContainsFunc(xcode.Items, signs) {
+		return nil
+	}
+
+	input, err := runners.Input(provider.ForgeGitHub, runners.Ordinary, macOSPlatform)
+	if err != nil {
+		return err
+	}
+
+	return runners.AdmitSignerRunner(input, runsOn, allowlist)
 }

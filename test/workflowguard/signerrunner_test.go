@@ -6,12 +6,14 @@ package workflowguard
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/diggsweden/forge-ci/internal/domain/runners"
 	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
 )
 
@@ -97,6 +99,118 @@ func TestGitHubSigningJobsRunOnALiteralRunner(t *testing.T) {
 // takes the caller's macOS runner whether it signs or not.
 var callerRunnerSigners = map[string]string{
 	"build-xcode-ios.yml/build-variants-signed": "${{ fromJSON(inputs['runs-on-darwin-arm64']) }}",
+}
+
+// A signing job that runs where its caller says is held to the administrator's
+// allowlist: every job that calls its workflow needs a job on an approved
+// hosted literal, which no caller names, that admits the same runner input
+// against signer-runs-on-allowed, for the plan the call takes its builds
+// from. Every caller of a workflow that takes the list forwards its own, so
+// the value the administrator gives the entry point is the one compared.
+func TestCallerRunnerSignersAreHeldToTheAllowlist(t *testing.T) {
+	t.Parallel()
+
+	const allowlist = "${{ inputs['" + runners.SignerAllowlistInput + "'] }}"
+
+	type job struct {
+		If     string            `yaml:"if"`
+		Needs  yaml.Node         `yaml:"needs"`
+		Uses   string            `yaml:"uses"`
+		With   map[string]string `yaml:"with"`
+		RunsOn yaml.Node         `yaml:"runs-on"`
+		Steps  []struct {
+			Run string            `yaml:"run"`
+			Env map[string]string `yaml:"env"`
+		} `yaml:"steps"`
+	}
+
+	workflows := map[string]map[string]job{}
+
+	for _, path := range yamlFiles(t, ".github/workflows") {
+		var workflow struct {
+			Jobs map[string]job `yaml:"jobs"`
+		}
+
+		require.NoError(t, yaml.Unmarshal(reporoot.ReadFile(t, path), &workflow), path)
+
+		workflows[path] = workflow.Jobs
+	}
+
+	admitted, forwarded := 0, 0
+
+	for signer, runsOn := range callerRunnerSigners {
+		file, _, _ := strings.Cut(signer, "/")
+		// ${{ fromJSON(inputs['name']) }} is the runner of the input name.
+		input := strings.TrimSuffix(strings.TrimPrefix(runsOn, "${{ fromJSON(inputs['"), "']) }}")
+		runner := "${{ inputs['" + input + "'] }}"
+
+		for path, jobs := range workflows {
+			for name, call := range jobs {
+				if call.Uses != "./.github/workflows/"+file {
+					continue
+				}
+
+				require.Equal(t, runner, call.With[input], "%s/%s passes %s the runner that was admitted", path, name, file)
+
+				admits := false
+
+				// A job that needs one job may write it as a scalar; an
+				// admission is one of several, in a list.
+				for _, node := range call.Needs.Content {
+					needed := node.Value
+
+					admission := jobs[needed]
+					if len(admission.Steps) != 1 || !strings.Contains(admission.Steps[0].Run, "forge-ci plan admit-signer-runner") {
+						continue
+					}
+
+					step := admission.Steps[0]
+
+					require.True(t, githubSigningRunnerAllowed(admission.RunsOn), "%s/%s admits the signer runner; its runs-on must be an approved hosted literal", path, needed)
+					require.Contains(t, step.Run, `--`+input+`="$RUNNER_DARWIN_ARM64"`)
+					require.Equal(t, runner, step.Env["RUNNER_DARWIN_ARM64"], "%s/%s admits the runner the build runs on", path, needed)
+					require.Contains(t, step.Run, `--`+runners.SignerAllowlistInput+`="$SIGNER_RUNS_ON_ALLOWED"`)
+					require.Equal(t, allowlist, step.Env["SIGNER_RUNS_ON_ALLOWED"], "%s/%s admits against the administrator's list", path, needed)
+					require.Contains(t, step.Run, `--build-stage-plan-json="$BUILD_STAGE_PLAN_JSON"`)
+
+					plan := strings.TrimSuffix(strings.TrimPrefix(step.Env["BUILD_STAGE_PLAN_JSON"], "${{ "), " }}")
+					require.True(t, strings.HasPrefix(plan, "inputs['"), "%s/%s reads its plan from an input", path, needed)
+					require.Contains(t, call.If, "fromJson("+plan+").targets.", "%s/%s takes its builds from the plan that was admitted", path, name)
+
+					admits = true
+				}
+
+				require.True(t, admits, "%s/%s calls %s, whose %s signs on the caller's runner, without needing a job that admits that runner against %s",
+					path, name, file, signer, runners.SignerAllowlistInput)
+
+				admitted++
+			}
+		}
+	}
+
+	require.Positive(t, admitted, "no caller of a caller-runner signer found: the guard checks nothing")
+
+	for path, jobs := range workflows {
+		// This repository's own pipelines are entry points: they have no
+		// caller to take the list from, and keep the default.
+		if strings.HasPrefix(filepath.Base(path), "self-") {
+			continue
+		}
+
+		for name, call := range jobs {
+			callee := strings.TrimPrefix(call.Uses, "./")
+			if workflows[callee] == nil || !slices.Contains(declaredInputs(t, callee), runners.SignerAllowlistInput) {
+				continue
+			}
+
+			require.Equal(t, allowlist, call.With[runners.SignerAllowlistInput], "%s/%s forwards its own %s to %s", path, name, runners.SignerAllowlistInput, callee)
+			require.Contains(t, declaredInputs(t, path), runners.SignerAllowlistInput, "%s takes the list it forwards", path)
+
+			forwarded++
+		}
+	}
+
+	require.Positive(t, forwarded, "no forwarded allowlist found: the guard checks nothing")
 }
 
 // githubSigningRunnerAllowed is the approved GitHub signer runner policy.

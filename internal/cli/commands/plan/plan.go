@@ -23,6 +23,7 @@ func New() *cli.Command {
 		Name:  "plan",
 		Usage: "typed release, snapshot-release, and pull-request plan composition",
 		Commands: []*cli.Command{
+			admitSignerRunnerCmd(),
 			validateTestSelectionsCmd(),
 			releaseCmd(),
 			releaseExportsCmd(),
