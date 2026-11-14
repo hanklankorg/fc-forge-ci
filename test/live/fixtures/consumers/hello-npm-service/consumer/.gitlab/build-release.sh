@@ -28,8 +28,8 @@ node)
   package="example-org-hello-npm-service-${RELEASE_VERSION}.tgz"
   test -f "${package}"
   # The image is built from the package unpacked, as Forgejo's release-images
-  # builds it. The build script's dist/ is in the package, and dist/ is the
-  # hand-off, so the build's copy goes.
+  # builds it. The build script's .output/ is in the package; dist/ is the
+  # hand-off alone.
   rm -rf -- dist image-context
   mkdir -p dist image-context
   tar -xzf "${package}" --strip-components=1 -C image-context

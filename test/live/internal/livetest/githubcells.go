@@ -75,19 +75,24 @@ var GitHubCells = []GitHubCell{
 	{Demo: "hello-npm-package", Event: TrialRelease, Settings: []string{githubBump}, Set: SetMedium},
 	{Demo: "hello-cargo-cli", Event: TrialRelease, Settings: []string{githubBump}, Set: SetMedium},
 	{Demo: "hello-go-cli", Event: TrialRelease, Set: SetMedium},
-	{Demo: "hello-meta", Event: TrialRelease, Set: SetMedium},
+	// hello-meta's release stands on a history of some hundreds of commits,
+	// the push GitHub answers with no run unless it arrives in portions.
+	{Demo: "hello-meta", Event: TrialRelease, Settings: []string{"history=600"}, Set: SetMedium},
 	{Demo: "hello-maven-reactor", Event: TrialRelease, Settings: []string{githubBump}, Set: SetMedium},
 	{Demo: "hello-cargo-workspace", Event: TrialRelease, Settings: []string{githubBump}, Set: SetMedium},
 	{Demo: "hello-monorepo", Event: TrialRelease, Settings: []string{githubBump}, Set: SetMedium},
 	{Demo: "hello-android-library", Event: TrialRelease, Settings: []string{githubBump}, Set: SetMedium},
+	// The unsigned archive, with the Xcode version the workflow passes.
+	{Demo: "hello-ios", Event: TrialRelease, Settings: []string{githubBump}, Set: SetMedium},
 
 	// The variants: a release with no SBOM bundle, one that prepares no
 	// commit, one signed with GPG, one whose files GPG signs and whose image
-	// Cosign does, and a pull request from a fork.
+	// Cosign does, one that stays a draft, and a pull request from a fork.
 	{Demo: "hello-go-cli", Event: TrialRelease, Settings: []string{"fixtures=test/live/github-no-sboms", "workflow=release-no-sboms.yml"}, Set: SetMedium},
 	{Demo: "hello-go-cli", Event: TrialRelease, Settings: []string{"fixtures=test/live/github-no-changelog", "workflow=release-no-changelog.yml"}, Set: SetMedium},
 	{Demo: "hello-go-cli", Event: TrialRelease, Settings: []string{"fixtures=test/live/github-gpg", "workflow=release-gpg.yml"}, Set: SetMedium},
 	{Demo: "hello-go-service", Event: TrialRelease, Settings: []string{"fixtures=test/live/github-gpg-files", "workflow=release-gpg-files.yml", "image=my-service"}, Set: SetMedium},
+	{Demo: "hello-meta", Event: TrialRelease, Settings: []string{"fixtures=test/live/github-draft", "workflow=release-draft.yml"}, Set: SetMedium},
 	{Demo: "hello-npm-package", Event: TrialPullRequest, Settings: []string{"fixtures=test/live/github-fork", "head=fork"}, Set: SetMedium, Only: visibilityPublic},
 
 	// The small set's development build, the one below the full set.

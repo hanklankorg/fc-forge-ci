@@ -220,6 +220,81 @@ func TestHistoryPortionsEndEverySizeCommitsAndAtTheLast(t *testing.T) {
 	}
 }
 
+// A trial with a synthetic history stages that many empty commits under the
+// rendered commit, which still holds the consumer's files, so its push to
+// main goes in portions as a demo's does.
+func TestGitHubConsumerStandsOnItsSyntheticHistory(t *testing.T) {
+	t.Parallel()
+
+	trial := (&GitHubTrial{tb: t}).WithSyntheticHistory(7)
+	root := t.TempDir()
+	trial.git(root, "init", "--quiet", "--initial-branch=main", ".")
+
+	for name, body := range map[string]string{
+		"README.md": "consumer\n",
+		"test/live/github/workflows/pullrequest.yml": fixturePullRequest,
+	} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	trial.git(root, "add", "--all")
+	trial.commit(root, consumerBaseMessage, "")
+
+	dir, _ := trial.stageConsumer(root, "test/live/github", trialEngine, nil)
+
+	history := strings.Fields(trial.git(dir, "rev-list", "--first-parent", "--reverse", "HEAD^"))
+	if len(history) != 7 || strings.TrimSpace(trial.git(dir, "rev-parse", "HEAD")) != strings.TrimSpace(trial.git(dir, "rev-parse", "refs/heads/main")) {
+		t.Fatalf("the rendered commit stands on %d commits of main, want 7", len(history))
+	}
+
+	if files := trial.git(dir, "ls-tree", "-r", "--name-only", "HEAD^"); strings.TrimSpace(files) != "" {
+		t.Fatalf("a synthetic commit holds files: %q", files)
+	}
+
+	if files := trial.git(dir, "ls-tree", "-r", "--name-only", "HEAD"); !strings.Contains(files, "README.md") || !strings.Contains(files, ".github/workflows/pullrequest.yml") {
+		t.Fatalf("the rendered commit lost the consumer: %q", files)
+	}
+
+	if got := historyPortions(history, 3); len(got) != 3 || got[2] != history[6] {
+		t.Fatalf("the history goes in portions ending at %v", got)
+	}
+}
+
+// history= is a release's, a count of commits within the limit.
+func TestParseGitHubTrialSettings_History(t *testing.T) {
+	t.Parallel()
+
+	settings, err := ParseGitHubTrialSettings(TrialRelease, []string{"history=600"})
+	if err != nil || settings.History != 600 {
+		t.Fatalf("history=600: %+v, %v", settings, err)
+	}
+
+	if ordinary, err := ParseGitHubTrialSettings(TrialRelease, nil); err != nil || ordinary.History != 0 {
+		t.Fatalf("a release has a history without being asked: %+v, %v", ordinary, err)
+	}
+
+	for event, word := range map[string]string{
+		TrialPullRequest: "history=600", TrialDevRelease: "history=600", TrialLifecycle: "history=600", TrialRelease: "history=0",
+	} {
+		if _, err := ParseGitHubTrialSettings(event, []string{word}); !errors.Is(err, errs.ErrValidation) {
+			t.Errorf("%s %s accepted: %v", event, word, err)
+		}
+	}
+
+	for _, word := range []string{"history=many", "history=-3", "history=2001"} {
+		if _, err := ParseGitHubTrialSettings(TrialRelease, []string{word}); !errors.Is(err, errs.ErrValidation) {
+			t.Errorf("%s accepted: %v", word, err)
+		}
+	}
+}
+
 func TestGitHubConsumerPreservesTrackedIgnoredSource(t *testing.T) {
 	t.Parallel()
 	trial := &GitHubTrial{tb: t}

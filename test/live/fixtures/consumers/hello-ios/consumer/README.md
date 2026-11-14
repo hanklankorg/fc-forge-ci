@@ -13,8 +13,14 @@ A branch workflow dispatch additionally probes Forge CI's unsigned archive
 path. The signing-capable build leaf refuses PR context; the fixture preserves
 that guard rather than bypassing it. Neither path proves signed IPA export.
 
+The release workflow runs the same unsigned archive through the release
+orchestrator and passes the Xcode version itself, as a project does from a
+repository variable. The declaration names an Xcode no runner has, so the
+release proves the caller's version is the one used. With code signing off
+the build exports no IPA and the release offers no file.
+
 On a Mac, generate with `xcodegen generate`, then run `xcodebuild test -project
 HelloTrial.xcodeproj -scheme HelloTrial -destination '<available simulator>'`.
 Select a real available simulator rather than treating archive success as a
-test result. The demo has no signed release and no development publishing,
+test result. The demo has no signed build and no development publishing,
 and runs only on GitHub: the Forgejo and GitLab labs have no macOS runner.

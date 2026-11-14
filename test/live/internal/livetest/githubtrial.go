@@ -83,6 +83,9 @@ type GitHubTrial struct {
 	// history makes PushConsumer push the consumer's own history under the
 	// rendered commit: WithHistory.
 	history bool
+	// synthetic is the number of empty commits PushConsumer puts under the
+	// rendered commit: WithSyntheticHistory.
+	synthetic int
 	// files are trial-made files PushConsumer commits beside the rendered
 	// workflows, by repository path: WithFile.
 	files map[string]string
@@ -251,6 +254,17 @@ func (trial *GitHubTrial) WithHistory() *GitHubTrial {
 	return &shown
 }
 
+// WithSyntheticHistory returns the trial putting count empty commits under
+// the rendered commit, so its push to main is the push of a history a
+// project makes and a trial's one commit is not. GitHub answers such a push
+// with no run (seedHistory); this is the trial that would show it.
+func (trial *GitHubTrial) WithSyntheticHistory(count int) *GitHubTrial {
+	shown := *trial
+	shown.synthetic = count
+
+	return &shown
+}
+
 // WithFile makes PushConsumer commit content at path in the consumer, in
 // place of any file the fixture has there: material the trial itself makes,
 // such as the allowed-signers line of a key it generated.
@@ -350,7 +364,7 @@ func (trial *GitHubTrial) PushConsumer(repo, root, fixtures string, engine GitHu
 
 	dir, workflows := trial.stageConsumer(root, fixtures, engine, overrides)
 
-	if trial.history {
+	if trial.history || trial.synthetic > 0 {
 		trial.seedHistory(repo, dir)
 	}
 
@@ -369,6 +383,10 @@ func (trial *GitHubTrial) stageConsumer(root, fixtures string, engine GitHubEngi
 	source, staged, err := githubStage(trial.tb.Context(), git, root, trial.tempDir("objects"), dir, trial.history)
 	if err != nil {
 		trial.tb.Fatalf("livetest: stage consumer: %v", err)
+	}
+
+	if trial.synthetic > 0 {
+		trial.syntheticHistory(dir, trial.synthetic)
 	}
 
 	// Bind native draft policy inputs in the imported SHA-1 tree, never the
@@ -1728,6 +1746,27 @@ func (trial *GitHubTrial) seedHistory(repo, dir string) {
 	}); err != nil {
 		trial.tb.Fatalf("livetest: turn Actions back on in %s: %v", repo, err)
 	}
+}
+
+// syntheticHistory puts count empty commits on main of the staged
+// repository at dir, for the rendered commit to stand on.
+func (trial *GitHubTrial) syntheticHistory(dir string, count int) {
+	trial.tb.Helper()
+
+	// An index file that does not exist is an empty index: its tree is the
+	// empty one, written without touching the consumer's staged entries.
+	emptyIndex := "GIT_INDEX_FILE=" + filepath.Join(trial.tempDir("history"), "index")
+	tree := strings.TrimSpace(trial.run(dir, append(trial.gitEnv(), emptyIndex), "git", "-C", dir, "write-tree"))
+
+	var parent []string
+
+	for number := 1; number <= count; number++ {
+		message := fmt.Sprintf("chore: seed the history, commit %d of %d\n\n%s", number, count, consumerSignOff)
+		args := []string{"-c", "user.name=" + consumerAuthor, "-c", "user.email=" + requestSigner, gitCommitTree, tree, "-m", message}
+		parent = []string{"-p", strings.TrimSpace(trial.git(dir, append(args, parent...)...))}
+	}
+
+	trial.git(dir, "update-ref", "refs/heads/main", parent[1])
 }
 
 // historyPortions returns the commits of a first-parent history, oldest

@@ -5,9 +5,10 @@ container image that runs it, in the fictional `@example-org` scope.
 
 `src/server.js` answers `GET /` with a greeting and `GET /health` with `ok`,
 on port 8080, with Node's own `http` module and no dependencies. `npm test`
-runs the tests with `node --test`; `npm run build` writes `dist/`, the files
-the package ships. The `Containerfile` copies that `dist/` from the packed
-package into a Node runtime image.
+runs the tests with `node --test`; `npm run build` writes `.output/`, the
+files the package ships, a hidden directory as Nuxt and Nitro projects have.
+The `Containerfile` copies that `.output/` from the packed package into a
+Node runtime image.
 
 One release publishes three outputs: the packed package and its Build SBOM
 as signed files of the release, the same package in the forge's package

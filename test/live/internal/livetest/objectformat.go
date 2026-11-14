@@ -16,6 +16,7 @@ import (
 const (
 	gitAdd           = "add"
 	gitCommitCommand = "commit"
+	gitCommitTree    = "commit-tree"
 	objectFormatSHA1 = "sha1"
 )
 

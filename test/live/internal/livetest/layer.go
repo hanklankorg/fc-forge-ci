@@ -421,7 +421,7 @@ func (git layerGit) snapshot(ctx context.Context, root string) (string, error) {
 		}
 	}
 
-	return git.run(ctx, root, "commit-tree", "-m", "livetest: the layer under test", "HEAD^{tree}")
+	return git.run(ctx, root, gitCommitTree, "-m", "livetest: the layer under test", "HEAD^{tree}")
 }
 
 // requireClean refuses a checkout in which what, a path or "." for all of

@@ -85,6 +85,8 @@ var runSetExceptions = []struct {
 }{
 	{"hello-ios", TrialPullRequest, []string{SetMedium, SetFull}, []string{forgeForgejo, forgeGitLab},
 		"the iOS build needs a macOS runner, which only hosted GitHub has"},
+	{"hello-ios", TrialRelease, []string{SetMedium, SetFull}, []string{forgeForgejo, forgeGitLab},
+		"the iOS build needs a macOS runner, which only hosted GitHub has"},
 	{"hello-go-service", TrialRelease, []string{SetMedium, SetFull}, []string{forgeGitLab},
 		"the demo ships no GitLab release build (.gitlab/build-release.sh)"},
 	{"hello-android", TrialPullRequest, []string{SetMedium, SetFull}, []string{forgeForgejo},

@@ -784,7 +784,7 @@ sets differ between forges only where a forge cannot run a demo's event:
 
 | Demo and event | Not on | Why |
 |---|---|---|
-| `hello-ios` pull request | Forgejo, GitLab | The build needs a macOS runner, which only hosted GitHub has |
+| `hello-ios` pull request and release | Forgejo, GitLab | The build needs a macOS runner, which only hosted GitHub has |
 | `hello-go-service` release | GitLab | The demo has no GitLab release build |
 | `hello-android`, `hello-android-library` pull request | Forgejo | Missing: the demos' Forgejo workflows and an Android job image on Forgejo |
 | `hello-android-library` release | Forgejo, GitLab | Missing: a Forgejo release workflow and a GitLab release build |
@@ -2361,7 +2361,9 @@ one push of 542 commits, request tags pushed up to 35 seconds later went
 unanswered, and the projects with more than 500 commits never released. A
 GitHub demo therefore pushes the consumer's history to main in portions of
 100 commits with Actions turned off, turns Actions on again and pushes the
-rendered commit alone, as a trial does. A project that moves a long history
+rendered commit alone, as a trial does. A release trial with
+`history=<commits>` goes the same way over empty commits it makes, which is
+how the run sets keep this covered. A project that moves a long history
 to a new GitHub repository meets the same: push the request tag a minute
 after the history, or push it again.
 
@@ -2553,18 +2555,19 @@ them from a prepared directory with the engine prepared once; see
 
 A variant is a fixture root of its own, named with `fixtures=`, so that an
 ordinary trial never installs a second workflow for the same event. The
-`hello-go-cli` and `hello-npm-package` demos carry these:
+`hello-go-cli`, `hello-meta` and `hello-npm-package` demos carry these:
 
 ```text
 just test-live-consumer github /absolute/hello-go-cli release org=<org-id> fixtures=test/live/github-no-sboms workflow=release-no-sboms.yml
 just test-live-consumer github /absolute/hello-go-cli release org=<org-id> fixtures=test/live/github-no-changelog workflow=release-no-changelog.yml
 just test-live-consumer github /absolute/hello-go-cli release org=<org-id> fixtures=test/live/github-gpg workflow=release-gpg.yml
+just test-live-consumer github /absolute/hello-meta release org=<org-id> fixtures=test/live/github-draft workflow=release-draft.yml
 just test-live-consumer github /absolute/hello-npm-package pull-request org=<org-id> fixtures=test/live/github-fork head=fork
 ```
 
-Both release variants are the GPG release with one input changed: files,
-commit and tag are signed with the trial's disposable GPG key, so neither
-writes to a public transparency log.
+The two `hello-go-cli` variants with one input changed are the GPG release:
+files, commit and tag are signed with the trial's disposable GPG key, so
+neither writes to a public transparency log.
 
 No hosted trial writes to a public transparency log. A shipped GitHub release
 is keyless, as its example is, and the product then writes every signature to
@@ -2586,6 +2589,13 @@ that Fulcio, and reports itself not covered otherwise.
   `changelog.skipversionbump: true`: the release prepares no commit, so `main`
   must stay at the pushed commit, with no changelog or project file touched,
   and the final tag must name it.
+- `release.draft: true` (`github-draft`): the release stays a draft, which
+  GitHub offers under no tag address, so it is found in the release list;
+  the signed final tag exists as for a published release.
+- `history=<commits>` (releases only, at most 2000): the trial puts that
+  many empty commits under the consumer's one, so its push to main is the
+  push of a history. `hello-meta`'s release runs with `history=600`; see
+  [Showing a consumer](#showing-a-consumer).
 - `head=fork` (`github-fork`, pull requests only): the change is pushed to a
   fork of the consumer in the same organization, deleted by its ID afterwards,
   and opened against the consumer. The fixture's build enables private

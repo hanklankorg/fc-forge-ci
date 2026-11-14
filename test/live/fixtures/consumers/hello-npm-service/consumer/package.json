@@ -3,16 +3,16 @@
   "version": "0.1.0",
   "description": "A tiny Node HTTP service for showing Forge CI on Forge Lab",
   "license": "CC0-1.0",
-  "main": "dist/server.js",
+  "main": ".output/server.js",
   "files": [
-    "dist/"
+    ".output/"
   ],
   "engines": {
     "node": ">=24"
   },
   "scripts": {
-    "build": "rm -rf dist && cp -R src dist",
-    "start": "node dist/server.js",
+    "build": "rm -rf .output && cp -R src .output",
+    "start": "node .output/server.js",
     "test": "node --test"
   }
 }

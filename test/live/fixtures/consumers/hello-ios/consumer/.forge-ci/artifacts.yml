@@ -7,9 +7,18 @@ artifacts:
     sboms: none
     publish-to: []
     config:
-      xcode-version: "26.6"
+      # No hosted runner has this Xcode, on purpose: the release workflow
+      # passes the version (xcode-version), and a release that fell back to
+      # this one fails where it selects Xcode.
+      xcode-version: "1.0"
       project: HelloTrial.xcodeproj
       scheme: HelloTrial
       configuration: Release
       use-xcodegen: true
       enable-code-signing: false
+# GPG signs the release commit and tag: OpenPGP has no transparency log, so a
+# hosted trial writes to no public one.
+sign:
+  method: gpg
+git-signing:
+  method: gpg

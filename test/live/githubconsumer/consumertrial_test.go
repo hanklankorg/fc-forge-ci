@@ -351,9 +351,17 @@ func runTrial(t *testing.T, trial *livetest.GitHubTrial, engine livetest.GitHubE
 	var repo string
 
 	if demo != "" {
+		if settings.History > 0 {
+			t.Fatalf("history=%d is a trial's setting: a demo pushes the history of its checkout", settings.History)
+		}
+
 		trial = trial.WithHistory()
 		repo = trial.NewDemoRepository(demo)
 	} else {
+		if settings.History > 0 {
+			trial = trial.WithSyntheticHistory(settings.History)
+		}
+
 		repo = trial.NewConsumerRepository(consumerRepositoryName(root, visibility.Name, settings.Event, settings.Workflow), visibility.Private)
 	}
 

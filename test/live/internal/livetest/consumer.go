@@ -1297,7 +1297,7 @@ func (consumer Consumer) commitChange(ctx context.Context, base, keyPath string)
 	}
 
 	return consumer.commit(ctx, consumerChangeMessage,
-		"-c", "gpg.format=ssh", "-c", "user.signingkey="+keyPath, "commit-tree", "-S", "-p", base)
+		"-c", "gpg.format=ssh", "-c", "user.signingkey="+keyPath, gitCommitTree, "-S", "-p", base)
 }
 
 func (consumer Consumer) stageFile(ctx context.Context, mode, path, content string) error {
@@ -1358,10 +1358,10 @@ func (consumer Consumer) commit(ctx context.Context, message string, commitTree 
 	git := consumer.git
 
 	if len(commitTree) == 0 {
-		commitTree = []string{"commit-tree"}
+		commitTree = []string{gitCommitTree}
 
 		if consumer.history {
-			commitTree, message = []string{"commit-tree", "-p", consumer.Commit}, demoBaseMessage
+			commitTree, message = []string{gitCommitTree, "-p", consumer.Commit}, demoBaseMessage
 		}
 	}
 

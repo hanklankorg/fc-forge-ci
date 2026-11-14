@@ -10,6 +10,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"golang.org/x/crypto/nacl/box"
@@ -302,8 +303,16 @@ type GitHubTrialSettings struct {
 	Image           string            // comma-separated released image names to verify, or ""
 	Platforms       string            // RELEASE_PLATFORMS of the engine and the consumer
 	Fork            bool              // head=fork: the pull request comes from a fork of the consumer
+	History         int               // history=<commits>: that many commits under the consumer's, as a project has
 	Overrides       map[string]string // input: value lines set in the rendered fixtures
 }
+
+// settingHistory gives a release trial a history: commits under the
+// consumer's one, which GitHubTrial.WithSyntheticHistory makes.
+const (
+	settingHistory     = "history"
+	githubHistoryLimit = 2000
+)
 
 // githubDefaultPlatforms is what a trial builds unless RELEASE_PLATFORMS
 // states otherwise, as in the lab trials: each
@@ -427,7 +436,7 @@ func (settings *GitHubTrialSettings) parseWord(word string) error {
 
 	if !found || value == "" || (!settings.setPlatforms(key, value) && !settings.set(key, value)) {
 		return fmt.Errorf("setting %q: want workflow=<file> (not lifecycle), pull-request-workflow=<file> (release, for a demo), fixtures=<dir>, version=X.Y.Z or image=<name[,name...]> (release or lifecycle), "+
-			"head=fork (pull-request), RELEASE_PLATFORMS=linux/amd64[,linux/arm64], or nanolinter-image=/megalinter-image=<reference>: %w", word, errs.ErrValidation)
+			"head=fork (pull-request), history=<commits> (release), RELEASE_PLATFORMS=linux/amd64[,linux/arm64], or nanolinter-image=/megalinter-image=<reference>: %w", word, errs.ErrValidation)
 	}
 
 	return nil
@@ -464,6 +473,8 @@ func (settings *GitHubTrialSettings) set(key, value string) bool {
 		settings.Image = value
 
 		return release && validTrialImageNames(value)
+	case key == settingHistory:
+		return settings.setHistory(value)
 	case key == "head":
 		// The one head a pull request has besides the consumer's own branch.
 		settings.Fork = true
@@ -476,6 +487,16 @@ func (settings *GitHubTrialSettings) set(key, value string) bool {
 	default:
 		return false
 	}
+}
+
+// setHistory takes the number of commits a release trial puts under the
+// consumer's one. A push of some hundreds is what GitHub answers with no
+// run; the limit keeps a trial's staging short.
+func (settings *GitHubTrialSettings) setHistory(value string) bool {
+	count, err := strconv.Atoi(value)
+	settings.History = count
+
+	return settings.Event == TrialRelease && err == nil && count > 0 && count <= githubHistoryLimit
 }
 
 // setWorkflow takes the workflow a trial runs, or the pull-request workflow a

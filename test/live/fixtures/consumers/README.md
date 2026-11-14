@@ -54,7 +54,7 @@ reasons follow the table.
 | hello-maven | PR, release | PR, release | MR, release | Maven JAR |
 | hello-maven-service | PR, release | PR, release | MR, release | Executable JAR and runtime image |
 | hello-gradle-service | PR, release | PR, release | MR, release | Executable JAR built by Gradle and its runtime image; an artifact-first snapshot of a Gradle producer |
-| hello-npm-service | PR, release | PR, release | MR, release | One release of signed files, the package in the forge's registry and the image |
+| hello-npm-service | PR, release | PR, release | MR, release | One release of signed files, the package in the forge's registry and the image; the package ships `.output/`, a hidden directory, not `dist/` |
 | hello-cargo-container | PR, release | PR, release | MR, release | Container-first Rust binary |
 | hello-cargo-workspace | PR, release | PR, release | MR, release | Shared version; two binaries and images |
 | hello-npm-package | PR, release | PR, release | MR, release | Publishable scoped package; offline packed-package installation test; an npm workspace released as its root package, the member bundled in the tarball |
@@ -62,7 +62,7 @@ reasons follow the table.
 | hello-cargo-cli | PR, release | PR, release | MR, release | Cargo without a container: an artifact-first binary with its Build SBOM; a library crate in the workspace, linked and not released |
 | hello-android | PR/build | - | MR | Demo flavor, unit tests, unsigned release APK/AAB |
 | hello-android-library | PR/build, release | - | MR | Library module: unit tests, Android Lint, release AAR; the release publishes its Maven publication to the package registry |
-| hello-ios | PR/build | - | - | macOS ARM64 simulator tests, XcodeGen app, unsigned archive |
+| hello-ios | PR/build, release | - | - | macOS ARM64 simulator tests, XcodeGen app, unsigned archive; the release archives unsigned with the Xcode version its workflow passes, and offers no file |
 | hello-go-cli | PR, release | PR, release | MR, release | The go-cli example as shipped; `cmd/my-cli` layout. `test/live/forgejo-packages` holds the example's GoReleaser release with distro packages, which a Forgejo release trial stages over the root with `fixtures=` |
 | hello-go-service | PR, release | PR, release | MR | The go-service example as shipped; binaries and runtime image |
 | hello-gradle | PR, release | PR, release | MR, release | The gradle-app example as shipped; reproducible Java library jars |

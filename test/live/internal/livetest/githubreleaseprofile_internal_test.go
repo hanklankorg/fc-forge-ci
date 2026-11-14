@@ -98,6 +98,41 @@ func TestGitHubReleaseProfile_AnUnsignedXcodeReleaseOffersNoFiles(t *testing.T) 
 	}
 }
 
+// hello-ios releases an unsigned archive, which offers no file, with the
+// Xcode version its workflow passes: the declaration names another, so a
+// release that fell back to the declared one cannot pass.
+func TestGitHubReleaseProfile_TheIOSFixtureProvesTheCallersXcodeVersion(t *testing.T) {
+	consumer := filepath.Join(reporoot.Path(t), "test/live/fixtures/consumers/hello-ios/consumer")
+	dir := t.TempDir()
+
+	workflow, err := os.ReadFile(filepath.Join(consumer, "test/live/github/workflows/release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	declaration, err := os.ReadFile(filepath.Join(consumer, ".forge-ci/artifacts.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writeProfileFile(t, dir, ".forge-ci/artifacts.yml", string(declaration))
+	writeProfileFile(t, dir, ".github/workflows/release.yml", string(workflow))
+
+	if got, err := githubReleaseProfileOf(dir, "release.yml"); err != nil || !got.NoFiles || !got.Prepares {
+		t.Fatalf("the unsigned Xcode release: %+v, %v", got, err)
+	}
+
+	declared, err := config.Parse(declaration)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	passed := `      xcode-version: "26.6"` + "\n"
+	if version := declared.Artifacts[0].XcodeIOS.XcodeVersion; !strings.Contains(string(workflow), passed) || version == "26.6" || version == "" {
+		t.Fatalf("the workflow must pass Xcode 26.6 and the declaration name another, got %q", version)
+	}
+}
+
 func TestGitHubReleaseProfile_Inputs(t *testing.T) {
 	const declared = "artifacts:\n  - name: app\n    project-type: go\n    working-directory: .\n"
 
@@ -366,6 +401,7 @@ func TestGitHubVariantFixturesRenderAndAdmit(t *testing.T) {
 		{"hello-go-cli", "test/live/github-no-sboms", "release-no-sboms.yml", "release.sboms: none"},
 		{"hello-go-cli", "test/live/github-no-changelog", "release-no-changelog.yml", `changelog-creator: ""`},
 		{"hello-go-service", "test/live/github-gpg-files", "release-gpg-files.yml", "artifacts-config: .forge-ci/artifacts-gpg-files.yml"},
+		{"hello-meta", "test/live/github-draft", "release-draft.yml", "release.draft: true"},
 		{"hello-npm-package", "test/live/github-fork", "pullrequest.yml", "private-dependencies: true"},
 	} {
 		t.Run(tc.fixtures, func(t *testing.T) {

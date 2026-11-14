@@ -1021,7 +1021,7 @@ test-live-image kind forge_lab budget="" cpus="" memory_mib="" compiler_jobs="":
 # the organization names apart from the repository (npm, Maven or an
 # image-name), when they run one after the other. Other
 # settings: workflow=<file> (not lifecycle), fixtures=<dir>, version=X.Y.Z and
-# image=<name> (release and lifecycle), RELEASE_PLATFORMS=<linux/amd64 and/or
+# image=<name> (release and lifecycle), history=<commits> (release), RELEASE_PLATFORMS=<linux/amd64 and/or
 # linux/arm64> (default linux/amd64), nanolinter-image= and
 # megalinter-image=<reference>. The lifecycle runs the consumer's
 # pullrequest.yml, release-dev.yml and release.yml fixtures in one repository.
