@@ -366,7 +366,7 @@ Each release adds its archives, binaries and packages, and a forge's storage
 quota fills. With `release-asset-retention: <N>` on `release-orchestrator.yml`
 the release keeps every file of the newest N published releases. After it publishes, each older release
 keeps its checksum manifests (`checksums.sha256` among them), signatures,
-bundles and SBOMs, the `*-sboms.tar.gz` SBOM bundle included, and loses the
+bundles, provenance statement and SBOMs, the `*-sboms.tar.gz` SBOM bundle included, and loses the
 rest; the releases, their notes and their tags stay. Empty, the default,
 deletes nothing. With reproducible builds a deleted file can be rebuilt from
 its tag and checked against the kept checksums and against its own
@@ -464,6 +464,14 @@ unless `sign.files-method` gives the files their own (below):
 | `sigstore` | None: keyless, the workflow's OIDC identity through public Fulcio and Rekor | `.bundle` sidecars bound to the workflow identity. The recommended default; see the [example](../examples/signing/sigstore-keyless/). |
 | `kms` | A KMS key reference (AWS, GCP, Azure, Vault/OpenBao, PKCS#11) | `.bundle` sidecars; the token exchange with the KMS is the caller's. See the [OpenBao example](../examples/signing/openbao-kms/). |
 | `kms` with `key: env://COSIGN_KEY` | A Cosign key pair: the private key in `RELEASE_COSIGN_PRIVATE_KEY`, its passphrase in `RELEASE_COSIGN_PASSPHRASE` | `.bundle` sidecars, verified against the public key. The GitLab and Forgejo layers sign the same way. See the [example](../examples/signing/cosign-key/). |
+
+**Provenance of the release files.** The signing job writes
+`slsa-provenance.intoto.json`, a SLSA v1.0 provenance statement of the files
+the checksums list, and signs it like the other release files: `.asc` in the
+`gpg` job, `.bundle` in the Cosign job. It is published with the release,
+read back with it, and kept on old releases. A release without files and one
+with `sign-artifacts: false` have none. See
+[Verify the provenance statement of a release](verification.md#verify-the-provenance-statement-of-a-release).
 
 **GPG for files, Cosign for images.** `gpg` cannot sign an image or its SLSA
 provenance, so a release with both files and images that wants `.asc`

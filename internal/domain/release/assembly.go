@@ -24,6 +24,10 @@ type Assembly struct {
 	SBOMs          []AssemblyFile `json:"sboms,omitempty"`
 	ChecksumFile   string         `json:"checksum_file"`
 	SBOMBundleFile string         `json:"sbom_bundle_file,omitempty"`
+	// ProvenanceFile is where the signing job writes the SLSA provenance
+	// statement of the checksums file's subjects. The assembly never holds
+	// it unsigned: a release without files has none.
+	ProvenanceFile string `json:"provenance_file,omitempty"`
 }
 
 // AssemblyFile is one staged file in a release assembly.

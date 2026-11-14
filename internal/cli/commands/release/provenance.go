@@ -75,19 +75,28 @@ validated against the release files, as "release sign" does, before the
 statement is written. A checksums file that is also named, by the flag or its
 variable, is refused.
 
+With --assembly the subjects come from the checksums file of the unsigned
+release assembly, admitted as "release validate-assembly" admits it, and the
+statement is written where the assembly names it, unsigned: "release sign"
+signs it there with the release files. A release without files gets none.
+
 EXAMPLES:
    # Subjects from a named checksums file, signed keyless
    forge-ci release provenance --checksums-file checksums.sha256 --method sigstore --output provenance.json
 
    # Subjects from the release file manifest's validated checksums file
    forge-ci release provenance --checksums-from-manifest --manifest dist/release-files.json \
-     --output dist/slsa-provenance.intoto.json --method kms --key env://COSIGN_KEY`,
+     --output dist/slsa-provenance.intoto.json --method kms --key env://COSIGN_KEY
+
+   # The statement of a release assembly, for "release sign" to sign
+   forge-ci release provenance --assembly .forge-ci/release-assembly.json --ref-name v1.2.3 --source-sha <commit>`,
 		Flags: append(
 			[]cli.Flag{
 				&cli.StringFlag{Name: flagChecksumsFile, Value: cliio.StdSentinel, Sources: planfile.Vars(planScopeProvenance, flagChecksumsFile, "CHECKSUMS_FILE"), Usage: "GoReleaser checksums file (\"-\" reads stdin)"},
 				&cli.BoolFlag{Name: flagChecksumsFromManifest, Sources: planfile.Vars(planScopeProvenance, flagChecksumsFromManifest), Usage: "use and validate the single checksums file from --manifest; conflicts with a named --checksums-file"},
 				&cli.StringFlag{Name: flagManifest, Value: apprelease.DefaultReleaseFilesManifest, Sources: planfile.Vars(planScopeProvenance, flagManifest, "RELEASE_FILES_MANIFEST"), Usage: "release file manifest used by --checksums-from-manifest; a manifest named here must exist"},
 				&cli.StringFlag{Name: flagDistDir, Value: defaultDistDir, Sources: planfile.Vars(planScopeProvenance, flagDistDir), Usage: "dist directory used with --manifest"},
+				&cli.StringFlag{Name: flagAssembly, Sources: cli.EnvVars("RELEASE_ASSEMBLY"), Usage: "unsigned release assembly manifest: its checksums file gives the subjects and it names the output; a release without files gets no statement. Conflicts with --checksums-file, --checksums-from-manifest, --output, --method and --key"},
 				&cli.StringFlag{Name: "go-sum", Value: "go.sum", Sources: planfile.Vars(planScopeProvenance, "go-sum", "GO_SUM_FILE"), Usage: "go.sum for resolved module deps (empty string to skip)"},
 				&cli.StringFlag{Name: "profile", Value: provenanceProfileGenericName, Sources: planfile.Vars(planScopeProvenance, "profile"), Usage: "provenance profile: generic or forgejo-actions"},
 				&cli.StringFlag{Name: "workflow", Sources: planfile.Vars(planScopeProvenance, "workflow", "FORGEJO_WORKFLOW"), Usage: "workflow filename/path, relative with no '..' step or control character: the forgejo-actions profile's workflow object; the generic profile records it verbatim as externalParameters.workflow"},
@@ -129,9 +138,15 @@ EXAMPLES:
 					return err
 				}
 
-				checksums, err := readProvenanceChecksums(cmd)
+				checksums, output, err := provenanceChecksumsAndOutput(cmd)
 				if err != nil {
 					return err
+				}
+
+				if len(checksums) == 0 && cmd.String(flagAssembly) != "" {
+					_, _ = fmt.Fprintln(os.Stderr, "The release has no file: no provenance statement")
+
+					return nil
 				}
 
 				in.Checksums = bytes.NewReader(checksums)
@@ -144,7 +159,6 @@ EXAMPLES:
 					return err
 				}
 
-				output := cmd.String(flagOutput)
 				if err := cliio.WriteFile(output, out, 0o644); err != nil {
 					return err
 				}
@@ -205,6 +219,38 @@ func provenanceContext(ctx context.Context, cmd *cli.Command, dependencies *deps
 		Profile:       profile,
 		Workflow:      cmd.String("workflow"),
 	}, nil
+}
+
+// provenanceChecksumsAndOutput returns the checksums the subjects come from
+// and where the statement is written. With --assembly both are the assembly's:
+// the checksums file `release validate-assembly` admits, and the statement's
+// path in the release files, where `release sign` signs it with them.
+func provenanceChecksumsAndOutput(cmd *cli.Command) ([]byte, string, error) {
+	assembly := cmd.String(flagAssembly)
+	if assembly == "" {
+		checksums, err := readProvenanceChecksums(cmd)
+
+		return checksums, cmd.String(flagOutput), err
+	}
+
+	// The assembly names the subjects and the output, and `release sign`
+	// signs the statement: a second source, place or signer is refused.
+	conflict := ""
+	if cmd.Bool(flagChecksumsFromManifest) {
+		conflict = flagChecksumsFromManifest
+	}
+
+	for _, flag := range []string{flagChecksumsFile, flagOutput, "method", "key"} {
+		if explicitValue(cmd, flag) != "" {
+			conflict = flag
+		}
+	}
+
+	if conflict != "" {
+		return nil, "", fmt.Errorf("provenance: --%s conflicts with --%s: %w", flagAssembly, conflict, errs.ErrInvalidConfig)
+	}
+
+	return apprelease.AssemblyProvenance(assembly)
 }
 
 // readProvenanceChecksums returns the checksums the statement's subjects are

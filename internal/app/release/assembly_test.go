@@ -135,6 +135,7 @@ func TestAssemble_StagesEveryProducerLayoutIntoOneManifest(t *testing.T) {
 		},
 		ChecksumFile:   "release-files/checksums.sha256",
 		SBOMBundleFile: "release-files/assets/my-app-1.2.3-sboms.tar.gz",
+		ProvenanceFile: "release-files/slsa-provenance.intoto.json",
 	}
 
 	for path, wantBody := range map[string]string{
@@ -242,6 +243,7 @@ func TestAssembly_EveryStageTakesItsFilesFromTheManifest(t *testing.T) {
 		},
 		ChecksumFile:   assemblyChecksumPath,
 		SBOMBundleFile: assemblySBOMBundlePath,
+		ProvenanceFile: assemblyProvenancePath,
 	})
 
 	t.Run("bundles the SBOMs the manifest lists, under the name it chose", func(t *testing.T) {
@@ -291,7 +293,39 @@ func TestAssembly_EveryStageTakesItsFilesFromTheManifest(t *testing.T) {
 		}
 	})
 
-	t.Run("signs the assets, the SBOM bundle and the checksum file", func(t *testing.T) {
+	t.Run("names the checksums and the place of the provenance statement", func(t *testing.T) {
+		checksums, statement, err := apprelease.AssemblyProvenance(domainrelease.DefaultAssemblyFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if statement != assemblyProvenancePath {
+			t.Errorf("statement path = %q, want %q", statement, assemblyProvenancePath)
+		}
+
+		// The subjects are the files the checksums list, as on the forges
+		// that take them from the release file manifest.
+		body, err := apprelease.GenerateProvenance(apprelease.ProvenanceInput{
+			Checksums:     bytes.NewReader(checksums),
+			RepositoryURL: "https://forge.example/owner/repo", Ref: "v1.2.3",
+			SHA:       "0123456789abcdef0123456789abcdef01234567",
+			BuilderID: "https://forge.example/builder", InvocationID: "https://forge.example/run/1",
+			StartedOn: "2026-01-01T00:00:00Z",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, subject := range []string{`"name":"app.jar"`, `"name":"my-app-1.2.3-sboms.tar.gz"`} {
+			if !strings.Contains(strings.ReplaceAll(string(body), " ", ""), subject) {
+				t.Errorf("statement lacks subject %s:\n%s", subject, body)
+			}
+		}
+
+		fsys.WriteFile(assemblyProvenancePath, body)
+	})
+
+	t.Run("signs the assets, the SBOM bundle, the checksum file and the statement", func(t *testing.T) {
 		signer := &fakeSigner{}
 		if err := apprelease.SignArtifacts(context.Background(), signer, &bytes.Buffer{}, apprelease.SignInput{AssemblyFile: domainrelease.DefaultAssemblyFile}); err != nil {
 			t.Fatal(err)
@@ -301,6 +335,7 @@ func TestAssembly_EveryStageTakesItsFilesFromTheManifest(t *testing.T) {
 			"release-files/assets/app.jar",
 			assemblySBOMBundlePath,
 			assemblyChecksumPath,
+			assemblyProvenancePath,
 		}
 		if !slices.Equal(signer.signed, wantSigned) {
 			t.Errorf("signed = %v, want %v", signer.signed, wantSigned)
@@ -324,6 +359,8 @@ func TestAssembly_EveryStageTakesItsFilesFromTheManifest(t *testing.T) {
 			assemblySBOMBundlePath + ".asc",
 			assemblyChecksumPath,
 			assemblyChecksumPath + ".asc",
+			assemblyProvenancePath,
+			assemblyProvenancePath + ".asc",
 		}
 		if assets := prov.CreateReleaseCalls()[0].Spec.Assets; !slices.Equal(assets, wantAssets) {
 			t.Errorf("release assets = %v, want %v", assets, wantAssets)
@@ -383,6 +420,7 @@ func releaseAssemblyTransferJSON(t *testing.T) string {
 const (
 	assemblyChecksumPath   = "release-files/checksums.sha256"
 	assemblySBOMBundlePath = "release-files/assets/my-app-1.2.3-sboms.tar.gz"
+	assemblyProvenancePath = "release-files/slsa-provenance.intoto.json"
 )
 
 // checksumEntry is one line of a sha256sum manifest.

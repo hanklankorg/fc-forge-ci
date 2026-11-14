@@ -4510,6 +4510,11 @@ validated against the release files, as "release sign" does, before the
 statement is written. A checksums file that is also named, by the flag or its
 variable, is refused.
 
+With --assembly the subjects come from the checksums file of the unsigned
+release assembly, admitted as "release validate-assembly" admits it, and the
+statement is written where the assembly names it, unsigned: "release sign"
+signs it there with the release files. A release without files gets none.
+
 EXAMPLES:
    # Subjects from a named checksums file, signed keyless
    forge-ci release provenance --checksums-file checksums.sha256 --method sigstore --output provenance.json
@@ -4517,6 +4522,9 @@ EXAMPLES:
    # Subjects from the release file manifest's validated checksums file
    forge-ci release provenance --checksums-from-manifest --manifest dist/release-files.json \
      --output dist/slsa-provenance.intoto.json --method kms --key env://COSIGN_KEY
+
+   # The statement of a release assembly, for "release sign" to sign
+   forge-ci release provenance --assembly .forge-ci/release-assembly.json --ref-name v1.2.3 --source-sha <commit>
 ```
 
 | Flag | Description | Type | Default | Env vars |
@@ -4525,6 +4533,7 @@ EXAMPLES:
 | `--checksums-from-manifest` | use and validate the single checksums file from --manifest; conflicts with a named --checksums-file | bool | `false` | n/a |
 | `--manifest` | release file manifest used by --checksums-from-manifest; a manifest named here must exist | string | `"dist/release-files.json"` | `$RELEASE_FILES_MANIFEST` |
 | `--dist-dir` | dist directory used with --manifest | string | `"dist"` | n/a |
+| `--assembly` | unsigned release assembly manifest: its checksums file gives the subjects and it names the output; a release without files gets no statement. Conflicts with --checksums-file, --checksums-from-manifest, --output, --method and --key | string | `""` | `$RELEASE_ASSEMBLY` |
 | `--go-sum` | go.sum for resolved module deps (empty string to skip) | string | `"go.sum"` | `$GO_SUM_FILE` |
 | `--profile` | provenance profile: generic or forgejo-actions | string | `"generic"` | n/a |
 | `--workflow` | workflow filename/path, relative with no '..' step or control character: the forgejo-actions profile's workflow object; the generic profile records it verbatim as externalParameters.workflow | string | `""` | `$FORGEJO_WORKFLOW` |

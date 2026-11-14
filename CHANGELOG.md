@@ -53,6 +53,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the GitHub image build, is replaced by this one. The monorepo example's
   `Containerfile.multi-artifact` copies the built artifacts where it
   compiled them again.
+- A GitHub release carries a signed SLSA provenance statement of its
+  files, `slsa-provenance.intoto.json`, as a Forgejo and a GitLab release
+  do. Its subjects are the files the checksums list. The signing job writes
+  it from the release assembly it admitted, before it loads a key, and
+  signs it with the release files: `.asc` for `sign.method: gpg` and for
+  `sign.files-method: gpg`, `.bundle` for `sigstore` and `kms`. No job
+  gains a permission, and a release whose files are signed with GPG still
+  writes nothing about them to the transparency log. The statement is
+  published, read back by `release validate-published` and kept by
+  `release-asset-retention`. A release without files and one with
+  `sign-artifacts: false` have none. `forge-ci release provenance` takes
+  `--assembly` (`$RELEASE_ASSEMBLY`) for this, and the release assembly
+  names the statement in `provenance_file`.
+  [Verify the provenance statement of a release](docs/verification.md#verify-the-provenance-statement-of-a-release)
+  shows the check on each forge.
 - The GitHub release orchestrator takes `xcode-build-number`, the build
   number of the release's Xcode builds, from a caller that computes one for
   each release. `config.build-number` of the declaration is a fixed value,

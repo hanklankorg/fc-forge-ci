@@ -33,6 +33,7 @@ import (
 	"github.com/google/go-github/v91/github"
 
 	"github.com/diggsweden/forge-ci/internal/adapters/httpretry"
+	apprelease "github.com/diggsweden/forge-ci/internal/app/release"
 	"github.com/diggsweden/forge-ci/internal/domain/config"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
@@ -1494,6 +1495,12 @@ func (trial *GitHubTrial) checkReleaseFiles(repo string, tree GitHubConsumerTree
 
 	if err := releaseSBOMBundleGap(profile.SBOMBundle, assets); err != nil {
 		trial.tb.Errorf("the release %s: %v", final, err)
+	}
+
+	// The signer writes the statement and signs it as it signs the files, so
+	// releaseSignatureGaps above already held it to the declared method.
+	if _, offered := assets[apprelease.ProvenanceStatementName]; !offered {
+		trial.tb.Errorf("the release %s offers no SLSA provenance statement %s", final, apprelease.ProvenanceStatementName)
 	}
 
 	trial.tb.Logf("release %s: sign method %s, git-signing %s, renders a changelog %t, prepares a commit %t, SBOM bundle expectation %d; %d assets, %d Cosign bundles verified against %s, %d GPG signatures verified against %s",

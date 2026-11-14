@@ -167,6 +167,7 @@ func Assemble(out io.Writer, in AssembleInput) (*domainrelease.Assembly, error) 
 		SBOMs:          collector.sboms,
 		ChecksumFile:   filepath.ToSlash(filepath.Join(releaseFilesDir, domainrelease.ChecksumsFile)),
 		SBOMBundleFile: filepath.ToSlash(filepath.Join(assetsDir, domainsbom.BundleName(in.ProjectName, version.StripVPrefix(in.Version)))),
+		ProvenanceFile: filepath.ToSlash(filepath.Join(releaseFilesDir, ProvenanceStatementName)),
 	}
 
 	if err := writeAssembly(outputFile, asm); err != nil {
@@ -792,10 +793,58 @@ func readAssembly(path string) (domainrelease.Assembly, error) {
 // ValidateAssembly admits an unsigned assembly without loading signing material.
 // Assembly paths are not discovery hints: every declared input must exist, and
 // checksums must cover exactly the public assets and the generated SBOM bundle.
+//
+// The provenance statement is the signing job's own output, written from the
+// checksums this admits, so an assembly that already holds one is refused.
 func ValidateAssembly(path string) error {
-	_, err := validatedSigningAssembly(path, nil)
+	if _, err := validatedSigningAssembly(path, nil); err != nil {
+		return err
+	}
 
-	return err
+	asm, err := readAssembly(path)
+	if err != nil {
+		return err
+	}
+
+	if asm.ProvenanceFile == "" {
+		return nil
+	}
+
+	if _, err := os.Lstat(asm.ProvenanceFile); !errors.Is(err, fs.ErrNotExist) {
+		if err != nil {
+			return fmt.Errorf("inspect assembly signer output: %w", err)
+		}
+
+		return fmt.Errorf("assembly contains reserved signer output %q: %w", asm.ProvenanceFile, errs.ErrValidation)
+	}
+
+	return nil
+}
+
+// AssemblyProvenance admits the unsigned assembly and returns the checksums
+// its provenance statement takes its subjects from and the path the assembly
+// gives the statement. The checksums are empty for a release without files,
+// which has no statement.
+func AssemblyProvenance(path string) ([]byte, string, error) {
+	if err := ValidateAssembly(path); err != nil {
+		return nil, "", err
+	}
+
+	asm, err := readAssembly(path)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if asm.ProvenanceFile == "" {
+		return nil, "", fmt.Errorf("release assembly %s names no provenance file: %w", path, errs.ErrMissingInput)
+	}
+
+	body, err := readReleaseFile(asm.ChecksumFile)
+	if err != nil {
+		return nil, "", fmt.Errorf("assembly checksums file: %w", err)
+	}
+
+	return bytes.TrimSpace(body), asm.ProvenanceFile, nil
 }
 
 func validatedSigningAssembly(path string, extensions []string) ([]string, error) {
@@ -855,7 +904,30 @@ func validatedSigningAssembly(path string, extensions []string) ([]string, error
 		return nil, err
 	}
 
-	return selected, nil
+	return withProvenanceStatement(selected, asm, subjectPaths, extensions)
+}
+
+// withProvenanceStatement adds the statement the signing job wrote to the
+// files to sign, so it carries the signature the release files carry. No
+// release file may take its name.
+func withProvenanceStatement(selected []string, asm domainrelease.Assembly, subjectPaths map[string]string, extensions []string) ([]string, error) {
+	if asm.ProvenanceFile == "" {
+		return selected, nil
+	}
+
+	if _, taken := subjectPaths[filepath.Base(asm.ProvenanceFile)]; taken {
+		return nil, fmt.Errorf("release file %q has the name of the provenance statement: %w", filepath.Base(asm.ProvenanceFile), errs.ErrValidation)
+	}
+
+	if !regularFileExists(asm.ProvenanceFile) {
+		return selected, nil
+	}
+
+	if err := validateAssemblySignerOutputs([]string{asm.ProvenanceFile}, extensions); err != nil {
+		return nil, err
+	}
+
+	return append(selected, asm.ProvenanceFile), nil
 }
 
 func assemblySBOMPaths(asm domainrelease.Assembly) []string {
@@ -941,7 +1013,7 @@ func validateAssemblyPaths(asm domainrelease.Assembly) error {
 		}
 	}
 
-	for _, output := range []string{asm.ChecksumFile, asm.SBOMBundleFile} {
+	for _, output := range []string{asm.ChecksumFile, asm.SBOMBundleFile, asm.ProvenanceFile} {
 		if output == "" {
 			continue
 		}
@@ -949,6 +1021,12 @@ func validateAssemblyPaths(asm domainrelease.Assembly) error {
 		if err := validateAssemblyPath(output, false); err != nil {
 			return err
 		}
+	}
+
+	// The signing job writes the statement where the assembly says, so the
+	// assembly may say one place only: beside the checksums file.
+	if want := filepath.ToSlash(filepath.Join(filepath.Dir(asm.ChecksumFile), ProvenanceStatementName)); asm.ProvenanceFile != "" && asm.ProvenanceFile != want {
+		return fmt.Errorf("assembly provenance file must be %q: %q: %w", want, asm.ProvenanceFile, errs.ErrValidation)
 	}
 
 	return nil

@@ -353,7 +353,8 @@ The cosign methods share infrastructure: cosign 3.x is baked into the runtime im
 Which method signs a release's files depends on the forge's release:
 
 - The GitHub release orchestrator signs them by `sign.method`. Without a
-  `sign` block it uses the default, `gpg`.
+  `sign` block it uses the default, `gpg`. The provenance statement is one
+  of the release files and gets the same signature.
 - The Forgejo and GitLab releases sign the checksums and release files with their
   OpenPGP key for `sign.method: gpg` and for `sign.files-method: gpg`, and
   with the organization's Cosign key, `RELEASE_COSIGN_PRIVATE_KEY`, for any
@@ -380,7 +381,8 @@ A Forgejo or GitLab release carries the same files as a GitHub release:
 - one SBOM bundle, `<project>-<version>-sboms.tar.gz`, when the release has
   SBOMs. It is listed in the checksums and signed like the other files;
 - the provenance statement `slsa-provenance.intoto.json` and its bundle,
-  signed with the Cosign key.
+  signed with the Cosign key
+  ([verify the provenance statement](#verify-the-provenance-statement-of-a-release)).
 
 A distro package signed with `sign-distro-packages` keeps its OpenPGP
 `<package>.sig` and gets no second signature. A GoReleaser build keeps the
@@ -418,6 +420,55 @@ gpg --verify app-1.2.3.tar.gz.asc app-1.2.3.tar.gz
 
 The SBOM bundle holds each SBOM under the file name the build gave it. The
 bundle is reproducible: the same SBOMs give the same bytes.
+
+### Verify the provenance statement of a release
+
+A signed release with files carries `slsa-provenance.intoto.json` on every
+forge: an in-toto statement with a SLSA v1.0 provenance predicate. Its
+subjects are the files the checksums file lists, with the same SHA-256
+digests. It names the repository, the release tag and commit, the workflow
+and the run that signed the release.
+
+The signing job writes the statement from the checksums it signs, and signs
+it:
+
+| Release | Signature of the statement |
+|---|---|
+| GitHub | The method that signs the release files: `slsa-provenance.intoto.json.asc` for `sign.method: gpg` and for `sign.files-method: gpg`, `slsa-provenance.intoto.json.bundle` for `sigstore` and `kms`. |
+| Forgejo, GitLab | `slsa-provenance.intoto.json.bundle` from the Cosign key, whichever method signs the files. |
+
+A release without files, and a GitHub release with `sign-artifacts: false`,
+has no statement.
+
+Verify the signature first, then read the statement. A keyless signature
+(`sign.method: sigstore` on GitHub) is verified like that of any other
+release file, with the identity and issuer constraints of
+[`--method=sigstore`](#--methodsigstore-sigstore-keyless-via-oidc--fulcio--rekor):
+
+```bash
+# 1. The statement comes from the release's key (GPG)
+gpg --verify slsa-provenance.intoto.json.asc slsa-provenance.intoto.json
+
+#    or from the Cosign key
+cosign verify-blob --key cosign.pub --insecure-ignore-tlog \
+  --bundle slsa-provenance.intoto.json.bundle --new-bundle-format \
+  slsa-provenance.intoto.json
+
+# 2. The downloaded files are its subjects
+jq -r '.subject[] | "\(.digest.sha256)  \(.name)"' slsa-provenance.intoto.json |
+  sha256sum --check --ignore-missing
+
+# 3. The source and the run it names
+jq '.predicate.buildDefinition.resolvedDependencies[0], .predicate.runDetails' \
+  slsa-provenance.intoto.json
+```
+
+The statement is a claim by whoever holds the signing key. With a GPG, KMS
+or Cosign key it says what the signing job recorded about its own run. With
+`sign.method: sigstore` the certificate names the workflow identity as
+well, so constrain it to the one you expect. The statement of a GitHub
+release lists the source commit as its only resolved dependency; the
+Forgejo and GitLab statements also list the Go modules of a `go.sum`.
 
 ### `--method=gpg`: long-lived OpenPGP key (default)
 

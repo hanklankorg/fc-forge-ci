@@ -130,7 +130,7 @@
   "release gpg sign-packages": [".forgejo/workflows/sign-and-publish-release.yml"],
   "release notes": [".github/workflows/release-create-github.yml"],
   "release prepare-dist": [".forgejo/actions/upload-dist"],
-  "release provenance": [".forgejo/workflows/sign-and-publish-release.yml"],
+  "release provenance": [".forgejo/workflows/sign-and-publish-release.yml",".github/workflows/release-create-github.yml"],
   "release publish": [".forgejo/workflows/sign-and-publish-release.yml",".github/workflows/release-create-github.yml"],
   "release publish-self-runtime-cli": [".github/workflows/self-runtime-container.yml"],
   "release resolve metadata": [".github/workflows/release-create-github.yml"],

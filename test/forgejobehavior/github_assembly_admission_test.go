@@ -7,6 +7,7 @@ package forgejobehavior
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -114,4 +115,151 @@ func TestGitHubUnsignedAssemblyAdmissionBeforeSigningMaterial(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Each signer writes the SLSA provenance statement itself: from the assembly
+// it has just admitted, before any signing material is in scope, and before
+// the step that signs it with the release files.
+func TestGitHubSignerWritesTheProvenanceStatementItSigns(t *testing.T) {
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []githubReleaseStep `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(reporoot.ReadFile(t, ".github/workflows/release-create-github.yml"), &workflow); err != nil {
+		t.Fatal(err)
+	}
+
+	const name = "Write the SLSA provenance statement"
+
+	var statement githubReleaseStep
+
+	for job, key := range map[string]string{
+		"sign-release-gpg": "Import GPG key",
+		"sign-release":     "Bind Cosign signing key to trusted public key",
+	} {
+		steps := workflow.Jobs[job].Steps
+		positions := map[string]int{}
+
+		for i, step := range steps {
+			positions[step.Name] = i
+		}
+
+		at, ok := positions[name]
+		if !ok {
+			t.Fatalf("%s: no step %q", job, name)
+		}
+
+		statement = steps[at]
+		if statement.Run != `forge-ci release provenance --ref-name "$TAG_NAME" --source-sha "$RELEASE_SHA"` ||
+			statement.If != "${{ inputs['sign-artifacts'] }}" || statement.ContinueOnError != nil {
+			t.Fatalf("%s: statement step = %+v", job, statement)
+		}
+
+		if positions["Validate unsigned release assembly"] != at-1 {
+			t.Fatalf("%s: the statement is written from the assembly admitted in the step before it", job)
+		}
+
+		for _, later := range []string{key, "Sign artifacts"} {
+			if after, ok := positions[later]; !ok || after <= at {
+				t.Fatalf("%s: the statement must be written before %q", job, later)
+			}
+		}
+
+		for key, value := range statement.Env {
+			if strings.Contains(value, "secrets.") || strings.Contains(value, "github.token") {
+				t.Fatalf("%s: the statement step holds a credential in %s", job, key)
+			}
+		}
+	}
+
+	engine := forgeCIEngine(t)
+	run := func(t *testing.T, manifest, checksums string) (*sandbox, result) {
+		t.Helper()
+
+		sandbox := newSandbox(t, "provenance-statement")
+		sandbox.write("bin/forge-ci", "#!/bin/sh\nexec \"${FORGE_CI_ENGINE:?}\" \"$@\"\n", 0o700)
+		sandbox.write(".forge-ci/release-assembly.json", manifest, 0o600)
+		sandbox.write("release-files/checksums.sha256", checksums, 0o600)
+		sandbox.write("release-files/assets/app.tgz", "archive", 0o600)
+
+		return sandbox, sandbox.run(statement.Run,
+			"PATH="+filepath.Join(sandbox.root, "bin")+":"+os.Getenv("PATH"),
+			"FORGE_CI_ENGINE="+engine,
+			"GITHUB_ACTIONS=true",
+			"GITHUB_SERVER_URL=https://github.com",
+			"GITHUB_REPOSITORY=example/app",
+			"GITHUB_RUN_ID=42",
+			"GITHUB_WORKFLOW_REF=example/app/.github/workflows/release.yml@refs/tags/v1.2.3",
+			"SOURCE_DATE_EPOCH=1700000000",
+			"RELEASE_ASSEMBLY="+statement.Env["RELEASE_ASSEMBLY"],
+			"TAG_NAME=v1.2.3",
+			"RELEASE_SHA="+strings.Repeat("a", 40))
+	}
+
+	const path = "release-files/slsa-provenance.intoto.json"
+
+	t.Run("a release with files", func(t *testing.T) {
+		digest := fmt.Sprintf("%x", sha256.Sum256([]byte("archive")))
+		sandbox, result := run(t,
+			`{"version":1,"assets":[{"path":"release-files/assets/app.tgz","name":"app.tgz","required":true}],"checksum_file":"release-files/checksums.sha256","provenance_file":"`+path+`"}`,
+			digest+"  app.tgz\n")
+
+		if result.status != 0 {
+			t.Fatalf("status=%d stderr=%s", result.status, result.stderr)
+		}
+
+		body, err := os.ReadFile(filepath.Join(sandbox.root, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var got struct {
+			Subject []struct {
+				Name   string            `json:"name"`
+				Digest map[string]string `json:"digest"`
+			} `json:"subject"`
+			PredicateType string `json:"predicateType"`
+			Predicate     struct {
+				BuildDefinition struct {
+					ExternalParameters   map[string]string `json:"externalParameters"`
+					ResolvedDependencies []struct {
+						Digest map[string]string `json:"digest"`
+					} `json:"resolvedDependencies"`
+				} `json:"buildDefinition"`
+				RunDetails struct {
+					Builder  map[string]string `json:"builder"`
+					Metadata map[string]string `json:"metadata"`
+				} `json:"runDetails"`
+			} `json:"predicate"`
+		}
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatal(err)
+		}
+
+		definition, details := got.Predicate.BuildDefinition, got.Predicate.RunDetails
+		if len(got.Subject) != 1 || got.Subject[0].Name != "app.tgz" || got.Subject[0].Digest["sha256"] != digest ||
+			got.PredicateType != "https://slsa.dev/provenance/v1" ||
+			definition.ExternalParameters["source"] != "git+https://github.com/example/app" ||
+			definition.ExternalParameters["ref"] != "v1.2.3" ||
+			len(definition.ResolvedDependencies) != 1 ||
+			definition.ResolvedDependencies[0].Digest["gitCommit"] != strings.Repeat("a", 40) ||
+			details.Builder["id"] != "https://github.com/example/app/.github/workflows/release.yml@refs/tags/v1.2.3" ||
+			details.Metadata["invocationId"] != "https://github.com/example/app/actions/runs/42" ||
+			details.Metadata["startedOn"] != "2023-11-14T22:13:20Z" {
+			t.Fatalf("statement = %s", body)
+		}
+	})
+
+	t.Run("a release without files", func(t *testing.T) {
+		sandbox, result := run(t, `{"version":1,"checksum_file":"release-files/checksums.sha256","provenance_file":"`+path+`"}`, "")
+
+		if result.status != 0 || !strings.Contains(result.stderr, "no provenance statement") {
+			t.Fatalf("status=%d stderr=%s", result.status, result.stderr)
+		}
+
+		if _, err := os.Stat(filepath.Join(sandbox.root, path)); !os.IsNotExist(err) {
+			t.Fatalf("a release without files got a statement: %v", err)
+		}
+	})
 }

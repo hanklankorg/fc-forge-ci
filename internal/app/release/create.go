@@ -140,6 +140,10 @@ func collectCreateAssetsFromAssembly(path string) ([]string, error) {
 	}
 
 	addWithSidecars := func(path string, required bool) error {
+		if path == "" {
+			return nil
+		}
+
 		if err := add(path, required); err != nil {
 			return err
 		}
@@ -159,16 +163,19 @@ func collectCreateAssetsFromAssembly(path string) ([]string, error) {
 		}
 	}
 
-	if asm.SBOMBundleFile != "" {
-		if err := addWithSidecars(asm.SBOMBundleFile, len(asm.SBOMs) > 0); err != nil {
-			return nil, err
-		}
+	if err := addWithSidecars(asm.SBOMBundleFile, len(asm.SBOMs) > 0); err != nil {
+		return nil, err
 	}
 
 	if asm.ChecksumFile != "" && regularFileNonEmpty(asm.ChecksumFile) {
 		if err := addWithSidecars(asm.ChecksumFile, true); err != nil {
 			return nil, err
 		}
+	}
+
+	// The signing job writes the statement; an unsigned release has none.
+	if err := addWithSidecars(asm.ProvenanceFile, false); err != nil {
+		return nil, err
 	}
 
 	return assets, nil

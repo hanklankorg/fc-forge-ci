@@ -5,6 +5,7 @@ package release_test
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/sha256"
 	"fmt"
 	"log"
@@ -509,4 +510,77 @@ func TestProvenanceRoot_EnvKeySigningHidesOtherSecretsFromCosign(t *testing.T) {
 	t.Setenv("FORGEJO_TOKEN", "forge-job-token")
 
 	require.NoError(t, runProvenanceRoot(t, "--checksums-file", checksumFile, "--output", "statement.json", "--key", "env://PROVENANCE_KEY"))
+}
+
+// provenanceAssembly writes an unsigned release assembly holding one asset,
+// its checksums file and the place of the provenance statement.
+func provenanceAssembly(t *testing.T, env *testenv.Env, recordedDigest string) {
+	t.Helper()
+
+	env.MkdirAll(".forge-ci")
+	env.MkdirAll("release-files/assets")
+	require.NoError(t, os.WriteFile(env.Path("release-files/assets/app.tgz"), []byte("archive"), 0o600))
+	require.NoError(t, os.WriteFile(env.Path("release-files/checksums.sha256"), []byte(recordedDigest+"  app.tgz\n"), 0o600))
+	require.NoError(t, os.WriteFile(env.Path(".forge-ci/release-assembly.json"), []byte(`{
+  "version": 1,
+  "assets": [{"path": "release-files/assets/app.tgz", "name": "app.tgz", "required": true}],
+  "checksum_file": "release-files/checksums.sha256",
+  "provenance_file": "release-files/slsa-provenance.intoto.json"
+}
+`), 0o600))
+}
+
+// The assembly only names the checksums file and the place of the statement.
+// The statement is the one built from that checksums file named directly, and
+// it is left unsigned for `release sign`.
+func TestProvenanceRoot_AssemblyWritesTheSameStatementWhereTheAssemblyNamesIt(t *testing.T) {
+	env := provenanceRootEnv(t, "github")
+	provenanceAssembly(t, env, fmt.Sprintf("%x", sha256.Sum256([]byte("archive"))))
+
+	require.NoError(t, runProvenanceRoot(t, "--checksums-file", "release-files/checksums.sha256", "--output", "direct.json"))
+	require.NoError(t, runProvenanceRoot(t, "--assembly", ".forge-ci/release-assembly.json"))
+
+	direct, err := os.ReadFile(env.Path("direct.json"))
+	require.NoError(t, err)
+	require.Contains(t, string(direct), `"app.tgz"`)
+
+	fromAssembly, err := os.ReadFile(env.Path("release-files/slsa-provenance.intoto.json"))
+	require.NoError(t, err)
+	require.Equal(t, string(direct), string(fromAssembly))
+	require.NoFileExists(t, env.Path("release-files/slsa-provenance.intoto.json.bundle"))
+}
+
+func TestProvenanceRoot_AssemblyRefusesBeforeWritingTheStatement(t *testing.T) {
+	archiveDigest := fmt.Sprintf("%x", sha256.Sum256([]byte("archive")))
+
+	for _, tc := range []struct {
+		name, digest string
+		args         []string
+		variable     string
+		want         error
+		message      string
+	}{
+		{name: "digest mismatch", digest: strings.Repeat("d", 64), want: errs.ErrValidation, message: "digest mismatch"},
+		{name: "second checksums file", args: []string{"--checksums-file", "release-files/checksums.sha256"}, want: errs.ErrInvalidConfig, message: "--assembly conflicts with --checksums-file"},
+		{name: "checksums from the manifest", args: []string{"--checksums-from-manifest"}, want: errs.ErrInvalidConfig, message: "--assembly conflicts with --checksums-from-manifest"},
+		{name: "second output", args: []string{"--output", "elsewhere.json"}, want: errs.ErrInvalidConfig, message: "--assembly conflicts with --output"},
+		{name: "a signer of its own", args: []string{"--method", "sigstore"}, want: errs.ErrInvalidConfig, message: "--assembly conflicts with --method"},
+		{name: "a key of its own", args: []string{"--key", "env://COSIGN_KEY"}, want: errs.ErrInvalidConfig, message: "--assembly conflicts with --key"},
+		{name: "the signing step's method variable", variable: "SIGN_METHOD", want: errs.ErrInvalidConfig, message: "--assembly conflicts with --method"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := provenanceRootEnv(t, "github")
+			provenanceAssembly(t, env, cmp.Or(tc.digest, archiveDigest))
+
+			if tc.variable != "" {
+				t.Setenv(tc.variable, "gpg")
+			}
+
+			err := runProvenanceRoot(t, append([]string{"--assembly", ".forge-ci/release-assembly.json"}, tc.args...)...)
+			require.ErrorIs(t, err, tc.want)
+			require.ErrorContains(t, err, tc.message)
+			require.NoFileExists(t, env.Path("release-files/slsa-provenance.intoto.json"))
+			require.NoFileExists(t, env.Path("elsewhere.json"))
+		})
+	}
 }

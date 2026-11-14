@@ -418,6 +418,18 @@ jobs:
         env:
           RELEASE_ASSEMBLY: .forge-ci/release-assembly.json
         run: forge-ci release validate-assembly
+      - &provenance-statement
+        name: Write the SLSA provenance statement
+        # The statement of the files the checksums list, written from the
+        # assembly admitted above, by this job's CLI and before any key is
+        # loaded. The signing step below signs it with the release files. A
+        # release without files gets none.
+        if: ${{ inputs['sign-artifacts'] }}
+        env:
+          RELEASE_ASSEMBLY: .forge-ci/release-assembly.json
+          TAG_NAME: ${{ inputs['release-name'] }}
+          RELEASE_SHA: ${{ inputs['checkout-ref'] }}
+        run: forge-ci release provenance --ref-name "$TAG_NAME" --source-sha "$RELEASE_SHA"
       - &request-metadata
         name: Checkout immutable request trust metadata
         env:
@@ -551,6 +563,7 @@ jobs:
         run: forge-ci validate event-context
       - *download-assembly
       - *validate-assembly
+      - *provenance-statement
       - *request-metadata
       - *release-metadata
       - *late-authorization

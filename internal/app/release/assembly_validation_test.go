@@ -188,3 +188,111 @@ func TestValidateAssemblyEmptyFileRelease(t *testing.T) {
 		t.Fatalf("empty assembly signed %v", signer.signed)
 	}
 }
+
+// The provenance statement is the signing job's own file: it writes it from
+// the checksums it admitted and signs it with the release files. An unsigned
+// assembly that brings one is refused before it is signed, a release file may
+// not take its name, and a release without files has no statement.
+func TestAssemblyProvenanceStatement(t *testing.T) {
+	const (
+		asset     = "release-files/assets/app.tgz"
+		checksums = "release-files/checksums.sha256"
+		statement = "release-files/slsa-provenance.intoto.json"
+	)
+
+	row := func(body, name string) string { return fmt.Sprintf("%x  %s\n", sha256.Sum256([]byte(body)), name) }
+
+	assembly := func(t *testing.T, rows string, assets ...string) *testfs.Real {
+		t.Helper()
+
+		fs := testfs.NewReal(t)
+		fs.Chdir()
+		fs.WriteFile(checksums, []byte(rows))
+
+		asm := domainrelease.Assembly{Version: domainrelease.AssemblyVersion, ChecksumFile: checksums, ProvenanceFile: statement}
+
+		for _, path := range assets {
+			fs.WriteFile(path, []byte("archive"))
+
+			asm.Assets = append(asm.Assets, domainrelease.AssemblyFile{Path: path, Name: filepath.Base(path), Required: true})
+		}
+
+		writeAssembly(t, domainrelease.DefaultAssemblyFile, asm)
+
+		return fs
+	}
+
+	t.Run("an assembly that brings a statement is refused", func(t *testing.T) {
+		fs := assembly(t, row("archive", "app.tgz"), asset)
+		fs.WriteFile(statement, []byte(`{"planted":true}`))
+
+		_, _, provenanceErr := apprelease.AssemblyProvenance(domainrelease.DefaultAssemblyFile)
+
+		for name, err := range map[string]error{
+			"validate-assembly": apprelease.ValidateAssembly(domainrelease.DefaultAssemblyFile),
+			"provenance":        provenanceErr,
+		} {
+			if err == nil || !strings.Contains(err.Error(), "reserved signer output") {
+				t.Errorf("%s: error = %v, want the statement refused as a reserved signer output", name, err)
+			}
+		}
+	})
+
+	t.Run("a release file may not have the statement's name", func(t *testing.T) {
+		taken := "release-files/assets/slsa-provenance.intoto.json"
+		assembly(t, row("archive", "app.tgz")+row("archive", filepath.Base(taken)), asset, taken)
+
+		err := apprelease.ValidateAssembly(domainrelease.DefaultAssemblyFile)
+		if err == nil || !strings.Contains(err.Error(), "has the name of the provenance statement") {
+			t.Fatalf("error = %v, want the release file's name refused", err)
+		}
+	})
+
+	t.Run("the statement has one place, beside the checksums file", func(t *testing.T) {
+		assembly(t, row("archive", "app.tgz"), asset)
+		writeAssembly(t, domainrelease.DefaultAssemblyFile, domainrelease.Assembly{
+			Version:        domainrelease.AssemblyVersion,
+			Assets:         []domainrelease.AssemblyFile{{Path: asset, Name: "app.tgz", Required: true}},
+			ChecksumFile:   checksums,
+			ProvenanceFile: "release-notes.md",
+		})
+
+		err := apprelease.ValidateAssembly(domainrelease.DefaultAssemblyFile)
+		if err == nil || !strings.Contains(err.Error(), `assembly provenance file must be "`+statement+`"`) {
+			t.Fatalf("error = %v, want the other place refused", err)
+		}
+	})
+
+	t.Run("a statement with a signature already beside it is not signed", func(t *testing.T) {
+		fs := assembly(t, row("archive", "app.tgz"), asset)
+		fs.WriteFile(statement, []byte(`{}`))
+		fs.WriteFile(statement+".bundle", []byte("untrusted bundle"))
+
+		signer := &fakeSigner{}
+
+		err := apprelease.SignArtifacts(context.Background(), signer, io.Discard, apprelease.SignInput{AssemblyFile: domainrelease.DefaultAssemblyFile})
+		if err == nil || !strings.Contains(err.Error(), "reserved signer output") || len(signer.signed) != 0 {
+			t.Fatalf("error = %v, signed %v; want the bundle refused and nothing signed", err, signer.signed)
+		}
+	})
+
+	t.Run("a release without files has no statement", func(t *testing.T) {
+		assembly(t, "")
+
+		body, path, err := apprelease.AssemblyProvenance(domainrelease.DefaultAssemblyFile)
+		if err != nil || len(body) != 0 || path != statement {
+			t.Fatalf("checksums %q, path %q, error %v; want no checksums and no error", body, path, err)
+		}
+	})
+
+	t.Run("an assembly that names no statement is refused", func(t *testing.T) {
+		fs := testfs.NewReal(t)
+		fs.Chdir()
+		fs.WriteFile(checksums, nil)
+		writeAssembly(t, domainrelease.DefaultAssemblyFile, domainrelease.Assembly{Version: domainrelease.AssemblyVersion, ChecksumFile: checksums})
+
+		if _, _, err := apprelease.AssemblyProvenance(domainrelease.DefaultAssemblyFile); err == nil || !strings.Contains(err.Error(), "names no provenance file") {
+			t.Fatalf("error = %v, want the missing provenance file named", err)
+		}
+	})
+}
