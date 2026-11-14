@@ -103,16 +103,16 @@ gitlab hello-cargo-container lifecycle ✅ visibility=private image-builder=buil
 gitlab hello-cargo-container lifecycle ✅ visibility=private image-builder=kaniko 2026-11-13
 gitlab hello-cargo-container lifecycle ✅ visibility=public image-builder=buildah 2026-11-13
 gitlab hello-cargo-container lifecycle ✅ visibility=public image-builder=kaniko 2026-11-14
-gitlab hello-cargo-container pull-request ✅ 2026-11-13
-gitlab hello-cargo-container release ✅ 2026-11-13
+gitlab hello-cargo-container pull-request ✅ 2026-11-14
+gitlab hello-cargo-container release ✅ 2026-11-14
 gitlab hello-cargo-workspace development ✅ 2026-11-13
 gitlab hello-cargo-workspace pull-request ✅ 2026-11-13
 gitlab hello-cargo-workspace release ✅ 2026-11-13
 gitlab hello-go-cli development ✅ 2026-11-13
 gitlab hello-go-cli pull-request ✅ 2026-11-13
 gitlab hello-go-cli release ✅ 2026-11-14
-gitlab hello-go-service development ✅ 2026-11-13
-gitlab hello-go-service pull-request ✅ 2026-11-13
+gitlab hello-go-service development ✅ 2026-11-14
+gitlab hello-go-service pull-request ✅ 2026-11-14
 gitlab hello-gradle pull-request ✅ 2026-11-13
 gitlab hello-gradle release ✅ 2026-11-13
 gitlab hello-gradle-service lifecycle ✅ visibility=private image-builder=buildah 2026-11-14
@@ -131,7 +131,7 @@ gitlab hello-maven-service lifecycle ✅ visibility=private image-builder=kaniko
 gitlab hello-maven-service lifecycle ✅ visibility=public image-builder=buildah 2026-11-14
 gitlab hello-maven-service lifecycle ✅ visibility=public image-builder=kaniko 2026-11-13
 gitlab hello-maven-service pull-request ✅ 2026-11-13
-gitlab hello-maven-service release ✅ 2026-11-13
+gitlab hello-maven-service release ✅ 2026-11-14
 gitlab hello-meta pull-request ✅ 2026-11-13
 gitlab hello-meta release ✅ 2026-11-14
 gitlab hello-monorepo development ✅ 2026-11-13
@@ -140,11 +140,11 @@ gitlab hello-monorepo release ✅ 2026-11-13
 gitlab hello-npm-package development ✅ 2026-11-13
 gitlab hello-npm-package pull-request ✅ 2026-11-13
 gitlab hello-npm-package release ✅ 2026-11-13
-gitlab hello-npm-service lifecycle ✅ visibility=private image-builder=buildah 2026-11-13
+gitlab hello-npm-service lifecycle ✅ visibility=private image-builder=buildah 2026-11-14
 gitlab hello-npm-service lifecycle ✅ visibility=private image-builder=kaniko 2026-11-14
 gitlab hello-npm-service lifecycle ✅ visibility=public image-builder=buildah 2026-11-14
 gitlab hello-npm-service lifecycle ✅ visibility=public image-builder=kaniko 2026-11-14
-gitlab hello-npm-service pull-request ✅ 2026-11-13
+gitlab hello-npm-service pull-request ✅ 2026-11-14
 gitlab hello-npm-service release ✅ 2026-11-14
 #
 # Hosted GitHub trials in the test organization, by hand from their logs; a
