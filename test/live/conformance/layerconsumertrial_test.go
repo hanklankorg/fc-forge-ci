@@ -637,6 +637,11 @@ func requireDemoReady(t *testing.T, settings livetest.TrialSettings, workflows m
 	}
 }
 
+// maxConsumerReleaseFile bounds one release file of a consumer read back for
+// its signature. A consumer's files are its own size, not a fixture's: an
+// executable Spring Boot jar passes maxReleaseFile.
+const maxConsumerReleaseFile = 256 << 20
+
 // demoPullRequestWorkflow is the workflow a lifecycle's pull request is
 // judged by.
 const demoPullRequestWorkflow = "pullrequest-workflow.yml"
@@ -877,7 +882,7 @@ func requireSignedRelease(t *testing.T, target livetest.Target, repo string, key
 	}
 
 	verified, err := livetest.VerifyReleaseReadback(evidence, names, func(name string) ([]byte, error) {
-		return livetest.Download(t, target, assets[name], maxReleaseFile), nil
+		return livetest.Download(t, target, assets[name], maxConsumerReleaseFile), nil
 	}, func(blob, bundle []byte) error {
 		return livetest.VerifyBlob(t, target, keys.cosignPublicPath, blob, bundle)
 	}, func(blob, signature []byte) error {
