@@ -78,12 +78,12 @@ on:
         type: string
         required: true
       changelog-config:
-        description: Changelog renderer config path (mirrors the render-changelog action default).
+        description: Changelog renderer config path (mirrors the generate-changelog action default).
         type: string
         required: false
         default: .forge-ci/gitcliff/keepachangelog.toml
       commit-body-config:
-        description: Commit-body renderer config path (mirrors the render-changelog action default).
+        description: Commit-body renderer config path (mirrors the generate-changelog action default).
         type: string
         required: false
         default: .forge-ci/gitcliff/minimal.toml
@@ -558,7 +558,7 @@ jobs:
             --require-head
 
       - name: Render project-controlled changelog configuration
-        uses: ./.forge-ci-helpers/.forgejo/actions/render-changelog
+        uses: ./.forge-ci-helpers/.forgejo/actions/generate-changelog
         with:
           changelog-config: ${{ inputs['changelog-config'] }}
           commit-body-config: ${{ inputs['commit-body-config'] }}

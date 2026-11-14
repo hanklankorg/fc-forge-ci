@@ -49,7 +49,7 @@ runs:
       run: |
         set -euo pipefail
         unset GITHUB_TOKEN GH_TOKEN FORGEJO_TOKEN GITEA_TOKEN SSH_SIGNING_KEY
-        # shellcheck source=.forgejo/actions/render-changelog/versions.env
+        # shellcheck source=.forgejo/actions/generate-changelog/versions.env
         source "${GITHUB_ACTION_PATH}/versions.env"
         case "${CHANGELOG_CREATOR:?}" in
           git-chglog)

@@ -258,7 +258,7 @@ exit "${FAKE_SIGNER_STATUS:-0}"
 // engine status. Rendering belongs to the engine and the external black-box suite.
 func TestPrepareReleaseRenderChangelog(t *testing.T) {
 	t.Parallel()
-	script := loadAction(t, "render-changelog").script(t, "Generate changelog without SSH key")
+	script := loadAction(t, "generate-changelog").script(t, "Generate changelog without SSH key")
 
 	const (
 		key      = "ssh-signing-key-DO-NOT-LOG"
@@ -585,7 +585,7 @@ func TestPrepareReleaseValidatesPreparedRelease(t *testing.T) {
 	}
 }
 
-const rendererPins = ".forgejo/actions/render-changelog/versions.env"
+const rendererPins = ".forgejo/actions/generate-changelog/versions.env"
 
 // rendererPin reads one value of the action's renderer pins the way the step
 // does, by sourcing the file.
@@ -610,7 +610,7 @@ func rendererPin(t *testing.T, name string) string {
 func TestPrepareReleaseInstallsThePinnedRenderer(t *testing.T) {
 	t.Parallel()
 
-	action := loadAction(t, "render-changelog")
+	action := loadAction(t, "generate-changelog")
 	selected := action.step(t, "Install changelog renderer")
 	script := action.script(t, "Install changelog renderer")
 
@@ -636,7 +636,7 @@ func TestPrepareReleaseInstallsThePinnedRenderer(t *testing.T) {
 				t.Fatalf("%s pins %s as version %q with checksums %q and %q", rendererPins, backend, version, x64, arm64)
 			}
 
-			box := newSandbox(t, "render-changelog")
+			box := newSandbox(t, "generate-changelog")
 			box.write(rendererPins, string(reporoot.ReadFile(t, rendererPins)), 0o600)
 
 			got := box.run(script, "CHANGELOG_CREATOR="+backend, "FORGEJO_PATH=/runner/path",
@@ -655,7 +655,7 @@ func TestPrepareReleaseInstallsThePinnedRenderer(t *testing.T) {
 	t.Run("refuses a backend the layer does not pin", func(t *testing.T) {
 		t.Parallel()
 
-		box := newSandbox(t, "render-changelog")
+		box := newSandbox(t, "generate-changelog")
 		box.write(rendererPins, string(reporoot.ReadFile(t, rendererPins)), 0o600)
 
 		got := box.run(script, "CHANGELOG_CREATOR=aqua:other/tool", "FORGEJO_PATH=/runner/path")

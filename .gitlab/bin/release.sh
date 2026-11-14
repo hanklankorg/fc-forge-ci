@@ -159,8 +159,8 @@ rc_image_builder() (
 rc_render_changelog() {
   rc_request_checkout
   # The renderer and consumer configuration stay in this key-free job.
-  # shellcheck source=.forgejo/actions/render-changelog/versions.env
-  source "${RC_HELPERS_DIR}/.forgejo/actions/render-changelog/versions.env"
+  # shellcheck source=.forgejo/actions/generate-changelog/versions.env
+  source "${RC_HELPERS_DIR}/.forgejo/actions/generate-changelog/versions.env"
   local version amd64 arm64
   case "${RC_CHANGELOG_CREATOR}" in
   git-chglog)

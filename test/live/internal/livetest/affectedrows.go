@@ -65,7 +65,7 @@ var liveEffects = []liveEffect{
 	// and the signer check (.gitlab/bin/release.sh).
 	{Prefix: ".forgejo/workflows/snapshot-images.yml", Forges: []string{forgeForgejo}, Events: snapshotEvents},
 	{Prefix: ".forgejo/bin/snapshot-images.sh", Forges: []string{forgeForgejo, forgeGitLab}, Events: snapshotEvents},
-	{Prefix: ".forgejo/actions/render-changelog/", Forges: []string{forgeForgejo, forgeGitLab}},
+	{Prefix: ".forgejo/actions/generate-changelog/", Forges: []string{forgeForgejo, forgeGitLab}},
 	{Prefix: ".forgejo/scripts/", Forges: []string{forgeForgejo, forgeGitLab}},
 	{Prefix: ".forgejo/", Forges: []string{forgeForgejo}},
 
