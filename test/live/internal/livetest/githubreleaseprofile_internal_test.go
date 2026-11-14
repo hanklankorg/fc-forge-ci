@@ -81,6 +81,23 @@ func TestGitHubReleaseProfile_AMetaReleaseThatAttachesOffersFiles(t *testing.T) 
 	}
 }
 
+// An Xcode build with code signing off archives the app and exports no IPA,
+// so its release offers no file; a signed one offers the IPA.
+func TestGitHubReleaseProfile_AnUnsignedXcodeReleaseOffersNoFiles(t *testing.T) {
+	const workflow = "jobs:\n  release:\n    uses: example/forge-ci/.github/workflows/release-orchestrator.yml@0000000000000000000000000000000000000000\n    with:\n      branch: main\n      release.sboms: none\n"
+
+	for signing, want := range map[string]bool{"false": true, "true": false} {
+		dir := t.TempDir()
+		writeProfileFile(t, dir, ".github/workflows/release.yml", workflow)
+		writeProfileFile(t, dir, ".forge-ci/artifacts.yml",
+			"artifacts:\n  - name: app\n    project-type: xcode-ios\n    working-directory: .\n    config:\n      scheme: App\n      enable-code-signing: "+signing+"\n")
+
+		if got, err := githubReleaseProfileOf(dir, "release.yml"); err != nil || got.NoFiles != want {
+			t.Fatalf("enable-code-signing %s: NoFiles %t, want %t (%v)", signing, got.NoFiles, want, err)
+		}
+	}
+}
+
 func TestGitHubReleaseProfile_Inputs(t *testing.T) {
 	const declared = "artifacts:\n  - name: app\n    project-type: go\n    working-directory: .\n"
 

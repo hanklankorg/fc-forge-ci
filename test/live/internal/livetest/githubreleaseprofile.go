@@ -63,9 +63,10 @@ type githubReleaseProfile struct {
 	Prepares   bool
 	SBOMBundle sbomBundle
 	// NoFiles is whether the release has nothing to offer as a file: every
-	// artifact it declares is meta, it declares no container and the
-	// workflow attaches nothing. The engine then publishes the tag and the
-	// notes alone, since an empty checksum list has nothing to sign.
+	// artifact it declares is meta or an Xcode build with code signing off,
+	// which archives the app and exports no IPA, it declares no container
+	// and the workflow attaches nothing. The engine then publishes the tag
+	// and the notes alone, since an empty checksum list has nothing to sign.
 	NoFiles bool
 	// Draft is whether the release stays a draft, which GitHub offers under
 	// no tag address: the oracle finds it in the release list.
@@ -101,7 +102,11 @@ func githubReleaseProfileOf(dir, workflow string) (githubReleaseProfile, error) 
 	profile.Draft = inputs.draft
 
 	profile.NoFiles = declared != nil && len(declared.Artifacts) > 0 && len(declared.Containers) == 0 && inputs.attach == "" &&
-		!slices.ContainsFunc(declared.Artifacts, func(artifact config.Artifact) bool { return artifact.ProjectType != projecttype.Meta })
+		!slices.ContainsFunc(declared.Artifacts, func(artifact config.Artifact) bool {
+			unsignedXcode := artifact.ProjectType == projecttype.XcodeIOS && !artifact.EnableCodeSigning()
+
+			return artifact.ProjectType != projecttype.Meta && !unsignedXcode
+		})
 
 	profile.SBOMBundle, err = releaseSBOMBundle(inputs.sboms, declared)
 	if err != nil {
