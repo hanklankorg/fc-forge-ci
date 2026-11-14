@@ -63,13 +63,15 @@ var buildTools = []buildTool{
 		dependencies: [][]string{{"install"}},
 	},
 	{
+		// install is left out for Cargo and Go: in a Containerfile it nearly
+		// always installs a tool, not the project.
 		ecosystem: projecttype.Cargo, names: []string{"cargo"},
-		builds:       [][]string{{"build"}, {"install"}},
+		builds:       [][]string{{"build"}},
 		dependencies: [][]string{{"fetch"}},
 	},
 	{
 		ecosystem: projecttype.Go, names: []string{"go"},
-		builds:       [][]string{{"build"}, {"install"}},
+		builds:       [][]string{{"build"}},
 		dependencies: [][]string{{"mod", "download"}},
 	},
 }

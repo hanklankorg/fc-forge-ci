@@ -139,8 +139,8 @@ a line in the job summary. It is a warning. The job stays green.
 | Maven | `mvn` or `./mvnw` with `package`, `install`, `verify` or `deploy` |
 | Gradle | `gradle` or `./gradlew` with `build`, `assemble`, `bootJar`, `jar`, `shadowJar`, `installDist`, `distZip` or `distTar` |
 | npm | `npm run build`, `pnpm run build`, `pnpm build`, `yarn run build`, `yarn build` |
-| Cargo | `cargo build`, `cargo install` |
-| Go | `go build`, `go install` |
+| Cargo | `cargo build` |
+| Go | `go build` |
 
 A command that only fetches dependencies, such as `mvn dependency:go-offline`,
 `npm ci`, `cargo fetch` or `go mod download`, is listed beside a build command

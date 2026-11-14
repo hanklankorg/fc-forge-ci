@@ -39,12 +39,12 @@ func TestContainerfileRebuilds(t *testing.T) {
 			"cargo behind a cache mount", "RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release",
 			rebuilds{{Line: 1, Command: "cargo build --release", Ecosystem: projecttype.Cargo}},
 		},
-		{"cargo install", "RUN cargo install --path .", rebuilds{{Line: 1, Command: "cargo install --path .", Ecosystem: projecttype.Cargo}}},
+		{"cargo install is a tool install", "RUN cargo install cargo-chef", nil},
 		{
 			"go behind environment assignments", "RUN CGO_ENABLED=0 GOOS=linux go build -o /out/app ./cmd/app",
 			rebuilds{{Line: 1, Command: "CGO_ENABLED=0 GOOS=linux go build -o /out/app ./cmd/app", Ecosystem: projecttype.Go}},
 		},
-		{"go install", "RUN /usr/local/go/bin/go install ./...", rebuilds{{Line: 1, Command: "/usr/local/go/bin/go install ./...", Ecosystem: projecttype.Go}}},
+		{"go install is a tool install", "RUN /usr/local/go/bin/go install example.org/tool@v1.2.3", nil},
 		{
 			"the line is the one the instruction starts on",
 			"FROM maven AS build\n# build the jar\nRUN cd /src \\\n    # skip the tests\n    && mvn \\\n       package\n",
