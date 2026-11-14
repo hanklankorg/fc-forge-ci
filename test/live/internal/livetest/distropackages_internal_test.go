@@ -50,7 +50,7 @@ func TestForgejoFixturesStageTheDemosPackagesRelease(t *testing.T) {
 	}
 
 	release := workflows[trialReleaseWorkflow]
-	if release == ordinary[trialReleaseWorkflow] || !strings.Contains(release, "/build-goreleaser@") || strings.Count(release, "\n      sign-distro-packages: 'true'\n") != 2 {
+	if release == ordinary[trialReleaseWorkflow] || !strings.Contains(release, "/build-goreleaser@") || strings.Count(release, "\n      sign-distro-packages: \"true\"\n") != 2 {
 		t.Errorf("the staged release workflow is not the GoReleaser release that signs packages:\n%s", release)
 	}
 

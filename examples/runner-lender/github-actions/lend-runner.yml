@@ -50,7 +50,7 @@ on:
       ttl-minutes:
         description: How long the runner waits for its job before the VM is released
         required: false
-        default: '20'
+        default: "20"
         type: string
 # The job talks to the Forgejo instance only; it needs nothing from GitHub.
 permissions: {}

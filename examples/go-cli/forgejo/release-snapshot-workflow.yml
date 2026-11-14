@@ -19,9 +19,9 @@ jobs:
     timeout-minutes: 30
     env:
       GOTOOLCHAIN: local
-      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_COUNT: "1"
       GIT_CONFIG_KEY_0: safe.directory
-      GIT_CONFIG_VALUE_0: '*'
+      GIT_CONFIG_VALUE_0: "*"
     steps:
       - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/checkout-consumer@PIN_FORGE_CI_SHA
         with:
@@ -31,4 +31,4 @@ jobs:
           version: 0.0.0-snapshot
           commit: ${{ forgejo.sha }}
           main-package: ./cmd/my-cli
-          enable-build-sbom: 'false'
+          enable-build-sbom: "false"

@@ -117,7 +117,7 @@ jobs:
       release-git-host-key-fingerprint: ${{ vars.RELEASE_GIT_HOST_KEY_FINGERPRINT }}
       # Set true after committing and reviewing the configured allowed-signers
       # file. The reusable workflow fails closed on any other boolean spelling.
-      verify-release-request-signature: 'false'
+      verify-release-request-signature: "false"
       release-request-allowed-signers: .forgejo/release-allowed-signers
       # The signed release commit carries both projects' release version. The
       # plan's bump runs each family's tool in its own key-free job, in the
@@ -126,15 +126,15 @@ jobs:
       runtime-image-node: docker.io/library/node:24.17.0-trixie@sha256:61db8992b5c481488fe236ea69fe94035ba73df76a474051ed2e9713f3a15e5a
       # No distro packages; two container images, so prepare requires the
       # registry token before it pushes anything.
-      sign-distro-packages: 'false'
-      publish-container-images: 'true'
+      sign-distro-packages: "false"
+      publish-container-images: "true"
     secrets:
       # Hand every contract secret over, configured or not. The workflow
       # checks by name, before any checkout, the ones the enabled features
       # need: RELEASE_SSH_SIGNING_KEY, RELEASE_TOKEN and the two RELEASE_COSIGN_*
       # always, the three RELEASE_GPG_* with
-      # sign-distro-packages: 'true', RELEASE_REGISTRY_TOKEN with
-      # publish-container-images: 'true'. An unconfigured one arrives empty
+      # sign-distro-packages: "true", RELEASE_REGISTRY_TOKEN with
+      # publish-container-images: "true". An unconfigured one arrives empty
       # and is named if it is needed.
       RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
       RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
@@ -230,9 +230,9 @@ jobs:
       - name: Build
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.release-tag }}
-          NODE_VERSION: '24'
+          NODE_VERSION: "24"
           # renovate: datasource=npm depName=@cyclonedx/cyclonedx-npm
-          CYCLONEDX_VERSION: '6.0.1'
+          CYCLONEDX_VERSION: "6.0.1"
         run: |
           set -euo pipefail
           forge-ci build npm run --working-dir packages/frontend --expect-version "${RELEASE_TAG#v}"
@@ -375,7 +375,7 @@ jobs:
       caller-workflow: release-workflow.yml
       forge-ci-repository: itiquette/forge-ci
       forge-ci-sha: 2f4e845cee96973d1082bf00a5a18689c1482148
-      sign-distro-packages: 'false'
+      sign-distro-packages: "false"
       # Your organization's signer image, by digest. forge-ci ships the
       # Containerfile and publishes no image.
       signer-image: forgejo.example/itiquette/forge-ci-signer@sha256:0000000000000000000000000000000000000000000000000000000000000000
@@ -436,7 +436,15 @@ jobs:
   summary:
     name: Summary
     if: ${{ always() && startsWith(forgejo.ref, 'refs/tags/') }}
-    needs: [prepare, build-backend, build-frontend, build, release-images, handoff, sign-and-publish, publish-package]
+    needs:
+      - prepare
+      - build-backend
+      - build-frontend
+      - build
+      - release-images
+      - handoff
+      - sign-and-publish
+      - publish-package
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 5
     steps:

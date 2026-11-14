@@ -45,9 +45,9 @@ on:
 env:
   # Trust the checked-out tree whoever owns the job container's workspace
   # mount: the images run as their own user.
-  GIT_CONFIG_COUNT: '1'
+  GIT_CONFIG_COUNT: "1"
   GIT_CONFIG_KEY_0: safe.directory
-  GIT_CONFIG_VALUE_0: '*'
+  GIT_CONFIG_VALUE_0: "*"
 
 jobs:
   lint:

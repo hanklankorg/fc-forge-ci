@@ -8,7 +8,7 @@
 name: Preview package retention
 on:
   schedule:
-    - cron: '19 4 * * 1'
+    - cron: "19 4 * * 1"
   workflow_dispatch:
 concurrency:
   group: package-retention

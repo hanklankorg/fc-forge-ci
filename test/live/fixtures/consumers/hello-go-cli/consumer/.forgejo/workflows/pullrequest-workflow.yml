@@ -40,9 +40,9 @@ on:
 env:
   # Trust the checked-out tree whoever owns the job container's workspace
   # mount: the image runs as its own user.
-  GIT_CONFIG_COUNT: '1'
+  GIT_CONFIG_COUNT: "1"
   GIT_CONFIG_KEY_0: safe.directory
-  GIT_CONFIG_VALUE_0: '*'
+  GIT_CONFIG_VALUE_0: "*"
 
 jobs:
   lint:
@@ -111,7 +111,7 @@ jobs:
           commit: ${{ forgejo.sha }}
           # FIXME: your command's main package; the release builds the same.
           main-package: ./cmd/my-cli
-          enable-build-sbom: 'false'
+          enable-build-sbom: "false"
 
   # ===========================================================================
   # JOB: summary — the pull request overview; Forgejo 17 shows it above the

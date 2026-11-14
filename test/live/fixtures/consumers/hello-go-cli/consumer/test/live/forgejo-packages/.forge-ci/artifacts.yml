@@ -7,7 +7,7 @@
 #
 # Copy to .forge-ci/artifacts.yml beside forgejo/release-goreleaser.yml and
 # .goreleaser.yml, whose `nfpms:` builds the packages. That workflow sets
-# sign-distro-packages: 'true' in both calls, so each package also gets the
+# sign-distro-packages: "true" in both calls, so each package also gets the
 # release's OpenPGP `.sig` file.
 #
 # The Forgejo release alone publishes distro packages: the GitHub and GitLab

@@ -29,12 +29,12 @@ builds:
       - -X main.version={{ .Version }}
       - -X main.commit={{ .FullCommit }}
     # The commit's time, not the build's, so a rebuild gives the same file.
-    mod_timestamp: '{{ .CommitTimestamp }}'
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - id: default
     formats: [tar.gz]
-    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 # One package of each format per architecture. A package is built for its
 # architecture: the Alpine registry files a noarch package under
@@ -49,7 +49,7 @@ nfpms:
     homepage: https://example.com/my-cli
     license: EUPL-1.2
     bindir: /usr/bin
-    mtime: '{{ .CommitDate }}'
+    mtime: "{{ .CommitDate }}"
 
 checksum:
   name_template: checksums.txt
@@ -59,13 +59,13 @@ sboms:
   - id: archives
     artifacts: archive
     documents:
-      - '${artifact}.cdx.sbom.json'
+      - "${artifact}.cdx.sbom.json"
     cmd: syft
     args:
       - scan
-      - '$artifact'
+      - "$artifact"
       - --output
-      - 'cyclonedx-json=$document'
+      - "cyclonedx-json=$document"
 
 changelog:
   disable: true

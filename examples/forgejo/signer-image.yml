@@ -106,7 +106,7 @@ env:
   FORGE_CI_REPOSITORY_URL: ${{ forgejo.server_url }}/OWNER/forge-ci
   # Empty derives the forge-local image repository above. Otherwise this is the
   # reviewed destination, for example ghcr.io/OWNER/forge-ci-signer.
-  SIGNER_IMAGE_REPOSITORY: ''
+  SIGNER_IMAGE_REPOSITORY: ""
 jobs:
   # The independent rebuild. The checksum in the pinned commit was recorded
   # on its author's machine, from that machine's module cache. This job builds
@@ -308,8 +308,8 @@ jobs:
           registry: ${{ env.SIGNER_IMAGE_REPOSITORY }}
           username: ${{ vars.SIGNER_REGISTRY_USER }}
           token: ${{ secrets.SIGNER_REGISTRY_TOKEN }}
-          create-auth-file: 'true'
-          export-env: 'true'
+          create-auth-file: "true"
+          export-env: "true"
       # Keep image layers in the registry, not the forge's artifact storage.
       # Architecture candidates may be uploaded independently; the final index
       # is assembled by digest only after both native builds succeed.
@@ -403,8 +403,8 @@ jobs:
           registry: ${{ env.SIGNER_IMAGE_REPOSITORY }}
           username: ${{ vars.SIGNER_REGISTRY_USER }}
           token: ${{ secrets.SIGNER_REGISTRY_TOKEN }}
-          create-auth-file: 'true'
-          export-env: 'true'
+          create-auth-file: "true"
+          export-env: "true"
       - name: Download signer amd64 metadata
         run: |
           set -euo pipefail

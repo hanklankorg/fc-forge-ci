@@ -106,18 +106,18 @@ jobs:
       release-git-host-key-fingerprint: ${{ vars.RELEASE_GIT_HOST_KEY_FINGERPRINT }}
       # Set true after committing and reviewing the configured allowed-signers
       # file. The reusable workflow fails closed on any other boolean spelling.
-      verify-release-request-signature: 'false'
+      verify-release-request-signature: "false"
       release-request-allowed-signers: .forgejo/release-allowed-signers
       # This jar-only starter has no distro packages or container ledger.
-      sign-distro-packages: 'false'
-      publish-container-images: 'false'
+      sign-distro-packages: "false"
+      publish-container-images: "false"
     secrets:
       # Hand every contract secret over, configured or not. The workflow
       # checks by name, before any checkout, the ones the enabled features
       # need: RELEASE_SSH_SIGNING_KEY, RELEASE_TOKEN and the two RELEASE_COSIGN_*
       # always, the three RELEASE_GPG_* with
-      # sign-distro-packages: 'true', RELEASE_REGISTRY_TOKEN with
-      # publish-container-images: 'true'. An unconfigured one arrives empty
+      # sign-distro-packages: "true", RELEASE_REGISTRY_TOKEN with
+      # publish-container-images: "true". An unconfigured one arrives empty
       # and is named if it is needed.
       RELEASE_SSH_SIGNING_KEY: ${{ secrets.RELEASE_SSH_SIGNING_KEY }}
       RELEASE_COSIGN_PRIVATE_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
@@ -167,13 +167,13 @@ jobs:
         with:
           # A read-only GitHub token: mise downloads your mise config's tools
           # from GitHub releases, which rate-limit anonymous downloads.
-          # (mise-locked: 'true' instead needs a platform URL in mise.lock for
+          # (mise-locked: "true" instead needs a platform URL in mise.lock for
           # every tool, which tools from a forgejo: backend do not get.)
           mise-github-token: ${{ secrets.DEPENDENCY_GITHUB_TOKEN }}
           cache-key-suffix: release-build
           install-dev-tools: false
           # Release isolation: no cache in token-bearing release jobs.
-          cache: 'false'
+          cache: "false"
 
       # The mandatory tests, then the tasks, the jars in build/libs/ and the
       # Build SBOM as build/reports/cyclonedx/bom.json, the sequence GitHub
@@ -181,9 +181,9 @@ jobs:
       - name: Build
         env:
           GRADLE_TASKS: build
-          JAVA_VERSION: '25'
+          JAVA_VERSION: "25"
           # renovate: datasource=maven depName=org.cyclonedx:cyclonedx-gradle-plugin registryUrl=https://plugins.gradle.org/m2/
-          CYCLONEDX_GRADLE_VERSION: '3.5.1'
+          CYCLONEDX_GRADLE_VERSION: "3.5.1"
         run: forge-ci build gradle run
 
       # The hand-off the signer takes: the public files, exactly one checksums
@@ -257,7 +257,7 @@ jobs:
       caller-workflow: release-workflow.yml
       forge-ci-repository: OWNER/forge-ci
       forge-ci-sha: PIN_FORGE_CI_SHA
-      sign-distro-packages: 'false'
+      sign-distro-packages: "false"
       # Your organization's signer image, by digest. forge-ci ships the
       # Containerfile and publishes no image.
       signer-image: FORGE_HOST/OWNER/forge-ci-signer@sha256:PIN_SIGNER_IMAGE_DIGEST

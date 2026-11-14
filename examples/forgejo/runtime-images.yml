@@ -6,9 +6,18 @@ name: Runtime images
 on:
   push:
     branches: [main]
-    paths: ['containers/runtime/**', 'scripts/bootstrap/**', 'templates/**', 'cmd/**', 'internal/**', 'go.mod', 'go.sum', '.engine/bin/*.sha256', '.forgejo/workflows/runtime-images.yml']
+    paths:
+      - "containers/runtime/**"
+      - "scripts/bootstrap/**"
+      - "templates/**"
+      - "cmd/**"
+      - "internal/**"
+      - "go.mod"
+      - "go.sum"
+      - ".engine/bin/*.sha256"
+      - ".forgejo/workflows/runtime-images.yml"
   schedule:
-    - cron: '30 2 * * 1'
+    - cron: "30 2 * * 1"
   workflow_dispatch:
 concurrency:
   group: runtime-images-${{ forgejo.repository }}
