@@ -68,6 +68,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   names the statement in `provenance_file`.
   [Verify the provenance statement of a release](docs/verification.md#verify-the-provenance-statement-of-a-release)
   shows the check on each forge.
+- The provenance statement of a Forgejo and of a GitLab release is signed
+  by the signer of the release files, as on GitHub: with `sign.method: gpg`
+  or `sign.files-method: gpg` it has `slsa-provenance.intoto.json.asc`
+  from the GPG key and no Cosign bundle, and otherwise the Cosign `.bundle`
+  it had. The sign job writes the statement before it loads a key, and the
+  one step that signs the checksums and release files signs it with them,
+  so no step holds a second key. `release files manifest` and `release
+  publish` accept either signature of the statement, and refuse a statement
+  with none.
 - The GitHub release orchestrator takes `xcode-build-number`, the build
   number of the release's Xcode builds, from a caller that computes one for
   each release. `config.build-number` of the declaration is a fixed value,
@@ -82,9 +91,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RELEASE_GPG_PRIVATE_KEY` and `RELEASE_GPG_PASSPHRASE`, refuses a key
   whose fingerprint is not `RELEASE_GPG_FINGERPRINT`, and writes an armored
   `.asc` beside each file, dated at the release commit's time, in place of
-  the Cosign bundle. The provenance statement, the evidence and the images
-  are signed with the Cosign key as before, and so are the files of any
-  other declaration. `Check: signing access` requires the three GPG
+  the Cosign bundle. The provenance statement is signed with the files, so
+  it has an `.asc` as well. The evidence and the images are signed with the
+  Cosign key as before, and so are the files of any other declaration. `Check: signing access` requires the three GPG
   variables for such a declaration before the release commit, also with
   `sign-distro-packages: false`; `doctor --requirements` reports them as
   required, and the release plan and `doctor` no longer warn about either
@@ -97,9 +106,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RELEASE_GPG_FINGERPRINT`, refuses a key with another fingerprint, and
   writes an armored `.asc` beside each file, dated at the release commit's
   time as on GitHub, which the release page offers in place of the Cosign
-  bundle. The provenance statement, the evidence and the images are signed
-  with the Cosign key as before. A declaration without a `sign` section, or
-  with another method, is signed as before, with the Cosign key.
+  bundle. The provenance statement is signed with the files, so it has an
+  `.asc` as well. The evidence and the images are signed with the Cosign
+  key as before. A declaration without a `sign` section, or with another
+  method, is signed as before, with the Cosign key.
   `prepare-release.yml` refuses a `gpg` release whose GPG secrets are not
   configured before it makes the release commit, and `doctor --requirements`
   reports them as required for such a declaration. The new command

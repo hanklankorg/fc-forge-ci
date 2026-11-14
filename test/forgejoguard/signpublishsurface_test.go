@@ -527,7 +527,7 @@ func TestBlobSigningDoesNotDependOnTheImageLedger(t *testing.T) {
 func TestProvenanceStepsLeaveReleaseDataRulesToTheEngine(t *testing.T) {
 	t.Parallel()
 
-	const stepName = "Generate and sign SLSA provenance"
+	const stepName = "Generate SLSA provenance"
 
 	parsed := loadWorkflow(t, signPublishWorkflow)
 

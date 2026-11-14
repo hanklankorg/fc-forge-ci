@@ -1135,9 +1135,10 @@ commit exists and requires `RELEASE_GPG_PRIVATE_KEY`,
 key, dated at the release commit, in a subshell whose environment holds the
 GPG key, its passphrase and its fingerprint and none of the job's other
 signing and publishing secrets or its job token, and refuses a key whose
-fingerprint is not `RELEASE_GPG_FINGERPRINT`. The provenance statement, the
-evidence and the images are signed with the Cosign key all the same, so the
-Cosign variables stay required. Any other method, and a declaration without a
+fingerprint is not `RELEASE_GPG_FINGERPRINT`. The provenance statement is
+written before any key is read and signed with the files, so it has an
+`.asc` too. The evidence and the images are signed with the Cosign key all
+the same, so the Cosign variables stay required. Any other method, and a declaration without a
 `sign` section, signs the checksums and release files with the Cosign key. With the
 release's public OpenPGP key imported, the checksums verify and then the
 files they list:
@@ -1179,8 +1180,8 @@ trusted registry jobs receive credentials for the publication project.
 | Object | Key | Variable |
 |---|---|---|
 | Release commit and final tag | SSH | `RELEASE_SSH_SIGNING_KEY` |
-| Checksums and release files | Cosign key pair, or OpenPGP when `artifacts.yml` says `sign.method: gpg` or `sign.files-method: gpg` | `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE`; with `gpg`, `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`, `RELEASE_GPG_FINGERPRINT` |
-| SLSA provenance, images and their attestations | Cosign key pair | `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE`, checked against `COSIGN_PUBLIC_KEY` and `cosign-public-key-sha256` |
+| Checksums, release files and SLSA provenance | Cosign key pair, or OpenPGP when `artifacts.yml` says `sign.method: gpg` or `sign.files-method: gpg` | `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE`; with `gpg`, `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`, `RELEASE_GPG_FINGERPRINT` |
+| Evidence, images and their attestations | Cosign key pair | `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE`, checked against `COSIGN_PUBLIC_KEY` and `cosign-public-key-sha256` |
 | `.deb`, `.rpm`, `.apk` packages | OpenPGP | `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`, `RELEASE_GPG_FINGERPRINT` |
 | Request tag (verified, not made) | The signer's SSH key | `request-allowed-signers` |
 

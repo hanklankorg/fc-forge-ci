@@ -369,6 +369,60 @@ func TestReleaseFileSigningStepsHoldOnlyTheirOwnKey(t *testing.T) {
 	}
 }
 
+// The provenance statement is signed by the signer of the release files, so
+// a release has one file signer. The step that writes it holds no key and
+// passes no signing flag, it runs before both file-signing steps, and each of
+// those names the statement among the files it signs. No step is given a
+// second key for it.
+func TestProvenanceStatementIsSignedByTheFileSigner(t *testing.T) {
+	t.Parallel()
+
+	const (
+		statementStep = "Generate SLSA provenance"
+		statementFile = `--file "${DIST_DIR:?}/slsa-provenance.intoto.json"`
+	)
+
+	parsed := loadWorkflow(t, signPublishWorkflow)
+	data := string(reporoot.ReadFile(t, signPublishWorkflow))
+
+	step, found := parsed.findStep(statementStep)
+	if !found {
+		t.Fatalf("step %q is missing", statementStep)
+	}
+
+	keys, _ := parsed.stepChannelKeys(statementStep)
+	for _, name := range []string{"COSIGN_KEY", "COSIGN_PASSWORD", "GPG_SIGNING_KEY", "GPG_SIGNING_FINGERPRINT", "GPG_SIGNING_PASSWORD", "REGISTRY_TOKEN", "FORGEJO_TOKEN"} {
+		if keys[name] {
+			t.Errorf("step %q must not receive %s: it signs nothing", statementStep, name)
+		}
+	}
+
+	for _, flag := range []string{"--method", "--key", "--bundle"} {
+		if mentions(step, flag) {
+			t.Errorf("step %q passes %s: the statement is signed with the release files, not here", statementStep, flag)
+		}
+	}
+
+	written := strings.Index(data, "- name: "+statementStep+"\n")
+
+	for _, name := range []string{"Cosign sign-blob checksums and release files", "GPG-sign checksums and release files"} {
+		signing, found := parsed.findStep(name)
+		if !found {
+			t.Errorf("step %q is missing", name)
+
+			continue
+		}
+
+		if !mentions(signing, statementFile) {
+			t.Errorf("step %q does not sign the provenance statement: want %s", name, statementFile)
+		}
+
+		if signed := strings.Index(data, "- name: "+name+"\n"); signed < written {
+			t.Errorf("step %q runs before %q writes the statement", name, statementStep)
+		}
+	}
+}
+
 // The release files' signing method is read from the declaration before
 // anything is signed, and each signing step runs on its own value of that
 // output: gpg only for a declaration that says sign.method gpg, cosign

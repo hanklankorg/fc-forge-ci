@@ -1420,8 +1420,8 @@ The layer signs with keys the organization holds:
 | Object | Key | Secret |
 |---|---|---|
 | Release commit and final tag | SSH | `RELEASE_SSH_SIGNING_KEY` |
-| Checksums and release files | Cosign key pair, or OpenPGP when `artifacts.yml` says `sign.method: gpg` or `sign.files-method: gpg` | `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE`; with `gpg`, `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`, `RELEASE_GPG_FINGERPRINT` |
-| Provenance, evidence, images and their attestations | Cosign key pair | `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE`, checked against `cosign-public-key` and its digest |
+| Checksums, release files and provenance | Cosign key pair, or OpenPGP when `artifacts.yml` says `sign.method: gpg` or `sign.files-method: gpg` | `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE`; with `gpg`, `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`, `RELEASE_GPG_FINGERPRINT` |
+| Evidence, images and their attestations | Cosign key pair | `RELEASE_COSIGN_PRIVATE_KEY`, `RELEASE_COSIGN_PASSPHRASE`, checked against `cosign-public-key` and its digest |
 | `.deb`, `.rpm`, `.apk` packages, when `sign-distro-packages` is on | OpenPGP | `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`, `RELEASE_GPG_FINGERPRINT` |
 
 Keyless signing is not the layer's path: public Fulcio does not trust a
@@ -1437,9 +1437,10 @@ the OpenPGP key: each gets an armored `.asc` beside it on the release page,
 and no Cosign bundle. The sign job reads the methods from the declaration at
 the release commit, signs in its own step with only the three
 `RELEASE_GPG_*` secrets, and refuses a key whose fingerprint is not
-`RELEASE_GPG_FINGERPRINT`. The provenance statement, the evidence and the
-images are signed with the Cosign key all the same, so the Cosign secrets
-stay required. Any other method, and a declaration without a `sign`
+`RELEASE_GPG_FINGERPRINT`. The provenance statement is written by a step
+that holds no key and signed with the files, so it has an `.asc` too. The
+evidence and the images are signed with the Cosign key all the same, so the
+Cosign secrets stay required. Any other method, and a declaration without a `sign`
 section, signs the checksums and release files with the Cosign key. A different
 `sign.method` or signing key in `artifacts.yml` is not used, and `forge-ci
 doctor` and the release plan warn about it. With the

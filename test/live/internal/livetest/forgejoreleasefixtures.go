@@ -101,13 +101,14 @@ const ForgejoPackagesFixtures = "test/live/forgejo-packages"
 
 // ForgejoGPGFilesFixtures is where the Go service demo keeps its declaration
 // with sign.method gpg: the Forgejo release signs its checksums and release files
-// with the release's GPG key, and its provenance, evidence and image with
-// the Cosign key.
+// and provenance statement with the release's GPG key, and its evidence and
+// image with the Cosign key.
 const ForgejoGPGFilesFixtures = "test/live/forgejo-gpg-files"
 
 // GitLabGPGFilesFixtures is where the Go CLI demo keeps its declaration with
-// sign.method gpg: the GitLab release signs its checksums and release files with the
-// release's GPG key, and its provenance and evidence with the Cosign key.
+// sign.method gpg: the GitLab release signs its checksums, release files and
+// provenance statement with the release's GPG key, and its evidence with
+// the Cosign key.
 const GitLabGPGFilesFixtures = "test/live/gitlab-gpg-files"
 
 // WithForgejoFixtures stages every file of the consumer's directory fixtures

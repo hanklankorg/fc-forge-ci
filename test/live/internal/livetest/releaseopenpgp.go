@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 
+	apprelease "github.com/diggsweden/forge-ci/internal/app/release"
 	"github.com/diggsweden/forge-ci/internal/domain/config"
 )
 
@@ -56,9 +57,10 @@ func SignsReleaseFilesWithGPG(root, artifactsConfig string) (bool, error) {
 }
 
 // GPGReleaseFileFindings are the findings of the files a release offers
-// whose declaration signs its files with GPG: the checksums carry an
-// OpenPGP signature, and no file with one also carries a Cosign bundle.
-// Whether each signature verifies is VerifyReleaseReadback's.
+// whose declaration signs its files with GPG: the checksums and the
+// provenance statement carry an OpenPGP signature, and no file with one
+// also carries a Cosign bundle. Whether each signature verifies is
+// VerifyReleaseReadback's.
 func GPGReleaseFileFindings(names []string) []string {
 	var findings []string
 
@@ -77,6 +79,10 @@ func GPGReleaseFileFindings(names []string) []string {
 		if slices.Contains(names, subject+cosignBundle) {
 			findings = append(findings, subject+" carries both an OpenPGP signature and a Cosign bundle; the declaration signs it with GPG alone")
 		}
+	}
+
+	if slices.Contains(names, apprelease.ProvenanceStatementName) && !slices.Contains(names, apprelease.ProvenanceStatementName+openPGPSignature) {
+		findings = append(findings, "the declaration signs the release files with GPG, and the release offers no OpenPGP signature of "+apprelease.ProvenanceStatementName)
 	}
 
 	if !checksums {

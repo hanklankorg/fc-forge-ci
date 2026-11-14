@@ -71,9 +71,10 @@ func TestReleaseFileSigningMethodThroughTheEngine(t *testing.T) {
 
 // The GPG release file signing step runs here, its own shell against the
 // engine built from this tree, with a throwaway key: it writes an armored
-// signature of the checksums file and of every file it lists, the release
-// file and the SBOM bundle, that the key verifies, dated at the release
-// commit's time, and no Cosign bundle. With a secret
+// signature of the checksums file, of every file it lists, the release
+// file and the SBOM bundle, and of the provenance statement written before
+// it, that the key verifies, dated at the release commit's time, and no
+// Cosign bundle. With a secret
 // missing it stops before the engine runs, and with a key that is not the
 // pinned one the engine refuses it; neither signs anything. The throwaway keys set the test's
 // environment, so it runs serially.
@@ -111,6 +112,7 @@ func TestGPGReleaseFileSigningThroughTheEngine(t *testing.T) {
 			box.write(".engine/bin/lib-forge-ci.sh", lib, 0o600)
 			box.write("dist/app.jar", "application\n", 0o600)
 			box.write("dist/app-1.2.3-sboms.tar.gz", "SBOM bundle\n", 0o600)
+			box.write("dist/slsa-provenance.intoto.json", "{}\n", 0o600)
 			box.write("dist/checksums.sha256",
 				fileSHA256(t, filepath.Join(box.root, "dist/app.jar"))+"  app.jar\n"+
 					fileSHA256(t, filepath.Join(box.root, "dist/app-1.2.3-sboms.tar.gz"))+"  app-1.2.3-sboms.tar.gz\n", 0o600)
@@ -136,7 +138,7 @@ func TestGPGReleaseFileSigningThroughTheEngine(t *testing.T) {
 					got.status, test.refused != "", test.refused, got.stdout, got.stderr)
 			}
 
-			for _, signed := range []string{"dist/checksums.sha256", "dist/app.jar", "dist/app-1.2.3-sboms.tar.gz"} {
+			for _, signed := range []string{"dist/checksums.sha256", "dist/app.jar", "dist/app-1.2.3-sboms.tar.gz", "dist/slsa-provenance.intoto.json"} {
 				_, err := os.Stat(filepath.Join(box.root, signed+".asc"))
 
 				switch {

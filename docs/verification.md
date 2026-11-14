@@ -359,7 +359,8 @@ Which method signs a release's files depends on the forge's release:
   OpenPGP key for `sign.method: gpg` and for `sign.files-method: gpg`, and
   with the organization's Cosign key, `RELEASE_COSIGN_PRIVATE_KEY`, for any
   other method and for a declaration without a `sign` block. The provenance
-  is signed with the Cosign key either way
+  statement gets the same signature as the files; the evidence and the
+  images are signed with the Cosign key either way
   ([Forgejo signing](forgejo.md#signing), [GitLab signing](gitlab.md#signing)).
 
 One declaration often serves several forges, so neither release refuses a
@@ -380,8 +381,8 @@ A Forgejo or GitLab release carries the same files as a GitHub release:
   says `sign.method: gpg` or `sign.files-method: gpg`;
 - one SBOM bundle, `<project>-<version>-sboms.tar.gz`, when the release has
   SBOMs. It is listed in the checksums and signed like the other files;
-- the provenance statement `slsa-provenance.intoto.json` and its bundle,
-  signed with the Cosign key
+- the provenance statement `slsa-provenance.intoto.json`, signed like the
+  other files: `.bundle` from the Cosign key, or `.asc` with `gpg`
   ([verify the provenance statement](#verify-the-provenance-statement-of-a-release)).
 
 A distro package signed with `sign-distro-packages` keeps its OpenPGP
@@ -429,13 +430,13 @@ subjects are the files the checksums file lists, with the same SHA-256
 digests. It names the repository, the release tag and commit, the workflow
 and the run that signed the release.
 
-The signing job writes the statement from the checksums it signs, and signs
-it:
-
-| Release | Signature of the statement |
-|---|---|
-| GitHub | The method that signs the release files: `slsa-provenance.intoto.json.asc` for `sign.method: gpg` and for `sign.files-method: gpg`, `slsa-provenance.intoto.json.bundle` for `sigstore` and `kms`. |
-| Forgejo, GitLab | `slsa-provenance.intoto.json.bundle` from the Cosign key, whichever method signs the files. |
+The signing job writes the statement from the checksums it signs, before it
+loads a key, and the signer of the release files signs it with them. On
+every forge the statement has the signature the other release files have:
+`slsa-provenance.intoto.json.asc` for `sign.method: gpg` and for
+`sign.files-method: gpg`, `slsa-provenance.intoto.json.bundle` otherwise:
+for `sigstore` and `kms` on GitHub, and from the Cosign key on Forgejo and
+GitLab.
 
 A release without files, and a GitHub release with `sign-artifacts: false`,
 has no statement.
@@ -497,8 +498,9 @@ a step of its own whose environment holds only the three `RELEASE_GPG_*`
 secrets, and on GitLab in a subshell that holds the same three and unsets
 the job's other signing and publishing secrets and its job token. Either
 pins the key to `RELEASE_GPG_FINGERPRINT`, dates the signatures at the
-release commit's time, and needs a sign job that cannot swap; the provenance
-statement, the evidence and the images are signed with the Cosign key. See
+release commit's time, and needs a sign job that cannot swap. The provenance
+statement is signed with the files, by the same key; the evidence and the
+images are signed with the Cosign key. See
 [Forgejo signing](forgejo.md#signing) and [GitLab signing](gitlab.md#signing).
 
 ### `--method=sigstore`: Sigstore-keyless via OIDC + Fulcio + Rekor

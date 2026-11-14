@@ -247,7 +247,8 @@ func TestReleaseReadbackAuthenticatesOpenPGPChecksums(t *testing.T) {
 }
 
 // A release whose declaration signs its files with GPG offers its checksums
-// with an OpenPGP signature, and no file with one also with a Cosign bundle.
+// and its provenance statement with an OpenPGP signature, and no file with
+// one also with a Cosign bundle.
 func TestGPGReleaseFileFindings(t *testing.T) {
 	t.Parallel()
 
@@ -255,7 +256,8 @@ func TestGPGReleaseFileFindings(t *testing.T) {
 		names []string
 		want  string
 	}{
-		"signed with GPG":     {names: []string{"app.jar", "checksums.sha256", "checksums.sha256.asc", "app-1.0.0-sboms.tar.gz", "app-1.0.0-sboms.tar.gz.asc", "provenance.json", "provenance.json.bundle"}},
+		"signed with GPG":     {names: []string{"app.jar", "checksums.sha256", "checksums.sha256.asc", "app-1.0.0-sboms.tar.gz", "app-1.0.0-sboms.tar.gz.asc", "slsa-provenance.intoto.json", "slsa-provenance.intoto.json.asc"}},
+		"statement by Cosign": {names: []string{"checksums.sha256", "checksums.sha256.asc", "slsa-provenance.intoto.json", "slsa-provenance.intoto.json.bundle"}, want: "no OpenPGP signature of slsa-provenance.intoto.json"},
 		"checksums of a file": {names: []string{"app_checksums.txt", "app_checksums.txt.asc"}},
 		"signed with Cosign":  {names: []string{"checksums.sha256", "checksums.sha256.bundle"}, want: "no OpenPGP signature of its checksums"},
 		"both on one file":    {names: []string{"checksums.sha256", "checksums.sha256.asc", "app-1.0.0-sboms.tar.gz", "app-1.0.0-sboms.tar.gz.asc", "app-1.0.0-sboms.tar.gz.bundle"}, want: "app-1.0.0-sboms.tar.gz carries both"},

@@ -323,9 +323,10 @@ func TestWriteReleaseFileManifest_PreservesExplicitEvidence(t *testing.T) {
 }
 
 // A release whose checksums and release files `release sign --method gpg`
-// signed publishes their armored signatures, and a producer's hand-off that
-// already holds one is refused, as a Cosign bundle is. Every file the
-// checksums list needs its own signature before the release is published.
+// signed publishes their armored signatures, the provenance statement's
+// among them, and a producer's hand-off that already holds one is refused,
+// as a Cosign bundle is. The statement and every file the checksums list
+// need their own signature before the release is finalized and published.
 func TestWriteReleaseFileManifest_PublishesOpenPGPSignatures(t *testing.T) {
 	t.Chdir(t.TempDir())
 
@@ -364,7 +365,14 @@ func TestWriteReleaseFileManifest_PublishesOpenPGPSignatures(t *testing.T) {
 
 	writeReleaseFilesTestFile(t, "dist/checksums.sha256.asc", "checksums signature\n")
 	writeReleaseFilesTestFile(t, "dist/slsa-provenance.intoto.json", "provenance\n")
-	writeReleaseFilesTestFile(t, "dist/slsa-provenance.intoto.json.bundle", "provenance bundle\n")
+
+	// A statement the file signer left unsigned is not finalized.
+	if _, err := apprelease.WriteReleaseFileManifest(apprelease.WriteReleaseFileManifestInput{FilesInput: files}); err == nil ||
+		!strings.Contains(err.Error(), "provenance statement dist/slsa-provenance.intoto.json has no signature") {
+		t.Fatalf("finalizing an unsigned provenance statement: %v", err)
+	}
+
+	writeReleaseFilesTestFile(t, "dist/slsa-provenance.intoto.json.asc", "provenance signature\n")
 
 	// Signing that left the SBOM unsigned is finalized, and not published.
 	if _, err := apprelease.WriteReleaseFileManifest(apprelease.WriteReleaseFileManifestInput{FilesInput: files}); err != nil {
@@ -397,10 +405,26 @@ func TestWriteReleaseFileManifest_PublishesOpenPGPSignatures(t *testing.T) {
 		t.Fatalf("publishing OpenPGP-signed checksums and release files: %v", err)
 	}
 
-	for _, name := range []string{"checksums.sha256.asc", "app.cdx.json.asc", "app.jar.asc"} {
+	for _, name := range []string{"checksums.sha256.asc", "app.cdx.json.asc", "app.jar.asc", "slsa-provenance.intoto.json.asc"} {
 		if source := releaseFileEntrySource(manifest.Assets, name); source != "openpgp_signature" {
 			t.Errorf("%s source = %q, want openpgp_signature", name, source)
 		}
+	}
+
+	// A finalized manifest that lost the statement's signature is not published.
+	manifest.Assets = slices.DeleteFunc(manifest.Assets, func(entry apprelease.FileEntry) bool {
+		return entry.Name == "slsa-provenance.intoto.json.asc"
+	})
+
+	stripped, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writeReleaseFilesTestFile(t, "dist/release-files.json", string(stripped))
+
+	if _, err := apprelease.PublishableReleaseFiles(files); err == nil || !strings.Contains(err.Error(), "declares dist/slsa-provenance.intoto.json without its signature") {
+		t.Fatalf("publishing a provenance statement without its signature: %v", err)
 	}
 }
 

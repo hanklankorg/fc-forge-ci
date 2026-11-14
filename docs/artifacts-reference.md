@@ -108,9 +108,10 @@ or provider.
 `gpg`, `sigstore`, `kms`
 <!-- /schema-values:sign.method -->
 
-On Forgejo and GitLab, `gpg` signs the release's checksums and release files with
-the OpenPGP key, as does [`sign.files-method: gpg`](#signfiles-method), and
-the provenance, the evidence and the images with the Cosign key. A
+On Forgejo and GitLab, `gpg` signs the release's checksums, release files
+and provenance statement with the OpenPGP key, as does
+[`sign.files-method: gpg`](#signfiles-method), and the evidence and the
+images with the Cosign key. A
 declaration there without a `sign` section, or with another method, has
 all of them signed with the Cosign key; see
 [Forgejo signing](forgejo.md#signing) and
@@ -143,8 +144,8 @@ sign:
   `sign.method` needs for the images. On the GitHub release, a declaration
   without a container then signs nothing with Cosign, and its plan asks for
   no id-token, Cosign key or Sigstore endpoint. The Forgejo and GitLab
-  releases sign the provenance and the evidence with the Cosign key all the
-  same, so their Cosign secrets stay required.
+  releases sign the evidence with the Cosign key all the same, so their
+  Cosign secrets stay required.
 - The GitHub, Forgejo and GitLab releases sign the files with GPG. The
   Forgejo and GitLab releases sign the images with their Cosign key,
   whatever `sign.method` says.

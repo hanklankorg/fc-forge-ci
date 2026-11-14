@@ -742,10 +742,11 @@ rc_check_signing_access() {
   rc_signing_preflight "${RC_SIGN_DISTRO_PACKAGES}" "${rc_file_signing}"
 }
 
-# rc_sign_release_files signs the checksums and release files the way $1 says. gpg
-# signs them with the GPG key, which the engine refuses unless its
-# fingerprint is RELEASE_GPG_FINGERPRINT and refuses to load while the runner
-# has swap on, and writes an .asc beside each, dated at the release commit
+# rc_sign_release_files signs the checksums, the release files and the
+# provenance statement the way $1 says. gpg signs them with the GPG key,
+# which the engine refuses unless its fingerprint is
+# RELEASE_GPG_FINGERPRINT and refuses to load while the runner has swap
+# on, and writes an .asc beside each, dated at the release commit
 # so the signatures are reproducible. The engine then holds the GPG key, its
 # passphrase and its fingerprint, and no other signing or publishing secret
 # of the job, as the Forgejo step does. cosign signs them with the Cosign key.
@@ -764,13 +765,15 @@ rc_sign_release_files() {
         CI_JOB_TOKEN CI_REGISTRY_PASSWORD CI_DEPENDENCY_PROXY_PASSWORD CI_DEPLOY_PASSWORD
       GPG_PRIVATE_KEY="${key}" GPG_PASSPHRASE="${passphrase}" SOURCE_DATE_EPOCH="${epoch}" \
         rc_engine release sign --method gpg --fingerprint "${fingerprint}" --checksums-from-manifest \
-        --manifest "${RELEASE_FILES_MANIFEST:?}" --dist-dir "${DIST_DIR:?}" --files-from-manifest --no-release-artifacts-dir
+        --manifest "${RELEASE_FILES_MANIFEST:?}" --dist-dir "${DIST_DIR:?}" --files-from-manifest \
+        --file "${DIST_DIR:?}/slsa-provenance.intoto.json" --no-release-artifacts-dir
     )
     ;;
   cosign)
     COSIGN_KEY="${RELEASE_COSIGN_PRIVATE_KEY:?}" COSIGN_PASSWORD="${RELEASE_COSIGN_PASSPHRASE:?}" \
       rc_engine release sign --method kms --key env://COSIGN_KEY --checksums-from-manifest \
-      --manifest "${RELEASE_FILES_MANIFEST:?}" --dist-dir "${DIST_DIR:?}" --files-from-manifest --no-release-artifacts-dir
+      --manifest "${RELEASE_FILES_MANIFEST:?}" --dist-dir "${DIST_DIR:?}" --files-from-manifest \
+      --file "${DIST_DIR:?}/slsa-provenance.intoto.json" --no-release-artifacts-dir
     ;;
   *)
     echo "ERROR: the release files are signed with gpg or cosign, not '${1}'." >&2
@@ -816,14 +819,15 @@ rc_sign_release() {
     GPG_SIGNING_KEY="${RELEASE_GPG_PRIVATE_KEY:?}" GPG_SIGNING_PASSWORD="${RELEASE_GPG_PASSPHRASE:?}" \
       rc_engine release gpg sign-packages --fingerprint "${RELEASE_GPG_FINGERPRINT:?}" --dir "${DIST_DIR}"
   fi
-  rc_sign_release_files "${rc_file_signing}"
-  # Provenance, evidence and images are signed with the Cosign key either way.
-  export COSIGN_KEY="${RELEASE_COSIGN_PRIVATE_KEY:?}" COSIGN_PASSWORD="${RELEASE_COSIGN_PASSPHRASE:?}"
+  # The statement is written unsigned, before any key of the release files
+  # is read: their signer signs it with them, so a release has one file signer.
   rc_engine release provenance --checksums-from-manifest --manifest "${RELEASE_FILES_MANIFEST}" \
     --dist-dir "${DIST_DIR}" --go-sum go.sum --workflow gitlab/release.yml \
     --ref-name "${RELEASE_TAG}" --source-sha "${RELEASE_SHA}" --started-on-commit "${RELEASE_SHA}" \
-    --output "${DIST_DIR}/slsa-provenance.intoto.json" --method kms --key env://COSIGN_KEY \
-    --bundle "${DIST_DIR}/slsa-provenance.intoto.json.bundle"
+    --output "${DIST_DIR}/slsa-provenance.intoto.json"
+  rc_sign_release_files "${rc_file_signing}"
+  # Evidence and images are signed with the Cosign key either way.
+  export COSIGN_KEY="${RELEASE_COSIGN_PRIVATE_KEY:?}" COSIGN_PASSWORD="${RELEASE_COSIGN_PASSPHRASE:?}"
   if [ -f "${DIST_DIR}/release-images-publication.json" ]; then
     local base_repository="${RC_REGISTRY_IMAGE}-base"
     if [ -n "${RC_BASE_STAGES?}" ]; then base_repository="${RC_PUBLICATION_IMAGE_REPOSITORY}/bases"; fi

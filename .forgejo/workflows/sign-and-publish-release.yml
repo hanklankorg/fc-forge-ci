@@ -12,12 +12,13 @@
 #
 #   coordinates [NONE] Validates the public helper repository and signer image
 #                      coordinates before any secret-bearing container starts.
-#   sign     [COSIGN, GPG, REGISTRY]  Signs checksums and release files with the
+#   sign     [COSIGN, GPG, REGISTRY]  Signs checksums, release files and
+#                                     the provenance statement with the
 #                                     Cosign key, or with the GPG key (.asc)
 #                                     when artifacts.yml says sign.method or
-#                                     sign.files-method gpg;
-#                                     Cosign-signs provenance, evidence and
-#                                     images; GPG-signs distro package .sig
+#                                     sign.files-method gpg; Cosign-signs
+#                                     evidence and images; GPG-signs distro
+#                                     package .sig
 #                                     sidecars; writes the release manifest;
 #                                     uploads signed dist/ and emits its digest.
 #   promote  [REGISTRY]   needs: sign re-derives the tag-move plan from the
@@ -555,6 +556,37 @@ jobs:
             --fingerprint "${GPG_SIGNING_FINGERPRINT:?}" \
             --dir "${DIST_DIR:?}"
 
+      # The statement is written before the release files are signed, and
+      # this step holds no key: the one step below that signs the checksums
+      # and release files signs the statement with them, so a release has
+      # one file signer. The job runs for the release-request tag, so the
+      # statement's source ref and commit are named here. The repository,
+      # the builder and the invocation are this job's own runner variables.
+      - name: Generate SLSA provenance
+        env:
+          CALLER_WORKFLOW: ${{ inputs['caller-workflow'] }}
+          FORGEJO_RUN_ID: ${{ forgejo.run_id }}
+        run: |
+          set -euo pipefail
+          cd "${CONSUMER_WORKSPACE:?}"
+          unset COSIGN_KEY COSIGN_PASSWORD FORGEJO_TOKEN GPG_SIGNING_FINGERPRINT GPG_SIGNING_KEY \
+            GPG_SIGNING_PASSWORD MISE_FORGEJO_TOKEN MISE_GITHUB_TOKEN REGISTRY_TOKEN REGISTRY_USER
+          # shellcheck source=.engine/bin/lib-forge-ci.sh
+          source "${HELPERS_DIR:?}/.engine/bin/lib-forge-ci.sh"
+          FORGE_CI_PROVIDER=forgejo \
+            run_forge_ci release provenance \
+              --checksums-from-manifest \
+              --manifest "${RELEASE_FILES_MANIFEST:?}" \
+              --dist-dir "${DIST_DIR:?}" \
+              --go-sum "${GO_SUM_FILE:-go.sum}" \
+              --profile forgejo-actions \
+              --workflow "${CALLER_WORKFLOW:?}" \
+              --ref-name "${RELEASE_TAG:?}" \
+              --source-sha "${RELEASE_SHA:?}" \
+              --started-on-commit "${RELEASE_SHA:?}" \
+              --output "${DIST_DIR:?}/slsa-provenance.intoto.json"
+          echo "SLSA Provenance v1.0 generated"
+
       - name: Cosign sign-blob checksums and release files
         if: ${{ steps.file-signing.outputs.release-file-signing == 'cosign' }}
         env:
@@ -577,8 +609,9 @@ jobs:
               --manifest "${RELEASE_FILES_MANIFEST:?}" \
               --dist-dir "${DIST_DIR:?}" \
               --files-from-manifest \
+              --file "${DIST_DIR:?}/slsa-provenance.intoto.json" \
               --no-release-artifacts-dir
-          echo "checksums + release files cosign-signed"
+          echo "checksums, release files and provenance cosign-signed"
 
       - name: GPG-sign checksums and release files
         if: ${{ steps.file-signing.outputs.release-file-signing == 'gpg' }}
@@ -612,45 +645,9 @@ jobs:
               --manifest "${RELEASE_FILES_MANIFEST:?}" \
               --dist-dir "${DIST_DIR:?}" \
               --files-from-manifest \
+              --file "${DIST_DIR:?}/slsa-provenance.intoto.json" \
               --no-release-artifacts-dir
-          echo "checksums + release files GPG-signed"
-
-      - name: Generate and sign SLSA provenance
-        env:
-          COSIGN_KEY: ${{ secrets.RELEASE_COSIGN_PRIVATE_KEY }}
-          COSIGN_PASSWORD: ${{ secrets.RELEASE_COSIGN_PASSPHRASE }}
-          CALLER_WORKFLOW: ${{ inputs['caller-workflow'] }}
-          FORGEJO_RUN_ID: ${{ forgejo.run_id }}
-        run: |
-          set -euo pipefail
-          cd "${CONSUMER_WORKSPACE:?}"
-          cosign_key="${COSIGN_KEY:?}"
-          cosign_password="${COSIGN_PASSWORD:?}"
-          unset COSIGN_KEY COSIGN_PASSWORD FORGEJO_TOKEN GPG_SIGNING_FINGERPRINT GPG_SIGNING_KEY \
-            GPG_SIGNING_PASSWORD MISE_FORGEJO_TOKEN MISE_GITHUB_TOKEN REGISTRY_TOKEN REGISTRY_USER
-          # shellcheck source=.engine/bin/lib-forge-ci.sh
-          source "${HELPERS_DIR:?}/.engine/bin/lib-forge-ci.sh"
-          # The job runs for the release-request tag, so the statement's source
-          # ref and commit are named here. The repository, the builder and the
-          # invocation are this job's own runner variables.
-          FORGE_CI_PROVIDER=forgejo \
-            COSIGN_KEY="${cosign_key}" \
-            COSIGN_PASSWORD="${cosign_password}" \
-            run_forge_ci release provenance \
-              --checksums-from-manifest \
-              --manifest "${RELEASE_FILES_MANIFEST:?}" \
-              --dist-dir "${DIST_DIR:?}" \
-              --go-sum "${GO_SUM_FILE:-go.sum}" \
-              --profile forgejo-actions \
-              --workflow "${CALLER_WORKFLOW:?}" \
-              --ref-name "${RELEASE_TAG:?}" \
-              --source-sha "${RELEASE_SHA:?}" \
-              --started-on-commit "${RELEASE_SHA:?}" \
-              --output "${DIST_DIR:?}/slsa-provenance.intoto.json" \
-              --method kms \
-              --key env://COSIGN_KEY \
-              --bundle "${DIST_DIR:?}/slsa-provenance.intoto.json.bundle"
-          echo "SLSA Provenance v1.0 generated and signed"
+          echo "checksums, release files and provenance GPG-signed"
 
       - name: Sign and attest container images
         env:

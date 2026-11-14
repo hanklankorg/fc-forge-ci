@@ -464,13 +464,13 @@ func PublishableReleaseFiles(in FilesInput) ([]string, error) {
 
 // requireFinalizedManifest refuses a manifest finalization has not written,
 // and a release whose signing left a signed file unsigned. Finalization
-// declares the provenance statement with its bundle and the bundle of every
-// evidence file; those are the published files no checksum line covers. It
-// declares a signature of the checksums file too, a Cosign bundle or an
-// OpenPGP .asc: the checksums bind every other file, so a release without
-// that signature would be published unauthenticated. Every file the checksums
-// list, the SBOM bundle among them, has its own signature of one of those two
-// kinds, or the detached .sig of a signed distro package.
+// declares the provenance statement and the bundle of every evidence file;
+// those are the published files no checksum line covers. It declares a
+// signature of the statement and of the checksums file too, a Cosign bundle
+// or an OpenPGP .asc: the checksums bind every other file, so a release
+// without that signature would be published unauthenticated. Every file the
+// checksums list, the SBOM bundle among them, has its own signature of one of
+// those two kinds, or the detached .sig of a signed distro package.
 func requireFinalizedManifest(ctx releaseFilesCtx, manifest *FileManifest) error {
 	const hint = "run `release files manifest` after signing"
 
@@ -483,14 +483,16 @@ func requireFinalizedManifest(ctx releaseFilesCtx, manifest *FileManifest) error
 		declared[filepath.Clean(asset.Path)] = struct{}{}
 	}
 
-	for _, signed := range append([]string{ctx.provenancePath()}, entryPaths(manifest.Evidence)...) {
+	for _, signed := range entryPaths(manifest.Evidence) {
 		bundle := filepath.Clean(signed) + signatureBundleSuffix
 		if _, ok := declared[bundle]; !ok {
 			return fmt.Errorf("release file manifest %s is not finalized: it declares %s without its signature bundle %s; %s: %w", ctx.manifestFile, signed, bundle, hint, errs.ErrValidation)
 		}
 	}
 
-	signedFiles := map[string][]string{}
+	// The statement and the checksums file are signed by the signer of the
+	// release files, so each carries a signature of that signer's kind.
+	signedFiles := map[string][]string{ctx.provenancePath(): {signatureBundleSuffix, openPGPSignatureSuffix}}
 	for _, checksums := range entryPaths(manifest.Checksums) {
 		signedFiles[filepath.Clean(checksums)] = []string{signatureBundleSuffix, openPGPSignatureSuffix}
 	}
@@ -875,12 +877,38 @@ func addGoReleaserAssetEntries(ctx releaseFilesCtx, collector *releaseFileCollec
 	return nil
 }
 
+// addProvenanceAssetEntries adds the provenance statement and the signature
+// the signer of the release files wrote next to it: a Cosign bundle, or an
+// OpenPGP .asc where those files are signed with gpg. A statement with
+// neither is refused, as it would be published unauthenticated.
 func addProvenanceAssetEntries(ctx releaseFilesCtx, collector *releaseFileCollector) error {
-	if err := collector.add(ctx, ctx.provenancePath(), releaseFilesSectionProvenance); err != nil {
+	statement := ctx.provenancePath()
+	if err := collector.add(ctx, statement, releaseFilesSectionProvenance); err != nil {
 		return err
 	}
 
-	return collector.add(ctx, ctx.provenancePath()+signatureBundleSuffix, "provenance_bundle")
+	signed := false
+
+	for _, signature := range []releaseSignature{
+		{suffix: signatureBundleSuffix, source: "provenance_bundle"},
+		{suffix: openPGPSignatureSuffix, source: "openpgp_signature"},
+	} {
+		if !regularReleaseFile(statement + signature.suffix) {
+			continue
+		}
+
+		if err := collector.add(ctx, statement+signature.suffix, signature.source); err != nil {
+			return err
+		}
+
+		signed = true
+	}
+
+	if !signed {
+		return fmt.Errorf("provenance statement %s has no signature, %s.bundle or %s.asc; sign it with the release files before finalizing: %w", statement, statement, statement, errs.ErrValidation)
+	}
+
+	return nil
 }
 
 func addSignatureBundleEntries(ctx releaseFilesCtx, collector *releaseFileCollector) error {

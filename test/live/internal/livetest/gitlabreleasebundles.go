@@ -545,11 +545,11 @@ func stagePublishedEvidence(signer, published, checksumName string, names []stri
 		return fmt.Errorf("published release asset set differs from finalized signer declaration: %w", errReleaseEvidence)
 	}
 
-	// The provenance carries a Cosign bundle; the checksums a Cosign bundle
-	// or, for a declaration that signs its files with GPG, an OpenPGP .asc.
+	// The checksums and the provenance statement carry a Cosign bundle or,
+	// for a declaration that signs its files with GPG, an OpenPGP .asc.
 	for required, signatures := range map[string][]string{
 		checksumName:                       {cosignBundle, openPGPSignature},
-		apprelease.ProvenanceStatementName: {cosignBundle},
+		apprelease.ProvenanceStatementName: {cosignBundle, openPGPSignature},
 	} {
 		signed := slices.ContainsFunc(signatures, func(suffix string) bool { return slices.Contains(wanted, required+suffix) })
 		if !slices.Contains(wanted, required) || !signed {

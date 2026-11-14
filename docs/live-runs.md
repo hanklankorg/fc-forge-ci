@@ -1689,11 +1689,11 @@ swap off, or job containers with swap disabled (memory-swap equal to
 memory), as `distro-packages` does: on a runner whose job can swap the
 release stops at the GPG step. After the release the trial verifies every `.asc`
 the release offers with its own GPG key and requires the signature to be
-that key's (`livetest.VerifyOpenPGPSignature`), verifies the Cosign bundles
-of the provenance and the evidence with its Cosign key, binds every file
-through the checksums the `.asc` authenticates, and requires that the
-checksums have an `.asc` and that no file with one also has a Cosign
-bundle (`livetest.GPGReleaseFileFindings`).
+that key's (`livetest.VerifyOpenPGPSignature`), verifies the Cosign bundle
+of the evidence with its Cosign key, binds every file through the checksums
+the `.asc` authenticates, and requires that the checksums and the
+provenance statement have an `.asc` and that no file with one also has a
+Cosign bundle (`livetest.GPGReleaseFileFindings`).
 
 The GitLab lane `gpg-files-gitlab` releases `hello-go-cli` the same way,
 from `fixtures=test/live/gitlab-gpg-files`: the Go service has no GitLab

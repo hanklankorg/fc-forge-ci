@@ -120,9 +120,10 @@ func TestSigningPreflightRequiresTheGPGKeyForGPGReleaseFiles(t *testing.T) {
 
 // The GPG release file signing runs here, release.sh against the engine
 // built from this tree, with a throwaway key: it writes an armored signature
-// of the checksums file and of every file it lists, the release file and the
-// SBOM bundle, that the key verifies, dated at the release commit's time,
-// and no Cosign bundle. With a secret missing it stops
+// of the checksums file, of every file it lists, the release file and the
+// SBOM bundle, and of the provenance statement written before it, that the
+// key verifies, dated at the release commit's time, and no Cosign bundle.
+// With a secret missing it stops
 // before the engine runs, and with a key that is not the pinned one, or
 // another passphrase, the engine refuses it; neither signs anything. The throwaway key sets the
 // test's environment, so it runs serially.
@@ -158,6 +159,7 @@ func TestGPGReleaseFileSigningThroughTheEngine(t *testing.T) {
 			work := t.TempDir()
 			writeFixture(t, filepath.Join(work, "dist/app.jar"), "application\n")
 			writeFixture(t, filepath.Join(work, "dist/app-1.2.3-sboms.tar.gz"), "SBOM bundle\n")
+			writeFixture(t, filepath.Join(work, "dist/slsa-provenance.intoto.json"), "{}\n")
 			writeFixture(t, filepath.Join(work, "dist/checksums.sha256"),
 				sha256Hex(t, filepath.Join(work, "dist/app.jar"))+"  app.jar\n"+
 					sha256Hex(t, filepath.Join(work, "dist/app-1.2.3-sboms.tar.gz"))+"  app-1.2.3-sboms.tar.gz\n")
@@ -182,7 +184,7 @@ func TestGPGReleaseFileSigningThroughTheEngine(t *testing.T) {
 				t.Fatalf("refused=%t, want refusal %t naming %q:\n%s", err != nil, test.refused != "", test.refused, output)
 			}
 
-			for _, signed := range []string{"dist/checksums.sha256", "dist/app.jar", "dist/app-1.2.3-sboms.tar.gz"} {
+			for _, signed := range []string{"dist/checksums.sha256", "dist/app.jar", "dist/app-1.2.3-sboms.tar.gz", "dist/slsa-provenance.intoto.json"} {
 				_, err := os.Stat(filepath.Join(work, signed+".asc"))
 
 				switch {
@@ -307,16 +309,77 @@ func TestSigningSignsTheReleaseFilesTheWayTheDeclarationSays(t *testing.T) {
 		t.Run(signing, func(t *testing.T) {
 			t.Parallel()
 
-			// The checks before the file signing are stubbed, and the run
-			// ends at the file signing.
+			// The checks before the file signing are stubbed, the recording
+			// engine writes the statement, and the run ends at the file
+			// signing.
 			body := `rc_signing_preflight() { :; }; rc_release_checkout() { :; }; ` +
 				`rc_release_file_signing() { rc_file_signing=` + signing + `; }; ` +
 				`rc_read_handoff() { mkdir dist; export DIST_DIR=dist RELEASE_FILES_MANIFEST=dist/release-files.json; }; ` +
 				`rc_sign_release_files() { echo "files signed with $1"; exit 0; }; rc_sign_release false`
 
-			output, err := runReleaseFunction(t, t.TempDir(), body, "CI_PROJECT_DIR=/project", "RC_SIGN_DISTRO_PACKAGES=false")
+			output, err := runReleaseFunction(t, t.TempDir(), body, "CI_PROJECT_DIR=/project", "RC_SIGN_DISTRO_PACKAGES=false",
+				"RELEASE_TAG=v1.2.3", "RELEASE_SHA=0123456789abcdef0123456789abcdef01234567")
 			if err != nil || !strings.Contains(output, "files signed with "+signing+"\n") {
 				t.Fatalf("the release files were not signed with %s: %v\n%s", signing, err, output)
+			}
+		})
+	}
+}
+
+// The sign job writes the provenance statement before the release files are
+// signed, with no key in the engine's environment and no signing flag, and
+// the file signing names the statement: the files' signer signs it, the
+// Cosign key or the GPG key, and no step holds both.
+func TestSigningLeavesTheProvenanceStatementToTheFileSigner(t *testing.T) {
+	t.Parallel()
+
+	for _, signing := range []string{"gpg", "cosign"} {
+		t.Run(signing, func(t *testing.T) {
+			t.Parallel()
+
+			work := t.TempDir()
+			release := gpgkey.CommitAt(t, work, "1700000000")
+
+			// The checks before the statement are stubbed. The recording
+			// engine prints the keys it holds, and the run ends after the
+			// file signing.
+			body := `rc_signing_preflight() { :; }; rc_release_checkout() { :; }; ` +
+				`rc_release_file_signing() { rc_file_signing=` + signing + `; }; ` +
+				`rc_read_handoff() { mkdir dist; export DIST_DIR=dist RELEASE_FILES_MANIFEST=dist/release-files.json; }; ` +
+				`rc_engine() { echo "engine: $* keys=${COSIGN_KEY:+cosign}${GPG_PRIVATE_KEY:+gpg}"; }; ` +
+				`eval "real_$(declare -f rc_sign_release_files)"; ` +
+				`rc_sign_release_files() { real_rc_sign_release_files "$@"; exit; }; rc_sign_release false`
+
+			output, err := runReleaseFunction(t, work, body, "CI_PROJECT_DIR=/project", "RC_SIGN_DISTRO_PACKAGES=false",
+				"RELEASE_TAG=v1.2.3", "RELEASE_SHA="+release,
+				"RELEASE_COSIGN_PRIVATE_KEY=cosign-key", "RELEASE_COSIGN_PASSPHRASE=cosign-passphrase",
+				"RELEASE_GPG_PRIVATE_KEY=gpg-key", "RELEASE_GPG_PASSPHRASE=gpg-passphrase", "RELEASE_GPG_FINGERPRINT=fingerprint")
+			if err != nil {
+				t.Fatalf("the signing failed: %v\n%s", err, output)
+			}
+
+			var statement, signed string
+
+			for line := range strings.SplitSeq(output, "\n") {
+				switch {
+				case strings.HasPrefix(line, "engine: release provenance "):
+					statement = line
+				case strings.HasPrefix(line, "engine: release sign "):
+					signed = line
+				}
+			}
+
+			if !strings.Contains(statement, "--output dist/slsa-provenance.intoto.json keys=") || !strings.HasSuffix(statement, " keys=") ||
+				strings.Contains(statement, "--method") || strings.Contains(statement, "--key") || strings.Contains(statement, "--bundle") {
+				t.Errorf("the statement is not written unsigned by an engine without a key: %q\n%s", statement, output)
+			}
+
+			if !strings.Contains(signed, "--file dist/slsa-provenance.intoto.json ") || !strings.HasSuffix(signed, " keys="+signing) {
+				t.Errorf("the %s file signing does not sign the statement with its one key: %q\n%s", signing, signed, output)
+			}
+
+			if strings.Index(output, statement) > strings.Index(output, signed) {
+				t.Errorf("the statement is written after the file signing:\n%s", output)
 			}
 		})
 	}

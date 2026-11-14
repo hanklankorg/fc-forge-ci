@@ -3,10 +3,10 @@
 # SPDX-License-Identifier: CC0-1.0
 
 # The same Go service with its release files signed with GPG on Forgejo:
-# `method: gpg`. The Forgejo release signs the checksums and the SBOMs with
-# RELEASE_GPG_PRIVATE_KEY, pinned to RELEASE_GPG_FINGERPRINT, and the
-# provenance, the evidence and the image with its Cosign key. The trial
-# stages this file over .forge-ci/artifacts.yml.
+# `method: gpg`. The Forgejo release signs the checksums, the SBOMs and the
+# provenance statement with RELEASE_GPG_PRIVATE_KEY, pinned to
+# RELEASE_GPG_FINGERPRINT, and the evidence and the image with its Cosign
+# key. The trial stages this file over .forge-ci/artifacts.yml.
 sign:
   method: gpg
 

@@ -47,9 +47,11 @@ The commands, in the order a release runs them:
 2. `forge-ci release files validate --unsigned` checks the manifest and
    refuses a `dist/` that already holds signatures or provenance, so every
    signature comes from the signing job.
-3. `release sign` and `release provenance` with `--checksums-from-manifest`
-   check every checksum against its file, then sign. `release sign` with
-   `--files-from-manifest` signs each file the checksums list.
+3. `release provenance` with `--checksums-from-manifest` checks every
+   checksum against its file and writes the statement, unsigned. `release
+   sign` with `--checksums-from-manifest` and `--files-from-manifest` signs
+   the checksums file and each file it lists, and with `--file` the
+   statement, so one signer signs them all.
 4. `forge-ci release files manifest` adds the provenance and the signatures
    to the manifest. When `release publish` picks files through a manifest, it
    accepts only such a finished one.
