@@ -116,9 +116,10 @@ For staged builds, `container multiarch-image assemble --from-layouts` can
 perform this composition directly. `--from-layouts` always scans: it requires
 `--scan-output-template`, and the administrator policy decides whether findings
 block. Alongside `--scan-output-template` and
-`--sbom-output-template`, pass `--manifest-output`, `--index-sbom-output` and
-`--sbom-url-prefix`. The prefix is the public HTTPS directory where the caller
-will publish the unchanged platform inventories. The operation scans the staged
+`--sbom-output-template`, pass `--manifest-output` and `--index-sbom-output`.
+The index SBOM names each platform inventory by its file name; the release
+publishes the unchanged inventories under those names in its SBOM bundle. The
+operation scans the staged
 bytes before any upload and uses their recorded child digests and the checked
 served index to compose the index BOM without re-pulling images. It emits
 `image-sbom-sha256` for the ledger pin. Evidence destinations must be distinct
@@ -127,26 +128,24 @@ and must not overwrite authentication or staged image inputs. The shared
 
 For evidence produced separately, use the offline command below.
 
-Keep each native CycloneDX document unchanged. Supply a version-1 manifest such
+Keep each native CycloneDX document unchanged. Supply a version-2 manifest such
 as `platform-sboms.json` alongside the verified `index.json` and native BOMs in
 the release evidence directory:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "platforms": [
     {
       "platform": "linux/amd64",
       "image_ref": "registry.example/example-org/widget@sha256:<amd64 digest>",
       "file": "sbom-amd64.json",
-      "url": "https://downloads.example/widget/v1.2.3/sbom-amd64.json",
       "sha256": "<producer checksum of sbom-amd64.json>"
     },
     {
       "platform": "linux/arm64",
       "image_ref": "registry.example/example-org/widget@sha256:<arm64 digest>",
       "file": "sbom-arm64.json",
-      "url": "https://downloads.example/widget/v1.2.3/sbom-arm64.json",
       "sha256": "<producer checksum of sbom-arm64.json>"
     }
   ]
@@ -169,17 +168,22 @@ match the complete platform record set. Each native BOM must match its
 producer-supplied checksum. Overwriting an input document is refused.
 
 The output is deterministic CycloneDX 1.6 with one container component per
-platform and checksum-bound external BOM references. Native package graphs and
+platform. Each component names the platform's image by digest and refers to
+its native BOM by file name, the base name of `file`, with the BOM's
+SHA-256. Native package graphs and
 `bom-ref` values are not merged or rewritten. The command checks CycloneDX
 headers and byte bindings, not full schema validity or inventory accuracy.
 Use checked assembly or verification to establish actual child config identity
 before composing from an index snapshot.
 
-Public URLs must be absolute HTTPS without user information, query strings or
-fragments. URLs are not fetched, and availability is not established here.
-The caller must publish every referenced native document at the declared URL.
-Register those files and the index BOM in the release-file manifest before
-computing the final signing hand-off digest.
+A reference is a plain file name, not a location: a name with a path, a
+scheme or a query is refused, and so are two platforms with one name. The
+release publishes the index BOM and every native document it names in the
+SBOM bundle, and the signer attests the index BOM on the index digest and
+each native document on its platform's digest. A consumer's own image job
+leaves these files in `dist/` and pins the index BOM in the ledger; the
+trusted step that follows adds them to the bundle. A version-1 manifest,
+which carried a `url` for each platform, is refused.
 
 The command prints the index BOM checksum and emits `sbom-path`, `sbom-sha256`
 and `evidence-files` CI outputs. Pass the output path and checksum to

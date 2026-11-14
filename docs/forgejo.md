@@ -743,6 +743,16 @@ The consumer's `release-workflow.yml` calls the layer around its own build job:
    `packages` ([distro packages](#distro-packages-in-the-owners-registries),
    when declared) and `cleanup` (candidate tags).
 
+The `sign` job verifies the hand-off against its digest and then, before it
+writes the provenance statement or loads a key, writes the image SBOMs the
+ledger pins into the release's SBOM bundle, `<project>-<version>-sboms.tar.gz`,
+beside the build's SBOMs, and has `checksums.sha256` list that bundle. It
+takes an index SBOM and the platform inventories it names from `dist/`, each
+held to the checksum the ledger or the index SBOM records; a file that
+differs, or a pinned SBOM outside `dist/`, stops the job. No image SBOM is a
+release file of its own. An image whose SBOM the ledger does not pin gets its SBOM at signing, as an
+attestation on the image alone, and so does a base image.
+
 **Promotion** is the `promote` job: after signing, it moves the final tags of
 the images the build recorded. There is no `:dev`/`:staging` ladder. Base
 images have their own lifecycle, [Base images](#base-images):
@@ -819,7 +829,9 @@ admitted builder job image on the ordinary runner pool instead.
 - **collect** merges the ledgers into one artifact, `release-images`: a
   `release-images.json` and the Trivy results. Unpack it into the `dist/` the
   consumer hands to `sign-and-publish-release.yml`, which signs the images,
-  generates their SBOMs and promotes the staging tags to the final ones.
+  attests their SBOMs and promotes the staging tags to the final ones. The
+  artifact also holds each image's index SBOM and platform inventories,
+  which the ledger pins.
 
 The layouts travel between the jobs as run artifacts, which Forgejo counts
 against the repository owner's storage quota for a day. A layer shared by

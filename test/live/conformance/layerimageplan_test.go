@@ -160,9 +160,7 @@ func TestForgejoLayer_ResolvedImagePlan(t *testing.T) {
 			t.Fatalf("run %d final review artifacts: %v", run.ID, err)
 		}
 
-		urlPrefix := strings.TrimRight(target.BaseURL(), "/") + "/" + livetest.RepoSlug(target, repo) + "/releases/download/v0.0.1"
-
-		final, child, err := imagePlanFinalReview(finalTree, baseRepository, urlPrefix)
+		final, child, err := imagePlanFinalReview(finalTree, baseRepository)
 		if err != nil {
 			t.Fatalf("%s run %d artifact %s: %v", phase, run.ID, finalArtifact, err)
 		}
@@ -189,7 +187,7 @@ func TestForgejoLayer_ResolvedImagePlan(t *testing.T) {
 			t.Fatal("final index child does not contain the selected target's marker")
 		}
 
-		t.Logf("final release evidence verified: phase=%s run=%d index=%s child=%s inventory-sha256=%s index-bom-sha256=%s url-prefix=%s artifact=%s", phase, run.ID, final.Ref, child, imagePlanSHA256(finalTree["sbom-distroless-amd64.json"]), final.SBOMSHA256, urlPrefix, finalArtifact)
+		t.Logf("final release evidence verified: phase=%s run=%d index=%s child=%s inventory-sha256=%s index-bom-sha256=%s artifact=%s", phase, run.ID, final.Ref, child, imagePlanSHA256(finalTree["sbom-distroless-amd64.json"]), final.SBOMSHA256, finalArtifact)
 	}
 }
 

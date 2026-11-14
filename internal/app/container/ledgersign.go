@@ -21,6 +21,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
 	"github.com/diggsweden/forge-ci/internal/domain/provenance"
 	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
+	domainsbom "github.com/diggsweden/forge-ci/internal/domain/sbom"
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
 )
 
@@ -199,7 +200,15 @@ type ledgerSignRun struct {
 	predicateDir  string
 }
 
-type ledgerSigningPlan struct{ imageRef, predicatePath, sbomPath string }
+type ledgerSigningPlan struct {
+	imageRef, predicatePath, sbomPath string
+	// inventories are the platform inventories an index SBOM names, each
+	// attested on its child digest.
+	inventories []ledgerInventory
+}
+
+// ledgerInventory is one platform inventory and the child image it describes.
+type ledgerInventory struct{ imageRef, path string }
 
 // prepareEntry resolves and prepares every local input without publication.
 func (run ledgerSignRun) prepareEntry(ctx context.Context, idx int, entry imageledger.Entry) (ledgerSigningPlan, error) {
@@ -226,7 +235,62 @@ func (run ledgerSignRun) prepareEntry(ctx context.Context, idx int, entry imagel
 		return ledgerSigningPlan{}, err
 	}
 
-	return ledgerSigningPlan{imageRef: imageRef, predicatePath: predicatePath, sbomPath: ledgerSBOMLocation(run.in.EvidenceRoot, entry.SBOM)}, nil
+	sbomPath := ledgerSBOMLocation(run.in.EvidenceRoot, entry.SBOM)
+
+	inventories, err := ledgerIndexInventories(sbomPath, imageRef, entry.Digest)
+	if err != nil {
+		return ledgerSigningPlan{}, err
+	}
+
+	return ledgerSigningPlan{imageRef: imageRef, predicatePath: predicatePath, sbomPath: sbomPath, inventories: inventories}, nil
+}
+
+// ledgerIndexInventories admits the platform inventories of an index SBOM
+// before anything is published: the index SBOM must describe this entry's
+// digest, and each inventory beside it must have the checksum the index SBOM
+// records. The inventory of one image names none and yields nothing. The
+// child refs are in the repository being signed, so an imported image is
+// attested where it is published.
+func ledgerIndexInventories(sbomPath, imageRef, digest string) ([]ledgerInventory, error) {
+	root, err := pathsafe.OpenRoot(filepath.Dir(sbomPath))
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = root.Close() }()
+
+	body, err := root.ReadFile(filepath.Base(sbomPath))
+	if err != nil {
+		return nil, fmt.Errorf("read image SBOM %s: %w", sbomPath, err)
+	}
+
+	indexRef, children, ok, err := domainsbom.IndexBOMInventories(body)
+	if err != nil || !ok {
+		return nil, err
+	}
+
+	if !strings.HasSuffix(indexRef, "@"+digest) {
+		return nil, fmt.Errorf("index SBOM %s describes %s, not the ledger digest %s: %w", sbomPath, indexRef, digest, errs.ErrValidation)
+	}
+
+	repository := domaincontainer.StripTagOrDigest(imageRef)
+	inventories := make([]ledgerInventory, 0, len(children))
+
+	for _, child := range children {
+		inventory, err := root.ReadFile(child.Name)
+		if err != nil {
+			return nil, fmt.Errorf("read platform inventory %s of %s: %w", child.Name, sbomPath, err)
+		}
+
+		if fmt.Sprintf("%x", sha256.Sum256(inventory)) != child.SHA256 {
+			return nil, fmt.Errorf("platform inventory %s does not match the checksum in %s: %w", child.Name, sbomPath, errs.ErrValidation)
+		}
+
+		_, childDigest, _ := strings.Cut(child.ImageRef, "@")
+		inventories = append(inventories, ledgerInventory{imageRef: repository + "@" + childDigest, path: filepath.Join(filepath.Dir(sbomPath), child.Name)})
+	}
+
+	return inventories, nil
 }
 
 // signEntry consumes only a prepared plan; later entries cannot fail preflight
@@ -259,6 +323,24 @@ func (run ledgerSignRun) signEntry(ctx context.Context, entry imageledger.Entry,
 		TrustedRootPath: run.in.TrustedRootPath,
 	}); err != nil {
 		return err
+	}
+
+	// The index SBOM names each platform by child digest. A reader of one
+	// platform finds its inventory on that digest, without the release.
+	for _, inventory := range plan.inventories {
+		if err := AttestImage(ctx, run.signer, run.out, AttestImageInput{
+			Image:           inventory.imageRef,
+			Method:          run.in.Method,
+			PredicateType:   domaincontainer.PredicateTypeCycloneDX,
+			PredicatePath:   inventory.path,
+			KeyRef:          run.in.KeyRef,
+			OIDCIssuer:      run.in.OIDCIssuer,
+			FulcioURL:       run.in.FulcioURL,
+			RekorURL:        run.in.RekorURL,
+			TrustedRootPath: run.in.TrustedRootPath,
+		}); err != nil {
+			return err
+		}
 	}
 
 	if err := AttestImage(ctx, run.signer, run.out, AttestImageInput{

@@ -28,8 +28,22 @@ func TestGitLabReleaseEvidenceNativeImageJourney(t *testing.T) {
 			fixture := newNativeReleaseJourney(t, Binary(t), HostTool(t, "cosign"), goMetadata, true)
 
 			got, err := fixture.checkWithPublisher(t, fixture.producer, fixture.publisher, fixture.signer, fixture.published)
-			if err != nil || got.Verified != 9 {
-				t.Fatalf("native build/image-publisher/signer/published chain: %+v, %v", got, err)
+			// Five signed release files, as for a release without images: the
+			// image SBOMs are no files of their own, the signed bundle holds
+			// them beside the build's SBOM.
+			if err != nil || got.Verified != 5 {
+				t.Fatalf("native build/image-publisher/signer/published chain: %d verified, %v", got.Verified, err)
+			}
+
+			bundled, err := tarGzipNames(fixture.published["hello-cli-0.94.0-sboms.tar.gz"])
+			if want := []string{"app.tar.gz.sbom.json", "image-sbom-app.cyclonedx.json", "image-sbom-distroless.cyclonedx.json", "sbom-app-amd64.json", "sbom-distroless-amd64.json"}; err != nil || !slices.Equal(bundled, want) {
+				t.Fatalf("the published SBOM bundle holds %v, %v; want %v", bundled, err, want)
+			}
+
+			for name := range fixture.published {
+				if strings.HasPrefix(name, "image-sbom-") || strings.HasPrefix(name, "sbom-") {
+					t.Errorf("image SBOM %s is published as a file of its own", name)
+				}
 			}
 		})
 	}
@@ -37,7 +51,7 @@ func TestGitLabReleaseEvidenceNativeImageJourney(t *testing.T) {
 
 func TestGitLabReleaseEvidenceRejectsImageSubstitutions(t *testing.T) {
 	fixture := newNativeReleaseJourney(t, Binary(t), HostTool(t, "cosign"), true, true)
-	for _, name := range []string{"missing publisher", "changed build subject", "changed publisher subject", "missing ledger", "missing index", "changed index", "missing platform", "changed platform", "missing pin", "wrong pin", "unplanned image", "unplanned ordinary evidence", "removed build declaration", "fabricated publisher source", "signer-only evidence", "changed signer ledger", "changed signer evidence", "published image substitution"} {
+	for _, name := range []string{"missing publisher", "changed build subject", "changed publisher subject", "missing ledger", "missing index", "changed index", "missing platform", "changed platform", "missing pin", "wrong pin", "unplanned image", "unplanned ordinary evidence", "removed build declaration", "fabricated publisher source", "signer-only evidence", "changed signer ledger", "changed signer evidence", "bundle left without image SBOMs", "image SBOM published as a file"} {
 		t.Run(name, func(t *testing.T) {
 			build, publisher, signer, published := maps.Clone(fixture.producer), maps.Clone(fixture.publisher), maps.Clone(fixture.signer), maps.Clone(fixture.published)
 
@@ -89,8 +103,12 @@ func TestGitLabReleaseEvidenceRejectsImageSubstitutions(t *testing.T) {
 				signer["dist/release-images.json"] = []byte("[]")
 			case "changed signer evidence":
 				signer["dist/sbom-app-amd64.json"] = []byte("substituted signer bytes")
-			case "published image substitution":
-				published["sbom-app-amd64.json"] = []byte("substituted published inventory")
+			case "bundle left without image SBOMs":
+				for _, file := range []string{"dist/hello-cli-0.94.0-sboms.tar.gz", "dist/" + fixture.checksum} {
+					publisher[file] = build[file]
+				}
+			case "image SBOM published as a file":
+				published["sbom-app-amd64.json"] = publisher["dist/sbom-app-amd64.json"]
 			}
 
 			_, err := fixture.checkWithPublisher(t, build, publisher, signer, published)
@@ -101,8 +119,10 @@ func TestGitLabReleaseEvidenceRejectsImageSubstitutions(t *testing.T) {
 			var boundary string
 
 			switch name {
-			case "changed build subject", "changed publisher subject", "changed signer ledger", "changed signer evidence":
+			case "changed build subject", "changed publisher subject", "changed signer ledger", "changed signer evidence", "bundle left without image SBOMs":
 				boundary = "handoff changed producer subject"
+			case "image SBOM published as a file":
+				boundary = "published release asset set differs"
 			case "unplanned ordinary evidence":
 				boundary = "publisher manifest disagrees with native extension"
 			case "wrong pin":

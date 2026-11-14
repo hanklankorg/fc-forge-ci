@@ -27,7 +27,7 @@ func indexBOMFixture(t *testing.T) (string, []byte, []sbom.IndexBOMPart) {
 	for index, arch := range []string{"arm64", "amd64"} {
 		digest := "sha256:" + strings.Repeat(strconv.Itoa(index+1), 64)
 		body := []byte(fmt.Sprintf(`{"bomFormat":"CycloneDX","specVersion":"1.6","components":[{"type":"library","name":"native-%s","bom-ref":"shared-reference"}]}`, arch))
-		parts = append(parts, sbom.IndexBOMPart{Platform: "linux/" + arch, ImageRef: repository + "@" + digest, URL: "https://downloads.example/widget/" + arch + ".json", SHA256: fmt.Sprintf("%x", sha256.Sum256(body)), Document: body})
+		parts = append(parts, sbom.IndexBOMPart{Platform: "linux/" + arch, ImageRef: repository + "@" + digest, Name: "sbom-widget-" + arch + ".json", SHA256: fmt.Sprintf("%x", sha256.Sum256(body)), Document: body})
 		children = append(children, map[string]any{"digest": digest, "platform": map[string]string{"os": "linux", "architecture": arch}})
 	}
 
@@ -66,7 +66,7 @@ func TestIndexBOMDeterministicallyLinksUnchangedDocuments(t *testing.T) {
 
 	for index, part := range reversed {
 		require.Equal(t, part.ImageRef, document.Components[index].Name)
-		require.Equal(t, part.URL, document.Components[index].External[0].URL)
+		require.Equal(t, part.Name, document.Components[index].External[0].URL)
 		require.Equal(t, part.SHA256, document.Components[index].External[0].Hashes[0].Content)
 	}
 
@@ -76,7 +76,7 @@ func TestIndexBOMDeterministicallyLinksUnchangedDocuments(t *testing.T) {
 func TestIndexBOMRefusesIncompleteOrChangedEvidence(t *testing.T) {
 	t.Parallel()
 
-	for _, defect := range []string{"missing", "duplicate", "wrong-platform", "wrong-image", "foreign-repository", "bad-checksum", "changed-document", "non-bom", "bad-index", "url-credentials", "url-query", "url-http", "url-conflict"} {
+	for _, defect := range []string{"missing", "duplicate", "wrong-platform", "wrong-image", "foreign-repository", "bad-checksum", "changed-document", "non-bom", "bad-index", "name-url", "name-path", "name-empty", "name-conflict"} {
 		t.Run(defect, func(t *testing.T) {
 			t.Parallel()
 			ref, raw, parts := indexBOMFixture(t)
@@ -101,14 +101,14 @@ func TestIndexBOMRefusesIncompleteOrChangedEvidence(t *testing.T) {
 				parts[0].SHA256 = fmt.Sprintf("%x", sha256.Sum256(parts[0].Document))
 			case "bad-index":
 				raw = append(raw, ' ')
-			case "url-credentials":
-				parts[0].URL = "https://user:private@downloads.example/bom"
-			case "url-query":
-				parts[0].URL = "https://downloads.example/bom?token=private"
-			case "url-http":
-				parts[0].URL = "http://downloads.example/bom"
-			case "url-conflict":
-				parts[0].URL = parts[1].URL
+			case "name-url":
+				parts[0].Name = "https://user:private@downloads.example/bom"
+			case "name-path":
+				parts[0].Name = "private/sbom.json"
+			case "name-empty":
+				parts[0].Name = ""
+			case "name-conflict":
+				parts[0].Name = parts[1].Name
 			}
 
 			body, err := sbom.ComposeIndexBOM(ref, raw, parts)

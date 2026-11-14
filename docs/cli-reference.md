@@ -1937,8 +1937,7 @@ outputs.
 | `--metadata-dir` | directory for <name>.json (default <name>-dist) | string | `""` | `$IMAGE_METADATA_DIR` |
 | `--scan-output-template` | required with --from-layouts: scan every staged architecture before any upload; a finding the container gate blocks refuses publication under an enforcing administrator policy; Trivy JSON path must contain {arch} or {platform} | string | `""` | n/a |
 | `--sbom-output-template` | with --from-layouts and --scan-output-template: generate per-architecture CycloneDX SBOMs from the staged bytes before upload; path must contain {arch} or {platform} | string | `""` | n/a |
-| `--index-sbom-output` | with staged inventories and --manifest-output: write an index SBOM binding every selected platform; emits image-sbom-sha256 | string | `""` | n/a |
-| `--sbom-url-prefix` | public HTTPS directory where the unchanged platform inventories will be published; required with --index-sbom-output | string | `""` | n/a |
+| `--index-sbom-output` | with staged inventories and --manifest-output: write an index SBOM naming every selected platform by child digest with its inventory's file name and checksum; emits image-sbom-sha256 | string | `""` | n/a |
 | `--cache-tag-prefix` | with --from-layouts: refresh bounded <prefix>-<arch> slots in the image repository only after the complete set passes scans and assembly | string | `""` | n/a |
 
 #### `forge-ci container multiarch-image build-arch`
@@ -2403,7 +2402,6 @@ EXAMPLE:
 | `--layout-source` | native job artifact root as amd64=PATH or arm64=PATH (repeatable); admit/read without copying | string | `""` | n/a |
 | `--output-dir` | directory for release-images.json and the scan evidence; must not exist yet (required) | string | `""` | n/a |
 | `--prepublication-sboms` | retain release-image platform inventories and pin signer-ready index SBOM bytes | bool | `false` | n/a |
-| `--sbom-url-prefix` | public release download directory for inventory URLs; defaults to the source forge's release downloads with --prepublication-sboms | string | `""` | n/a |
 
 #### `forge-ci container release-images rollback`
 
@@ -4361,9 +4359,22 @@ must exist, so a fresh write to another path uses --output.
 With --unsigned, preserve the producer's existing file set and add explicit
 --evidence-file paths before signing. Refuses existing signatures, provenance,
 duplicate paths and reclassification; does not read GoReleaser metadata.
-Optional --release-images-ledger requires the complete producer-pinned native
-final-image index/platform SBOM set; ordinary legacy/base evidence calls do not
-opt into this flat-dist contract.
+
+With --release-images-ledger, also writes the image SBOMs the ledger pins into
+the release's SBOM bundle <project>-<version>-sboms.tar.gz, beside the SBOMs
+of the build, and rewrites the bundle's line in the checksums file: each index
+SBOM and the platform inventories it names, every file held to the checksum
+the ledger or the index SBOM records. No image SBOM is published as a file of
+its own, and an --evidence-file named like one is refused. This is the one
+point where the bundle changes after the build hand-off: it runs before the
+provenance statement and the signatures exist, and a dist that holds either
+is refused. A hand-off without an SBOM gets its bundle here.
+
+--image-sbom names each file a trusted publisher wrote; they must be exactly
+the ledger's set. --image-sboms-from-ledger takes them from the dist directory
+by the ledger's pins, for a ledger a consumer's jobs handed over: an entry
+without a pin has its SBOM generated and attested by the signer and none to
+bundle.
 ```
 
 | Flag | Description | Type | Default | Env vars |
@@ -4374,7 +4385,12 @@ opt into this flat-dist contract.
 | `--assets-json` | release files collect JSON to reuse instead of re-collecting ('-' for stdin) | string | `""` | n/a |
 | `--unsigned` | extend an existing unsigned manifest with evidence without rediscovering producer metadata | bool | `false` | n/a |
 | `--evidence-file` | additional file to publish and sign as evidence; requires --unsigned (repeatable) | string | `""` | n/a |
-| `--release-images-ledger` | require the exact pinned native final-image SBOM evidence from this ledger; requires --unsigned | string | `""` | n/a |
+| `--release-images-ledger` | write the image SBOMs this ledger pins into the SBOM bundle; requires --unsigned | string | `""` | n/a |
+| `--image-sbom` | image SBOM file a trusted publisher wrote, admitted against --release-images-ledger; the named files must be exactly the index SBOMs and platform inventories the ledger pins (repeatable) | string | `""` | n/a |
+| `--image-sboms-from-ledger` | take the image SBOMs from the dist directory by the pins of --release-images-ledger instead of naming each; an entry without a pin, or a base image, has none to bundle; any other pinned SBOM outside the dist directory is refused | bool | `false` | n/a |
+| `--project-name` | with --release-images-ledger: project in the name of an SBOM bundle the hand-off does not have yet (default: the name of --repository) | string | `""` | n/a |
+| `--repository` | with --release-images-ledger: "owner/repo" slug whose name is the default --project-name | string | `""` | n/a |
+| `--version` | with --release-images-ledger: release version or tag in the name of an SBOM bundle the hand-off does not have yet; a v prefix is dropped | string | `""` | n/a |
 
 #### `forge-ci release files validate`
 
@@ -5371,14 +5387,16 @@ EXAMPLE:
 compose a checksum-bound index SBOM from unchanged platform SBOMs without network access
 
 ```
-Reads a version-1 platform manifest with platform, image_ref,
-file, url and sha256 fields. Input files are relative to --root. The index bytes
+Reads a version-2 platform manifest with platform, image_ref,
+file and sha256 fields. Input files are relative to --root. The index bytes
 must match --image-ref and contain exactly the declared platform/image pairs.
-The output is CycloneDX 1.6 with checksum-bound references to the native BOMs.
-Register every referenced file as release evidence before publication, and pass
-sbom-sha256 to the image ledger so the signer attests this exact document.
+The output is CycloneDX 1.6: each platform is named by its child digest and
+refers to its native BOM by file name and checksum, never by a location.
+Hand every referenced file to the signer beside the index SBOM, which writes
+them into the release's SBOM bundle and attests each on its child digest, and
+pass sbom-sha256 to the image ledger so the signer attests this exact document.
 This checks document headers and byte bindings, not full CycloneDX schema validity
-or the accuracy of the producer's package inventory. URLs are never fetched.
+or the accuracy of the producer's package inventory. Nothing is fetched.
 ```
 
 | Flag | Description | Type | Default | Env vars |
@@ -5386,7 +5404,7 @@ or the accuracy of the producer's package inventory. URLs are never fetched.
 | `--image-ref` | tag-free digest-pinned index reference (required) | string | `""` | n/a |
 | `--root` | root directory of all input files | string | `"."` | n/a |
 | `--index-file` | raw OCI index JSON, relative to root (required) | string | `""` | n/a |
-| `--platform-sboms` | version-1 platform SBOM record manifest, relative to root (required) | string | `""` | n/a |
+| `--platform-sboms` | version-2 platform SBOM record manifest, relative to root (required) | string | `""` | n/a |
 | `--output` | output CycloneDX file, relative to the working directory; '-' is not supported (required) | string | `""` | n/a |
 
 ## `forge-ci security`

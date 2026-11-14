@@ -18,19 +18,21 @@ func indexCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "index",
 		Usage: "compose a checksum-bound index SBOM from unchanged platform SBOMs without network access",
-		Description: `Reads a version-1 platform manifest with platform, image_ref,
-file, url and sha256 fields. Input files are relative to --root. The index bytes
+		Description: `Reads a version-2 platform manifest with platform, image_ref,
+file and sha256 fields. Input files are relative to --root. The index bytes
 must match --image-ref and contain exactly the declared platform/image pairs.
-The output is CycloneDX 1.6 with checksum-bound references to the native BOMs.
-Register every referenced file as release evidence before publication, and pass
-sbom-sha256 to the image ledger so the signer attests this exact document.
+The output is CycloneDX 1.6: each platform is named by its child digest and
+refers to its native BOM by file name and checksum, never by a location.
+Hand every referenced file to the signer beside the index SBOM, which writes
+them into the release's SBOM bundle and attests each on its child digest, and
+pass sbom-sha256 to the image ledger so the signer attests this exact document.
 This checks document headers and byte bindings, not full CycloneDX schema validity
-or the accuracy of the producer's package inventory. URLs are never fetched.`,
+or the accuracy of the producer's package inventory. Nothing is fetched.`,
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "image-ref", Required: true, Usage: "tag-free digest-pinned index reference"},
 			&cli.StringFlag{Name: "root", Value: ".", Usage: "root directory of all input files"},
 			&cli.StringFlag{Name: "index-file", Required: true, Usage: "raw OCI index JSON, relative to root"},
-			&cli.StringFlag{Name: "platform-sboms", Required: true, Usage: "version-1 platform SBOM record manifest, relative to root"},
+			&cli.StringFlag{Name: "platform-sboms", Required: true, Usage: "version-2 platform SBOM record manifest, relative to root"},
 			&cli.StringFlag{Name: "output", Required: true, Usage: "output CycloneDX file, relative to the working directory; '-' is not supported"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {

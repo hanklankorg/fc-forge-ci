@@ -20,7 +20,6 @@ import (
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
 	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
-	domainsbom "github.com/diggsweden/forge-ci/internal/domain/sbom"
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
 )
 
@@ -52,7 +51,6 @@ type PublishReleaseImagesInput struct {
 	Syft          ImageEvidenceSyft
 	// Opt-in preserves existing native release-image publication behavior.
 	PrepublicationSBOMs bool
-	SBOMURLPrefix       string
 	// Gate judges each scanned layout before any upload.
 	Gate func(ctx context.Context, layout, platform string) error
 }
@@ -195,7 +193,6 @@ func releaseImageAssembleInput(out io.Writer, in PublishReleaseImagesInput, imag
 		id := cmp.Or(image.Flavor, image.Role, image.Name)
 		evidence.SBOMOutputTemplate = filepath.Join(in.OutputDir, "sbom-"+id+"-{arch}.json")
 		evidence.IndexSBOMOutput = file
-		evidence.SBOMURLPrefix = in.SBOMURLPrefix
 	}
 
 	return SignerImageAssembleInput{
@@ -245,14 +242,6 @@ func ValidateNativeReleaseImagesPlan(plan pipeline.ReleaseImagesPlan) error {
 func validateReleaseImagePublication(in PublishReleaseImagesInput) error {
 	if err := ValidateNativeReleaseImagesPlan(in.Plan); err != nil {
 		return err
-	}
-
-	if in.PrepublicationSBOMs {
-		if err := domainsbom.ValidatePublicBOMURL(in.SBOMURLPrefix); err != nil {
-			return err
-		}
-	} else if in.SBOMURLPrefix != "" {
-		return fmt.Errorf("sbom-url-prefix requires prepublication-sboms: %w", errs.ErrUsage)
 	}
 
 	seen := map[string]bool{}

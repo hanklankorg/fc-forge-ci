@@ -360,11 +360,17 @@ func TestReleaseImages_RetainsPinnedIndexEvidenceForEveryReleaseVariant(t *testi
 			for _, expected := range []string{
 				"--sbom-output-template " + box.root + "/image-artifacts/release-images-ledger-selected-variant/sbom-" + variant + "-{arch}.json",
 				"--index-sbom-output " + box.root + "/image-artifacts/release-images-ledger-selected-variant/image-sbom-" + variant + ".cyclonedx.json",
-				"--sbom-url-prefix https://forgejo.invalid/owner/app/releases/download/v1.2.3",
 			} {
 				if !strings.Contains(joined, expected) {
 					t.Fatalf("missing %q: %q", expected, argv)
 				}
+			}
+
+			// The index SBOM names each inventory by file name and checksum.
+			// A release download address in it would name a file the release
+			// never publishes: the inventories are in the SBOM bundle.
+			if strings.Contains(joined, "--sbom-url-prefix") || strings.Contains(joined, "releases/download") {
+				t.Fatalf("the index SBOM must not be given a release download address: %q", argv)
 			}
 
 			got = box.run(workflowStep(t, "release-images.yml", "publish", "Record ${{ matrix.image.name }} in the ledger").Run, env...)

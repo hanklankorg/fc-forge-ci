@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -46,27 +45,32 @@ func validateStagedIndexEvidence(in SignerImageAssembleInput, derived signerImag
 		return err
 	}
 
-	if evidence.IndexSBOMOutput == "" && evidence.SBOMURLPrefix == "" {
+	if evidence.IndexSBOMOutput == "" {
 		return nil
 	}
 
-	if evidence.IndexSBOMOutput == "" || evidence.SBOMOutputTemplate == "" || in.ManifestOutput == "" || evidence.SBOMURLPrefix == "" {
-		return fmt.Errorf("index SBOM requires inventories, manifest output and a public SBOM URL prefix: %w", errs.ErrUsage)
+	if evidence.SBOMOutputTemplate == "" || in.ManifestOutput == "" {
+		return fmt.Errorf("index SBOM requires inventories and manifest output: %w", errs.ErrUsage)
 	}
 
-	// Public release downloads flatten inventory paths to their filenames.
-	// Distinct local directories must not hide a collision until after upload.
+	// The SBOM bundle holds each inventory under its file name, and the index
+	// SBOM refers to it by that name. Distinct local directories must not hide
+	// a collision until the bundle is written.
 	names := make(map[string]bool, len(parsed))
 	for _, platform := range parsed {
 		name := filepath.Base(renderImageEvidenceTemplate(evidence.SBOMOutputTemplate, platform))
 		if names[name] {
-			return fmt.Errorf("platform inventory filenames must be distinct in public SBOM URLs: %w", errs.ErrUsage)
+			return fmt.Errorf("platform inventory filenames must be distinct in the SBOM bundle: %w", errs.ErrUsage)
+		}
+
+		if err := domainsbom.ValidateBOMFileName(name); err != nil {
+			return err
 		}
 
 		names[name] = true
 	}
 
-	return domainsbom.ValidatePublicBOMURL(evidence.SBOMURLPrefix)
+	return nil
 }
 
 func refuseStagedEvidenceOverwrite(in SignerImageAssembleInput, derived signerImageManifestDerived, inputs []LayoutRecordInput, paths []string) error {
@@ -129,8 +133,7 @@ func writeStagedIndexEvidence(ctx context.Context, sink ci.OutputSink, in Signer
 		repository, _, _ := strings.Cut(meta.Ref, "@")
 		parts = append(parts, domainsbom.IndexBOMPart{
 			Platform: input.Platform, ImageRef: repository + "@" + record.Digest,
-			URL:    strings.TrimRight(evidence.SBOMURLPrefix, "/") + "/" + url.PathEscape(filepath.Base(path)),
-			SHA256: fmt.Sprintf("%x", sha256.Sum256(document)), Document: document,
+			Name: filepath.Base(path), SHA256: fmt.Sprintf("%x", sha256.Sum256(document)), Document: document,
 		})
 	}
 

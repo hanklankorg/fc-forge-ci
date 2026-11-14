@@ -456,6 +456,27 @@ gpg --verify app-1.2.3.tar.gz.asc app-1.2.3.tar.gz
 The SBOM bundle holds each SBOM under the file name the build gave it. The
 bundle is reproducible: the same SBOMs give the same bytes.
 
+For a release with container images the bundle also holds the image SBOMs:
+`image-sbom-<image>.cyclonedx.json`, the index SBOM of a multi-platform
+image, and `sbom-<image>-<arch>.json`, the inventory of each platform. They
+are not release files of their own. The index SBOM names each platform's
+image by digest and its inventory by that file name with the inventory's
+SHA-256:
+
+```bash
+jq -r '.components[] | [.name, .externalReferences[0].url,
+  .externalReferences[0].hashes[0].content] | @tsv' image-sbom-app.cyclonedx.json
+sha256sum sbom-app-amd64.json sbom-app-arm64.json
+```
+
+The same documents are attested in the registry: the index SBOM on the image
+index, each inventory on its platform's digest
+([verify and inspect the SBOM](#verify--inspect-the-sbom)).
+
+The bundle is complete before the checksums file lists it, and the
+provenance statement and the signatures are made after that, so each covers
+the bundle that is published.
+
 ### Verify the provenance statement of a release
 
 A signed release with files carries `slsa-provenance.intoto.json` on every
@@ -1747,12 +1768,14 @@ cosign verify-attestation --type cyclonedx \
 Extraction runs only after verification succeeds and uses that verified output.
 Do not consume the output file after a failed verification.
 
-Syft SBOMs are also published as downloadable release assets (SPDX and
-CycloneDX). Verify those files separately using the
-[release-asset verification steps](#4-release-artifact-verification):
+The Syft SBOMs (SPDX and CycloneDX) are also in the release's SBOM bundle,
+not release assets of their own. Verify the bundle using the
+[release-asset verification steps](#4-release-artifact-verification), then
+unpack it:
 
 ```bash
-gh release download "$TAG" --pattern '*-analyzed-container-sbom.*'
+gh release download "$TAG" --pattern '*-sboms.tar.gz*'
+tar -tzf PROJECT-1.0.0-sboms.tar.gz | grep -- '-analyzed-container-sbom\.'
 ```
 
 ### 2. Maven Artifact Verification

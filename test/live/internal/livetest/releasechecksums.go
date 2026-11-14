@@ -67,9 +67,32 @@ func VerifyReleaseReadback(evidence *ReleaseEvidence, names []string, download f
 		failures = append(failures, VerifyReleaseChecksums(body, names, read))
 	}
 
-	failures = append(failures, releaseFilesUnbound(names, verified, authenticatedChecksums), releaseFilesUnsigned(names, verified))
+	failures = append(failures, releaseFilesUnbound(names, verified, authenticatedChecksums), releaseFilesUnsigned(names, verified), releaseImageSBOMsUnbundled(names))
 
 	return verified, errors.Join(failures...)
+}
+
+// releaseImageSBOMsUnbundled refuses an image SBOM offered as a release file
+// of its own. On every forge the one SBOM bundle holds them: an image's index
+// SBOM (image-sbom-<id>.cyclonedx.json), its platform inventories
+// (sbom-<id>-<arch>.json) and a GitHub image's analysed container SBOMs.
+func releaseImageSBOMsUnbundled(names []string) error {
+	var unbundled []string
+
+	for _, name := range names {
+		subject := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(name, cosignBundle), openPGPSignature), packageSignature)
+		if strings.HasPrefix(subject, "image-sbom-") || (strings.HasPrefix(subject, "sbom-") && strings.HasSuffix(subject, ".json")) || strings.Contains(subject, "container-sbom.") {
+			unbundled = append(unbundled, name)
+		}
+	}
+
+	if len(unbundled) != 0 {
+		slices.Sort(unbundled)
+
+		return fmt.Errorf("image SBOMs %q are release files of their own, outside the SBOM bundle: %w", unbundled, errReleaseEvidence)
+	}
+
+	return nil
 }
 
 // isReleaseChecksums reports whether a release file is the checksums file by

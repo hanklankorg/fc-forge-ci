@@ -489,6 +489,43 @@ jobs:
             --manifest "${RELEASE_FILES_MANIFEST:?}" \
             --dist-dir "${DIST_DIR:?}"
 
+      # The one point where the SBOM bundle changes after the build hand-off,
+      # and it comes before the provenance statement and every signature: the
+      # bundle is final before anything that covers it exists. The hand-off
+      # was verified against its digest and admitted as unsigned above. The
+      # engine takes the image SBOMs from the dist by the ledger's own pins,
+      # holds each index SBOM to its pin and each platform inventory to the
+      # checksum the index SBOM records, writes them into the release's SBOM
+      # bundle beside the build's SBOMs and rewrites the bundle's line in the
+      # checksums file. No image SBOM is published as a file of its own. An
+      # entry without a pin has its SBOM generated and attested by the image
+      # signing step and none to bundle. This step holds no key and no token.
+      - name: Complete the SBOM bundle with the image SBOMs
+        env:
+          RELEASE_IMAGES_PATH: ${{ inputs['release-images-path'] }}
+        run: |
+          set -euo pipefail
+          cd "${CONSUMER_WORKSPACE:?}"
+          unset COSIGN_KEY COSIGN_PASSWORD FORGEJO_TOKEN GPG_SIGNING_FINGERPRINT GPG_SIGNING_KEY \
+            GPG_SIGNING_PASSWORD MISE_FORGEJO_TOKEN MISE_GITHUB_TOKEN REGISTRY_TOKEN REGISTRY_USER
+          # shellcheck source=.engine/bin/lib-forge-ci.sh
+          source "${HELPERS_DIR:?}/.engine/bin/lib-forge-ci.sh"
+          ledger="${RELEASE_IMAGES_PATH:-${DIST_DIR:?}/release-images.json}"
+          if [ ! -e "${ledger}" ] && [ ! -L "${ledger}" ]; then
+            # A release without images. A named ledger that is absent is
+            # refused by the image signing step, before anything is published.
+            echo "no release image ledger: the SBOM bundle is the build's"
+            exit 0
+          fi
+          run_forge_ci release files manifest \
+            --unsigned \
+            --manifest "${RELEASE_FILES_MANIFEST:?}" \
+            --dist-dir "${DIST_DIR:?}" \
+            --release-images-ledger "${ledger}" \
+            --image-sboms-from-ledger \
+            --repository "${FORGEJO_REPO:?}" \
+            --version "${RELEASE_TAG:?}"
+
       - name: Admit distro packages
         # Before anything is signed or published: a release that declares
         # distro-packages publishes them last, after the release is public,

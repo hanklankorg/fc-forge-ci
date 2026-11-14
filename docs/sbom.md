@@ -285,9 +285,31 @@ Release SBOMs have two delivery paths:
   the SBOMs GoReleaser wrote. No SBOM is a release file of its own.
   [Verify a Forgejo or GitLab release](verification.md#verify-a-forgejo-or-gitlab-release)
   has the commands.
-- Each per-architecture container digest receives its analyzed-container
-  CycloneDX document as a signed cosign attestation. This path is registry- and
+- The SBOMs of the release's images are in the same bundle on every forge,
+  beside the SBOMs of the build. On Forgejo and GitLab these are, for each
+  image, the index SBOM `image-sbom-<image>.cyclonedx.json` and one
+  inventory per platform, `sbom-<image>-<arch>.json`; on GitHub, each
+  architecture's analyzed-container SBOMs. No image SBOM is a release file
+  of its own.
+- Each per-architecture container digest also receives its CycloneDX
+  document as a signed cosign attestation, and on Forgejo and GitLab the
+  image index receives the index SBOM. This path is registry- and
   forge-neutral; it does not depend on GitHub's attestation API.
+
+An index SBOM has one component per platform. The component names the
+platform's image by digest (`<repository>@sha256:<digest>`) and refers to
+that platform's inventory by its file name in the bundle, with the
+inventory's SHA-256. It holds no download address: the inventory is the
+bundle member of that name and the document attested on that digest.
+
+The bundle is made final before anything covers it. After the image stage
+the order is the same on every forge: the image SBOMs join the bundle, then
+`checksums.sha256` lists the bundle, then the provenance statement is
+written from the checksums, then every file is signed. On Forgejo and
+GitLab a trusted step adds the image SBOMs, the signing job on Forgejo and
+`Images: publish` on GitLab: it admits each against the checksum the release
+image ledger pins, and refuses a hand-off that already has a signature or a
+provenance statement.
 
 Verify the files of a GitHub release in trust order: authenticate the checksum manifest, check
 downloaded files against it, then authenticate the optional detached SBOM

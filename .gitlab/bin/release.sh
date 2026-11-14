@@ -601,7 +601,10 @@ rc_collect_release_images() {
 
 # rc_images_publish scans and pushes every planned image under its staging
 # tag in this project's registry with the job token, then joins the ledger and
-# its evidence to the build's dist in a hand-off of its own, digested again.
+# its evidence to the build's dist and writes the image SBOMs into the SBOM
+# bundle, in a hand-off of its own, digested again. The bundle is final here:
+# the provenance statement and every signature are written by the signing
+# job, from this hand-off.
 rc_images_publish() {
   local images="${RC_WORK}/images" auth_file="${RC_WORK}/registry-auth.json"
   # The pinned job image must carry Syft. Never download a scanner here.
@@ -626,7 +629,7 @@ rc_images_publish() {
     --output-dir "${images}" --auth-file "${auth_file}" || return
   rm -f -- "${auth_file}"
   rc_collect_release_images "${images}" || return
-  rc_register_release_image_evidence "${images}" || return
+  rc_bundle_release_image_sboms "${images}" || return
   rc_engine release prepare-dist --path "${DIST_DIR}" --prune-dirs false
   local handoff="${CI_PROJECT_DIR}/_release-images"
   rc_new_handoff "${handoff}" || return
@@ -636,17 +639,21 @@ rc_images_publish() {
 
 # Enumerate only the trusted publisher's fresh output, never consumer dist.
 # Go admission requires the complete ledger-pinned index/platform set and checks
-# every byte pin before this manifest can reach dist-digest or the signer.
-rc_register_release_image_evidence() {
+# every byte pin, then writes exactly those files into the release's SBOM
+# bundle and rewrites the bundle's checksums line, before the dist reaches
+# dist-digest or the signer. No image SBOM is a release file of its own. The
+# bundle of a hand-off without an SBOM is named as the build would name it.
+rc_bundle_release_image_sboms() {
   local images=$1 file
-  local -a evidence=()
+  local -a sboms=()
   rc_require_regular_file "${DIST_DIR:?}/release-images.json" || return
   for file in "${images}"/image-sbom-*.cyclonedx.json "${images}"/sbom-*.json; do
     [ -e "${file}" ] || continue
-    evidence+=(--evidence-file "${DIST_DIR:?}/${file##*/}")
+    sboms+=(--image-sbom "${DIST_DIR:?}/${file##*/}")
   done
   rc_engine release files manifest --unsigned --manifest "${RELEASE_FILES_MANIFEST:?}" \
-    --dist-dir "${DIST_DIR}" --release-images-ledger "${DIST_DIR}/release-images.json" "${evidence[@]}"
+    --dist-dir "${DIST_DIR}" --release-images-ledger "${DIST_DIR}/release-images.json" \
+    --repository "${CI_PROJECT_PATH:?}" --version "${RELEASE_TAG:?}" "${sboms[@]}"
 }
 
 rc_read_handoff() {

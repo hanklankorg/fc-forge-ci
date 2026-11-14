@@ -5,6 +5,7 @@ package archive
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"fmt"
 	"io"
@@ -38,25 +39,13 @@ func (w *TarGzipWriter) AddFile(name string, file fs.File) error {
 		return fmt.Errorf("stat %q: %w", name, err)
 	}
 
-	// Format is left unset: the tar writer then picks USTAR and falls back to
-	// PAX only for a name or size USTAR cannot hold.
-	hdr := &tar.Header{
-		Typeflag: tar.TypeReg,
-		Name:     filepath.ToSlash(name),
-		Size:     info.Size(),
-		Mode:     0o644,
-		ModTime:  time.Unix(0, 0),
-	}
+	return w.add(name, info.Size(), file)
+}
 
-	if err := w.tw.WriteHeader(hdr); err != nil {
-		return fmt.Errorf("tar header %q: %w", name, err)
-	}
-
-	if _, err := io.Copy(w.tw, file); err != nil {
-		return fmt.Errorf("tar copy %q: %w", name, err)
-	}
-
-	return nil
+// AddBytes appends body as a regular entry called name, with the header
+// AddFile writes: the same bytes under the same name give the same entry.
+func (w *TarGzipWriter) AddBytes(name string, body []byte) error {
+	return w.add(name, int64(len(body)), bytes.NewReader(body))
 }
 
 // Close finishes the tar and the gzip stream. It does not close the
@@ -70,6 +59,28 @@ func (w *TarGzipWriter) Close() error {
 
 	if err := w.gz.Close(); err != nil {
 		return fmt.Errorf("close gzip: %w", err)
+	}
+
+	return nil
+}
+
+func (w *TarGzipWriter) add(name string, size int64, body io.Reader) error {
+	// Format is left unset: the tar writer then picks USTAR and falls back to
+	// PAX only for a name or size USTAR cannot hold.
+	hdr := &tar.Header{
+		Typeflag: tar.TypeReg,
+		Name:     filepath.ToSlash(name),
+		Size:     size,
+		Mode:     0o644,
+		ModTime:  time.Unix(0, 0),
+	}
+
+	if err := w.tw.WriteHeader(hdr); err != nil {
+		return fmt.Errorf("tar header %q: %w", name, err)
+	}
+
+	if _, err := io.Copy(w.tw, body); err != nil {
+		return fmt.Errorf("tar copy %q: %w", name, err)
 	}
 
 	return nil

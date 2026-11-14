@@ -127,14 +127,17 @@ type ValidateReleaseFileManifestInput struct {
 // WriteReleaseFileManifestInput drives WriteReleaseFileManifest.
 type WriteReleaseFileManifestInput struct {
 	FilesInput
+	// SBOMBundleNaming names the SBOM bundle when the hand-off has none for
+	// the image SBOMs to join.
+	SBOMBundleNaming
 
 	OutputFile     string
 	AssetsJSONFile string
 	Unsigned       bool
 	EvidenceFiles  []string
-	// ReleaseImagesLedger opts into the native final-image evidence contract.
-	// Ordinary evidence extension, including legacy/base ledgers, is unchanged.
-	ReleaseImagesLedger string
+	// ReleaseImages opts into completing the SBOM bundle with the image
+	// SBOMs its ledger pins. Ordinary evidence extension is unchanged.
+	ReleaseImages ImageSBOMs
 }
 
 // ImportGoReleaserFileManifestInput selects additional evidence to sign alongside
@@ -187,8 +190,8 @@ func WriteReleaseFileManifest(in WriteReleaseFileManifestInput) (*FileManifest, 
 		return extendUnsignedReleaseFileManifest(ctx, in, output)
 	}
 
-	if len(in.EvidenceFiles) != 0 || in.ReleaseImagesLedger != "" {
-		return nil, fmt.Errorf("adding evidence requires --unsigned before signing: %w", errs.ErrUsage)
+	if len(in.EvidenceFiles) != 0 || in.ReleaseImages.Ledger != "" {
+		return nil, fmt.Errorf("adding evidence or image SBOMs requires --unsigned before signing: %w", errs.ErrUsage)
 	}
 
 	manifest, err := prepareReleaseFileManifest(ctx, in.AssetsJSONFile)
@@ -200,6 +203,9 @@ func WriteReleaseFileManifest(in WriteReleaseFileManifestInput) (*FileManifest, 
 }
 
 // Extend only an admitted unsigned manifest, before any signature is created.
+// With a release image ledger the image SBOMs it pins are written into the
+// SBOM bundle: the bundle, its checksums line and the manifest are completed
+// here together, before the provenance statement and the signatures.
 func extendUnsignedReleaseFileManifest(ctx releaseFilesCtx, in WriteReleaseFileManifestInput, output string) (*FileManifest, error) {
 	if in.AssetsJSONFile != "" {
 		return nil, fmt.Errorf("unsigned evidence extension requires an existing manifest, not assets-json: %w", errs.ErrUsage)
@@ -218,10 +224,18 @@ func extendUnsignedReleaseFileManifest(ctx releaseFilesCtx, in WriteReleaseFileM
 		return nil, err
 	}
 
-	if in.ReleaseImagesLedger != "" {
-		if err := validateReleaseImageEvidence(ctx, in.ReleaseImagesLedger, in.EvidenceFiles); err != nil {
+	var imageSBOMs []string
+
+	if in.ReleaseImages.Ledger != "" {
+		if err := refuseImageSBOMEvidence(in.EvidenceFiles); err != nil {
 			return nil, err
 		}
+
+		if imageSBOMs, err = admitReleaseImageSBOMs(ctx, in.ReleaseImages); err != nil {
+			return nil, err
+		}
+	} else if len(in.ReleaseImages.Files) != 0 || in.ReleaseImages.FromLedger {
+		return nil, fmt.Errorf("image SBOMs are admitted against --release-images-ledger: %w", errs.ErrUsage)
 	}
 
 	collector := &releaseFileCollector{}
@@ -237,8 +251,13 @@ func extendUnsignedReleaseFileManifest(ctx releaseFilesCtx, in WriteReleaseFileM
 	}
 
 	manifest.Assets = collector.entries
-
 	manifest.Evidence = append(manifest.Evidence, evidence...)
+
+	// Last, once every other input is admitted: this rewrites dist files.
+	if err := completeSBOMBundle(ctx, manifest, imageSBOMs, in.SBOMBundleNaming); err != nil {
+		return nil, err
+	}
+
 	if err := validateUnsignedReleaseFiles(ctx, manifest); err != nil {
 		return nil, err
 	}

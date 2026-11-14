@@ -223,10 +223,7 @@ func newNativeReleaseJourney(t *testing.T, binary, cosignPath string, goMetadata
 
 	input := producer
 
-	var (
-		publisher  map[string][]byte
-		imageNames []string
-	)
+	var publisher map[string][]byte
 
 	if images {
 		input = filepath.Join(root, "publisher")
@@ -234,7 +231,7 @@ func newNativeReleaseJourney(t *testing.T, binary, cosignPath string, goMetadata
 			t.Fatal(err)
 		}
 
-		imageNames = addNativeImageEvidence(t, binary, input)
+		addNativeImageEvidence(t, binary, input)
 		publisher = nativeEvidenceTree(t, input)
 	}
 
@@ -266,8 +263,9 @@ func newNativeReleaseJourney(t *testing.T, binary, cosignPath string, goMetadata
 	write(filepath.Join(signer, "dist/"+apprelease.ProvenanceStatementName+".bundle"), fixture.sign(t, prov))
 
 	// Every file the checksums list has its own signature: the archive and
-	// the SBOM bundle. The SBOM file itself is no release file.
-	for _, name := range append([]string{"app.tar.gz", sbomBundle, "release-notes.md"}, imageNames...) {
+	// the SBOM bundle. The SBOM file itself is no release file, and neither
+	// is an image SBOM: the bundle holds them.
+	for _, name := range []string{"app.tar.gz", sbomBundle, "release-notes.md"} {
 		body, err := os.ReadFile(filepath.Join(signer, "dist/"+name))
 		if err != nil {
 			t.Fatal(err)
@@ -292,7 +290,10 @@ func newNativeReleaseJourney(t *testing.T, binary, cosignPath string, goMetadata
 	return fixture
 }
 
-func addNativeImageEvidence(t *testing.T, binary, root string) []string {
+// addNativeImageEvidence does what the trusted image publisher does: it writes
+// the ledger, each image's index SBOM and platform inventory into dist, and
+// has the native command write them into the hand-off's SBOM bundle.
+func addNativeImageEvidence(t *testing.T, binary, root string) {
 	t.Helper()
 
 	const repository = "registry.example/org/app"
@@ -309,8 +310,7 @@ func addNativeImageEvidence(t *testing.T, binary, root string) []string {
 		bomName := "image-sbom-" + role + ".cyclonedx.json"
 
 		bom, err := domainsbom.ComposeIndexBOM(ref, index, []domainsbom.IndexBOMPart{{
-			Platform: "linux/amd64", ImageRef: repository + "@" + child,
-			URL:    "https://example.invalid/org/app/releases/download/v0.94.0/" + inventoryName,
+			Platform: "linux/amd64", ImageRef: repository + "@" + child, Name: inventoryName,
 			SHA256: fmt.Sprintf("%x", sha256.Sum256(inventory)), Document: inventory,
 		}})
 		if err != nil {
@@ -342,12 +342,10 @@ func addNativeImageEvidence(t *testing.T, binary, root string) []string {
 
 	args = append(args, "manifest", "--unsigned", "--manifest", "dist/release-files.json", "--release-images-ledger", "dist/release-images.json")
 	for _, name := range names {
-		args = append(args, "--evidence-file", "dist/"+name)
+		args = append(args, "--image-sbom", "dist/"+name)
 	}
 
 	runNativeEvidenceCLI(t, binary, root, args...)
-
-	return names
 }
 
 func (f *nativeReleaseFixture) sign(t *testing.T, blob []byte) []byte {

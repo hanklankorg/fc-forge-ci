@@ -57,7 +57,7 @@ func stagedIndexEvidenceFixture(t *testing.T, archs []string) (appcontainer.Sign
 		Evidence: &appcontainer.StagedLayoutEvidence{
 			Trivy: &fakeImageEvidenceTrivy{}, Syft: &fakeImageEvidenceSyft{}, Stderr: io.Discard,
 			TrivyOutputTemplate: "dist/trivy-{arch}.json", SBOMOutputTemplate: "dist/sbom-{arch}.json",
-			IndexSBOMOutput: "dist/image-sbom.cyclonedx.json", SBOMURLPrefix: "https://forge.example/org/image/releases/download/v1.2.3",
+			IndexSBOMOutput: "dist/image-sbom.cyclonedx.json",
 		},
 	}, writes
 }
@@ -83,7 +83,7 @@ func TestStagedIndexSBOMBindsEveryScannedPlatformWithoutRepulling(t *testing.T) 
 
 				repo, _, _ := strings.Cut(meta.Ref, "@")
 				parts = append(parts, domainsbom.IndexBOMPart{Platform: "linux/" + arch, ImageRef: repo + "@" + layout.Digest,
-					URL: in.Evidence.SBOMURLPrefix + "/sbom-" + arch + ".json", SHA256: fmt.Sprintf("%x", sha256.Sum256(document)), Document: document})
+					Name: "sbom-" + arch + ".json", SHA256: fmt.Sprintf("%x", sha256.Sum256(document)), Document: document})
 				require.FileExists(t, "dist/trivy-"+arch+".json")
 			}
 
@@ -105,7 +105,7 @@ func TestStagedIndexSBOMBindsEveryScannedPlatformWithoutRepulling(t *testing.T) 
 }
 
 func TestStagedIndexEvidenceRefusesBadDestinationsBeforeScanningOrUpload(t *testing.T) {
-	for _, defect := range []string{"missing inventories", "missing index", "missing URL", "URL only", "HTTP URL", "credential URL", "query URL", "colliding index", "colliding inventories", "inventory URL collision", "auth overwrite", "metadata overwrite", "layout overwrite", "symlink collision"} {
+	for _, defect := range []string{"missing inventories", "missing index", "colliding index", "colliding inventories", "inventory name collision", "auth overwrite", "metadata overwrite", "layout overwrite", "symlink collision"} {
 		t.Run(defect, func(t *testing.T) {
 			in, writes := stagedIndexEvidenceFixture(t, []string{"amd64", "arm64"})
 
@@ -114,21 +114,11 @@ func TestStagedIndexEvidenceRefusesBadDestinationsBeforeScanningOrUpload(t *test
 				in.Evidence.SBOMOutputTemplate = ""
 			case "missing index":
 				in.ManifestOutput = ""
-			case "missing URL":
-				in.Evidence.SBOMURLPrefix = ""
-			case "URL only":
-				in.Evidence.IndexSBOMOutput = ""
-			case "HTTP URL":
-				in.Evidence.SBOMURLPrefix = "http://forge.example/evidence"
-			case "credential URL":
-				in.Evidence.SBOMURLPrefix = "https://user:secret@forge.example/evidence"
-			case "query URL":
-				in.Evidence.SBOMURLPrefix = "https://forge.example/evidence?token=secret"
 			case "colliding index":
 				in.Evidence.IndexSBOMOutput = in.ManifestOutput
 			case "colliding inventories":
 				in.Evidence.SBOMOutputTemplate = in.Evidence.TrivyOutputTemplate
-			case "inventory URL collision":
+			case "inventory name collision":
 				in.Evidence.SBOMOutputTemplate = "dist/{arch}/inventory.json"
 				in.Evidence.Syft.(*fakeImageEvidenceSyft).jsonBodies = map[string]string{
 					"oci-dir:image-arch-amd64/layout": `{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"metadata":{"component":{"name":"amd64"}}}`,

@@ -39,6 +39,7 @@ var errReleaseEvidence = errors.New("release evidence contract violated")
 const evidenceDistFlag = "--dist-dir"
 const evidenceManifestFlag = "--manifest"
 const evidenceDist = "dist"
+const evidenceLedger = "dist/release-images.json"
 const evidenceUnsignedFlag = "--unsigned"
 const evidenceChecksumsCommand = "validate-checksums"
 const evidenceExpectedManifest = "acceptance-expected.json"
@@ -195,19 +196,21 @@ func verifyRetainedRelease(producer, publisher, signer string, flags []string, r
 	}
 
 	if publisher != "" {
-		if err := compareProducerSubjects(producer, publisher, original); err != nil {
-			return empty, err
-		}
+		var imageSBOMs []string
 
-		original, err = verifyPublisherDeclaration(publisher, original, flags, run)
+		original, imageSBOMs, err = verifyPublisherDeclaration(producer, publisher, original, flags, run)
 		if err != nil {
 			return empty, err
 		}
 
 		producer = publisher
 
-		if err := compareEvidenceSubject(publisher, signer, "dist/release-images.json"); err != nil {
-			return empty, err
+		// The signer attests the image SBOMs from its own copy; they are no
+		// release files, so the ledger and each of them is held here.
+		for _, name := range append([]string{evidenceLedger}, imageSBOMs...) {
+			if err := compareEvidenceSubject(publisher, signer, name); err != nil {
+				return empty, err
+			}
 		}
 	}
 
@@ -231,63 +234,121 @@ func verifyRetainedRelease(producer, publisher, signer string, flags []string, r
 	return finalized, nil
 }
 
-// Reconstruct the trusted image publisher's unsigned extension from the build
-// declaration. Native admission checks the complete ledger-pinned index and
-// platform documents; finalized signer roles are never used as input here.
-func verifyPublisherDeclaration(publisher string, original apprelease.FileManifest, flags []string, run releaseEvidenceCommand) (apprelease.FileManifest, error) {
+// verifyPublisherDeclaration reconstructs what the trusted image publisher
+// did to the build's hand-off: it wrote the image SBOMs the ledger pins into
+// the one SBOM bundle and rewrote the bundle's checksums line. The native
+// command does the same in the owned producer copy, with the publisher's
+// ledger and image SBOM files; its admission owns the exact ledger-derived
+// set and every content and pin check. The publisher's manifest, bundle,
+// checksums file and every other release file must then be the bytes this
+// produced, so nothing but the admitted image SBOMs was added to the bundle
+// and no image SBOM became a release file of its own. It returns the
+// publisher's manifest and the image SBOM files it admitted.
+func verifyPublisherDeclaration(producer, publisher string, original apprelease.FileManifest, flags []string, run releaseEvidenceCommand) (apprelease.FileManifest, []string, error) {
 	var empty apprelease.FileManifest
 
 	if _, err := run(publisher, append([]string{evidenceValidateCommand, evidenceUnsignedFlag}, flags...)...); err != nil {
-		return empty, err
+		return empty, nil, err
 	}
 
 	if _, err := run(publisher, append([]string{evidenceChecksumsCommand}, flags...)...); err != nil {
-		return empty, err
+		return empty, nil, err
 	}
 
 	declared, err := readReleaseEvidenceManifest(publisher, "dist/release-files.json")
 	if err != nil {
-		return empty, err
+		return empty, nil, err
 	}
 
-	body, err := json.Marshal(original)
+	imageSBOMs, err := stagePublisherImageSBOMs(producer, publisher)
 	if err != nil {
-		return empty, err
+		return empty, nil, err
 	}
 
-	if err := os.WriteFile(filepath.Join(publisher, "producer-manifest.json"), body, 0o600); err != nil {
-		return empty, err
-	}
+	args := []string{"manifest", evidenceUnsignedFlag, evidenceDistFlag, evidenceDist, evidenceManifestFlag, "dist/release-files.json",
+		"--output", evidenceExpectedManifest, "--release-images-ledger", evidenceLedger}
 
-	args := []string{"manifest", evidenceUnsignedFlag, evidenceDistFlag, evidenceDist, evidenceManifestFlag, "producer-manifest.json",
-		"--output", evidenceExpectedManifest, "--release-images-ledger", "dist/release-images.json"}
-
-	for _, entry := range declared.Evidence {
-		// Match the native publisher's two output families, not arbitrary
-		// evidence asserted by the retained manifest. Admission below owns the
-		// exact ledger-derived set and all content/pin checks.
-		imageDocument := strings.HasPrefix(entry.Name, "image-sbom-") && strings.HasSuffix(entry.Name, ".cyclonedx.json")
-		inventory := strings.HasPrefix(entry.Name, "sbom-") && strings.HasSuffix(entry.Name, ".json")
-
-		if !slices.Contains(original.Evidence, entry) && (imageDocument || inventory) {
-			args = append(args, "--evidence-file", entry.Path)
+	// A hand-off without an SBOM has no bundle yet; the publisher named the
+	// one it wrote, and the published file set holds that name.
+	if len(original.SBOMs) == 0 && len(declared.SBOMs) == 1 {
+		naming, ok := sbomBundleNaming(declared.SBOMs[0].Name)
+		if !ok {
+			return empty, nil, fmt.Errorf("publisher manifest's SBOM %s is not <project>-<version>%s: %w", declared.SBOMs[0].Name, sbomBundleSuffix, errReleaseEvidence)
 		}
+
+		args = append(args, naming...)
 	}
 
-	if _, err := run(publisher, args...); err != nil {
-		return empty, err
+	for _, name := range imageSBOMs {
+		args = append(args, "--image-sbom", name)
 	}
 
-	expected, err := readReleaseEvidenceManifest(publisher, evidenceExpectedManifest)
+	if _, err := run(producer, args...); err != nil {
+		return empty, nil, err
+	}
+
+	expected, err := readReleaseEvidenceManifest(producer, evidenceExpectedManifest)
 	if err != nil {
-		return empty, err
+		return empty, nil, err
 	}
 
 	if !sameReleaseManifest(declared, expected) {
-		return empty, fmt.Errorf("publisher manifest disagrees with native extension of producer declaration: %w", errReleaseEvidence)
+		return empty, nil, fmt.Errorf("publisher manifest disagrees with native extension of producer declaration: %w", errReleaseEvidence)
 	}
 
-	return declared, nil
+	return declared, imageSBOMs, compareProducerSubjects(producer, publisher, declared)
+}
+
+// stagePublisherImageSBOMs copies the publisher's ledger and the image SBOM
+// files it wrote into the owned producer copy, and returns those files. They
+// are the publisher's two output families, directly in dist, that the build
+// did not hand over; which of them the ledger pins is the native admission's
+// decision, and it refuses any other.
+func stagePublisherImageSBOMs(producer, publisher string) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(publisher, evidenceDist))
+	if err != nil {
+		return nil, err
+	}
+
+	names := []string{evidenceLedger}
+
+	for _, entry := range entries {
+		name := entry.Name()
+		imageDocument := strings.HasPrefix(name, "image-sbom-") && strings.HasSuffix(name, ".cyclonedx.json")
+		inventory := strings.HasPrefix(name, "sbom-") && strings.HasSuffix(name, ".json")
+
+		if _, err := os.Lstat(filepath.Join(producer, evidenceDist, name)); err == nil || (!imageDocument && !inventory) {
+			continue
+		}
+
+		names = append(names, filepath.Join(evidenceDist, name))
+	}
+
+	for _, name := range names {
+		body, err := readEvidenceFile(publisher, name)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := os.WriteFile(filepath.Join(producer, name), body, 0o600); err != nil {
+			return nil, err
+		}
+	}
+
+	return names[1:], nil
+}
+
+// sbomBundleNaming returns the arguments that name the SBOM bundle called
+// name. The constructor drops one v from the version it is given.
+func sbomBundleNaming(name string) ([]string, bool) {
+	stem, isBundle := strings.CutSuffix(name, sbomBundleSuffix)
+	dash := strings.LastIndex(stem, "-")
+
+	if !isBundle || dash < 1 {
+		return nil, false
+	}
+
+	return []string{"--project-name", stem[:dash], "--version", "v" + stem[dash+1:]}, true
 }
 
 func verifyProducerDeclaration(producer string, original apprelease.FileManifest, run releaseEvidenceCommand) error {
@@ -361,15 +422,10 @@ func restageProducerSBOMBundle(producer string, original apprelease.FileManifest
 
 	bundle := original.SBOMs[0]
 
-	stem, isBundle := strings.CutSuffix(bundle.Name, sbomBundleSuffix)
-	dash := strings.LastIndex(stem, "-")
-
-	if len(original.SBOMs) != 1 || !isBundle || dash < 1 {
+	args, isBundle := sbomBundleNaming(bundle.Name)
+	if len(original.SBOMs) != 1 || !isBundle {
 		return nil, fmt.Errorf("producer manifest's SBOMs %v are not the one <project>-<version>%s: %w", original.SBOMs, sbomBundleSuffix, errReleaseEvidence)
 	}
-
-	// The constructor drops one v from the version it is given.
-	args := []string{"--project-name", stem[:dash], "--version", "v" + stem[dash+1:]}
 
 	body, err := readEvidenceFile(producer, bundle.Path)
 	if err != nil {

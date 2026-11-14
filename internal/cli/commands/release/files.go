@@ -195,7 +195,14 @@ func filesManifestCmd() *cli.Command {
 		&cli.StringFlag{Name: "assets-json", Usage: "release files collect JSON to reuse instead of re-collecting ('-' for stdin)"},
 		&cli.BoolFlag{Name: "unsigned", Usage: "extend an existing unsigned manifest with evidence without rediscovering producer metadata"},
 		&cli.StringSliceFlag{Name: flagEvidenceFile, Usage: "additional file to publish and sign as evidence; requires --unsigned (repeatable)"},
-		&cli.StringFlag{Name: "release-images-ledger", Usage: "require the exact pinned native final-image SBOM evidence from this ledger; requires --unsigned"},
+		&cli.StringFlag{Name: "release-images-ledger", Usage: "write the image SBOMs this ledger pins into the SBOM bundle; requires --unsigned"},
+		&cli.StringSliceFlag{Name: "image-sbom", Usage: "image SBOM file a trusted publisher wrote, admitted against --release-images-ledger; the named files must be exactly the index SBOMs and platform inventories the ledger pins (repeatable)"},
+		&cli.BoolFlag{Name: "image-sboms-from-ledger", Usage: "take the image SBOMs from the dist directory by the pins of --release-images-ledger instead of naming each; an entry without a pin, or a base image, has none to bundle; any other pinned SBOM outside the dist directory is refused"},
+		// Named by the trusted step that completes the bundle, not read from
+		// the job's environment as a producer's hand-off reads them.
+		&cli.StringFlag{Name: flagProjectName, Usage: "with --release-images-ledger: project in the name of an SBOM bundle the hand-off does not have yet (default: the name of --repository)"},
+		&cli.StringFlag{Name: flagRepository, Usage: "with --release-images-ledger: \"owner/repo\" slug whose name is the default --project-name"},
+		&cli.StringFlag{Name: flagVersion, Usage: "with --release-images-ledger: release version or tag in the name of an SBOM bundle the hand-off does not have yet; a v prefix is dropped"},
 	)
 
 	return &cli.Command{
@@ -211,18 +218,36 @@ must exist, so a fresh write to another path uses --output.
 With --unsigned, preserve the producer's existing file set and add explicit
 --evidence-file paths before signing. Refuses existing signatures, provenance,
 duplicate paths and reclassification; does not read GoReleaser metadata.
-Optional --release-images-ledger requires the complete producer-pinned native
-final-image index/platform SBOM set; ordinary legacy/base evidence calls do not
-opt into this flat-dist contract.`,
+
+With --release-images-ledger, also writes the image SBOMs the ledger pins into
+the release's SBOM bundle <project>-<version>-sboms.tar.gz, beside the SBOMs
+of the build, and rewrites the bundle's line in the checksums file: each index
+SBOM and the platform inventories it names, every file held to the checksum
+the ledger or the index SBOM records. No image SBOM is published as a file of
+its own, and an --evidence-file named like one is refused. This is the one
+point where the bundle changes after the build hand-off: it runs before the
+provenance statement and the signatures exist, and a dist that holds either
+is refused. A hand-off without an SBOM gets its bundle here.
+
+--image-sbom names each file a trusted publisher wrote; they must be exactly
+the ledger's set. --image-sboms-from-ledger takes them from the dist directory
+by the ledger's pins, for a ledger a consumer's jobs handed over: an entry
+without a pin has its SBOM generated and attested by the signer and none to
+bundle.`,
 		Flags: flags,
 		Action: func(_ context.Context, cmd *cli.Command) error {
 			input := apprelease.WriteReleaseFileManifestInput{
-				FilesInput:          releaseFilesInput(cmd),
-				OutputFile:          cmd.String(flagOutput),
-				AssetsJSONFile:      cmd.String("assets-json"),
-				Unsigned:            cmd.Bool("unsigned"),
-				EvidenceFiles:       cmd.StringSlice(flagEvidenceFile),
-				ReleaseImagesLedger: cmd.String("release-images-ledger"),
+				FilesInput:     releaseFilesInput(cmd),
+				OutputFile:     cmd.String(flagOutput),
+				AssetsJSONFile: cmd.String("assets-json"),
+				Unsigned:       cmd.Bool("unsigned"),
+				EvidenceFiles:  cmd.StringSlice(flagEvidenceFile),
+				ReleaseImages: apprelease.ImageSBOMs{
+					Ledger:     cmd.String("release-images-ledger"),
+					Files:      cmd.StringSlice("image-sbom"),
+					FromLedger: cmd.Bool("image-sboms-from-ledger"),
+				},
+				SBOMBundleNaming: sbomBundleNaming(cmd),
 			}
 
 			_, err := apprelease.WriteReleaseFileManifest(input)

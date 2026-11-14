@@ -406,6 +406,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `just demo-delete forgejo` deletes the package versions Forgejo links to
   a demo's repositories before it deletes the repositories, and lists them
   first. A package linked to no repository is never deleted.
+||||||| parent of e2672336 (fix(release): publish image SBOMs only inside the SBOM bundle)
+- **BREAKING**: The SBOMs of a release's images are published in the
+  release's SBOM bundle, `<project>-<version>-sboms.tar.gz`, on every forge,
+  beside the SBOMs of the build. A GitLab release with `release-images`
+  no longer offers `image-sbom-<image>.cyclonedx.json`,
+  `sbom-<image>-<arch>.json` and their signatures as release files; they
+  are members of the bundle, which the checksums file lists and the release
+  signs. A Forgejo release, whose image SBOMs were attestations alone, has
+  the ones its release image ledger pins in the bundle too. The bundle is
+  completed by a trusted step after the image stage (the signing job on
+  Forgejo, `Images: publish` on GitLab), before the checksums file lists
+  it, the provenance statement is written and any file is signed. See
+  `docs/sbom.md#delivery-and-verification`.
+- **BREAKING**: An index SBOM refers to each platform inventory by its file
+  name in the SBOM bundle, with the inventory's SHA-256, where it gave a
+  release download address. Each component still names its platform's image
+  by digest. The signer now attests each platform inventory on its
+  platform's digest, as well as the index SBOM on the image index, and
+  refuses an inventory that is not the one the index SBOM records.
+- **BREAKING**: `forge-ci sbom index` takes a version-2 platform manifest,
+  without `url`; the reference is the base name of `file`. A version-1
+  manifest is refused.
+- `forge-ci release files manifest --unsigned --release-images-ledger`
+  writes the image SBOMs into the SBOM bundle instead of registering them
+  as evidence. The trusted publisher names them with `--image-sbom`, which
+  must be exactly the set the ledger pins; `--image-sboms-from-ledger`
+  takes them from `dist/` by the ledger's pins, for a ledger a consumer's
+  jobs handed over, and refuses a pinned SBOM of a release image that is
+  not in `dist/`. `--project-name`, `--repository` and `--version` name
+  the bundle of a hand-off that has none. An `--evidence-file` that is an
+  image SBOM is refused with a ledger.
 
 - A lint-runner check that could not complete now follows the enforcement of
   the gate it belongs to. With `enforce-lint` or `enforce-vulnerabilities` on,
@@ -767,6 +798,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **BREAKING**: `--sbom-url-prefix` of
+  `forge-ci container multiarch-image assemble` and
+  `forge-ci container release-images publish` is removed. The index SBOM
+  holds no download address.
+
 - **BREAKING**: The `install-forge-ci` composite action and
   `scripts/bootstrap/install-forge-ci.sh` are removed. The macOS jobs
   (`lint-swift`, `build-xcode-ios` and `publish-apple-appstore`) build the
@@ -786,6 +822,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer a reserved `build-secrets` name.
 
 ### Fixed
+
+- A Forgejo release's index SBOM no longer points at release files that
+  were never published. It named each platform inventory by a release
+  download address, and the Forgejo release offered no such file.
 
 - A GitHub draft release without release files is read back. GitHub lists
   a new draft about a second after it created it, and the list is the only

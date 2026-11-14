@@ -25,7 +25,7 @@ func localIndexBOM(t *testing.T) (appsbom.IndexBOMInput, []byte) {
 	index := []byte(fmt.Sprintf(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"digest":%q,"platform":{"os":"linux","architecture":"arm64"}}]}`, digest))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "index.json"), index, 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "native.json"), native, 0o600))
-	manifest, err := json.Marshal(map[string]any{"version": 1, "platforms": []appsbom.IndexBOMFile{{Platform: "linux/arm64", ImageRef: "registry.example/acme/widget@" + digest, File: "native.json", URL: "https://downloads.example/native.json", SHA256: fmt.Sprintf("%x", sha256.Sum256(native))}}})
+	manifest, err := json.Marshal(map[string]any{"version": 2, "platforms": []appsbom.IndexBOMFile{{Platform: "linux/arm64", ImageRef: "registry.example/acme/widget@" + digest, File: "native.json", SHA256: fmt.Sprintf("%x", sha256.Sum256(native))}}})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "parts.json"), manifest, 0o600))
 
@@ -72,11 +72,11 @@ func TestComposeIndexSBOMRejectsInputFailuresWithoutOutput(t *testing.T) {
 				require.NoError(t, os.Rename(filepath.Join(in.Root, "native.json"), filepath.Join(in.Root, "real.json")))
 				require.NoError(t, os.Symlink("real.json", filepath.Join(in.Root, "native.json")))
 			case "unknown-field":
-				body = []byte(strings.Replace(string(body), `"version":1`, `"version":1,"unknown":true`, 1))
+				body = []byte(strings.Replace(string(body), `"version":2`, `"version":2,"url":"https://downloads.example/native.json"`, 1))
 			case "trailing-json":
 				body = append(body, []byte(` {}`)...)
 			case "version":
-				body = []byte(strings.Replace(string(body), `"version":1`, `"version":9`, 1))
+				body = []byte(strings.Replace(string(body), `"version":2`, `"version":1`, 1))
 			}
 
 			require.NoError(t, root.WriteFile("parts.json", body, 0o600))

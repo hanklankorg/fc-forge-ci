@@ -202,7 +202,6 @@ EXAMPLE:
 			&cli.StringSliceFlag{Name: "layout-source", Usage: "native job artifact root as amd64=PATH or arm64=PATH (repeatable); admit/read without copying"},
 			&cli.StringFlag{Name: flagOutputDir, Required: true, Usage: "directory for release-images.json and the scan evidence; must not exist yet"},
 			&cli.BoolFlag{Name: "prepublication-sboms", Usage: "retain release-image platform inventories and pin signer-ready index SBOM bytes"},
-			&cli.StringFlag{Name: "sbom-url-prefix", Usage: "public release download directory for inventory URLs; defaults to the source forge's release downloads with --prepublication-sboms"},
 		),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			plan, err := readReleaseImagesPlanFile(cmd)
@@ -226,16 +225,6 @@ EXAMPLE:
 			return deps.FromCmd(ctx, cmd, func(dep *deps.Deps) error {
 				scanner := trivy.New()
 
-				prefix := cmd.String("sbom-url-prefix")
-				if cmd.Bool("prepublication-sboms") && prefix == "" {
-					urls := dep.WebURLBuilder()
-					if urls == nil {
-						return fmt.Errorf("prepublication SBOMs require a source forge or explicit sbom-url-prefix: %w", errs.ErrUsage)
-					}
-
-					prefix = urls.ReleaseDownloadURLPrefix(cmd.String(flagServerURL), cmd.String(flagRepository), cmd.String(flagReleaseTag))
-				}
-
 				return appcontainer.PublishReleaseImages(ctx, ociregistry.WithAuthFile(cmd.String(flagAuthFile)), dep.SummarySink, os.Stderr, appcontainer.PublishReleaseImagesInput{
 					Plan:                plan,
 					LayoutsDir:          cmd.String(flagLayoutsDir),
@@ -250,7 +239,6 @@ EXAMPLE:
 					Trivy:               scanner,
 					Syft:                syft.New(),
 					PrepublicationSBOMs: cmd.Bool("prepublication-sboms"),
-					SBOMURLPrefix:       prefix,
 					Gate:                publicationGate(scanner, deps.Annotator(cmd)),
 				})
 			})

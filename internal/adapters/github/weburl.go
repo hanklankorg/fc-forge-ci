@@ -3,16 +3,7 @@
 
 package github
 
-import (
-	"fmt"
-	"net/url"
-	"strings"
-)
-
-// ReleaseDownloadURLPrefix implements provider.WebURLBuilder.
-func (p *Provider) ReleaseDownloadURLPrefix(server, repo, version string) string {
-	return fmt.Sprintf("%s/%s/releases/download/%s", strings.TrimRight(server, "/"), repo, url.PathEscape(version))
-}
+import "fmt"
 
 // ReleaseWebURL implements provider.WebURLBuilder.
 func (p *Provider) ReleaseWebURL(server, repo, version string) string {

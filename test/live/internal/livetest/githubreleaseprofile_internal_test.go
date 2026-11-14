@@ -215,6 +215,9 @@ func TestReleaseSBOMBundleGap(t *testing.T) {
 		"withheld but present": {sbomBundleWithheld, with, true},
 		"unjudged, present":    {sbomBundleUnjudged, with, false},
 		"unjudged, absent":     {sbomBundleUnjudged, without, false},
+		"index SBOM beside it": {sbomBundleOffered, map[string]int64{"app-0.1.0-sboms.tar.gz": 1, "image-sbom-app.cyclonedx.json": 2}, true},
+		"inventory beside it":  {sbomBundleUnjudged, map[string]int64{"app-0.1.0-sboms.tar.gz": 1, "sbom-app-amd64.json": 2}, true},
+		"container SBOM too":   {sbomBundleUnjudged, map[string]int64{"app-0.1.0-sboms.tar.gz": 1, "app-linux-amd64-analyzed-container-sbom.cyclonedx.json.bundle": 2}, true},
 	} {
 		if err := releaseSBOMBundleGap(tc.expect, tc.assets); (err != nil) != tc.gap || (err != nil && !errors.Is(err, errReleaseEvidence)) {
 			t.Errorf("%s: gap = %v, want one: %t", name, err, tc.gap)

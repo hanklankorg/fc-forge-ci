@@ -132,3 +132,80 @@ func canonicalMember(header *tar.Header, target string) bool {
 
 	return true
 }
+
+// TarFile is one regular file read from an archive.
+type TarFile struct {
+	Name string
+	Body []byte
+}
+
+// ReadTarGzipFiles reads every member of a gzip-compressed tar of regular
+// files without extracting it, in archive order. It refuses anything but
+// regular files under canonical paths, a repeated name, and an archive or a
+// total size over limit: the caller rewrites the archive, so it must hold
+// exactly what a reader of the original would have seen.
+func ReadTarGzipFiles(filename string, limit int64) ([]TarFile, error) {
+	file, err := openInspectionArchive(filename, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+
+	gz, err := gzip.NewReader(io.LimitReader(file, maxTarballBodySize+1))
+	if err != nil {
+		return nil, fmt.Errorf("read gzip archive: %w: %w", err, errs.ErrMalformedInput)
+	}
+	defer func() { _ = gz.Close() }()
+
+	stream := &io.LimitedReader{R: gz, N: limit + maxTarballEntries*1024 + 1}
+
+	files, err := readTarFiles(tar.NewReader(stream), stream, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, drainErr := io.Copy(io.Discard, stream); drainErr != nil || stream.N <= 0 {
+		return nil, fmt.Errorf("archive has invalid or excessive trailing data: %w", errs.ErrMalformedInput)
+	}
+
+	return files, nil
+}
+
+// readTarFiles reads the members of reader, which reads stream, within limit.
+func readTarFiles(reader *tar.Reader, stream *io.LimitedReader, limit int64) ([]TarFile, error) {
+	seen := map[string]bool{}
+
+	var (
+		files []TarFile
+		total int64
+	)
+
+	for {
+		header, readErr := reader.Next()
+		if errors.Is(readErr, io.EOF) {
+			return files, nil
+		}
+
+		if readErr != nil {
+			return nil, fmt.Errorf("read tar member: %w: %w", readErr, errs.ErrMalformedInput)
+		}
+
+		if header.Typeflag != tar.TypeReg || !fs.ValidPath(header.Name) || strings.Contains(header.Name, "\\") || seen[header.Name] {
+			return nil, fmt.Errorf("archive must hold distinct regular files under canonical paths: %w", errs.ErrValidation)
+		}
+
+		total += header.Size
+		if len(files) >= maxTarballEntries || header.Size < 0 || total > limit || stream.N <= 0 {
+			return nil, fmt.Errorf("archive exceeds inspection limits: %w", errs.ErrValidation)
+		}
+
+		body, err := io.ReadAll(io.LimitReader(reader, header.Size+1))
+		if err != nil || int64(len(body)) != header.Size {
+			return nil, fmt.Errorf("read %s: %w", header.Name, errs.ErrMalformedInput)
+		}
+
+		seen[header.Name] = true
+
+		files = append(files, TarFile{Name: header.Name, Body: body})
+	}
+}

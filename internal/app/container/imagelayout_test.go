@@ -198,7 +198,6 @@ func TestStagedSignerAssemblyScansEveryArchitectureBeforeUpload(t *testing.T) {
 					TrivyOutputTemplate: "dist/trivy-{arch}.json",
 					SBOMOutputTemplate:  "dist/inventory-{arch}.json",
 					IndexSBOMOutput:     "dist/image-sbom.cyclonedx.json",
-					SBOMURLPrefix:       "https://forge.example/org/repo/releases/download/v1.2.3",
 					Gate: func(_ context.Context, _, platform string) error {
 						gated = append(gated, platform)
 						if platform == blocked {

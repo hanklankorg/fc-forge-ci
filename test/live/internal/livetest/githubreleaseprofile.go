@@ -5,6 +5,7 @@ package livetest
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -163,7 +164,8 @@ func releaseSBOMBundle(releaseSBOMs string, declared *config.Config) (sbomBundle
 }
 
 // releaseSBOMBundleGap judges a release's assets against what its profile
-// promises of the SBOM bundle.
+// promises of the SBOM bundle. Whatever the profile, no image SBOM is a file
+// beside the bundle.
 func releaseSBOMBundleGap(expect sbomBundle, assets map[string]int64) error {
 	var bundles []string
 
@@ -174,6 +176,10 @@ func releaseSBOMBundleGap(expect sbomBundle, assets map[string]int64) error {
 	}
 
 	slices.Sort(bundles)
+
+	if err := releaseImageSBOMsUnbundled(slices.Collect(maps.Keys(assets))); err != nil {
+		return err
+	}
 
 	switch {
 	case expect == sbomBundleOffered && len(bundles) != 1:

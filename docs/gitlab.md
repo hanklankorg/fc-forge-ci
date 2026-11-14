@@ -614,6 +614,11 @@ the build and signing, as the Forgejo
    with the job token, records it in `release-images.json` with the scan
    results, and joins them to the build's `dist/` in a hand-off of its own,
    digested again. A finding in any image leaves the registry untouched.
+   It writes each image's index SBOM and platform inventories into the
+   release's SBOM bundle, beside the build's SBOMs, and the checksums file
+   lists that bundle; the job holds no signing key, and the provenance
+   statement and every signature are made after it, by the signing job. No
+   image SBOM is a release file of its own.
 4. `Sign: files and images` reads that hand-off, and only it, and imports the
    staging images into the publication project.
 

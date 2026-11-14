@@ -177,8 +177,7 @@ outputs.`,
 			&cli.StringFlag{Name: flagMetadataDir, Sources: cli.EnvVars("IMAGE_METADATA_DIR"), Usage: "directory for <name>.json (default <name>-dist)"},
 			&cli.StringFlag{Name: "scan-output-template", Usage: "required with --from-layouts: scan every staged architecture before any upload; a finding the container gate blocks refuses publication under an enforcing administrator policy; Trivy JSON path must contain {arch} or {platform}"},
 			&cli.StringFlag{Name: "sbom-output-template", Usage: "with --from-layouts and --scan-output-template: generate per-architecture CycloneDX SBOMs from the staged bytes before upload; path must contain {arch} or {platform}"},
-			&cli.StringFlag{Name: "index-sbom-output", Usage: "with staged inventories and --manifest-output: write an index SBOM binding every selected platform; emits image-sbom-sha256"},
-			&cli.StringFlag{Name: "sbom-url-prefix", Usage: "public HTTPS directory where the unchanged platform inventories will be published; required with --index-sbom-output"},
+			&cli.StringFlag{Name: "index-sbom-output", Usage: "with staged inventories and --manifest-output: write an index SBOM naming every selected platform by child digest with its inventory's file name and checksum; emits image-sbom-sha256"},
 			&cli.StringFlag{Name: "cache-tag-prefix", Usage: "with --from-layouts: refresh bounded <prefix>-<arch> slots in the image repository only after the complete set passes scans and assembly"},
 		),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -218,7 +217,6 @@ outputs.`,
 						TrivyOutputTemplate: scanTemplate,
 						SBOMOutputTemplate:  sbomTemplate,
 						IndexSBOMOutput:     cmd.String("index-sbom-output"),
-						SBOMURLPrefix:       cmd.String("sbom-url-prefix"),
 						Gate:                publicationGate(scanner, deps.Annotator(cmd)),
 					}
 				}
@@ -246,7 +244,7 @@ outputs.`,
 func validateSignerAssemblyFlags(cmd *cli.Command) error {
 	scanTemplate := cmd.String("scan-output-template")
 
-	if (cmd.String("index-sbom-output") != "" || cmd.String("sbom-url-prefix") != "") && (!cmd.Bool("from-layouts") || scanTemplate == "") {
+	if cmd.String("index-sbom-output") != "" && (!cmd.Bool("from-layouts") || scanTemplate == "") {
 		return fmt.Errorf("index SBOM output requires --from-layouts and --scan-output-template: %w", errs.ErrUsage)
 	}
 

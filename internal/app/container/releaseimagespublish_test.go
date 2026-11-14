@@ -4,18 +4,21 @@
 package container_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -26,6 +29,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/adapters/ociregistry"
 	appcontainer "github.com/diggsweden/forge-ci/internal/app/container"
 	apprelease "github.com/diggsweden/forge-ci/internal/app/release"
+	"github.com/diggsweden/forge-ci/internal/archive"
 	rootcli "github.com/diggsweden/forge-ci/internal/cli"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
@@ -224,7 +228,6 @@ func TestPublishReleaseImagesPinsOriginalInventoriesAndIndexBOM(t *testing.T) {
 	// separate ledger and canonical premade-sboms handoff actually exist.
 	fixture.in.Plan.Images[1].Flavor = "core"
 	fixture.in.PrepublicationSBOMs = true
-	fixture.in.SBOMURLPrefix = "https://forge.example/org/app/releases/download/v1.2.3"
 	syft := &fakeImageEvidenceSyft{jsonBody: "{\n  \"bomFormat\":\"CycloneDX\",\"specVersion\":\"1.6\",\"version\":1\n}\n"}
 	fixture.in.Syft = syft
 	originals := map[string][]byte{}
@@ -281,7 +284,7 @@ func TestPublishReleaseImagesPinsOriginalInventoriesAndIndexBOM(t *testing.T) {
 	require.NoError(t, err)
 	wantBOM, err := domainsbom.ComposeIndexBOM(entries[1].Ref, index, []domainsbom.IndexBOMPart{{
 		Platform: "linux/amd64", ImageRef: fixture.in.Plan.Images[1].ImageRepository + "@" + fixture.digest["worker-amd64"],
-		URL: fixture.in.SBOMURLPrefix + "/sbom-core-amd64.json", SHA256: fmt.Sprintf("%x", sha256.Sum256(inventory)), Document: inventory,
+		Name: "sbom-core-amd64.json", SHA256: fmt.Sprintf("%x", sha256.Sum256(inventory)), Document: inventory,
 	}})
 	require.NoError(t, err)
 	gotBOM, err := os.ReadFile(filepath.Join(fixture.in.OutputDir, "image-sbom-core.cyclonedx.json"))
@@ -300,9 +303,21 @@ func TestPublishReleaseImagesPinsOriginalInventoriesAndIndexBOM(t *testing.T) {
 				ExpectedImageRepository: strings.Split(entry.Ref, "@")[0],
 			}))
 		require.Empty(t, signerSyft.targets)
-		require.Len(t, signer.attests, 2)
+		// The index SBOM on the index, each platform inventory the publisher
+		// wrote on its own child digest, then provenance.
+		_, inventories, index, err := domainsbom.IndexBOMInventories(want)
+		require.NoError(t, err)
+		require.True(t, index)
+		require.Len(t, signer.attests, 2+len(inventories))
 		require.Equal(t, entry.SBOM, signer.attests[0].input.PredicatePath)
 		require.Equal(t, want, signer.attests[0].predicate)
+
+		for position, inventory := range inventories {
+			original, err := os.ReadFile(filepath.Join("dist", inventory.Name))
+			require.NoError(t, err)
+			require.Equal(t, inventory.ImageRef, signer.attests[1+position].input.ImageRef)
+			require.Equal(t, original, signer.attests[1+position].predicate)
+		}
 		// A collector/staging mutation at the canonical path must not silently
 		// regenerate or attest a different inventory.
 		require.NoError(t, os.WriteFile(entry.SBOM, append(append([]byte{}, want...), '\n'), 0o600))
@@ -335,35 +350,49 @@ func collectNativeImageEvidence(t *testing.T, images string) ([]byte, error) {
 }
 
 // The only inert part is the file signer. Production publisher, collector,
-// shell evidence enumeration, manifest admission/finalization and exact
-// publication selection all participate in this journey.
-func TestNativePublicImageEvidenceManifestJourney(t *testing.T) {
-	for _, defect := range []string{"", "missing index", "changed index", "missing platform", "changed platform", "extra publisher SBOM", "missing pin", "unregistered platform"} {
+// shell SBOM enumeration, admission, bundle completion, finalization and exact
+// publication selection all participate in this journey. The image SBOMs end
+// up in the release's one SBOM bundle, beside the build's SBOM when it has
+// one, and none is a release file of its own.
+func TestNativeImageSBOMsJoinTheSBOMBundleJourney(t *testing.T) {
+	for _, defect := range []string{"", "no build SBOM", "missing index", "changed index", "missing platform", "changed platform", "extra publisher SBOM", "missing pin", "unregistered platform", "bundle not the checksummed one", "signature already written"} {
 		t.Run(defect, func(t *testing.T) {
 			fixture := newReleaseImagesPublishFixture(t)
 			fixture.in.Plan.Images[0].Archs = "amd64"
 			require.NoError(t, os.RemoveAll(filepath.Join(fixture.in.LayoutsDir, "app-arch-arm64")))
 			fixture.in.PrepublicationSBOMs = true
-			fixture.in.SBOMURLPrefix = "https://gitlab.example/org/source/-/releases/v1.2.3/downloads"
 			fixture.in.Syft = &fakeImageEvidenceSyft{}
 			require.NoError(t, fixture.publish(t))
 			require.NoError(t, os.Mkdir("dist", 0o700))
 			require.NoError(t, os.WriteFile("dist/app.tar.gz", []byte("archive"), 0o600))
+			require.NoError(t, os.WriteFile("dist/app.cdx.json", []byte(`{"bomFormat":"CycloneDX"}`), 0o600))
 
-			before, err := apprelease.DeclareReleaseFiles(apprelease.DeclareReleaseFilesInput{Assets: []string{"dist/app.tar.gz"}})
+			declared := apprelease.DeclareReleaseFilesInput{
+				ProjectName: "app", Version: "v1.2.3",
+				Assets: []string{"dist/app.tar.gz"}, SBOMs: []string{"dist/app.cdx.json"},
+			}
+			if defect == "no build SBOM" {
+				declared.SBOMs = nil
+			}
+
+			before, err := apprelease.DeclareReleaseFiles(declared)
 			require.NoError(t, err)
 			// A consumer's pre-existing inventory must never become public.
 			require.NoError(t, os.WriteFile("dist/sbom-consumer-amd64.json", []byte("{}"), 0o600))
 
-			originalManifest, err := os.ReadFile("dist/release-files.json")
-			require.NoError(t, err)
 			output, err := collectNativeImageEvidence(t, fixture.in.OutputDir)
 			require.NoError(t, err, "%s", output)
 
-			originals := map[string][]byte{}
-			for _, name := range []string{"image-sbom-app.cyclonedx.json", "image-sbom-worker.cyclonedx.json", "sbom-app-amd64.json", "sbom-worker-amd64.json"} {
-				originals["dist/"+name], err = os.ReadFile("dist/" + name)
+			imageSBOMs := []string{"image-sbom-app.cyclonedx.json", "image-sbom-worker.cyclonedx.json", "sbom-app-amd64.json", "sbom-worker-amd64.json"}
+			want := map[string][]byte{}
+
+			for _, name := range imageSBOMs {
+				want[name], err = os.ReadFile("dist/" + name)
 				require.NoError(t, err)
+			}
+
+			if defect != "no build SBOM" {
+				want["app.cdx.json"] = []byte(`{"bomFormat":"CycloneDX"}`)
 			}
 
 			switch defect {
@@ -390,19 +419,39 @@ func TestNativePublicImageEvidenceManifestJourney(t *testing.T) {
 				require.NoError(t, os.WriteFile("dist/release-images.json", body, 0o600))
 			case "unregistered platform":
 				require.NoError(t, os.Remove(filepath.Join(fixture.in.OutputDir, "sbom-app-amd64.json")))
+			case "bundle not the checksummed one":
+				// A hand-off whose bundle and checksums line disagree is refused,
+				// not repaired by the line this step writes.
+				require.NoError(t, os.WriteFile("dist/other.json", []byte("{}"), 0o600))
+				writeTestSBOMBundle(t, "dist/app-1.2.3-sboms.tar.gz", map[string][]byte{"other.json": []byte("{}")})
+			case "signature already written":
+				require.NoError(t, os.WriteFile("dist/app-1.2.3-sboms.tar.gz.sig", []byte("early"), 0o600))
+			}
+
+			originalManifest, err := os.ReadFile("dist/release-files.json")
+			require.NoError(t, err)
+			originalChecksums, err := os.ReadFile("dist/checksums.sha256")
+			require.NoError(t, err)
+
+			var originalBundle []byte
+			if defect != "no build SBOM" {
+				originalBundle, err = os.ReadFile("dist/app-1.2.3-sboms.tar.gz")
+				require.NoError(t, err)
 			}
 
 			args := nativeImageManifestArguments(t, fixture.in.OutputDir)
 			command := rootcli.New(rootcli.BuildInfo{Version: "dev"})
 
 			err = command.Run(t.Context(), append([]string{"forge-ci", "--provider", "gitlab"}, args...))
-			if defect != "" {
+			if defect != "" && defect != "no build SBOM" {
 				require.Error(t, err)
 
-				got, readErr := os.ReadFile("dist/release-files.json")
-				require.NoError(t, readErr)
-				require.Equal(t, originalManifest, got)
-				require.NoFileExists(t, "dist/image-sbom-app.cyclonedx.json.bundle")
+				// A refused hand-off keeps its manifest, checksums and bundle.
+				for path, original := range map[string][]byte{"dist/release-files.json": originalManifest, "dist/checksums.sha256": originalChecksums, "dist/app-1.2.3-sboms.tar.gz": originalBundle} {
+					got, readErr := os.ReadFile(path)
+					require.NoError(t, readErr)
+					require.Equal(t, original, got, path)
+				}
 
 				return
 			}
@@ -414,52 +463,76 @@ func TestNativePublicImageEvidenceManifestJourney(t *testing.T) {
 			var after apprelease.FileManifest
 			require.NoError(t, json.Unmarshal(body, &after))
 			require.Equal(t, before.Checksums, after.Checksums)
-			require.Equal(t, before.SBOMs, after.SBOMs)
-			require.Len(t, after.Evidence, 4)
-			require.Len(t, after.Assets, len(before.Assets)+4)
+			require.Empty(t, after.Evidence, "an image SBOM is no release file of its own")
+			require.Equal(t, []apprelease.FileEntry{{Path: "dist/app-1.2.3-sboms.tar.gz", Name: "app-1.2.3-sboms.tar.gz", Source: "sbom_bundle"}}, after.SBOMs)
 
-			signer := &nativeEvidenceBundleSigner{}
-			require.NoError(t, apprelease.SignArtifacts(t.Context(), signer, io.Discard, apprelease.SignInput{
-				SkipChecksumsFile: true, SkipReleaseArtifactsDir: true, ManifestSections: []string{"evidence"},
-			}))
-			require.Len(t, signer.files, 4)
-			// The independent provenance stage contributes its usual two files,
-			// and the release file stage the signatures of the checksums and
-			// the archive; none is part of the eight image-evidence additions.
-			require.NoError(t, os.WriteFile("dist/slsa-provenance.intoto.json", []byte("{}"), 0o600))
-			require.NoError(t, os.WriteFile("dist/slsa-provenance.intoto.json.bundle", []byte("inert provenance bundle"), 0o600))
-			require.NoError(t, os.WriteFile("dist/checksums.sha256.bundle", []byte("inert checksums bundle"), 0o600))
-			require.NoError(t, os.WriteFile("dist/app.tar.gz.bundle", []byte("inert archive bundle"), 0o600))
+			if defect == "no build SBOM" {
+				require.Len(t, after.Assets, len(before.Assets)+1, "the bundle joins a hand-off that had none")
+			} else {
+				require.Equal(t, before.Assets, after.Assets)
+			}
+
+			// The bundle holds the build SBOM and exactly the admitted image
+			// SBOMs, unchanged, in name order.
+			members, err := archive.ReadTarGzipFiles("dist/app-1.2.3-sboms.tar.gz", 1<<20)
+			require.NoError(t, err)
+
+			got := map[string][]byte{}
+			names := make([]string, 0, len(members))
+
+			for _, member := range members {
+				got[member.Name] = member.Body
+				names = append(names, member.Name)
+			}
+
+			require.Equal(t, want, got)
+			require.True(t, slices.IsSorted(names), "bundle members are in name order: %v", names)
+
+			// The checksums file lists the bundle that is in dist now, once,
+			// and the archive's own line is untouched.
+			bundle, err := os.ReadFile("dist/app-1.2.3-sboms.tar.gz")
+			require.NoError(t, err)
+			checksums, err := os.ReadFile("dist/checksums.sha256")
+			require.NoError(t, err)
+			require.Equal(t, 1, strings.Count(string(checksums), "  app-1.2.3-sboms.tar.gz\n"))
+			require.Contains(t, string(checksums), fmt.Sprintf("%x  app-1.2.3-sboms.tar.gz\n", sha256.Sum256(bundle)))
+			require.Contains(t, string(checksums), fmt.Sprintf("%x  app.tar.gz\n", sha256.Sum256([]byte("archive"))))
+			require.NoError(t, apprelease.ValidateReleaseChecksums(apprelease.ValidateReleaseChecksumsInput{}))
+
+			// The signing stage then signs the release files, the bundle among
+			// them; no image SBOM is signed or published beside it.
+			for _, name := range []string{"slsa-provenance.intoto.json", "slsa-provenance.intoto.json.bundle", "checksums.sha256.bundle", "app.tar.gz.bundle", "app-1.2.3-sboms.tar.gz.bundle"} {
+				require.NoError(t, os.WriteFile("dist/"+name, []byte("inert"), 0o600))
+			}
 
 			final, err := apprelease.WriteReleaseFileManifest(apprelease.WriteReleaseFileManifestInput{})
 			require.NoError(t, err)
 			require.Len(t, final.Provenance, 1)
-			require.Len(t, final.Assets, len(before.Assets)+8+2+2)
 
 			public, err := apprelease.PublishableReleaseFiles(apprelease.FilesInput{})
 			require.NoError(t, err)
-			require.NotContains(t, public, "dist/sbom-consumer-amd64.json")
-			require.NotContains(t, public, "dist/index-app.json")
-			require.NotContains(t, public, "dist/trivy-results-app-amd64.json")
-
-			for path, want := range originals {
-				got, err := os.ReadFile(path)
-				require.NoError(t, err)
-				require.Equal(t, want, got)
-				require.Contains(t, public, path)
-				require.Contains(t, public, path+".bundle")
-			}
+			require.ElementsMatch(t, []string{
+				"dist/app.tar.gz", "dist/app.tar.gz.bundle",
+				"dist/app-1.2.3-sboms.tar.gz", "dist/app-1.2.3-sboms.tar.gz.bundle",
+				"dist/checksums.sha256", "dist/checksums.sha256.bundle",
+				"dist/slsa-provenance.intoto.json", "dist/slsa-provenance.intoto.json.bundle",
+			}, public)
 		})
 	}
 }
 
-type nativeEvidenceBundleSigner struct{ files []string }
+func writeTestSBOMBundle(t *testing.T, path string, members map[string][]byte) {
+	t.Helper()
 
-func (*nativeEvidenceBundleSigner) Extensions() []string { return []string{".bundle"} }
-func (s *nativeEvidenceBundleSigner) SignFile(_ context.Context, file string) error {
-	s.files = append(s.files, file)
+	var buffer bytes.Buffer
 
-	return os.WriteFile(file+".bundle", []byte("inert bundle"), 0o600)
+	writer := archive.NewTarGzipWriter(&buffer)
+	for _, name := range slices.Sorted(maps.Keys(members)) {
+		require.NoError(t, writer.AddBytes(name, members[name]))
+	}
+
+	require.NoError(t, writer.Close())
+	require.NoError(t, os.WriteFile(path, buffer.Bytes(), 0o600))
 }
 
 func nativeImageManifestArguments(t *testing.T, images string) []string {
@@ -472,15 +545,15 @@ func nativeImageManifestArguments(t *testing.T, images string) []string {
 	command := exec.CommandContext(t.Context(), "bash", "-c", `set -euo pipefail
 source "$1"
 rc_engine() { printf '%s\0' "$@"; }
-DIST_DIR=dist RELEASE_FILES_MANIFEST=dist/release-files.json rc_register_release_image_evidence "$2"`, "manifest", script, images)
+DIST_DIR=dist RELEASE_FILES_MANIFEST=dist/release-files.json CI_PROJECT_PATH=org/app RELEASE_TAG=v1.2.3 rc_bundle_release_image_sboms "$2"`, "manifest", script, images)
 	output, err := command.Output()
 	require.NoError(t, err)
 
 	args := strings.Split(strings.TrimSuffix(string(output), "\x00"), "\x00")
-	require.Equal(t, []string{"release", "files", "manifest", "--unsigned", "--manifest", "dist/release-files.json", "--dist-dir", "dist", "--release-images-ledger", "dist/release-images.json"}, args[:10])
+	require.Equal(t, []string{"release", "files", "manifest", "--unsigned", "--manifest", "dist/release-files.json", "--dist-dir", "dist", "--release-images-ledger", "dist/release-images.json", "--repository", "org/app", "--version", "v1.2.3"}, args[:14])
 
-	for i := 10; i < len(args); i += 2 {
-		require.Equal(t, "--evidence-file", args[i])
+	for i := 14; i < len(args); i += 2 {
+		require.Equal(t, "--image-sbom", args[i])
 	}
 
 	return args
@@ -512,22 +585,19 @@ func TestNativeImageCollectorAdmitsCompleteFlatDistMappingBeforeCopy(t *testing.
 }
 
 func TestPublishReleaseImagesEvidenceFailuresPrecedeAllUploads(t *testing.T) {
-	for _, defect := range []string{"base without evidence", "base with evidence", "invalid public URL", "SBOM collision", "inventory missing", "wrong destination", "wrong architecture"} {
+	for _, defect := range []string{"base without evidence", "base with evidence", "SBOM collision", "inventory missing", "wrong destination", "wrong architecture"} {
 		t.Run(defect, func(t *testing.T) {
 			fixture := newReleaseImagesPublishFixture(t)
 			fixture.in.PrepublicationSBOMs = true
-			fixture.in.SBOMURLPrefix = "https://forge.example/org/app/releases/download/v1.2.3"
 			fixture.in.Syft = &fakeImageEvidenceSyft{}
 
 			switch defect {
 			case "base without evidence":
-				fixture.in.PrepublicationSBOMs, fixture.in.SBOMURLPrefix = false, ""
+				fixture.in.PrepublicationSBOMs = false
 
 				fallthrough
 			case "base with evidence":
 				fixture.in.Plan.Images[1].ImageKind, fixture.in.Plan.Images[1].Flavor = "base", "core"
-			case "invalid public URL":
-				fixture.in.SBOMURLPrefix = "http://forge.example/download"
 			case "SBOM collision":
 				fixture.in.Plan.Images[0].Flavor, fixture.in.Plan.Images[1].Flavor = "same", "same"
 			case "inventory missing":

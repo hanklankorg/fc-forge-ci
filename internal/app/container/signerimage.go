@@ -132,10 +132,9 @@ type StagedLayoutEvidence struct {
 	// SBOMOutputTemplate optionally retains an inventory of every staged child.
 	// These exact documents are pinned in the ledger before crossing the signer boundary.
 	SBOMOutputTemplate string
-	// IndexSBOMOutput binds every generated inventory to the verified index.
-	// SBOMURLPrefix is the public directory where those inventories will be served.
+	// IndexSBOMOutput binds every generated inventory to the verified index by
+	// child digest, file name and checksum; it names no location.
 	IndexSBOMOutput string
-	SBOMURLPrefix   string
 	// Gate judges a layout after its evidence is recorded; nil records only.
 	Gate func(ctx context.Context, layout, platform string) error
 }

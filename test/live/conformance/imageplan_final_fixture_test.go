@@ -18,7 +18,7 @@ import (
 // Review delivered bytes independently of the production BOM composer. The live
 // caller also compares the retained index hash with the registry-served digest
 // and reads the child's marker through the constrained registry SDK.
-func imagePlanFinalReview(tree map[string][]byte, repository, urlPrefix string) (imageledger.Entry, string, error) {
+func imagePlanFinalReview(tree map[string][]byte, repository string) (imageledger.Entry, string, error) {
 	fail := func(reason string) (imageledger.Entry, string, error) {
 		return imageledger.Entry{}, "", fmt.Errorf("final image evidence: %s: %w", reason, errs.ErrValidation)
 	}
@@ -89,14 +89,14 @@ func imagePlanFinalReview(tree map[string][]byte, repository, urlPrefix string) 
 		"components": []any{map[string]any{
 			"type": "container", "name": childRef, "bom-ref": childRef + "#linux/amd64",
 			"properties": []any{map[string]any{"name": "oci:platform", "value": "linux/amd64"}},
-			"externalReferences": []any{map[string]any{"type": "bom", "url": urlPrefix + "/sbom-distroless-amd64.json",
+			"externalReferences": []any{map[string]any{"type": "bom", "url": "sbom-distroless-amd64.json",
 				"hashes": []any{map[string]any{"alg": "SHA-256", "content": imagePlanSHA256(inventory)}}}},
 		}},
 	}
 
 	var actual map[string]any
 	if err := json.Unmarshal(bomBytes, &actual); err != nil || !reflect.DeepEqual(expected, actual) {
-		return fail("index BOM platform, digest, URL or inventory hash binding differs")
+		return fail("index BOM platform, digest, inventory name or inventory hash binding differs")
 	}
 
 	return entry, child.Digest, nil
@@ -105,8 +105,6 @@ func imagePlanFinalReview(tree map[string][]byte, repository, urlPrefix string) 
 func TestResolvedFinalImageReviewRejectsContradictoryDelivery(t *testing.T) {
 	const repository = "registry.example/base"
 
-	const prefix = "https://forge.example/forgeci/fci-example/releases/download/v0.0.1"
-
 	for _, broken := range []string{"", "ledger", "duplicate", "role", "tag", "pin", "base-sbom-path", "index", "platform", "child", "scan", "inventory", "missing-bom", "bom-platform", "bom-digest", "bom-url", "bom-hash"} {
 		t.Run(broken, func(t *testing.T) {
 			child := "sha256:" + strings.Repeat("a", 64)
@@ -114,7 +112,7 @@ func TestResolvedFinalImageReviewRejectsContradictoryDelivery(t *testing.T) {
 			inventory := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","components":[]}`)
 			childRef := repository + "@" + child
 			ref := repository + "@sha256:" + imagePlanSHA256(index)
-			bom := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"metadata":{"component":{"type":"container","name":"` + repository + `","bom-ref":"` + ref + `"}},"components":[{"type":"container","name":"` + childRef + `","bom-ref":"` + childRef + `#linux/amd64","properties":[{"name":"oci:platform","value":"linux/amd64"}],"externalReferences":[{"type":"bom","url":"` + prefix + `/sbom-distroless-amd64.json","hashes":[{"alg":"SHA-256","content":"` + imagePlanSHA256(inventory) + `"}]}]}]}`)
+			bom := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"metadata":{"component":{"type":"container","name":"` + repository + `","bom-ref":"` + ref + `"}},"components":[{"type":"container","name":"` + childRef + `","bom-ref":"` + childRef + `#linux/amd64","properties":[{"name":"oci:platform","value":"linux/amd64"}],"externalReferences":[{"type":"bom","url":"sbom-distroless-amd64.json","hashes":[{"alg":"SHA-256","content":"` + imagePlanSHA256(inventory) + `"}]}]}]}`)
 			entry := imageledger.Entry{Role: "distroless", ImageKind: "release", Ref: ref, Digest: "sha256:" + imagePlanSHA256(index), FinalTag: repository + ":v0.0.1", CandidateTag: repository + ":staging-v0.0.1", SBOM: "dist/image-sbom-distroless.cyclonedx.json", SBOMSHA256: imagePlanSHA256(bom)}
 			tree := map[string][]byte{"index-final.json": index, "sbom-distroless-amd64.json": inventory, "image-sbom-distroless.cyclonedx.json": bom, "trivy-results-final-amd64.json": []byte(`{"SchemaVersion":2,"ArtifactName":"staged-layout"}`)}
 
@@ -148,7 +146,7 @@ func TestResolvedFinalImageReviewRejectsContradictoryDelivery(t *testing.T) {
 			case "bom-digest":
 				tree["image-sbom-distroless.cyclonedx.json"] = []byte(strings.ReplaceAll(string(bom), child, "sha256:"+strings.Repeat("b", 64)))
 			case "bom-url":
-				tree["image-sbom-distroless.cyclonedx.json"] = []byte(strings.ReplaceAll(string(bom), prefix, "https://other.example/release"))
+				tree["image-sbom-distroless.cyclonedx.json"] = []byte(strings.ReplaceAll(string(bom), `"url":"sbom-`, `"url":"https://other.example/release/sbom-`))
 			case "bom-hash":
 				tree["image-sbom-distroless.cyclonedx.json"] = []byte(strings.ReplaceAll(string(bom), imagePlanSHA256(inventory), strings.Repeat("b", 64)))
 			}
@@ -173,7 +171,7 @@ func TestResolvedFinalImageReviewRejectsContradictoryDelivery(t *testing.T) {
 
 			tree["release-images.json"] = body
 
-			_, _, err = imagePlanFinalReview(tree, repository, prefix)
+			_, _, err = imagePlanFinalReview(tree, repository)
 			if (err == nil) != (broken == "") {
 				t.Fatalf("delivery %q: %v", broken, err)
 			}

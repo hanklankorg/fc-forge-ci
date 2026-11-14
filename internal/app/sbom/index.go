@@ -20,13 +20,14 @@ import (
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
 )
 
-// IndexBOMFile is one producer-owned record in the version-1 input manifest.
-// File is relative to Root; URL is the public location the caller will publish.
+// IndexBOMFile is one producer-owned record in the version-2 input manifest.
+// File is relative to Root; its base name is the name the index BOM refers to
+// the document by, the name it has in the release's SBOM bundle. Version 1
+// carried a public url per record and is refused.
 type IndexBOMFile struct {
 	Platform string `json:"platform"`
 	ImageRef string `json:"image_ref"`
 	File     string `json:"file"`
-	URL      string `json:"url"`
 	SHA256   string `json:"sha256"`
 }
 
@@ -39,8 +40,9 @@ type IndexBOMInput struct {
 	Output    string
 }
 
-// IndexBOMOutput supplies the ledger's checksum pin and the files the consumer
-// must register as release evidence. No publication is performed here.
+// IndexBOMOutput supplies the ledger's checksum pin and the platform SBOMs the
+// index BOM refers to, which belong in the SBOM bundle beside it. No
+// publication is performed here.
 type IndexBOMOutput struct {
 	Path          string
 	SHA256        string
@@ -127,7 +129,7 @@ func loadIndexBOMInputs(root *os.Root, indexFile, partsFile string) (indexBOMInp
 			return inputs, readErr
 		}
 
-		inputs.parts = append(inputs.parts, domainsbom.IndexBOMPart{Platform: record.Platform, ImageRef: record.ImageRef, URL: record.URL, SHA256: record.SHA256, Document: raw})
+		inputs.parts = append(inputs.parts, domainsbom.IndexBOMPart{Platform: record.Platform, ImageRef: record.ImageRef, Name: filepath.Base(record.File), SHA256: record.SHA256, Document: raw})
 		inputs.files = append(inputs.files, record.File)
 	}
 
@@ -152,8 +154,8 @@ func readIndexBOMRecords(root *os.Root, name string) ([]IndexBOMFile, error) {
 		return nil, fmt.Errorf("decode platform SBOM records: %w: %w", err, errs.ErrMalformedInput)
 	}
 
-	if decoder.Decode(new(any)) != io.EOF || manifest.Version != 1 {
-		return nil, fmt.Errorf("platform SBOM records require one version-1 JSON document: %w", errs.ErrMalformedInput)
+	if decoder.Decode(new(any)) != io.EOF || manifest.Version != 2 {
+		return nil, fmt.Errorf("platform SBOM records require one version-2 JSON document: %w", errs.ErrMalformedInput)
 	}
 
 	return manifest.Platforms, nil

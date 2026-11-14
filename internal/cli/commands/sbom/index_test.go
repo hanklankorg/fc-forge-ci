@@ -28,12 +28,12 @@ func TestIndexCommandIsOfflineAndBindsProducerDocuments(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("1", 64)
 	index := []byte(fmt.Sprintf(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"digest":%q,"platform":{"os":"linux","architecture":"arm64"}}]}`, digest))
 	ref := fmt.Sprintf("registry.example/acme/app@sha256:%x", sha256.Sum256(index))
-	parts := fmt.Sprintf(`{"version":1,"platforms":[{"platform":"linux/arm64","image_ref":"registry.example/acme/app@%s","file":"native.json","url":"https://downloads.example/native.json","sha256":"%x"}]}`, digest, sha256.Sum256(native))
+	parts := fmt.Sprintf(`{"version":2,"platforms":[{"platform":"linux/arm64","image_ref":"registry.example/acme/app@%s","file":"native.json","sha256":"%x"}]}`, digest, sha256.Sum256(native))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "native.json"), native, 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "index.json"), index, 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "parts.json"), []byte(parts), 0o600))
 	out := filepath.Join(root, "out.json")
-	// An empty PATH prevents accidental tool invocation; URLs use inert hosts.
+	// An empty PATH prevents accidental tool invocation.
 	t.Setenv("PATH", t.TempDir())
 
 	args := []string{"sbom", "index", "--root", root, "--index-file", "index.json", "--platform-sboms", "parts.json", "--image-ref", ref, "--output", out}

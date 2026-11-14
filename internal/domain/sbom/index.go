@@ -7,7 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"net/url"
+	"io/fs"
 	"slices"
 	"strings"
 
@@ -17,12 +17,17 @@ import (
 
 const cycloneDXFormat = "CycloneDX"
 
-// IndexBOMPart binds an unchanged native CycloneDX document to its platform,
-// immutable image and caller-owned public release URL. SHA256 is producer-owned.
+// bomReferenceType is the CycloneDX external reference type of a BOM.
+const bomReferenceType = "bom"
+
+// IndexBOMPart binds an unchanged native CycloneDX document to its platform
+// and immutable image. Name is the document's file name in the release's SBOM
+// bundle: the index BOM names no location, so the reference holds wherever the
+// bundle or the image is read from. SHA256 is producer-owned.
 type IndexBOMPart struct {
 	Platform string
 	ImageRef string
-	URL      string
+	Name     string
 	SHA256   string
 	Document []byte
 }
@@ -52,9 +57,12 @@ type indexBOMHash struct {
 }
 
 // ComposeIndexBOM produces a deterministic CycloneDX 1.6 inventory of the index
-// children with checksum-bound external BOM references. It does not flatten or
-// rewrite native component/dependency identities, fetch URLs, or authenticate
-// the release. The caller publishes the referenced documents with the index BOM.
+// children. Each child is named by its digest and carries one checksum-bound
+// BOM reference: the inventory's file name in the release's SBOM bundle and its
+// SHA-256. It does not flatten or rewrite native component/dependency
+// identities or authenticate the release. The caller writes the referenced
+// documents into the SBOM bundle beside the index BOM and attests each on its
+// child digest.
 func ComposeIndexBOM(indexRef string, indexManifest []byte, parts []IndexBOMPart) ([]byte, error) {
 	if !container.ValidDigestPinnedRef(indexRef) {
 		return nil, fmt.Errorf("index SBOM requires a tag-free digest reference: %w", errs.ErrUsage)
@@ -83,7 +91,7 @@ func ComposeIndexBOM(indexRef string, indexManifest []byte, parts []IndexBOMPart
 			Type: "container", Name: part.ImageRef, Ref: part.ImageRef + "#" + part.Platform,
 			Properties: []indexBOMProperty{{Name: "oci:platform", Value: part.Platform}},
 			References: []indexBOMReference{{
-				Type: "bom", URL: part.URL,
+				Type: bomReferenceType, URL: part.Name,
 				Hashes: []indexBOMHash{{Algorithm: "SHA-256", Content: part.SHA256}},
 			}},
 		})
@@ -105,18 +113,18 @@ func ComposeIndexBOM(indexRef string, indexManifest []byte, parts []IndexBOMPart
 
 func validateIndexBOMParts(repository string, parts []IndexBOMPart) ([]container.PlatformDigest, error) {
 	expected := make([]container.PlatformDigest, 0, len(parts))
-	urls := make(map[string]string, len(parts))
+	names := make(map[string]string, len(parts))
 
 	for _, part := range parts {
 		if err := validateIndexBOMPart(repository, part); err != nil {
 			return nil, err
 		}
 
-		if previous, exists := urls[part.URL]; exists && previous != part.SHA256 {
-			return nil, fmt.Errorf("one SBOM URL cannot identify different document bytes: %w", errs.ErrValidation)
+		if previous, exists := names[part.Name]; exists && previous != part.SHA256 {
+			return nil, fmt.Errorf("one SBOM file name cannot identify different document bytes: %w", errs.ErrValidation)
 		}
 
-		urls[part.URL] = part.SHA256
+		names[part.Name] = part.SHA256
 		expected = append(expected, container.PlatformDigest{Platform: part.Platform, Digest: strings.TrimPrefix(part.ImageRef, repository+"@")})
 	}
 
@@ -141,15 +149,14 @@ func validateIndexBOMPart(repository string, part IndexBOMPart) error {
 		return fmt.Errorf("native SBOM must be a CycloneDX JSON document: %w", errs.ErrMalformedInput)
 	}
 
-	return ValidatePublicBOMURL(part.URL)
+	return ValidateBOMFileName(part.Name)
 }
 
-// ValidatePublicBOMURL admits a public evidence URL without embedded credentials.
-// It does not fetch the URL or authenticate the referenced document.
-func ValidatePublicBOMURL(value string) error {
-	public, err := url.Parse(value)
-	if err != nil || public.Scheme != "https" || public.Hostname() == "" || public.User != nil || public.RawQuery != "" || public.Fragment != "" || public.Opaque != "" {
-		return fmt.Errorf("native SBOM URL must be public HTTPS without credentials, query or fragment: %w", errs.ErrUsage)
+// ValidateBOMFileName admits the name an inventory has in the SBOM bundle: one
+// plain file name, so the reference cannot name a location, a path or a host.
+func ValidateBOMFileName(name string) error {
+	if name == "." || !fs.ValidPath(name) || strings.ContainsAny(name, "/\\:?#%@ \t\r\n") {
+		return fmt.Errorf("native SBOM reference must be a plain file name in the SBOM bundle: %w", errs.ErrUsage)
 	}
 
 	return nil
