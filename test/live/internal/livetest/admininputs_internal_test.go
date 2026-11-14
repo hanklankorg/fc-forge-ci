@@ -279,6 +279,14 @@ func TestAdminWrapperRejectsConsumerValuesAndMergedInputAuthority(t *testing.T) 
 			t.Fatalf("consumer supplied administrator authority: %v", err)
 		}
 	}
+
+	// A caller's own literal stands when it is the run's setting, written once.
+	text := "jobs:\n  image:\n    uses: " + layer.workflowBase() + ".forgejo/workflows/snapshot-images.yml@" + layer.Commit + "\n    with:\n      enforce-vulnerabilities: false\n"
+
+	rendered, err := layer.renderAdmin(text)
+	if err != nil || strings.Count(rendered, "enforce-vulnerabilities: false") != 1 {
+		t.Fatalf("the run's own setting in the consumer wrapper: err=%v\n%s", err, rendered)
+	}
 }
 
 // A wrapper may call only what the pinned layer holds: an action or a

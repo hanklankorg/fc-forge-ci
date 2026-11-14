@@ -349,6 +349,29 @@ func TestRenderGitHubConsumer_PinsTheEngineUnderTest(t *testing.T) {
 	}
 }
 
+// A consumer may call a workflow of its own repository beside the engine,
+// such as its tests; a call of any other repository's workflow is refused,
+// because it would run a layer that is not this checkout's.
+func TestRenderGitHubConsumer_OwnWorkflowCalls(t *testing.T) {
+	t.Parallel()
+
+	own := fixturePullRequest + "  own-tests:\n    uses: ./.github/workflows/test.yml\n"
+
+	got, _, err := RenderGitHubConsumer("pullrequest.yml", own, trialEngine, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(got, "uses: ./.github/workflows/test.yml") {
+		t.Errorf("rendered fixture lost the consumer's own workflow call:\n%s", got)
+	}
+
+	other := fixturePullRequest + "  own-tests:\n    uses: someone/other/.github/workflows/test.yml@v1\n"
+	if _, _, err := RenderGitHubConsumer("pullrequest.yml", other, trialEngine, nil); !errors.Is(err, errs.ErrValidation) {
+		t.Errorf("a call of another repository's workflow: got %v, want a validation error", err)
+	}
+}
+
 // A setting replaces a value the workflow passes, keeping its indentation, and
 // reports which inputs it replaced, so the trial can refuse a setting that no
 // workflow of the fixture passes rather than silently ignore it.

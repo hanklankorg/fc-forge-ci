@@ -290,10 +290,25 @@ func (admin *workflowAdmin) bindInputs(call, declared *yaml.Node, field string) 
 		return false, fmt.Errorf("administrator wrapper inputs must be a direct mapping: %w", errs.ErrValidation)
 	}
 
+	// A caller may opt into enforcement in its own file (docs/admin-policy.md).
+	// Its literal stands only when it is the run's setting, so the run header
+	// still says what was enforced.
+	supplied := map[string]bool{}
+
 	for _, check := range enforcement.Checks {
-		if gitlabMappingValue(inputs, enforcement.Setting(check)) != nil {
-			return false, fmt.Errorf("consumer wrapper already supplies administrator input %s: %w", enforcement.Setting(check), errs.ErrValidation)
+		key := enforcement.Setting(check)
+
+		value := gitlabMappingValue(inputs, key)
+		if value == nil {
+			continue
 		}
+
+		if value.Kind != yaml.ScalarNode || value.Value != strconv.FormatBool(admin.values[key]) {
+			return false, fmt.Errorf("consumer wrapper supplies administrator input %s, which is not the run's setting %t; "+
+				"set FORGE_CI_LIVE_ADMIN_<CHECK> to match: %w", key, admin.values[key], errs.ErrValidation)
+		}
+
+		supplied[key] = true
 	}
 
 	if gitlabMappingValue(inputs, "<<") != nil {
@@ -304,7 +319,7 @@ func (admin *workflowAdmin) bindInputs(call, declared *yaml.Node, field string) 
 
 	for _, check := range enforcement.Checks {
 		key := enforcement.Setting(check)
-		if gitlabMappingValue(declared, key) == nil {
+		if gitlabMappingValue(declared, key) == nil || supplied[key] {
 			continue
 		}
 

@@ -144,6 +144,12 @@ func RenderGitHubConsumer(name, text string, engine GitHubEngine, overrides map[
 
 	prefix := engine.Owner + "/" + engine.Repository + "/.github/workflows/"
 	for _, use := range githubLeftover.FindAllStringSubmatch(rendered, -1) {
+		// A workflow of the consumer's own repository, such as its tests,
+		// is no engine.
+		if strings.HasPrefix(use[1], "./") {
+			continue
+		}
+
 		if !strings.HasPrefix(use[1], prefix) || !strings.HasSuffix(use[1], "@"+engine.Commit) {
 			return "", nil, fmt.Errorf("%s still calls %s after rendering, which is not the engine under test at its commit: %w", name, use[1], errs.ErrValidation)
 		}

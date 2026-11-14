@@ -650,7 +650,8 @@ there reads it, and the run header would claim a check that never ran.
 
 The harness supplies literals only in the wrappers and independent GitLab policy
 projects it owns. Consumer source checkouts and repository variables receive no
-enforcement settings. GitLab MR gates are snapshotted into a separately pinned
+enforcement settings. A consumer workflow that sets one itself is run as written
+when the literal is the run's setting, and refused otherwise. GitLab MR gates are snapshotted into a separately pinned
 policy project, including the MR gate used by a release trial. Development trials
 preserve their root push workflow and jobs in that policy project, with its local
 gate include bound to the captured administrator gate. Forgejo and GitHub wrappers
