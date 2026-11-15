@@ -301,7 +301,10 @@ Release SBOMs have two delivery paths:
   GitHub `<name>` is the repository's and each platform has an SPDX and a
   CycloneDX SBOM, with no index SBOM; on Forgejo and GitLab `<name>` is the
   image's flavor or role, each platform has a CycloneDX inventory and the
-  index SBOM names them. No image SBOM is a release file of its own.
+  index SBOM names them. An image a consumer's own Forgejo job builds for
+  one platform has the platform's CycloneDX SBOM under the same name, with
+  no index SBOM. No other name is admitted, `image-sbom-<id>.cyclonedx.json`
+  included, and no image SBOM is a release file of its own.
 - Each per-architecture container digest also receives its CycloneDX
   document as a signed cosign attestation, and on Forgejo and GitLab the
   image index receives the index SBOM. This path is registry- and
@@ -319,8 +322,9 @@ the order is the same on every forge: the image SBOMs join the bundle, then
 written from the checksums, then every file is signed. On Forgejo and
 GitLab a trusted step adds the image SBOMs, the signing job on Forgejo and
 `Images: publish` on GitLab: it admits each against the checksum the release
-image ledger pins, and refuses a hand-off that already has a signature or a
-provenance statement. A release image whose SBOM the ledger does not pin is
+image ledger pins, under the name of that image, the release's version and
+the one commit all the release's image SBOMs carry, and refuses a hand-off
+that already has a signature or a provenance statement. A release image whose SBOM the ledger does not pin is
 refused there and again by the image signer, which makes no SBOM for it: the
 bundle holds every released image's SBOM. A base image is a build input, not
 part of the release, so its SBOM is attested on the image only.

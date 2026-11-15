@@ -9,6 +9,8 @@ package forgejobehavior
 import (
 	"crypto/sha256"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -21,19 +23,22 @@ func recordReleaseImageInputs() []string {
 	return []string{
 		"INPUT_ROLE", "INPUT_IMAGE", "INPUT_DIGEST", "INPUT_TAG", "INPUT_RELEASE_TAG", "INPUT_SBOM",
 		"INPUT_CANDIDATE_TAG", "INPUT_CANDIDATE", "INPUT_MOVING_TAG", "INPUT_FLAVOR", "INPUT_BASE_REF",
-		"INPUT_BASE_INPUT_ID", "INPUT_LEDGER",
+		"INPUT_BASE_INPUT_ID", "INPUT_LEDGER", "INPUT_PLATFORM",
 	}
 }
 
 // The record step forwards every input to its own engine flag (distinct values
-// catch a swapped pair), pins the SBOM file it records, turns the candidate
-// switch into LEDGER_DERIVE_CANDIDATE_TAG, and refuses an empty required
-// input or a missing SBOM before the engine starts. Ledger semantics are covered by the external black-box
+// catch a swapped pair), pins the SBOM file it records, defaults it to the
+// engine's single-platform image SBOM name, turns the candidate switch into
+// LEDGER_DERIVE_CANDIDATE_TAG, and refuses an empty required input or a
+// missing SBOM before the engine starts. Ledger semantics are covered by the external black-box
 // suite.
 func TestRecordReleaseImage(t *testing.T) {
 	t.Parallel()
 
 	const sbomBody = `{"bomFormat":"CycloneDX"}`
+
+	const defaultSBOM = "dist/role-v-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"
 
 	sbomPin := fmt.Sprintf("%x", sha256.Sum256([]byte(sbomBody)))
 	script := actionStep(t, "record-release-image", "") // the only step has no id
@@ -42,9 +47,10 @@ func TestRecordReleaseImage(t *testing.T) {
 		t.Helper()
 		box := newSandbox(t, "record-release-image")
 		box.write("sbom-v", sbomBody, 0o600)
-		box.write("dist/image-sbom-role-v.cyclonedx.json", sbomBody, 0o600)
+		box.write(defaultSBOM, sbomBody, 0o600)
+		box.write("bin/git", "#!/bin/sh\nset -eu\ntest \"$*\" = 'rev-parse --short=7 HEAD'\necho abcdef0\n", 0o700)
 
-		env := installRecordingFakes(box)
+		env := append(installRecordingFakes(box), "PATH="+filepath.Join(box.root, "bin")+":"+os.Getenv("PATH"))
 		for _, name := range recordReleaseImageInputs() {
 			env = append(env, name+"=")
 		}
@@ -71,12 +77,12 @@ func TestRecordReleaseImage(t *testing.T) {
 				"--moving-tag-name", "moving-tag-v", "--base-ref", "base-ref-v", "--base-input-id", "base-input-id-v"},
 		},
 		{
-			"keeps the default ledger, a false switch and empty optional values",
-			required,
+			"keeps the default ledger and SBOM name, a false switch and empty optional values",
+			append(slices.Clone(required), "INPUT_RELEASE_TAG=v1.2.3"),
 			"false",
 			[]string{"container", "ledger", "add", "--ledger", "dist/release-images.json", "--role", "role-v",
 				"--image-name", "image-v", "--digest", "digest-v", "--final-tag-name", "tag-v",
-				"--sbom", "dist/image-sbom-role-v.cyclonedx.json", "--sbom-sha256", sbomPin, "--tag", "", "--flavor", "", "--candidate-tag-name", "", "--moving-tag-name", "",
+				"--sbom", defaultSBOM, "--sbom-sha256", sbomPin, "--tag", "v1.2.3", "--flavor", "", "--candidate-tag-name", "", "--moving-tag-name", "",
 				"--base-ref", "", "--base-input-id", ""},
 		},
 	} {
@@ -99,6 +105,15 @@ func TestRecordReleaseImage(t *testing.T) {
 
 		s, got := run(t, append(slices.Clone(required), "INPUT_SBOM=dist/absent.cyclonedx.json")...)
 		if got.status == 0 || s.argv() != nil || !strings.Contains(got.stderr, "no SBOM at dist/absent.cyclonedx.json") {
+			t.Fatalf("status %d argv %q stderr %q", got.status, s.argv(), got.stderr)
+		}
+	})
+
+	t.Run("refuses the default SBOM name without a release tag", func(t *testing.T) {
+		t.Parallel()
+
+		s, got := run(t, required...)
+		if got.status == 0 || s.argv() != nil || !strings.Contains(got.stderr, "release-tag is required") {
 			t.Fatalf("status %d argv %q stderr %q", got.status, s.argv(), got.stderr)
 		}
 	})

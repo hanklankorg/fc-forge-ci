@@ -128,7 +128,10 @@ and must not overwrite authentication or staged image inputs. The shared
 
 For evidence produced separately, use the offline command below.
 
-Keep each native CycloneDX document unchanged. Supply a version-2 manifest such
+Keep each native CycloneDX document unchanged. For a release, name the files
+as image SBOMs are named on every forge, here for image `widget` of release
+`v1.2.3` at commit `abcdef0`: the SBOM bundle admits no other name. Supply a
+version-2 manifest such
 as `platform-sboms.json` alongside the verified `index.json` and native BOMs in
 the release evidence directory:
 
@@ -139,14 +142,14 @@ the release evidence directory:
     {
       "platform": "linux/amd64",
       "image_ref": "registry.example/example-org/widget@sha256:<amd64 digest>",
-      "file": "sbom-amd64.json",
-      "sha256": "<producer checksum of sbom-amd64.json>"
+      "file": "widget-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json",
+      "sha256": "<producer checksum of widget-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json>"
     },
     {
       "platform": "linux/arm64",
       "image_ref": "registry.example/example-org/widget@sha256:<arm64 digest>",
-      "file": "sbom-arm64.json",
-      "sha256": "<producer checksum of sbom-arm64.json>"
+      "file": "widget-1.2.3-abcdef0-analyzed-container-linux-arm64-sbom.cyclonedx.json",
+      "sha256": "<producer checksum of widget-1.2.3-abcdef0-analyzed-container-linux-arm64-sbom.cyclonedx.json>"
     }
   ]
 }
@@ -158,7 +161,7 @@ forge-ci sbom index \
   --root /workspace/dist \
   --index-file index.json \
   --platform-sboms platform-sboms.json \
-  --output /workspace/dist/image-sbom-widget.cyclonedx.json
+  --output /workspace/dist/widget-1.2.3-abcdef0-analyzed-container-index-sbom.cyclonedx.json
 ```
 
 This is an offline operation. All inputs are regular files under `--root`;

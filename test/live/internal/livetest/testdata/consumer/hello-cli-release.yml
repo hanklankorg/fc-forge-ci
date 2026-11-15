@@ -120,11 +120,13 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.release-tag }}
         run: |
           set -euo pipefail
-          forge-ci sbom assemble \
+          # --repository names the SBOM by the image's role, as the signer
+          # and the SBOM bundle require.
+          forge-ci sbom assemble --repository distroless \
             --image-name "${IMAGE_REPOSITORY}" --image-digest "${IMAGE_DIGEST}" \
             --platform linux/amd64 --ref-name "${RELEASE_TAG}"
-          mv -- *-analyzed-container-linux-amd64-sbom.cyclonedx.json dist/image-sbom-distroless.cyclonedx.json
-          rm -- *-analyzed-container-linux-amd64-sbom.spdx.json
+          mv -- distroless-*-analyzed-container-linux-amd64-sbom.cyclonedx.json dist/
+          rm -- distroless-*-analyzed-container-linux-amd64-sbom.spdx.json
 
       - name: Record the image for the signer
         uses: https://forge.example/examplescope/forge-ci/.forgejo/actions/record-release-image@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
@@ -134,7 +136,8 @@ jobs:
           digest: ${{ steps.image.outputs.digest }}
           tag: ${{ needs.prepare.outputs.release-tag }}
           release-tag: ${{ needs.prepare.outputs.release-tag }}
-          sbom: dist/image-sbom-distroless.cyclonedx.json
+          # The default sbom is the name the step above wrote.
+          platform: linux/amd64
 
       - name: Declare the release files
         run: |

@@ -107,13 +107,14 @@ func bundleMembers(t *testing.T, path string) map[string]string {
 func fromLedger() apprelease.WriteReleaseFileManifestInput {
 	return apprelease.WriteReleaseFileManifestInput{
 		Unsigned:         true,
-		ReleaseImages:    apprelease.ImageSBOMs{Ledger: "dist/release-images.json", FromLedger: true},
+		ReleaseImages:    apprelease.ImageSBOMs{Ledger: "dist/release-images.json", FromLedger: true, ReleaseTag: "v1.2.3"},
 		SBOMBundleNaming: testSBOMBundleNaming,
 	}
 }
 
 // A ledger a consumer's jobs handed over is bundled by its own pins: each
-// pinned SBOM in dist and the inventories an index SBOM names. A base image
+// pinned SBOM in dist, under the name the engine gives an index or a single
+// platform's SBOM, and the inventories an index SBOM names. A base image
 // is a build input whose SBOM is outside dist: it is not bundled and does not
 // stop the release.
 func TestHandoffLedgerImageSBOMsJoinTheSBOMBundle(t *testing.T) {
@@ -124,7 +125,7 @@ func TestHandoffLedgerImageSBOMsJoinTheSBOMBundle(t *testing.T) {
 			indexed := writeIndexSBOM(t, "app")
 			digest := "sha256:" + strings.Repeat("a", 64)
 
-			single := imageledger.Entry{Role: "tool", Ref: "registry.example/org/tool@" + digest, Digest: digest, FinalTag: "registry.example/org/tool:v1.2.3", SBOM: "dist/image-sbom-tool.cyclonedx.json"}
+			single := imageledger.Entry{Role: "tool", Ref: "registry.example/org/tool@" + digest, Digest: digest, FinalTag: "registry.example/org/tool:v1.2.3", SBOM: "dist/tool-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"}
 			writeReleaseFilesTestFile(t, single.SBOM, `{"bomFormat":"CycloneDX","specVersion":"1.6","components":[{"type":"library","name":"tool"}]}`)
 			single.SBOMSHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte(readFile(t, single.SBOM))))
 
@@ -141,7 +142,7 @@ func TestHandoffLedgerImageSBOMsJoinTheSBOMBundle(t *testing.T) {
 			require.Empty(t, after.Evidence)
 
 			want := map[string]string{}
-			for _, name := range []string{"app-1.2.3-abcdef0-analyzed-container-index-sbom.cyclonedx.json", "app-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json", "app-1.2.3-abcdef0-analyzed-container-linux-arm64-sbom.cyclonedx.json", "image-sbom-tool.cyclonedx.json"} {
+			for _, name := range []string{"app-1.2.3-abcdef0-analyzed-container-index-sbom.cyclonedx.json", "app-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json", "app-1.2.3-abcdef0-analyzed-container-linux-arm64-sbom.cyclonedx.json", "tool-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"} {
 				want[name] = readFile(t, "dist/"+name)
 			}
 
@@ -180,12 +181,17 @@ func TestHandoffLedgerImageSBOMsJoinTheSBOMBundle(t *testing.T) {
 // Every admitted file is held to the checksum the ledger or the index SBOM
 // records, and a refused hand-off keeps its bundle, checksums and manifest.
 func TestHandoffLedgerImageSBOMRefusalsLeaveTheHandoffUnchanged(t *testing.T) {
-	for _, defect := range []string{"changed index", "missing index", "changed inventory", "missing inventory", "index of another image", "shared SBOM file", "named and from ledger", "without a ledger", "image SBOM as evidence", "bundle not the checksummed one", "no name for a new bundle", "pinned outside dist", "release image without a pin"} {
+	for _, defect := range []string{"changed index", "missing index", "changed inventory", "missing inventory", "index of another image", "shared SBOM file", "named and from ledger", "without a ledger", "image SBOM as evidence", "bundle not the checksummed one", "no name for a new bundle", "pinned outside dist", "release image without a pin", "legacy name", "legacy single-platform name", "another name", "another version", "another commit", "index under a platform name"} {
 		t.Run(defect, func(t *testing.T) {
 			declareHandoff(t, defect != "no name for a new bundle")
 
 			first, second := writeIndexSBOM(t, "app"), writeIndexSBOM(t, "worker")
 			in := fromLedger()
+			// rename moves the second image's index SBOM, pin and all.
+			rename := func(name string) {
+				writeReleaseFilesTestFile(t, "dist/"+name, readFile(t, second.SBOM))
+				second.SBOM = "dist/" + name
+			}
 
 			switch defect {
 			case "changed index":
@@ -197,7 +203,7 @@ func TestHandoffLedgerImageSBOMRefusalsLeaveTheHandoffUnchanged(t *testing.T) {
 			case "missing inventory":
 				require.NoError(t, os.Remove("dist/worker-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"))
 			case "index of another image":
-				second.SBOM, second.SBOMSHA256 = "dist/image-sbom-other.cyclonedx.json", first.SBOMSHA256
+				second.SBOMSHA256 = first.SBOMSHA256
 				writeReleaseFilesTestFile(t, second.SBOM, readFile(t, first.SBOM))
 			case "shared SBOM file":
 				second.SBOM, second.SBOMSHA256 = first.SBOM, first.SBOMSHA256
@@ -219,11 +225,25 @@ func TestHandoffLedgerImageSBOMRefusalsLeaveTheHandoffUnchanged(t *testing.T) {
 				in.SBOMBundleNaming = apprelease.SBOMBundleNaming{}
 			case "pinned outside dist":
 				// Attested but never published: the bundle must hold it.
-				second.SBOM = "evidence/image-sbom-worker.cyclonedx.json"
+				second.SBOM = "evidence/worker-1.2.3-abcdef0-analyzed-container-index-sbom.cyclonedx.json"
 				writeReleaseFilesTestFile(t, second.SBOM, readFile(t, "dist/worker-1.2.3-abcdef0-analyzed-container-index-sbom.cyclonedx.json"))
 			case "release image without a pin":
 				// Its SBOM would be made at signing, after the bundle is final.
 				second.SBOMSHA256 = ""
+			case "legacy name":
+				rename("image-sbom-worker.cyclonedx.json")
+			case "legacy single-platform name":
+				second.SBOM = "dist/image-sbom-worker.cyclonedx.json"
+				writeReleaseFilesTestFile(t, second.SBOM, `{"bomFormat":"CycloneDX","specVersion":"1.6"}`)
+				second.SBOMSHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte(readFile(t, second.SBOM))))
+			case "another name":
+				rename("other-1.2.3-abcdef0-analyzed-container-index-sbom.cyclonedx.json")
+			case "another version":
+				rename("worker-1.2.4-abcdef0-analyzed-container-index-sbom.cyclonedx.json")
+			case "another commit":
+				rename("worker-1.2.3-1234567-analyzed-container-index-sbom.cyclonedx.json")
+			case "index under a platform name":
+				rename("worker-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json")
 			}
 
 			writeImageLedger(t, first, second)
@@ -240,8 +260,13 @@ func TestHandoffLedgerImageSBOMRefusalsLeaveTheHandoffUnchanged(t *testing.T) {
 				require.Equal(t, body, readFile(t, path), path)
 			}
 
-			if defect == "release image without a pin" {
+			switch defect {
+			case "release image without a pin":
 				require.ErrorContains(t, err, "no pinned SBOM")
+			case "legacy name", "legacy single-platform name", "another name", "another version", "another commit":
+				require.ErrorContains(t, err, "is not named worker-1.2.3-<sha>-analyzed-container-")
+			case "index under a platform name":
+				require.ErrorContains(t, err, "an index SBOM only under an index name")
 			}
 
 			if defect == "no name for a new bundle" {

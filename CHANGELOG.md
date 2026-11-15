@@ -388,6 +388,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   GoReleaser writes stay in the SBOM bundle. The example
   `examples/go-cli/.goreleaser.yml` is updated. See
   `docs/forgejo.md#unsigned-goreleaser-handoff`.
+- **BREAKING**: A ledger a consumer's Forgejo jobs hand over names its image
+  SBOMs as image SBOMs are named on every forge, with the image's flavor or
+  role, the release version and the release commit:
+  `<name>-<version>-<short-sha>-analyzed-container-<os>-<arch>-sbom.cyclonedx.json`
+  for a single-platform image and
+  `<name>-<version>-<short-sha>-analyzed-container-index-sbom.cyclonedx.json`
+  for an index. The image signer's default `--sbom-path-pattern` and the SBOM
+  bundle admit these names only, all with one commit, and refuse
+  `image-sbom-<id>.cyclonedx.json`. A consumer that passes that name to
+  `record-release-image` writes the SBOM with `forge-ci sbom assemble
+  --repository <flavor|role> --platform <os/arch>` into `dist/` instead. The
+  action's `sbom` input defaults to that name, for its new `platform` input
+  (default `linux/amd64`) and the checked-out commit, and needs
+  `release-tag` for it.
 - Three GitLab jobs are named for their stage, as the jobs of the other
   forges are: `Release: plan` is `Check: release plan`, `Snapshot: plan` is
   `Check: snapshot plan` and `Snapshot: execute` is `Build: snapshot`. A
@@ -459,9 +473,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and GitLab the names replace `image-sbom-<id>.cyclonedx.json` and
   `sbom-<id>-<arch>.json`, and the ledger pins the index SBOM under its new
   name. `release files manifest --image-sbom` takes the release from
-  `--version` and admits only these names, all with one commit. A
-  consumer ledger's default `dist/image-sbom-<id>.cyclonedx.json` is
-  unchanged.
+  `--version` and admits only these names, all with one commit.
 
 - A lint-runner check that could not complete now follows the enforcement of
   the gate it belongs to. With `enforce-lint` or `enforce-vulnerabilities` on,

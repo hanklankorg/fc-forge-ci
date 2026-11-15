@@ -701,14 +701,19 @@ one runner, so it avoids emulation only when the target stages copy files and
 any `RUN` is in a `FROM --platform=$BUILDPLATFORM` stage. For native builds
 per architecture use `release-images.yml`; see [Release images](#release-images).
 
-Before `record-release-image`, write the image's CycloneDX SBOM where its
-`sbom` input points; `forge-ci sbom assemble` in container mode scans the
-pushed digest. The SBOM goes into the release's SBOM bundle:
+Before `record-release-image`, write the image's CycloneDX SBOM into
+`dist/`; `forge-ci sbom assemble` in container mode scans the pushed digest.
+The SBOM goes into the release's SBOM bundle under the name image SBOMs have
+on every forge, with the image's flavor or role, which `--repository` gives
+the command, the release version and the release commit:
+`<role>-<version>-<sha>-analyzed-container-<os>-<arch>-sbom.cyclonedx.json`.
+That name, for the action's `platform` input (default `linux/amd64`), is the
+default of its `sbom` input:
 
 ```bash
-forge-ci sbom assemble --image-name "${IMAGE_REPOSITORY}" \
+forge-ci sbom assemble --repository app --image-name "${IMAGE_REPOSITORY}" \
   --image-digest "${IMAGE_DIGEST}" --platform linux/amd64 --ref-name "${RELEASE_TAG}"
-mv -- *-analyzed-container-linux-amd64-sbom.cyclonedx.json dist/image-sbom-app.cyclonedx.json
+mv -- app-*-analyzed-container-linux-amd64-sbom.cyclonedx.json dist/
 ```
 
 ### Unsigned GoReleaser handoff
@@ -762,7 +767,8 @@ ledger pins into the release's SBOM bundle, `<project>-<version>-sboms.tar.gz`,
 beside the build's SBOMs, and has `checksums.sha256` list that bundle. It
 takes an index SBOM and the platform inventories it names from `dist/`, each
 held to the checksum the ledger or the index SBOM records; a file that
-differs, or a pinned SBOM outside `dist/`, stops the job. No image SBOM is a
+differs, a pinned SBOM outside `dist/`, or one not named for its image, the
+release version and the release commit, stops the job. No image SBOM is a
 release file of its own. A release image whose SBOM the ledger does not pin
 stops the job: an SBOM made at signing would be attested but not published.
 `record-release-image` therefore takes the SBOM file the image job wrote and

@@ -89,7 +89,7 @@ func releaseImagesSignCmd() *cli.Command {
 				&cli.StringFlag{Name: flagProvenanceEnvelope, Sources: cli.EnvVars("SLSA_PROVENANCE_ENVELOPE"), Usage: "in-toto statement JSON; defaults to <dist-dir>/" + apprelease.ProvenanceStatementName},
 				&cli.BoolFlag{Name: flagRecursive, Sources: cli.EnvVars("LEDGER_SIGN_RECURSIVE"), Usage: "pass --recursive to cosign sign for manifest-list children"},
 				&cli.StringFlag{Name: flagExpectedBaseRepository, Sources: cli.EnvVars("LEDGER_SIGN_EXPECTED_BASE_REPOSITORY"), Usage: "exact base image repository allowed for ledger base_ref values (default: <expected-image-repository>-base)"},
-				&cli.StringFlag{Name: flagSBOMPathPattern, Sources: cli.EnvVars("LEDGER_SIGN_SBOM_PATH_PATTERN"), Usage: "regular expression every ledger SBOM path must match (default: <dist-dir>/image-sbom*.cyclonedx.json or <dist-dir>/<name>-<version>-<sha>-analyzed-container-index-sbom.cyclonedx.json)"},
+				&cli.StringFlag{Name: flagSBOMPathPattern, Sources: cli.EnvVars("LEDGER_SIGN_SBOM_PATH_PATTERN"), Usage: "regular expression every ledger SBOM path must match (default: <dist-dir>/<name>-<version>-<sha>-analyzed-container-<index|os-arch>-sbom.cyclonedx.json)"},
 			),
 			signflags.Cosign(signflags.CosignOpts{MethodNote: cosignMethodNoteGPG})...,
 		),
@@ -657,10 +657,11 @@ func requireReleaseStage(stage string) error {
 	return nil
 }
 
-// defaultReleaseImageSBOMPattern admits, directly in root, the index SBOM the
-// engine writes for a release image it publishes or an SBOM a consumer's jobs
-// recorded under the ledger's default name.
+// defaultReleaseImageSBOMPattern admits, directly in root, an image SBOM
+// under the name the engine gives it on every forge: an index SBOM's or a
+// single platform's. The SBOM bundle admission holds the name to the image
+// and the release.
 func defaultReleaseImageSBOMPattern(root string) string {
 	return "^" + regexp.QuoteMeta(root) +
-		`/(image-sbom[-A-Za-z0-9_.]*|[A-Za-z0-9_.-]+-[0-9a-f]{7}-analyzed-container-index-sbom)[.]cyclonedx[.]json$`
+		`/[A-Za-z0-9_.-]+-[0-9a-f]{7}-analyzed-container-(index|[a-z0-9]+-[a-z0-9]+)-sbom[.]cyclonedx[.]json$`
 }

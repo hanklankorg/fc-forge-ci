@@ -2445,7 +2445,7 @@ sign and attest release images from the confined release-image ledger
 | `--provenance-envelope` | in-toto statement JSON; defaults to <dist-dir>/slsa-provenance.intoto.json | string | `""` | `$SLSA_PROVENANCE_ENVELOPE` |
 | `--recursive` | pass --recursive to cosign sign for manifest-list children | bool | `false` | `$LEDGER_SIGN_RECURSIVE` |
 | `--expected-base-repository` | exact base image repository allowed for ledger base_ref values (default: <expected-image-repository>-base) | string | `""` | `$LEDGER_SIGN_EXPECTED_BASE_REPOSITORY` |
-| `--sbom-path-pattern` | regular expression every ledger SBOM path must match (default: <dist-dir>/image-sbom*.cyclonedx.json or <dist-dir>/<name>-<version>-<sha>-analyzed-container-index-sbom.cyclonedx.json) | string | `""` | `$LEDGER_SIGN_SBOM_PATH_PATTERN` |
+| `--sbom-path-pattern` | regular expression every ledger SBOM path must match (default: <dist-dir>/<name>-<version>-<sha>-analyzed-container-<index\|os-arch>-sbom.cyclonedx.json) | string | `""` | `$LEDGER_SIGN_SBOM_PATH_PATTERN` |
 | `--method` | signing backend: sigstore (keyless cosign + OIDC) or kms (cosign + --key). gpg is rejected — it cannot sign OCI images. | string | `""` | `$SIGN_METHOD` |
 | `--key` | cosign --key for --method=kms: KMS/PKCS#11 URI (awskms://, gcpkms://, hashivault://, azurekms://, pkcs11:), env://VAR, or file path. Forbidden for --method=sigstore. | string | `""` | `$SIGN_KEY` |
 | `--oidc-issuer` | OIDC issuer URL for --method=sigstore (default: cosign auto-detect). Forbidden for --method=kms. | string | `""` | `$SIGN_OIDC_ISSUER` |

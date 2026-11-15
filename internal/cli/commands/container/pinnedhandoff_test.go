@@ -24,7 +24,7 @@ func TestReleaseImagesSignCanonicalHandoffRelocatedRoot(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "payload")
 	require.NoError(t, os.MkdirAll(filepath.Join(source, "dist"), 0o700))
 
-	sbomPath := "dist/image-sbom-native.cyclonedx.json"
+	sbomPath := "dist/native-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"
 	sbom := []byte("{\n\"bomFormat\":\"CycloneDX\",\"serialNumber\":\"producer-pinned\"\n}\n")
 	require.NoError(t, os.WriteFile(filepath.Join(source, sbomPath), sbom, 0o600))
 
@@ -54,7 +54,7 @@ func TestReleaseImagesSignCanonicalHandoffRelocatedRoot(t *testing.T) {
 
 			switch scenario {
 			case "explicit override":
-				args = append(args, "--sbom-path-pattern", `^dist/image-sbom-native[.]cyclonedx[.]json$`)
+				args = append(args, "--sbom-path-pattern", `^dist/native-1[.]2[.]3-abcdef0-analyzed-container-linux-amd64-sbom[.]cyclonedx[.]json$`)
 			case "refused override":
 				args = append(args, "--sbom-path-pattern", `^never$`)
 			}
@@ -79,10 +79,10 @@ func TestReleaseImagesSignCanonicalHandoffRelocatedRoot(t *testing.T) {
 
 	require.NoError(t, apprelease.VerifyCanonicalPayload(verified, handoffDigest))
 
-	// Without evidence-root the legacy pattern must still follow dist-dir.
+	// Without evidence-root the default pattern must still follow dist-dir.
 	legacyDir := "custom-dist"
 	require.NoError(t, os.Mkdir(legacyDir, 0o700))
-	legacySBOM := legacyDir + "/image-sbom-native.cyclonedx.json"
+	legacySBOM := legacyDir + "/" + filepath.Base(sbomPath)
 
 	var entries []imageledger.Entry
 

@@ -4,17 +4,20 @@
 package release
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
 	"github.com/diggsweden/forge-ci/internal/domain/sbom"
+	"github.com/diggsweden/forge-ci/internal/domain/version"
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
 )
 
@@ -74,7 +77,7 @@ func admitReleaseImageSBOMs(ctx releaseFilesCtx, in ImageSBOMs) ([]string, error
 
 	collect := collectReleaseImageEvidence(in.ReleaseTag)
 	if in.FromLedger {
-		collect = collectHandoffImageSBOMs(ctx)
+		collect = collectHandoffImageSBOMs(ctx, in.ReleaseTag)
 	}
 
 	want := map[string]bool{}
@@ -135,7 +138,7 @@ func collectReleaseImageEvidence(releaseTag string) func(*os.Root, imageledger.E
 
 	return func(root *os.Root, entry imageledger.Entry, want map[string]bool) error {
 		if commit == "" {
-			commit = imageSBOMCommit(entry.SBOM)
+			commit = imageSBOMCommit(entry, releaseTag)
 		}
 
 		canonical := imageledger.ReleaseImageSBOMPath(entry.Flavor, entry.Role, releaseTag, commit)
@@ -180,25 +183,62 @@ func collectReleaseImageEvidence(releaseTag string) func(*os.Root, imageledger.E
 	}
 }
 
-// imageSBOMCommit is the commit segment of an index SBOM path the engine
-// names, <name>-<version>-<commit>-analyzed-container-index-sbom.cyclonedx.json.
-// Whether it is a commit at all is for the caller's canonical name to decide.
-func imageSBOMCommit(path string) string {
-	stem, _ := strings.CutSuffix(path, "-"+string(sbom.LayerAnalyzedContainer)+"-"+sbom.ImageSBOMIndexSlot+"-sbom.cyclonedx.json")
+// imageSBOMCommit is the commit segment of the name the engine gives an
+// image's SBOM, <name>-<version>-<commit>-analyzed-container-<slot>-sbom.cyclonedx.json,
+// the name being the entry's flavor or else its role. Whether it is a commit
+// at all is for the caller's canonical name to decide.
+func imageSBOMCommit(entry imageledger.Entry, releaseTag string) string {
+	prefix := cmp.Or(entry.Flavor, entry.Role) + "-" + version.StripVPrefix(releaseTag) + "-"
+	rest, _ := strings.CutPrefix(filepath.Base(entry.SBOM), prefix)
+	commit, _, _ := strings.Cut(rest, "-")
 
-	return stem[strings.LastIndex(stem, "-")+1:]
+	return commit
+}
+
+// platformSBOMSlot is the platform of a single-platform image SBOM name in
+// the slot form os-arch, as linux/amd64 is named linux-amd64.
+var platformSBOMSlot = regexp.MustCompile(`^[a-z0-9]+-[a-z0-9]+$`)
+
+// imageSBOMSlot is the slot a name the engine gives one of the entry's SBOMs
+// carries, index or a platform, or empty when the name is not one of them:
+// another name, version or commit, or another layout.
+func imageSBOMSlot(entry imageledger.Entry, releaseTag, commit, name string) string {
+	index := imageledger.ReleaseImageSBOMFilename(entry.Flavor, entry.Role, releaseTag, commit, sbom.ImageSBOMIndexSlot)
+	if index == "" {
+		return ""
+	}
+
+	if name == index {
+		return sbom.ImageSBOMIndexSlot
+	}
+
+	prefix, _ := strings.CutSuffix(index, sbom.ImageSBOMIndexSlot+"-sbom.cyclonedx.json")
+	slot, _ := strings.CutPrefix(name, prefix)
+	slot, _ = strings.CutSuffix(slot, "-sbom.cyclonedx.json")
+
+	platform := strings.Replace(slot, "-", "/", 1)
+	if !platformSBOMSlot.MatchString(slot) || imageledger.ReleaseImageSBOMFilename(entry.Flavor, entry.Role, releaseTag, commit, platform) != name {
+		return ""
+	}
+
+	return platform
 }
 
 // collectHandoffImageSBOMs admits the image SBOMs of a ledger that a
 // consumer's jobs handed over. An entry has an SBOM to bundle when the ledger
 // pins it and it is a file directly in the dist directory: the pin is what
-// binds the file to the entry. An index SBOM brings the inventories it names,
-// each bound by the checksum the index SBOM records. A base image is a build
-// input, not a released thing: its premade SBOM is outside the dist directory
-// and stays an attestation only. A release image without a pin, or with a
-// pinned SBOM outside the dist directory, is refused: its SBOM would be
-// attested but never published.
-func collectHandoffImageSBOMs(ctx releaseFilesCtx) func(*os.Root, imageledger.Entry, map[string]bool) error {
+// binds the file to the entry. The file has the name the engine gives an
+// image's SBOM, with the entry's flavor or role, the release's version and
+// the release commit, which every image's names must share: an index SBOM's
+// or a single platform's. An index SBOM brings the platform inventories it
+// names, each under that image's name and bound by the checksum the index
+// SBOM records. A base image is a build input, not a released thing: its
+// premade SBOM is outside the dist directory and stays an attestation only.
+// A release image without a pin, or with a pinned SBOM outside the dist
+// directory, is refused: its SBOM would be attested but never published.
+func collectHandoffImageSBOMs(ctx releaseFilesCtx, releaseTag string) func(*os.Root, imageledger.Entry, map[string]bool) error {
+	var commit string
+
 	return func(root *os.Root, entry imageledger.Entry, want map[string]bool) error {
 		if entry.ImageKind == imageledger.ImageKindBase {
 			return nil
@@ -211,6 +251,16 @@ func collectHandoffImageSBOMs(ctx releaseFilesCtx) func(*os.Root, imageledger.En
 		name := filepath.Base(entry.SBOM)
 		if filepath.Clean(entry.SBOM) != filepath.Join(ctx.distDir, name) {
 			return fmt.Errorf("pinned image SBOM %s is not in %s, so the SBOM bundle cannot hold it: %w", entry.SBOM, ctx.distDir, errs.ErrValidation)
+		}
+
+		if commit == "" {
+			commit = imageSBOMCommit(entry, releaseTag)
+		}
+
+		slot := imageSBOMSlot(entry, releaseTag, commit, name)
+		if slot == "" {
+			return fmt.Errorf("image SBOM %s is not named %s-%s-<sha>-analyzed-container-<index|os-arch>-sbom.cyclonedx.json with the release commit: %w",
+				name, cmp.Or(entry.Flavor, entry.Role), version.StripVPrefix(releaseTag), errs.ErrValidation)
 		}
 
 		body, err := root.ReadFile(name)
@@ -228,11 +278,24 @@ func collectHandoffImageSBOMs(ctx releaseFilesCtx) func(*os.Root, imageledger.En
 
 		want[name] = true
 
-		if _, _, index, err := sbom.IndexBOMInventories(body); err != nil || !index {
+		_, _, index, err := sbom.IndexBOMInventories(body)
+		if err != nil {
 			return err
 		}
 
+		if index != (slot == sbom.ImageSBOMIndexSlot) {
+			return fmt.Errorf("image SBOM %s is an index SBOM only under an index name: %w", name, errs.ErrValidation)
+		}
+
+		if slot != sbom.ImageSBOMIndexSlot {
+			return nil
+		}
+
 		return sbom.ReadIndexBOMInventories(body, entry.Ref, func(name string) ([]byte, error) {
+			if platform := imageSBOMSlot(entry, releaseTag, commit, name); platform == "" || platform == sbom.ImageSBOMIndexSlot {
+				return nil, fmt.Errorf("unplanned native inventory %s: %w", name, errs.ErrValidation)
+			}
+
 			if want[name] {
 				return nil, fmt.Errorf("duplicate native inventory %s: %w", name, errs.ErrValidation)
 			}

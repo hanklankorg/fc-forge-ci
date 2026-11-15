@@ -23,9 +23,13 @@ inputs:
     required: false
     default: ''
   sbom:
-    description: Path of the image's CycloneDX SBOM, which must exist (dist/image-sbom*.cyclonedx.json). Defaults to dist/image-sbom-<flavor|role>.cyclonedx.json. It is recorded with its SHA-256 and goes into the release's SBOM bundle; the signer attests exactly that file.
+    description: "Path of the image's CycloneDX SBOM, which must exist, directly in dist/ and named as image SBOMs are on every forge: <flavor|role>-<version>-<sha>-analyzed-container-<os>-<arch>-sbom.cyclonedx.json for a single-platform image or <flavor|role>-<version>-<sha>-analyzed-container-index-sbom.cyclonedx.json for an index, the version being release-tag without its v and the sha the first seven characters of the release commit. The engine writes the single-platform name when it assembles the image SBOM in container mode with the flavor or role as its repository. Defaults to that name for platform and the checked-out commit. It is recorded with its SHA-256 and goes into the release's SBOM bundle; the signer attests exactly that file."
     required: false
     default: ''
+  platform:
+    description: Platform the default sbom name carries, os/arch.
+    required: false
+    default: linux/amd64
   candidate-tag:
     description: Optional staging tag portion (e.g. staging-v1.2.3) for promotion flows; empty for direct-push.
     required: false
@@ -67,6 +71,7 @@ runs:
         INPUT_TAG: ${{ inputs.tag }}
         INPUT_RELEASE_TAG: ${{ inputs['release-tag'] }}
         INPUT_SBOM: ${{ inputs.sbom }}
+        INPUT_PLATFORM: ${{ inputs.platform }}
         INPUT_CANDIDATE_TAG: ${{ inputs['candidate-tag'] }}
         INPUT_CANDIDATE: ${{ inputs.candidate }}
         INPUT_MOVING_TAG: ${{ inputs['moving-tag'] }}
@@ -80,7 +85,14 @@ runs:
         source "${GITHUB_ACTION_PATH}/../../../.engine/bin/lib-forge-ci.sh"
         # Every released image's SBOM is in the release's SBOM bundle, which
         # is final before the signer runs, so the ledger pins the build's file.
-        sbom=${INPUT_SBOM:-dist/image-sbom-${INPUT_FLAVOR:-${INPUT_ROLE:?role is required}}.cyclonedx.json}
+        sbom=${INPUT_SBOM:-}
+        if [ -z "${sbom}" ]; then
+          name=${INPUT_FLAVOR:-${INPUT_ROLE:?role is required}}
+          version=${INPUT_RELEASE_TAG:?release-tag is required for the default sbom name}
+          platform=${INPUT_PLATFORM:-linux/amd64}
+          sha=$(git rev-parse --short=7 HEAD)
+          sbom="dist/${name}-${version#v}-${sha:0:7}-analyzed-container-${platform//\//-}-sbom.cyclonedx.json"
+        fi
         if [ ! -f "${sbom}" ] || [ -L "${sbom}" ]; then
           echo "ERROR: no SBOM at ${sbom}: write the image's CycloneDX SBOM there before recording the image" >&2
           exit 1
