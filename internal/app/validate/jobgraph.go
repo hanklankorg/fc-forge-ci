@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/output"
@@ -135,7 +136,10 @@ func collectWorkflowFiles(entries []fs.DirEntry, workflowsDir string) []string {
 }
 
 func checkJobGraphFile(annot output.Annotator, file string, data []byte) (int, error) {
-	violations, err := validate.CheckJobGraph(data)
+	// Forgejo's late expansion of reusable calls adds a hazard of its own.
+	forgejo := slices.Contains(strings.Split(filepath.ToSlash(file), "/"), ".forgejo")
+
+	violations, err := validate.CheckJobGraph(data, forgejo)
 	if err != nil {
 		return 0, fmt.Errorf("check %s: %w: %w", file, err, errs.ErrMalformedInput)
 	}

@@ -106,7 +106,7 @@ func TestExpressionBoundary_JobOutputForms(t *testing.T) {
 
 			body := "jobs:\n  producer:\n    if: inputs.enabled\n    runs-on: ubuntu-latest\n  consumer:\n    uses: org/repo/workflow.yml@main\n" + consumer
 
-			violations, err := CheckJobGraph([]byte(body))
+			violations, err := CheckJobGraph([]byte(body), false)
 			if err != nil || len(violations) != 1 || violations[0].Line != 6 || !strings.Contains(violations[0].Msg, `reusable job "consumer"`) || !strings.Contains(violations[0].Msg, `producer "producer"`) {
 				t.Fatalf("reference=%s with=%v violations=%v err=%v", reference, with, violations, err)
 			}
@@ -124,7 +124,7 @@ func TestExpressionBoundary_JobOutputDedupAndExemptions(t *testing.T) {
 	for _, annotation := range []string{"", "# job-graph-guard: allow", "# job-graph-guard: allow reason=owned-proof"} {
 		body := "jobs:\n  producer:\n    if: inputs.enabled\n    runs-on: ubuntu-latest\n  consumer:\n    uses: org/repo/workflow.yml@main\n    " + annotation + "\n    if: always() && needs['producer'].outputs.value && needs.producer.outputs.value\n    with:\n      value: ${{ needs[\"producer\"][\"outputs\"].value }}\n  neighbor:\n    uses: org/repo/workflow.yml@main\n    if: needs['producer'].outputs.value\n"
 
-		violations, err := CheckJobGraph([]byte(body))
+		violations, err := CheckJobGraph([]byte(body), false)
 		if err != nil {
 			t.Fatal(err)
 		}

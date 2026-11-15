@@ -59,10 +59,16 @@ type JobGraphViolation struct {
 // the output <k>" that hides the real upstream failure. A producer is treated as
 // skippable when it declares an `if:` that is not exactly always()/!cancelled().
 //
+// On Forgejo (forgejo set) a reusable call's `with:` is also evaluated before
+// its `if:`, once its needs are done, and a skipped reusable producer reports
+// every output as an empty string. A `fromJSON(needs.<P>.outputs.<k>)` there
+// with no `||` fallback, on a skippable `<P>`, therefore aborts the whole run
+// whatever the consumer's `if:` says.
+//
 // A provably-safe edge is acknowledged by a `# job-graph-guard: allow reason=…`
 // comment anywhere in the consumer job's block. Pure: caller supplies the YAML
 // and owns IO/annotation.
-func CheckJobGraph(workflowYAML []byte) ([]JobGraphViolation, error) {
+func CheckJobGraph(workflowYAML []byte, forgejo bool) ([]JobGraphViolation, error) {
 	var doc struct {
 		Jobs yaml.Node `yaml:"jobs"`
 	}
@@ -110,26 +116,34 @@ func CheckJobGraph(workflowYAML []byte) ([]JobGraphViolation, error) {
 		}
 
 		refs := producersIn(shape.If, true)
-		if strings.Contains(shape.If, "always()") {
-			pending := []*yaml.Node{&shape.With}
-			seen := map[*yaml.Node]bool{}
+		always := strings.Contains(shape.If, "always()")
 
-			for len(pending) > 0 {
-				node := resolveAlias(pending[len(pending)-1])
-				pending = pending[:len(pending)-1]
+		var parsed []string
 
-				if node == nil || seen[node] {
-					continue
-				}
+		pending := []*yaml.Node{&shape.With}
+		seen := map[*yaml.Node]bool{}
 
-				seen[node] = true
-				if node.Kind == yaml.ScalarNode {
+		for len(pending) > 0 {
+			node := resolveAlias(pending[len(pending)-1])
+			pending = pending[:len(pending)-1]
+
+			if node == nil || seen[node] {
+				continue
+			}
+
+			seen[node] = true
+			if node.Kind == yaml.ScalarNode {
+				if always {
 					refs = append(refs, producersIn(node.Value, false)...)
 				}
 
-				for _, v := range slices.Backward(node.Content) {
-					pending = append(pending, v)
+				if forgejo {
+					parsed = append(parsed, unguardedFromJSONProducers(node.Value)...)
 				}
+			}
+
+			for _, v := range slices.Backward(node.Content) {
+				pending = append(pending, v)
 			}
 		}
 
@@ -146,6 +160,7 @@ func CheckJobGraph(workflowYAML []byte) ([]JobGraphViolation, error) {
 		}
 
 		violations = appendMaskingViolations(violations, name, node.Line, refs, skippable, allowed)
+		violations = appendParsedOutputViolations(violations, name, node.Line, parsed, skippable, allowed)
 	}
 
 	return violations, nil
@@ -171,6 +186,69 @@ func appendMaskingViolations(violations []JobGraphViolation, name string, line i
 	}
 
 	return violations
+}
+
+// appendParsedOutputViolations appends one violation per skippable producer
+// whose output job `name` parses with fromJSON in its `with:` (deduped),
+// unless `name` is in the allow set.
+func appendParsedOutputViolations(violations []JobGraphViolation, name string, line int, refs []string, skippable, allowed map[string]bool) []JobGraphViolation {
+	seen := map[string]bool{}
+
+	for _, prod := range refs {
+		if seen[prod] || !skippable[prod] || allowed[name] {
+			continue
+		}
+
+		seen[prod] = true
+
+		violations = append(violations, JobGraphViolation{
+			Line: line,
+			Msg: fmt.Sprintf("reusable job %q parses needs.%s.outputs with fromJSON in its with:, but producer %q is skippable (a non-always() if). Forgejo evaluates with: before if:, and a skipped reusable producer reports its outputs as empty, so fromJSON('') aborts the whole run. Give the argument a fallback, fromJSON(needs.%s.outputs.<k> || '<json>'), or annotate %q with '# job-graph-guard: allow reason=…' if provably safe.",
+				name, prod, prod, prod, name),
+		})
+	}
+
+	return violations
+}
+
+// unguardedFromJSONProducers returns the jobs whose outputs text passes to a
+// fromJSON call without a `||` fallback in that call's argument.
+func unguardedFromJSONProducers(text string) []string {
+	var out []string
+
+	lower := strings.ToLower(text)
+
+	for start := 0; ; {
+		open := strings.Index(lower[start:], "fromjson(")
+		if open < 0 {
+			return out
+		}
+
+		begin := start + open + len("fromjson(")
+		end, depth := begin, 1
+
+		for end < len(text) && depth > 0 {
+			switch text[end] {
+			case '\'', '"':
+				end = expressionStringEnd(text, end)
+
+				continue
+			case '(':
+				depth++
+			case ')':
+				depth--
+			}
+
+			end++
+		}
+
+		argument := text[begin:max(begin, end-1)]
+		if !strings.Contains(argument, "||") {
+			out = append(out, producersIn(argument, true)...)
+		}
+
+		start = begin
+	}
 }
 
 // isSkippableIf reports whether an if-expression can evaluate false (so the job

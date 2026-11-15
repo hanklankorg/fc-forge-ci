@@ -376,6 +376,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `forge-ci validate job-graph` also rejects, in a `.forgejo/` workflow, a
+  reusable call whose `with:` passes a skippable producer's output to
+  `fromJSON` with no `||` fallback. Forgejo evaluates `with:` before `if:`,
+  and a skipped reusable call reports its outputs as empty, so
+  `fromJSON('')` failed the whole run before any job of the call started,
+  and cancelled every job still running. GitHub workflows are checked as
+  before.
 - **Breaking:** a GoReleaser release has the file layout of every other
   forge-ci release. `release files import-goreleaser`, which the Forgejo
   `build-goreleaser` action and a GitLab release files job run, now writes

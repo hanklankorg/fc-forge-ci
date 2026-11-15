@@ -100,3 +100,34 @@ func TestJobGraph_ExplicitWorkflowMaskingFails(t *testing.T) {
 		t.Errorf("missing explicit workflow path in annotation:\n%s", out.String())
 	}
 }
+
+// fromJSON over a skippable reusable producer's output in with: aborts a
+// Forgejo run, which expands the call before reading its if:; GitHub does
+// not evaluate a skipped call's with:. The workflow's directory decides.
+func TestJobGraph_ParsedOutputInWithFailsOnForgejoOnly(t *testing.T) {
+	const workflow = `jobs:
+  promote:
+    if: ${{ inputs.build }}
+    uses: ./.forgejo/workflows/promote.yml
+  verify:
+    needs: [promote]
+    if: ${{ inputs.build }}
+    uses: ./.forgejo/workflows/verify.yml
+    with:
+      ref: ${{ fromJSON(needs.promote.outputs.images)[0].ref }}
+`
+
+	for path, want := range map[string]bool{".forgejo/workflows/stage.yml": true, ".github/workflows/stage.yml": false} {
+		mem := testfs.NewMemory(t)
+		mem.WriteFile(path, []byte(workflow))
+
+		var out bytes.Buffer
+
+		err := appvalidate.JobGraph(&out, output.NewAnnotator(&out, output.FormatGitHub), appvalidate.JobGraphInput{
+			Root: ".", Workflows: []string{path}, FS: mem.FS(),
+		})
+		if errors.Is(err, errs.ErrValidation) != want {
+			t.Errorf("%s: err = %v, want failure %v\n%s", path, err, want, out.String())
+		}
+	}
+}

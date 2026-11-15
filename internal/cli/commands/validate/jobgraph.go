@@ -26,6 +26,12 @@ misleading "<P> is missing the output ..." that hides the real upstream failure.
 Make such producers run unconditionally (if: always()) and always emit the
 output, or annotate the consumer with '# job-graph-guard: allow reason=...'.
 
+In a .forgejo/ workflow the check also rejects fromJSON over such an output in
+the consumer's with:, whatever its if: says. Forgejo evaluates with: before
+if:, and a skipped reusable producer reports its outputs as empty, so
+fromJSON('') aborts the run. Give the argument a fallback, for example
+fromJSON(needs.<P>.outputs.<k> || '[]').
+
 EXAMPLE:
    forge-ci validate job-graph --root .
    forge-ci validate job-graph --workflow .forgejo/workflows/release-workflow.yml`,

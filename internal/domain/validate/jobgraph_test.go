@@ -12,7 +12,13 @@ import (
 func countJobGraph(t *testing.T, body string) int {
 	t.Helper()
 
-	v, err := validate.CheckJobGraph([]byte(body))
+	return countJobGraphOn(t, body, false)
+}
+
+func countJobGraphOn(t *testing.T, body string, forgejo bool) int {
+	t.Helper()
+
+	v, err := validate.CheckJobGraph([]byte(body), forgejo)
 	if err != nil {
 		t.Fatalf("CheckJobGraph: %v", err)
 	}
@@ -168,6 +174,50 @@ func TestCheckJobGraph_WaiverBelongsToTheJobWhoseBlockHoldsIt(t *testing.T) {
 			t.Parallel()
 
 			if n := countJobGraph(t, tc.body); n != tc.want {
+				t.Errorf("violations = %d, want %d", n, tc.want)
+			}
+		})
+	}
+}
+
+// Forgejo evaluates a reusable call's with: before its if:, and a skipped
+// reusable producer reports its outputs as empty: fromJSON over one aborts
+// the run, whatever the consumer's own if: says, unless it has a fallback.
+// GitHub evaluates neither for a skipped call.
+func TestCheckJobGraph_FromJSONOfSkippableProducerInWith(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name, producerIf, expectedRef string
+		forgejo                       bool
+		want                          int
+	}{
+		{"skippable producer", "${{ needs.plan.outputs.build == 'true' }}", "${{ fromJSON(needs.promote.outputs.images)[0].ref }}", true, 1},
+		{"case-insensitive call", "${{ needs.plan.outputs.build == 'true' }}", "${{ fromjson(needs.promote.outputs.images)[0].ref }}", true, 1},
+		{"fallback", "${{ needs.plan.outputs.build == 'true' }}", "${{ fromJSON(needs.promote.outputs.images || '[{}]')[0].ref }}", true, 0},
+		{"plain read", "${{ needs.plan.outputs.build == 'true' }}", "${{ needs.promote.outputs.images }}", true, 0},
+		{"unconditional producer", "", "${{ fromJSON(needs.promote.outputs.images)[0].ref }}", true, 0},
+		{"github", "${{ needs.plan.outputs.build == 'true' }}", "${{ fromJSON(needs.promote.outputs.images)[0].ref }}", false, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			body := `jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    steps: []
+  promote:
+    needs: [plan]
+    if: "` + tc.producerIf + `"
+    uses: ./.forgejo/workflows/promote.yml
+  authenticate:
+    needs: [plan, promote]
+    if: ${{ needs.plan.outputs.build == 'true' }}
+    uses: ./.forgejo/workflows/verify.yml
+    with:
+      expected-ref: "` + tc.expectedRef + `"
+`
+			if n := countJobGraphOn(t, body, tc.forgejo); n != tc.want {
 				t.Errorf("violations = %d, want %d", n, tc.want)
 			}
 		})
