@@ -93,7 +93,7 @@ EXAMPLE:
 			&cli.StringFlag{Name: "project-type", Value: forgeMavenProject, Sources: cli.EnvVars("PROJECT_TYPE"), Usage: "ecosystem: maven, npm, or gradle (exported Maven publications)"},
 			&cli.StringFlag{Name: flagVersion, Sources: cli.EnvVars("VERSION"), Usage: "expected version for prebuilt Maven or exported Gradle publications"},
 			&cli.BoolFlag{Name: "from-build", Sources: cli.EnvVars("MAVEN_FROM_BUILD"), Usage: "publish Maven library POM/main/sources/Javadoc build bytes without rerunning the project lifecycle"},
-			&cli.StringFlag{Name: "cli-opts", Sources: cli.EnvVars("MAVEN_CLI_OPTS"), Usage: "extra args forwarded to mvn (maven only; whitespace-separated)"},
+			&cli.StringFlag{Name: "cli-opts", Sources: cli.EnvVars("MAVEN_CLI_OPTS"), Usage: "extra args forwarded to mvn (maven only; diagnostic flags and -Dproperties; whitespace-separated)"},
 			&cli.StringFlag{Name: "profile", Sources: cli.EnvVars("MAVEN_PROFILE"), Usage: "optional project-owned Maven publication profile; also used for snapshot version preflight"},
 			commonflags.WorkingDir("packed npm tarball, Maven build handoff or exported Gradle publication directory"),
 			&cli.StringFlag{Name: flagNPMTag, Sources: cli.EnvVars("NPM_TAG"), Usage: "required for npm: release-{version}, release.{version}, release-<packed-version> or release.<packed-version>; latest, next and movable channel tags are forbidden"},
@@ -152,28 +152,15 @@ func deployForgeMaven(ctx context.Context, cmd *cli.Command, dependencies *deps.
 		return deployMavenBuild(ctx, cmd, dependencies)
 	}
 
-	model := apppublish.MavenCentralDeployInput{CLIOpts: strings.Fields(cmd.String("cli-opts")), Profile: cmd.String("profile")}
-	if cmd.Bool("snapshot") {
-		if err := apppublish.ValidateMavenDeployment(ctx, mavenModelAdapter(), os.Stderr, model, true, ""); err != nil {
-			return err
-		}
-	}
-
 	resolver, err := dependencies.RequireForgeMavenRegistryResolver()
 	if err != nil {
 		return err
 	}
 
-	if err := apppublish.ForgePackagesDeploy(ctx, maven.New(), resolver, os.Stderr, os.Stderr, apppublish.ForgePackagesDeployInput{
-		CLIOpts: model.CLIOpts,
-		Profile: model.Profile,
-	}); err != nil {
-		return err
-	}
-
-	apppublish.LinkMavenProjects(ctx, mavenModelAdapter(), resolver, os.Stderr, model)
-
-	return nil
+	return apppublish.ForgeMavenDeploy(ctx, mavenModelAdapter(), maven.New(), resolver, os.Stderr, os.Stderr, apppublish.ForgePackagesDeployInput{
+		CLIOpts: strings.Fields(cmd.String("cli-opts")),
+		Profile: cmd.String("profile"),
+	}, cmd.Bool("snapshot"))
 }
 
 func deployMavenBuild(ctx context.Context, cmd *cli.Command, dependencies *deps.Deps) (result error) {

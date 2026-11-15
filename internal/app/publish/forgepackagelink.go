@@ -53,34 +53,69 @@ func linkPackages(ctx context.Context, forge any, stderr io.Writer, packageType 
 	return listed
 }
 
-// LinkMavenProjects links the Maven packages a mvn deploy of the project or
-// reactor in the working directory published, read from its effective POM
-// with the deployment's options. Maven decides which projects it deploys, so
-// a project the forge does not list was not deployed and is not linked; see
-// LinkPackages for a refused link.
-func LinkMavenProjects(ctx context.Context, ops MavenOps, forge any, stderr io.Writer, in MavenCentralDeployInput) {
-	if _, ok := forge.(provider.ForgePackageLinker); !ok {
-		return
+// ForgeMavenDeploy runs mvn deploy to the forge's registry and, on a forge
+// that keeps packages under their owner, links the projects it published.
+//
+// The projects come from one effective POM of the project or reactor in the
+// working directory, resolved before anything is published, with the
+// deploy's options and, as the deploy replaces the user's settings.xml, with
+// none of the user's settings either. Snapshot mode checks every project's
+// version from it. Maven decides which projects it deploys, so a project the
+// forge does not list was not deployed and is not linked; see LinkPackages
+// for a refused link.
+func ForgeMavenDeploy(ctx context.Context, model, deploy MavenOps, resolver provider.ForgeMavenRegistryResolver, stdout, stderr io.Writer, in ForgePackagesDeployInput, snapshot bool) error {
+	if err := validateMavenModelOptions(in.CLIOpts); err != nil {
+		return err
 	}
 
-	body, err := effectiveMavenModel(ctx, ops, stderr, in)
+	_, links := resolver.(provider.ForgePackageLinker)
 
-	var names []string
-	if err == nil {
-		names, err = domainpublish.MavenReactorCoordinates(body)
+	var projects []string
+
+	if snapshot || links {
+		body, err := forgeMavenModel(ctx, model, stderr, in)
+		if err != nil {
+			return err
+		}
+
+		if snapshot {
+			if err := domainpublish.ValidateMavenReactorVersions(body, true, ""); err != nil {
+				return err
+			}
+		}
+
+		if links {
+			if projects, err = domainpublish.MavenReactorCoordinates(body); err != nil {
+				return err
+			}
+		}
 	}
 
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "Warning: the Maven packages are published but not linked to the repository: %v\n", err)
-
-		return
+	if err := ForgePackagesDeploy(ctx, deploy, resolver, stdout, stderr, in); err != nil {
+		return err
 	}
 
 	// A deploy that succeeded published at least one project, so a forge
 	// that lists none of them names them differently and links nothing.
-	if !linkPackages(ctx, forge, stderr, "maven", true, names) {
-		_, _ = fmt.Fprintf(stderr, "Warning: the Maven packages are published but not linked to the repository: the forge lists none of %s\n", strings.Join(names, ", "))
+	if links && !linkPackages(ctx, resolver, stderr, "maven", true, projects) {
+		_, _ = fmt.Fprintf(stderr, "Warning: the Maven packages are published but not linked to the repository: the forge lists none of %s\n", strings.Join(projects, ", "))
 	}
+
+	return nil
+}
+
+// forgeMavenModel is the effective POM a forge deploy with in resolves: the
+// deploy runs with a settings file of its own, so the model runs with an
+// empty one rather than the user's.
+func forgeMavenModel(ctx context.Context, ops MavenOps, stderr io.Writer, in ForgePackagesDeployInput) ([]byte, error) {
+	settings, cleanup, err := writeTempSecretFile("forge-ci-model-settings-*.xml", "<settings/>\n")
+	if err != nil {
+		return nil, err
+	}
+
+	defer cleanup()
+
+	return effectiveMavenModel(ctx, ops, stderr, MavenCentralDeployInput{CLIOpts: in.CLIOpts, SettingsPath: settings, Profile: in.Profile})
 }
 
 // LinkMavenPublications links the Maven packages of an uploaded publication

@@ -1267,12 +1267,15 @@ runs in, so the package is listed on the repository's page and its page
 leads back to the source. This holds for an npm package, for a Maven
 library published with `from-build: 'true'`, for exported Gradle
 publications and for the plain `maven` form, each Maven package named by
-its `groupId:artifactId`. After a plain `mvn deploy` the deploy reads the
+its `groupId:artifactId`. Before a plain `mvn deploy` the deploy reads the
 reactor's projects from its effective POM, with the same `cli-opts` and
-`profile`, and links each one Forgejo lists. Maven decides which projects
-it deploys, so a project Forgejo does not list, such as one with
-`maven.deploy.skip`, was not published and is passed over without a
-warning.
+`profile` and, as the deploy brings its own `settings.xml`, without yours;
+after it, it links each one Forgejo lists. `cli-opts` therefore takes only
+diagnostic flags and `-D` properties, on every forge, so the model and the
+deploy see the same reactor. Maven decides which projects it deploys, so a
+project Forgejo does not list, such as one with `maven.deploy.skip`, was
+not published and is passed over without a warning; a deploy Forgejo lists
+none of is warned about.
 
 Forgejo links no container image on its own either. The `cleanup` job of
 `sign-and-publish-release.yml`, the first after promotion that holds the

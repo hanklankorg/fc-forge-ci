@@ -3752,7 +3752,7 @@ EXAMPLE:
 | `--project-type` | ecosystem: maven, npm, or gradle (exported Maven publications) | string | `"maven"` | `$PROJECT_TYPE` |
 | `--version` | expected version for prebuilt Maven or exported Gradle publications | string | `""` | `$VERSION` |
 | `--from-build` | publish Maven library POM/main/sources/Javadoc build bytes without rerunning the project lifecycle | bool | `false` | `$MAVEN_FROM_BUILD` |
-| `--cli-opts` | extra args forwarded to mvn (maven only; whitespace-separated) | string | `""` | `$MAVEN_CLI_OPTS` |
+| `--cli-opts` | extra args forwarded to mvn (maven only; diagnostic flags and -Dproperties; whitespace-separated) | string | `""` | `$MAVEN_CLI_OPTS` |
 | `--profile` | optional project-owned Maven publication profile; also used for snapshot version preflight | string | `""` | `$MAVEN_PROFILE` |
 | `--working-dir` | packed npm tarball, Maven build handoff or exported Gradle publication directory | string | `"."` | `$WORKING_DIRECTORY` |
 | `--npm-tag` | required for npm: release-{version}, release.{version}, release-<packed-version> or release.<packed-version>; latest, next and movable channel tags are forbidden | string | `""` | `$NPM_TAG` |

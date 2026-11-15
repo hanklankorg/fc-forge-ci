@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -134,9 +135,11 @@ func TestMavenPublicationsAreLinkedByTheirCoordinates(t *testing.T) {
 	require.Empty(t, said.String())
 }
 
-// namingForge is a forge that keeps packages under their owner and answers
-// each link by the package's name.
+// namingForge is a Maven registry that keeps packages under their owner and
+// answers each link by the package's name.
 type namingForge struct {
+	fakeRegistryResolver
+
 	answers map[string]error
 	linked  []string
 }
@@ -147,14 +150,34 @@ func (f *namingForge) LinkForgePackage(_ context.Context, packageType, name stri
 	return f.answers[name]
 }
 
-// effectivePOM is a Maven that writes one effective POM where it is asked.
-type effectivePOM struct {
-	body string
-	ran  int
+// reactorMaven is a Maven that writes one effective POM where it is asked,
+// records the settings that model ran with, and deploys with deployErr.
+type reactorMaven struct {
+	body      string
+	deployErr error
+
+	models   int
+	settings string
+	deployed bool
 }
 
-func (m *effectivePOM) RunInherit(_ context.Context, _, _ io.Writer, args ...string) error {
-	m.ran++
+func (m *reactorMaven) RunInherit(_ context.Context, _, _ io.Writer, args ...string) error {
+	if slices.Contains(args, "deploy") {
+		m.deployed = true
+
+		return m.deployErr
+	}
+
+	m.models++
+
+	if i := slices.Index(args, "--settings"); i >= 0 && i+1 < len(args) {
+		settings, err := os.ReadFile(args[i+1])
+		if err != nil {
+			return err
+		}
+
+		m.settings = string(settings)
+	}
 
 	for _, arg := range args {
 		if output, found := strings.CutPrefix(arg, "-Doutput="); found {
@@ -165,47 +188,91 @@ func (m *effectivePOM) RunInherit(_ context.Context, _, _ io.Writer, args ...str
 	return fmt.Errorf("mvn %s: %w", strings.Join(args, " "), errs.ErrValidation)
 }
 
-// Every project of the deployed reactor is linked by its coordinates. One the
-// forge does not list was not deployed, which is Maven's decision and no
-// warning; a link the forge refuses is.
-func TestMavenDeployLinksTheReactorProjects(t *testing.T) {
+// A forge deploy resolves the reactor once, before anything is published,
+// with an empty settings file as the deploy replaces the user's. Every
+// project of it is then linked by its coordinates. One the forge does not
+// list was not deployed, which is Maven's decision and no warning; a link
+// the forge refuses is, and so is a reactor the forge lists none of.
+func TestForgeMavenDeployLinksTheReactorProjects(t *testing.T) {
 	t.Parallel()
 
-	const reactor = `<projects><project><groupId>org.example</groupId><artifactId>parent</artifactId></project>` +
-		`<project><groupId>org.example</groupId><artifactId>app</artifactId></project></projects>`
+	const reactor = `<projects><project><groupId>org.example</groupId><artifactId>parent</artifactId><version>1.0.0</version></project>` +
+		`<project><groupId>org.example</groupId><artifactId>app</artifactId><version>1.0.0</version></project></projects>`
 
 	notListed := fmt.Errorf("it is %w among the maven packages of owner", provider.ErrForgePackageNotListed)
+	both := []string{"maven org.example:parent", "maven org.example:app"}
 
 	for _, tc := range []struct {
-		name, body string
+		name       string
 		answers    map[string]error
 		wantLinked []string
 		wantSaid   string
 	}{
-		{"every project deployed", reactor, nil, []string{"maven org.example:parent", "maven org.example:app"}, ""},
-		{"a project not deployed", reactor, map[string]error{"org.example:parent": notListed}, []string{"maven org.example:parent", "maven org.example:app"}, ""},
-		{"no project listed", reactor, map[string]error{"org.example:parent": notListed, "org.example:app": notListed}, []string{"maven org.example:parent", "maven org.example:app"},
+		{"every project deployed", nil, both, ""},
+		{"a project not deployed", map[string]error{"org.example:parent": notListed}, both, ""},
+		{"no project listed", map[string]error{"org.example:parent": notListed, "org.example:app": notListed}, both,
 			"Warning: the Maven packages are published but not linked to the repository: the forge lists none of org.example:parent, org.example:app\n"},
-		{"a link refused", reactor, map[string]error{"org.example:app": errors.New("no API")}, []string{"maven org.example:parent", "maven org.example:app"},
+		{"a link refused", map[string]error{"org.example:app": errors.New("no API")}, both,
 			"Warning: maven package org.example:app is published but not linked to the repository: no API\n"},
-		{"no coordinates", `<settings/>`, nil, nil,
-			"Warning: the Maven packages are published but not linked to the repository: expected Maven project or reactor effective POM: malformed input\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			forge := &namingForge{answers: tc.answers}
+			maven := &reactorMaven{body: reactor}
 
 			var said bytes.Buffer
 
-			apppublish.LinkMavenProjects(t.Context(), &effectivePOM{body: tc.body}, forge, &said, apppublish.MavenCentralDeployInput{CLIOpts: []string{"-B"}})
+			require.NoError(t, apppublish.ForgeMavenDeploy(t.Context(), maven, maven, forge, io.Discard, &said, apppublish.ForgePackagesDeployInput{CLIOpts: []string{"-B"}}, false))
+			require.Equal(t, 1, maven.models)
+			require.Equal(t, "<settings/>\n", maven.settings)
+			require.True(t, maven.deployed)
 			require.Equal(t, tc.wantLinked, forge.linked)
 			require.Equal(t, tc.wantSaid, said.String())
 		})
 	}
+}
 
-	// A forge without the role is asked nothing, and Maven is not run.
-	maven := &effectivePOM{body: reactor}
-	apppublish.LinkMavenProjects(t.Context(), maven, fakeNPMRegistryResolver{}, io.Discard, apppublish.MavenCentralDeployInput{})
-	require.Zero(t, maven.ran)
+// What the deploy cannot resolve the same way as its model, or would not
+// link, fails before anything is published; a deploy that fails links
+// nothing; and a forge that links nothing needs no model of a release.
+func TestForgeMavenDeployChecksBeforePublishing(t *testing.T) {
+	t.Parallel()
+
+	const release = `<project><groupId>org.example</groupId><artifactId>app</artifactId><version>1.0.0</version></project>`
+
+	failed := errors.New("deploy failed")
+
+	for _, tc := range []struct {
+		name       string
+		forge      provider.ForgeMavenRegistryResolver
+		body       string
+		opts       []string
+		snapshot   bool
+		deployErr  error
+		wantErr    error
+		wantModels int
+		deploys    bool
+	}{
+		{"options the model cannot share", fakeRegistryResolver{}, release, []string{"-T", "4"}, false, nil, errs.ErrUsage, 0, false},
+		{"a release in snapshot mode", fakeRegistryResolver{}, release, nil, true, nil, errs.ErrValidation, 1, false},
+		{"an effective POM without coordinates", &namingForge{}, `<settings/>`, nil, false, nil, errs.ErrMalformedInput, 1, false},
+		{"a failed deploy", &namingForge{}, release, nil, false, failed, failed, 1, true},
+		{"a release to a forge that links nothing", fakeRegistryResolver{}, release, nil, false, nil, nil, 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			maven := &reactorMaven{body: tc.body, deployErr: tc.deployErr}
+
+			err := apppublish.ForgeMavenDeploy(t.Context(), maven, maven, tc.forge, io.Discard, io.Discard, apppublish.ForgePackagesDeployInput{CLIOpts: tc.opts}, tc.snapshot)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantModels, maven.models)
+			require.Equal(t, tc.deploys, maven.deployed)
+
+			if forge, ok := tc.forge.(*namingForge); ok {
+				require.Empty(t, forge.linked)
+			}
+		})
+	}
 }
