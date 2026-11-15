@@ -26,7 +26,9 @@ func TestGenerateContainer_NoArtifactTypes_SingleGeneration(t *testing.T) {
 
 	var out bytes.Buffer
 
-	err := appsbom.GenerateContainer(context.Background(), syft, nil, &fakeGit{sha: "abc1234"}, &out, io.Discard, appsbom.GenerateContainerInput{
+	// The full commit: the name carries seven characters of it, however
+	// long git would abbreviate it in a large repository.
+	err := appsbom.GenerateContainer(context.Background(), syft, nil, &fakeGit{sha: "abc1234" + strings.Repeat("f", 33)}, &out, io.Discard, appsbom.GenerateContainerInput{
 		RefName:     "v1.2.3",
 		Repo:        "examplescope/example",
 		ImageName:   "ghcr.io/examplescope/example",

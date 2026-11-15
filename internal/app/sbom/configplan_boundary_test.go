@@ -156,7 +156,7 @@ func TestGenerateArtifacts_ConfigPlanValidationPrecedesEffects(t *testing.T) {
 				}
 
 				require.NoError(t, err)
-				require.Equal(t, [][]string{{"rev-parse", "--short", "HEAD"}, {"rev-parse", "--short", "HEAD"}}, git.calls)
+				require.Equal(t, [][]string{{"rev-parse", "HEAD"}, {"rev-parse", "HEAD"}}, git.calls)
 				require.Equal(t, []string{"project.version"}, mvn.calls)
 				require.Len(t, syft.calls, 1)
 				require.Equal(t, fsys.Path("first/first.tgz"), syft.calls[0].target)

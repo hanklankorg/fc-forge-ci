@@ -157,9 +157,13 @@ func Generate(
 	_, _ = fmt.Fprintf(out, "  Version: %s\n", resolvedVersion)
 	_, _ = fmt.Fprintf(out, "  Type: %s\n\n", projectType)
 
-	// Short SHA for filename traceability (best-effort).
-	sha, _ := gitRepo.Run(ctx, "rev-parse", "--short", "HEAD")
-	sha = strings.TrimSpace(sha)
+	// Short SHA for filename traceability (best-effort), of the one length
+	// every SBOM name has and the release checks: git's own abbreviation
+	// grows with the repository.
+	sha, _ := gitRepo.Run(ctx, "rev-parse", "HEAD")
+	if sha = strings.TrimSpace(sha); len(sha) > version.SnapshotShortSHALen {
+		sha = sha[:version.SnapshotShortSHALen]
+	}
 
 	// Sanitised here, once: every layer filename is derived from these, so the
 	// subject that flows down is already path-safe.

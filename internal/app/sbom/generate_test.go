@@ -104,7 +104,7 @@ func (f failingBuildSBOMGenerator) GenerateBuildSBOM(context.Context, projecttyp
 }
 
 func (g *fakeGit) Run(_ context.Context, args ...string) (string, error) {
-	if len(args) >= 2 && args[0] == "rev-parse" && args[1] == "--short" {
+	if len(args) >= 2 && args[0] == "rev-parse" && args[1] == "HEAD" {
 		if g.sha == "" {
 			return "", errors.New("not a git repo")
 		}

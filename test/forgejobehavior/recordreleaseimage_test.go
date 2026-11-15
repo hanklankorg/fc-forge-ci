@@ -48,7 +48,7 @@ func TestRecordReleaseImage(t *testing.T) {
 		box := newSandbox(t, "record-release-image")
 		box.write("sbom-v", sbomBody, 0o600)
 		box.write(defaultSBOM, sbomBody, 0o600)
-		box.write("bin/git", "#!/bin/sh\nset -eu\ntest \"$*\" = 'rev-parse --short=7 HEAD'\necho abcdef0\n", 0o700)
+		box.write("bin/git", "#!/bin/sh\nset -eu\ntest \"$*\" = 'rev-parse HEAD'\necho abcdef0123456789abcdef0123456789abcdef01\n", 0o700)
 
 		env := append(installRecordingFakes(box), "PATH="+filepath.Join(box.root, "bin")+":"+os.Getenv("PATH"))
 		for _, name := range recordReleaseImageInputs() {

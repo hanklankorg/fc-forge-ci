@@ -90,7 +90,7 @@ runs:
           name=${INPUT_FLAVOR:-${INPUT_ROLE:?role is required}}
           version=${INPUT_RELEASE_TAG:?release-tag is required for the default sbom name}
           platform=${INPUT_PLATFORM:-linux/amd64}
-          sha=$(git rev-parse --short=7 HEAD)
+          sha=$(git rev-parse HEAD)
           sbom="dist/${name}-${version#v}-${sha:0:7}-analyzed-container-${platform//\//-}-sbom.cyclonedx.json"
         fi
         if [ ! -f "${sbom}" ] || [ -L "${sbom}" ]; then
