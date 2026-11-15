@@ -31,7 +31,7 @@ func TestVerifyOpenPGPSignature(t *testing.T) {
 	_, fingerprint := GPGKey(t, release, passphrase)
 	home := filepath.Join(release, "gnupg")
 
-	file := filepath.Join(t.TempDir(), "checksums.txt")
+	file := filepath.Join(t.TempDir(), "checksums.sha256")
 	if err := os.WriteFile(file, []byte("checksums\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -67,7 +67,7 @@ func VerifyReleaseReadback(evidence *ReleaseEvidence, names []string, download f
 		failures = append(failures, VerifyReleaseChecksums(body, names, read))
 	}
 
-	failures = append(failures, releaseFilesUnbound(names, verified, authenticatedChecksums), releaseFilesUnsigned(names, verified), releaseImageSBOMsUnbundled(names))
+	failures = append(failures, releaseFilesUnbound(names, verified, authenticatedChecksums), releaseFilesUnsigned(names, verified), releaseImageSBOMsUnbundled(names), releaseChecksumsMissing(names))
 
 	return verified, errors.Join(failures...)
 }
@@ -98,12 +98,38 @@ func releaseImageSBOMsUnbundled(names []string) error {
 	return nil
 }
 
-// isReleaseChecksums reports whether a release file is the checksums file by
-// its name: checksums.sha256, as `release files declare` and the GitHub
-// release write it, or the checksums.txt or <project>_<version>_checksums.txt
-// of a GoReleaser configuration.
+// isReleaseChecksums reports whether a release file is the checksums file:
+// checksums.sha256, the one forge-ci writes on every forge.
 func isReleaseChecksums(name string) bool {
-	return name == domainrelease.ChecksumsFile || name == "checksums.txt" || strings.HasSuffix(name, "_checksums.txt")
+	return name == domainrelease.ChecksumsFile
+}
+
+// releaseChecksumsMissing refuses a release without checksums.sha256 and one
+// that offers a checksums file under the name GoReleaser gives it,
+// checksums.txt or <project>_<version>_checksums.txt: forge-ci writes the one
+// checksums file on every forge, and `release files import-goreleaser`
+// refuses GoReleaser's.
+func releaseChecksumsMissing(names []string) error {
+	var stale []string
+
+	for _, name := range names {
+		subject := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(name, cosignBundle), openPGPSignature), packageSignature)
+		if subject == "checksums.txt" || strings.HasSuffix(subject, "_checksums.txt") {
+			stale = append(stale, name)
+		}
+	}
+
+	if len(stale) != 0 {
+		slices.Sort(stale)
+
+		return fmt.Errorf("release files %q carry GoReleaser's checksums name; the release's checksums file is %s: %w", stale, domainrelease.ChecksumsFile, errReleaseEvidence)
+	}
+
+	if !slices.Contains(names, domainrelease.ChecksumsFile) {
+		return fmt.Errorf("the release offers no %s among %q: %w", domainrelease.ChecksumsFile, names, errReleaseEvidence)
+	}
+
+	return nil
 }
 
 // releaseFilesUnsigned refuses an offered file that has no verified signature

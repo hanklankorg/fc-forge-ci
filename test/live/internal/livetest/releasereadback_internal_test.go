@@ -258,13 +258,34 @@ func TestGPGReleaseFileFindings(t *testing.T) {
 	}{
 		"signed with GPG":     {names: []string{"app.jar", "checksums.sha256", "checksums.sha256.asc", "app-1.0.0-sboms.tar.gz", "app-1.0.0-sboms.tar.gz.asc", "slsa-provenance.intoto.json", "slsa-provenance.intoto.json.asc"}},
 		"statement by Cosign": {names: []string{"checksums.sha256", "checksums.sha256.asc", "slsa-provenance.intoto.json", "slsa-provenance.intoto.json.bundle"}, want: "no OpenPGP signature of slsa-provenance.intoto.json"},
-		"checksums of a file": {names: []string{"app_checksums.txt", "app_checksums.txt.asc"}},
+		"GoReleaser's name":   {names: []string{"app_checksums.txt", "app_checksums.txt.asc"}, want: "no OpenPGP signature of its checksums"},
 		"signed with Cosign":  {names: []string{"checksums.sha256", "checksums.sha256.bundle"}, want: "no OpenPGP signature of its checksums"},
 		"both on one file":    {names: []string{"checksums.sha256", "checksums.sha256.asc", "app-1.0.0-sboms.tar.gz", "app-1.0.0-sboms.tar.gz.asc", "app-1.0.0-sboms.tar.gz.bundle"}, want: "app-1.0.0-sboms.tar.gz carries both"},
 	} {
 		findings := GPGReleaseFileFindings(test.names)
 		if (len(findings) == 0) != (test.want == "") || (test.want != "" && !strings.Contains(strings.Join(findings, "\n"), test.want)) {
 			t.Errorf("%s: findings %q, want one naming %q", name, findings, test.want)
+		}
+	}
+}
+
+// Every release offers forge-ci's one checksums file, checksums.sha256, and
+// none under the name GoReleaser gives its own.
+func TestReleaseChecksumsMissing(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		names []string
+		want  string
+	}{
+		"checksums.sha256":    {names: []string{"app.jar", "checksums.sha256", "checksums.sha256.asc"}},
+		"no checksums":        {names: []string{"app.jar", "app.jar.asc"}, want: "offers no checksums.sha256"},
+		"GoReleaser's":        {names: []string{"app.tar.gz", "checksums.txt", "checksums.txt.bundle"}, want: `"checksums.txt" "checksums.txt.bundle"`},
+		"GoReleaser's beside": {names: []string{"checksums.sha256", "app_1.0.0_checksums.txt.asc"}, want: "GoReleaser's checksums name"},
+	} {
+		err := releaseChecksumsMissing(test.names)
+		if (err == nil) != (test.want == "") || (err != nil && (!strings.Contains(err.Error(), test.want) || !errors.Is(err, errReleaseEvidence))) {
+			t.Errorf("%s: %v, want one naming %q", name, err, test.want)
 		}
 	}
 }
