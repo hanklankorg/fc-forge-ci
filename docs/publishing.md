@@ -42,8 +42,9 @@ The commands, in the order a release runs them:
    place. The project name is the repository's unless `--project-name` says
    otherwise, and the version is `--version` or `RELEASE_TAG`. For a
    GoReleaser build, use `release files import-goreleaser` instead: it
-   bundles GoReleaser's SBOMs the same way and keeps the name of
-   GoReleaser's checksums file.
+   bundles GoReleaser's SBOMs the same way and writes the same
+   `checksums.sha256`. It refuses checksums GoReleaser wrote itself, so the
+   GoReleaser configuration sets `checksum.disable: true`.
 2. `forge-ci release files validate --unsigned` checks the manifest and
    refuses a `dist/` that already holds signatures or provenance, so every
    signature comes from the signing job.

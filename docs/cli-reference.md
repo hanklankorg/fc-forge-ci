@@ -4314,15 +4314,17 @@ import GoReleaser metadata into an unsigned release file manifest before signing
 
 ```
 Writes the manifest from the publishable GoReleaser artifacts and the named
-evidence files. The SBOMs GoReleaser wrote are bundled into
-<project>-<version>-sboms.tar.gz, which the release publishes in their place:
-GoReleaser's checksums file keeps its name, and its lines for the SBOMs are
-replaced by the line of the bundle.
+evidence files, in the layout of every forge-ci release, as "release files
+declare" writes it. The SBOMs GoReleaser wrote are bundled into
+<project>-<version>-sboms.tar.gz, which the release publishes in their place,
+and checksums.sha256 is written over the archives, the packages and that
+bundle.
 
-It refuses an existing manifest or SBOM bundle, and a dist that already holds
-the provenance statement or a <file>.bundle or <file>.sig of an imported file:
-the import is the unsigned hand-off, as "release files validate --unsigned"
-checks it.
+GoReleaser's own checksums are refused: set checksum.disable: true in the
+GoReleaser configuration. It also refuses an existing manifest, checksums
+file or SBOM bundle, and a dist that already holds the provenance statement
+or a <file>.bundle or <file>.sig of an imported file: the import is the
+unsigned hand-off, as "release files validate --unsigned" checks it.
 ```
 
 | Flag | Description | Type | Default | Env vars |

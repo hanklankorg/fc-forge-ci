@@ -27,8 +27,9 @@ func TestImportGoReleaserFileManifest_BeforeSigningThenFinalize(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// GoReleaser's SBOM is published in the SBOM bundle, not beside it.
-	want := []string{testSBOMBundle, "app.apk", "app.deb", "app.rpm", "app.tar.gz", "app_checksums.txt", "release-plan.json"}
+	// GoReleaser's SBOM is published in the SBOM bundle, not beside it, and
+	// the checksums file is the engine's.
+	want := []string{testSBOMBundle, "app.apk", "app.deb", "app.rpm", "app.tar.gz", "checksums.sha256", "release-plan.json"}
 
 	names := make([]string, 0, len(manifest.Assets))
 	for _, entry := range manifest.Assets {
@@ -51,14 +52,14 @@ func TestImportGoReleaserFileManifest_BeforeSigningThenFinalize(t *testing.T) {
 		t.Fatalf("sboms = %v, err = %v", sboms, err)
 	}
 
-	// GoReleaser's checksums file keeps its name and its other lines; the
-	// SBOM's line is replaced by the bundle's.
+	// checksums.sha256 lists the archive, the packages and the SBOM bundle,
+	// by name, as `release files declare` writes it.
 	var wantChecksums strings.Builder
-	for _, name := range []string{"app.tar.gz", "app.deb", "app.rpm", "app.apk", testSBOMBundle} {
+	for _, name := range []string{testSBOMBundle, "app.apk", "app.deb", "app.rpm", "app.tar.gz"} {
 		wantChecksums.WriteString(testFileSHA256(t, "dist/"+name) + "  " + name + "\n")
 	}
 
-	if got := readFile(t, "dist/app_checksums.txt"); got != wantChecksums.String() {
+	if got := readFile(t, "dist/checksums.sha256"); got != wantChecksums.String() {
 		t.Fatalf("checksums = %q, want %q", got, wantChecksums.String())
 	}
 
@@ -78,7 +79,7 @@ func TestImportGoReleaserFileManifest_BeforeSigningThenFinalize(t *testing.T) {
 	writeReleaseFilesTestFile(t, "dist/slsa-provenance.intoto.json", "provenance\n")
 	writeReleaseFilesTestFile(t, "dist/slsa-provenance.intoto.json.bundle", "provenance signature\n")
 	writeReleaseFilesTestFile(t, "dist/app.deb.sig", "package signature\n")
-	writeReleaseFilesTestFile(t, "dist/app_checksums.txt.bundle", "checksums signature\n")
+	writeReleaseFilesTestFile(t, "dist/checksums.sha256.bundle", "checksums signature\n")
 
 	// Evidence is no checksum subject: unsigned, it is not published.
 	if _, finalizeErr := apprelease.WriteReleaseFileManifest(apprelease.WriteReleaseFileManifestInput{}); !errors.Is(finalizeErr, errs.ErrValidation) ||
@@ -97,7 +98,7 @@ func TestImportGoReleaserFileManifest_BeforeSigningThenFinalize(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertReleaseAssetsInclude(t, final.Assets, "app.deb.sig", "app_checksums.txt.bundle", "release-plan.json", "release-plan.json.bundle", "slsa-provenance.intoto.json", "slsa-provenance.intoto.json.bundle")
+	assertReleaseAssetsInclude(t, final.Assets, "app.deb.sig", "checksums.sha256.bundle", "release-plan.json", "release-plan.json.bundle", "slsa-provenance.intoto.json", "slsa-provenance.intoto.json.bundle")
 
 	if !slices.Equal(final.Evidence, manifest.Evidence) || len(final.Provenance) != 1 {
 		t.Fatalf("final classifications = %+v", final)
@@ -167,7 +168,7 @@ func TestImportGoReleaserFileManifest_RefusesAnAlreadySignedDist(t *testing.T) {
 		"dist/app.tar.gz.sig",
 		"dist/app.tar.gz.bundle",
 		"dist/app.deb.sig",
-		"dist/app_checksums.txt.bundle",
+		"dist/checksums.sha256.bundle",
 		"dist/release-plan.json.bundle",
 		"dist/slsa-provenance.intoto.json",
 		"dist/slsa-provenance.intoto.json.bundle",
@@ -193,8 +194,40 @@ func TestImportGoReleaserFileManifest_RefusesAnAlreadySignedDist(t *testing.T) {
 	}
 }
 
-// writeUnsignedReleaseFilesFixture is the fixture as a producer hands it over:
-// no provenance statement and no signature next to a file the import declares.
+// A release has one checksums file, the engine's checksums.sha256. The
+// import refuses the checksums GoReleaser writes, whatever their name, and
+// leaves no hand-off file behind.
+func TestImportGoReleaserFileManifest_RefusesGoReleaserChecksums(t *testing.T) {
+	for name, checksums := range map[string]string{
+		"one file":         "dist/app_1.2.3_checksums.txt",
+		"split":            "dist/app.tar.gz.sha256",
+		"engine file name": "dist/checksums.sha256",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			writeUnsignedReleaseFilesFixture(t)
+			writeReleaseFilesTestFile(t, checksums, testFileSHA256(t, "dist/app.tar.gz")+"  app.tar.gz\n")
+
+			artifacts := strings.Replace(readFile(t, "dist/artifacts.json"), "[\n", "[\n  {\"path\":\""+checksums+"\",\"type\":\"Checksum\"},\n", 1)
+			writeReleaseFilesTestFile(t, "dist/artifacts.json", artifacts)
+
+			_, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{SBOMBundleNaming: testSBOMBundleNaming})
+			if !errors.Is(err, errs.ErrInvalidConfig) || !strings.Contains(err.Error(), checksums) || !strings.Contains(err.Error(), "checksum.disable: true") {
+				t.Fatalf("err = %v, want GoReleaser's checksums refused", err)
+			}
+
+			for _, path := range []string{"dist/release-files.json", "dist/" + testSBOMBundle} {
+				if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
+					t.Fatalf("refused import left %s: %v", path, statErr)
+				}
+			}
+		})
+	}
+}
+
+// writeUnsignedReleaseFilesFixture is the fixture as GoReleaser hands it over
+// with checksum.disable: no checksums file, no provenance statement and no
+// signature next to a file the import declares.
 func writeUnsignedReleaseFilesFixture(t *testing.T) {
 	t.Helper()
 	writeReleaseFilesFixture(t)
@@ -202,10 +235,21 @@ func writeUnsignedReleaseFilesFixture(t *testing.T) {
 	for _, path := range []string{
 		"dist/slsa-provenance.intoto.json", "dist/slsa-provenance.intoto.json.bundle",
 		"dist/app.deb.sig", "dist/app.rpm.sig", "dist/app.apk.sig",
-		"dist/app.tar.gz.sbom.json.bundle", "dist/app_checksums.txt.bundle",
+		"dist/app.tar.gz.sbom.json.bundle",
+		"dist/app_checksums.txt", "dist/app_checksums.txt.bundle",
 	} {
 		if err := os.Remove(path); err != nil {
 			t.Fatal(err)
 		}
 	}
+
+	writeReleaseFilesTestFile(t, "dist/artifacts.json", `[
+  {"path":"dist/app.tar.gz","type":"Archive"},
+  {"path":"dist/app.deb","type":"LinuxPackage"},
+  {"path":"dist/app.rpm","type":"LinuxPackage"},
+  {"path":"dist/app.apk","type":"LinuxPackage"},
+  {"path":"dist/app.tar.gz.sbom.json","type":"SBOM"},
+  {"path":"dist/metadata.json","type":"Metadata"},
+  {"path":"dist/internal-binary","type":"Binary"}
+]`)
 }

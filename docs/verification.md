@@ -420,10 +420,9 @@ A Forgejo or GitLab release carries the same files as a GitHub release:
   ([verify the provenance statement](#verify-the-provenance-statement-of-a-release)).
 
 A distro package signed with `sign-distro-packages` keeps its OpenPGP
-`<package>.sig` and gets no second signature. A GoReleaser build keeps the
-name GoReleaser gives its checksums file, such as
-`<project>_<version>_checksums.txt`; use that name where the commands below
-say `checksums.sha256`.
+`<package>.sig` and gets no second signature. A GoReleaser build publishes
+the same files: forge-ci writes its `checksums.sha256` and bundles the SBOMs
+GoReleaser wrote.
 
 Download the release files into one directory and verify them in trust
 order. With the Cosign key:

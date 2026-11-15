@@ -290,56 +290,114 @@ func writeReleaseFileManifest(ctx releaseFilesCtx, manifest *FileManifest, outpu
 	return manifest, nil
 }
 
-// ImportGoReleaserFileManifest writes the unsigned file set from GoReleaser
-// metadata and explicit evidence. It refuses to overwrite an existing manifest;
-// WriteReleaseFileManifest finalizes that file set after signing.
+// ImportGoReleaserFileManifest writes the unsigned hand-off of a GoReleaser
+// build in the layout of every forge-ci release: the archives and packages
+// GoReleaser built, the bundle of the SBOMs it wrote, and checksums.sha256
+// over both, written here as `release files declare` writes it. A checksums
+// file GoReleaser wrote itself is refused, because the release has exactly
+// one and the engine writes it. The import refuses to overwrite an existing
+// manifest; WriteReleaseFileManifest finalizes that file set after signing.
 func ImportGoReleaserFileManifest(in ImportGoReleaserFileManifestInput) (*FileManifest, error) {
 	ctx := releaseFilesContext(in.FilesInput)
-	if _, err := os.Lstat(ctx.manifestFile); err == nil {
-		return nil, fmt.Errorf("release file manifest already exists: %s: %w", ctx.manifestFile, errs.ErrValidation)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("stat release file manifest %s: %w", ctx.manifestFile, err)
-	}
 
 	artifacts, err := readGoReleaserArtifacts(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	collector := &releaseFileCollector{}
-	if addErr := addGoReleaserAssetEntries(ctx, collector, artifacts); addErr != nil {
-		return nil, addErr
+	if refuseErr := refuseGoReleaserChecksums(artifacts); refuseErr != nil {
+		return nil, refuseErr
 	}
 
-	manifest, err := buildGoReleaserFileManifest(ctx, collector.entries)
+	checksumsFile, err := declaredChecksumsPath(ctx, "")
 	if err != nil {
 		return nil, err
 	}
 
-	if bundleErr := bundleGoReleaserSBOMs(ctx, manifest, in.SBOMBundleNaming); bundleErr != nil {
-		return nil, bundleErr
+	collector, sboms, err := goReleaserSubjects(ctx, artifacts, in.SBOMBundleNaming)
+	if err != nil {
+		return nil, err
 	}
 
-	collector = &releaseFileCollector{}
-	for _, entry := range manifest.Assets {
-		if addErr := collector.add(ctx, entry.Path, entry.Source); addErr != nil {
-			return nil, addErr
+	// What this call wrote; without a manifest it would only block the next
+	// attempt.
+	written := entryPaths(sboms)
+	discard := func(err error) (*FileManifest, error) {
+		for _, path := range written {
+			err = errors.Join(err, os.Remove(path))
+		}
+
+		return nil, err
+	}
+
+	if writeErr := writeProducerChecksums(checksumsFile, collector.entries); writeErr != nil {
+		return discard(writeErr)
+	}
+
+	written = append(written, checksumsFile)
+
+	manifest, err := declaredFileManifest(ctx, collector, sboms, checksumsFile, in.EvidenceFiles)
+	if err != nil {
+		return discard(err)
+	}
+
+	return manifest, nil
+}
+
+// refuseGoReleaserChecksums refuses the checksums GoReleaser writes unless
+// its configuration disables them: one checksums file, or one per file with
+// split. Beside checksums.sha256 the release would list its files twice.
+func refuseGoReleaserChecksums(artifacts []goReleaserArtifact) error {
+	for _, artifact := range artifacts {
+		if artifact.Type == "Checksum" || isChecksumsFileName(artifact.Path) {
+			return fmt.Errorf("GoReleaser wrote the checksums file %s, but forge-ci writes the release's one checksums file, %s: set checksum.disable: true in the GoReleaser configuration: %w", artifact.Path, domainrelease.ChecksumsFile, errs.ErrInvalidConfig)
 		}
 	}
 
-	evidence, err := addEvidenceEntries(ctx, collector, in.EvidenceFiles)
+	return nil
+}
+
+// goReleaserSubjects collects the files the checksums file covers: the
+// archives and packages GoReleaser built and the bundle of the SBOMs it
+// wrote, which is written here. The returned SBOM section holds that bundle,
+// or nothing.
+func goReleaserSubjects(ctx releaseFilesCtx, artifacts []goReleaserArtifact, naming SBOMBundleNaming) (*releaseFileCollector, []FileEntry, error) {
+	collector := &releaseFileCollector{}
+
+	var sbomPaths []string
+
+	for _, artifact := range artifacts {
+		switch {
+		case !publishableGoReleaserAsset(artifact.Path, artifact.Type):
+			_, _ = fmt.Fprintf(os.Stderr, "Skipping non-release GoReleaser artifact: %s\n", artifact.Path)
+		case strings.HasSuffix(artifact.Path, ".sbom.json"):
+			sbomPaths = append(sbomPaths, artifact.Path)
+		default:
+			if err := collector.add(ctx, artifact.Path, "goreleaser"); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+
+	if len(sbomPaths) == 0 {
+		return collector, []FileEntry{}, nil
+	}
+
+	sboms, err := entriesFromPaths(ctx, "sbom", sbomPaths)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	manifest.Assets = collector.entries
-	manifest.Evidence = evidence
-
-	if err := validateUnsignedReleaseFiles(ctx, manifest); err != nil {
-		return nil, err
+	bundle, err := bundleHandoffSBOMs(ctx, sboms, naming)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	return writeReleaseFileManifest(ctx, manifest, ctx.manifestFile)
+	if err := collector.add(ctx, bundle.Path, bundle.Source); err != nil {
+		return nil, nil, errors.Join(err, os.Remove(bundle.Path))
+	}
+
+	return collector, []FileEntry{bundle}, nil
 }
 
 // addEvidenceEntries adds the named evidence files to the collected assets.

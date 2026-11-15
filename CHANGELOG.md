@@ -376,6 +376,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** a GoReleaser release has the file layout of every other
+  forge-ci release. `release files import-goreleaser`, which the Forgejo
+  `build-goreleaser` action and a GitLab release files job run, now writes
+  `checksums.sha256` over the archives, the packages and the SBOM bundle,
+  as `release files declare` does, where it kept GoReleaser's checksums
+  file, such as `<project>_<version>_checksums.txt`, under its own name. It
+  refuses checksums GoReleaser wrote itself, one file or one per file, and
+  names the setting that turns them off. Migration: set
+  `checksum.disable: true` in the GoReleaser configuration. The SBOMs
+  GoReleaser writes stay in the SBOM bundle. The example
+  `examples/go-cli/.goreleaser.yml` is updated. See
+  `docs/forgejo.md#unsigned-goreleaser-handoff`.
 - Three GitLab jobs are named for their stage, as the jobs of the other
   forges are: `Release: plan` is `Check: release plan`, `Snapshot: plan` is
   `Check: snapshot plan` and `Snapshot: execute` is `Build: snapshot`. A

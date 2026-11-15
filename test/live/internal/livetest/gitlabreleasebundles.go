@@ -384,11 +384,13 @@ func verifyProducerDeclaration(producer string, original apprelease.FileManifest
 
 			args = append(args, "--asset", a.Path)
 		}
-		// Only the validated checksum file in this owned copy is replaced by
-		// the constructor; the retained signer/published bytes remain untouched.
-		if err := os.Remove(filepath.Join(producer, original.Checksums[0].Path)); err != nil {
-			return err
-		}
+	}
+
+	// Both constructors write checksums.sha256. Only the validated checksum
+	// file in this owned copy is replaced; the retained signer/published bytes
+	// remain untouched.
+	if err := os.Remove(filepath.Join(producer, original.Checksums[0].Path)); err != nil {
+		return err
 	}
 
 	bundleArgs, err := restageProducerSBOMBundle(producer, original, declared)
@@ -452,9 +454,8 @@ func restageProducerSBOMBundle(producer string, original apprelease.FileManifest
 	}
 
 	if !declared {
-		// GoReleaser's checksums listed its SBOMs, which the import replaced
-		// by the bundle's line; the import appends that line again.
-		return args, dropChecksumLine(producer, original.Checksums[0].Path, bundle.Name)
+		// The import bundles the SBOMs artifacts.json lists again.
+		return args, nil
 	}
 
 	for _, entry := range entries {
@@ -519,25 +520,6 @@ func evidenceFilesNamed(root, name string) ([]string, error) {
 	})
 
 	return matches, err
-}
-
-// dropChecksumLine removes the line of name from the checksums file of an
-// owned copy.
-func dropChecksumLine(root, checksums, name string) error {
-	body, err := readEvidenceFile(root, checksums)
-	if err != nil {
-		return err
-	}
-
-	var kept []byte
-
-	for line := range bytes.Lines(body) {
-		if !bytes.HasSuffix(bytes.TrimRight(line, "\n"), []byte("  "+name)) {
-			kept = append(kept, line...)
-		}
-	}
-
-	return os.WriteFile(filepath.Join(root, checksums), kept, 0o600)
 }
 
 func compareProducerSubjects(producer, signer string, original apprelease.FileManifest) error {

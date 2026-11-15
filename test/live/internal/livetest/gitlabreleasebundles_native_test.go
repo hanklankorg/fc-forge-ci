@@ -211,11 +211,11 @@ func newNativeReleaseJourney(t *testing.T, binary, cosignPath string, goMetadata
 
 	naming := []string{"--project-name", "hello-cli", "--version", "v0.94.0"}
 
+	// Both constructors write the one checksums file of every release.
 	checksum := domainrelease.ChecksumsFile
+
 	if goMetadata {
-		checksum = "hello-cli_0.94.0_checksums.txt"
-		write(filepath.Join(producer, "dist/"+checksum), []byte(fmt.Sprintf("%x  app.tar.gz\n%x  app.tar.gz.sbom.json\n", sha256.Sum256(archive.Bytes()), sha256.Sum256(sbom))))
-		write(filepath.Join(producer, "dist/artifacts.json"), []byte(`[{"path":"dist/app.tar.gz","type":"Archive"},{"path":"dist/app.tar.gz.sbom.json","type":"SBOM"},{"path":"dist/`+checksum+`","type":"Checksum"}]`))
+		write(filepath.Join(producer, "dist/artifacts.json"), []byte(`[{"path":"dist/app.tar.gz","type":"Archive"},{"path":"dist/app.tar.gz.sbom.json","type":"SBOM"}]`))
 		runNativeEvidenceCLI(t, binary, producer, append([]string{"import-goreleaser", "--manifest", "dist/release-files.json", "--evidence-file", "dist/release-notes.md"}, naming...)...)
 	} else {
 		runNativeEvidenceCLI(t, binary, producer, append([]string{"declare", "--asset", "dist/app.tar.gz", "--sbom", "dist/app.tar.gz.sbom.json", "--evidence-file", "dist/release-notes.md"}, naming...)...)

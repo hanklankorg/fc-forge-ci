@@ -4,17 +4,13 @@
 package release
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/archive"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
-	"github.com/diggsweden/forge-ci/internal/domain/provenance"
 	"github.com/diggsweden/forge-ci/internal/domain/sbom"
 	"github.com/diggsweden/forge-ci/internal/domain/version"
 )
@@ -72,77 +68,4 @@ func bundleHandoffSBOMs(ctx releaseFilesCtx, sboms []FileEntry, naming SBOMBundl
 	}
 
 	return FileEntry{Path: path, Name: name, Source: sbomBundleSource}, nil
-}
-
-// bundleGoReleaserSBOMs replaces the SBOMs GoReleaser wrote with their bundle
-// in an imported manifest. GoReleaser's checksums file lists each SBOM, so
-// its lines for them are replaced by the bundle's line: the checksums file
-// keeps its name and lists exactly the files the release publishes.
-func bundleGoReleaserSBOMs(ctx releaseFilesCtx, manifest *FileManifest, naming SBOMBundleNaming) error {
-	if len(manifest.SBOMs) == 0 {
-		return nil
-	}
-
-	bundle, err := bundleHandoffSBOMs(ctx, manifest.SBOMs, naming)
-	if err != nil {
-		return err
-	}
-
-	bundled := map[string]struct{}{}
-	paths := stringSet(entryPaths(manifest.SBOMs))
-
-	for _, entry := range manifest.SBOMs {
-		bundled[entry.Name] = struct{}{}
-	}
-
-	if err := replaceChecksumLines(manifest.Checksums[0].Path, bundled, bundle); err != nil {
-		// The bundle is this call's own output; left behind it would only
-		// block the next attempt.
-		return errors.Join(err, os.Remove(bundle.Path))
-	}
-
-	manifest.Assets = append(slices.DeleteFunc(manifest.Assets, func(entry FileEntry) bool {
-		_, ok := paths[entry.Path]
-
-		return ok
-	}), bundle)
-	manifest.SBOMs = []FileEntry{bundle}
-
-	return nil
-}
-
-// replaceChecksumLines rewrites the checksums file without the lines of the
-// removed names and with the line of the added file last. The other lines
-// keep their order and digests.
-func replaceChecksumLines(checksumsFile string, removed map[string]struct{}, added FileEntry) error {
-	body, err := readReleaseFile(checksumsFile)
-	if err != nil {
-		return fmt.Errorf("checksum file: %w", err)
-	}
-
-	subjects, err := provenance.ParseChecksums(bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-
-	digest, err := sha256File(added.Path)
-	if err != nil {
-		return err
-	}
-
-	var lines strings.Builder
-
-	for _, subject := range subjects {
-		if _, ok := removed[subject.Name]; !ok {
-			lines.WriteString(subject.SHA256 + "  " + subject.Name + "\n")
-		}
-	}
-
-	lines.WriteString(digest + "  " + added.Name + "\n")
-
-	if err := os.WriteFile(checksumsFile, []byte(lines.String()), 0o644); err != nil { //nolint:gosec // G306: a public release file, read above through the link-refusing opener.
-		return fmt.Errorf("write checksums file %s: %w", checksumsFile, err)
-	}
-
-	return nil
 }

@@ -710,7 +710,10 @@ a `release-notes` file outside the dist directory, `config` (default
 `.goreleaser.yml`) and `dist-directory` (default `dist`, matching the
 GoReleaser configuration). The job brings GoReleaser and any SBOM tools its
 configuration uses; the action installs nothing and refuses a checkout that
-is not the prepared commit. Follow it with `upload-dist` and pass that
+is not the prepared commit. The release has the layout of every forge-ci
+release: the import writes `checksums.sha256` and bundles GoReleaser's SBOMs,
+and refuses checksums GoReleaser wrote itself, so the configuration sets
+`checksum.disable: true`. Follow it with `upload-dist` and pass that
 action's digest to `sign-and-publish-release.yml`.
 [`examples/go-cli/forgejo/release-goreleaser.yml`](../examples/go-cli/forgejo/release-goreleaser.yml)
 is the complete caller: copy it as `release-workflow.yml`, beside the example's

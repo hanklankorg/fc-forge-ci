@@ -51,8 +51,11 @@ nfpms:
     bindir: /usr/bin
     mtime: "{{ .CommitDate }}"
 
+# forge-ci writes the release's one checksums file, checksums.sha256, over
+# the archives, the packages and the SBOM bundle. `release files
+# import-goreleaser` refuses a checksums file GoReleaser writes.
 checksum:
-  name_template: checksums.txt
+  disable: true
 
 # One CycloneDX document per archive, with syft from the job's toolchain.
 sboms:

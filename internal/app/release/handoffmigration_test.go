@@ -50,13 +50,9 @@ func TestMigrationHandoffPreservesProducerManifestAndBindsImageEvidence(t *testi
 	writeReleaseFilesTestFile(t, "dist/app.tar.gz.sbom.json", "{}\n")
 	writeReleaseFilesTestFile(t, "dist/app_linux_amd64/app", "raw binary, needed before pruning\n")
 	writeReleaseFilesTestFile(t, "dist/release-notes.md", "product release notes\n")
-	writeReleaseFilesTestFile(t, "dist/app_checksums.txt",
-		testFileSHA256(t, "dist/app.tar.gz")+"  app.tar.gz\n"+
-			testFileSHA256(t, "dist/app.tar.gz.sbom.json")+"  app.tar.gz.sbom.json\n")
 	writeReleaseFilesTestFile(t, "dist/artifacts.json", `[
   {"path":"dist/app.tar.gz","type":"Archive"},
   {"path":"dist/app.tar.gz.sbom.json","type":"SBOM"},
-  {"path":"dist/app_checksums.txt","type":"Checksum"},
   {"path":"dist/app_linux_amd64/app","type":"Binary"}
 ]`)
 
