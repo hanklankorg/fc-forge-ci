@@ -164,6 +164,26 @@ Cargo is dual-mode (same as Go). Where the Build SBOM is emitted depends on `con
   Containerfile (`linux/amd64,linux/arm64` via native split-runner builds),
   with the lockfile-derived SBOM shipping next to the image.
 
+### Container-first build SBOMs on every forge
+
+A container-first Go or Cargo artifact whose `sboms` keep the build layer
+has its build SBOM written by forge-ci from the lockfile, without building,
+on every forge, under one name in the release's SBOM bundle,
+`<artifact>-<version>-<sha>-build-sbom.cyclonedx.json`:
+
+| Forge | Writer |
+|---|---|
+| GitHub | `sbom-go.yml` and `sbom-cargo.yml`, at publish stage |
+| GitLab | `SBOM: go` and `SBOM: rust`, release jobs that run the engine alone in `runtime-image-go` and `runtime-image-rust`, beside the family build jobs; their files reach the build commands in `dist/sboms/` |
+| Forgejo | the `sbom-go` and `sbom-cargo` actions, a step of the build job, which write to `dist/sboms/` |
+
+Each runs `forge-ci sbom assemble --artifacts-config <artifacts.yml>
+--project-type go|cargo --version <tag> --output-dir dist/sboms`. On GitLab
+and Forgejo the build commands declare them with `release files declare
+--sbom 'dist/sboms/*'`, and an `--asset` pattern leaves `dist/sboms/` out.
+`release files validate` refuses an SBOM bundle that lacks one, on GitLab and
+Forgejo before anything is signed.
+
 Workspace-level `cargo test` lives in a caller-owned workflow either way, since
 workspace features can't be expressed per-artifact; forge-ci's artifact-first
 build runs `cargo test --locked --all-targets` as a release-build sanity gate

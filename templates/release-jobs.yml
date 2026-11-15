@@ -207,7 +207,7 @@ stages: [check, prepare, build, images, sign, publish]
     want_user='$[[ inputs.job-user ]]' work_parent=/tmp own_home=false
     case "${rc_job_role:?}" in
       request | checks | changelog | release-files | base-plan) own_home=true ;;
-      build | version) want_user= own_home=true ;;
+      build | version | sbom) want_user= own_home=true ;;
       export)
         want_user= own_home=true
         if [ '$[[ inputs.image-builder ]]' = kaniko ]; then work_parent=${CI_PROJECT_DIR:?}; fi
@@ -637,6 +637,43 @@ stages: [check, prepare, build, images, sign, publish]
   artifacts:
     expire_in: 1 day
     paths: [_release-build-android/]
+# The build SBOMs of the container-first artifacts, which their
+# Containerfiles build and no family job does: the engine alone writes each
+# from its lockfile, as sbom-go.yml and sbom-cargo.yml do on GitHub, in the
+# family's runtime image. No build command of the project runs here, so,
+# as a version job, it runs on runner-tags, and it holds no credential.
+.forge-ci-release-sbom-family:
+  extends: .forge-ci-release
+  stage: build
+  before_script: [readonly rc_job_role=sbom, *forge-ci-release-start]
+  retry: *forge-ci-release-retry
+  variables:
+    RC_JOB_USER: ''
+  needs:
+    - job: "Prepare: release commit and tag"
+      artifacts: false
+.forge-ci-release-sbom-go:
+  extends: .forge-ci-release-sbom-family
+  image:
+    name: $[[ inputs.runtime-image-go ]]
+    entrypoint: [""]
+  after_script: [rc_handoff=_release-sbom-go, *forge-ci-release-handoff]
+  script:
+    - rc_container_first_sboms go
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-sbom-go/]
+.forge-ci-release-sbom-rust:
+  extends: .forge-ci-release-sbom-family
+  image:
+    name: $[[ inputs.runtime-image-rust ]]
+    entrypoint: [""]
+  after_script: [rc_handoff=_release-sbom-rust, *forge-ci-release-handoff]
+  script:
+    - rc_container_first_sboms rust
+  artifacts:
+    expire_in: 1 day
+    paths: [_release-sbom-rust/]
 # The release files: every family's and export job's files laid together,
 # then the build commands once more, in job-image as job-user with no
 # family, to write the release notes and declare the files.
@@ -669,6 +706,12 @@ stages: [check, prepare, build, images, sign, publish]
       artifacts: true
       optional: true
     - job: "Build: android"
+      artifacts: true
+      optional: true
+    - job: "SBOM: go"
+      artifacts: true
+      optional: true
+    - job: "SBOM: rust"
       artifacts: true
       optional: true
     # With base-stages, the files are built only after every base is promoted.

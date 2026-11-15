@@ -1,0 +1,53 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+#
+# SPDX-License-Identifier: CC0-1.0
+
+name: 'Cargo SBOM'
+description: >-
+  The build SBOMs of the release's container-first Cargo artifacts, a step of the consumer's own build job, as sbom-cargo.yml is on GitHub and "SBOM: rust" on GitLab: one `forge-ci sbom assemble --artifacts-config`, which writes the build SBOM of every container-first Cargo artifact the declaration plans one for from its lockfile, without building, into output-dir as <artifact>-<version>-<sha>-build-sbom.cyclonedx.json. Declare them with `release files declare --sbom '<output-dir>/*'`; the signer refuses a release whose SBOM bundle lacks one. The job brings cargo (see setup-toolchain) and runs on the prepared release commit. The step installs its pinned cargo-cyclonedx unless the job already has one on PATH. The step holds no secret.
+inputs:
+  version:
+    description: >-
+      Release version in the SBOM names, with or without a leading v: the prepare job's release-tag.
+    required: true
+  artifacts-config:
+    description: The release's artifacts.yml.
+    required: false
+    default: .forge-ci/artifacts.yml
+  output-dir:
+    description: Directory the build SBOMs are written to.
+    required: false
+    default: dist/sboms
+
+runs:
+  using: composite
+  steps:
+    # The Build SBOM generator is forge-ci's, pinned by version and checksum
+    # in its install script, as the runtime image carries it on GitHub and
+    # GitLab. One the job already has on PATH is used as it is.
+    - name: Install cargo-cyclonedx
+      shell: bash
+      run: |
+        set -euo pipefail
+        export CI_TEMP_DIR="${RUNNER_TEMP:?}"
+        # shellcheck source=scripts/bootstrap/install-cargo-cyclonedx.sh
+        source "${GITHUB_ACTION_PATH}/../../../scripts/bootstrap/install-cargo-cyclonedx.sh"
+        install_cargo_cyclonedx
+
+    - name: Write the container-first Cargo build SBOMs
+      shell: bash
+      env:
+        SBOM_VERSION: ${{ inputs.version }}
+        SBOM_ARTIFACTS_CONFIG: ${{ inputs.artifacts-config }}
+        SBOM_OUTPUT_DIR: ${{ inputs.output-dir }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=.engine/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../../.engine/bin/lib-forge-ci.sh"
+        if [ -z "${FORGE_CI_BIN:-}" ]; then fetch_forge_ci; fi
+        SIGNER_STRICT=1 verify_forge_ci
+        run_forge_ci sbom assemble \
+          --artifacts-config "${SBOM_ARTIFACTS_CONFIG:?artifacts-config is required}" \
+          --project-type cargo \
+          --version "${SBOM_VERSION:?version is required}" \
+          --output-dir "${SBOM_OUTPUT_DIR:?output-dir is required}"

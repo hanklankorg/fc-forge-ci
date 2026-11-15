@@ -198,6 +198,18 @@ jobs:
         env:
           CHECKOUT_REF: ${{ needs.prepare.outputs.release-sha }}
         run: forge-ci platform checkout
+      # Cargo for the build SBOM of the container-first artifact, which its
+      # Containerfile builds: forge-ci writes it from Cargo.lock, without
+      # building, into dist/sboms/.
+      - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-toolchain@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+        with:
+          cache-key-suffix: release-sbom
+          install-dev-tools: false
+          cache: 'false'
+          mise-locked: true
+      - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/sbom-cargo@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
+        with:
+          version: ${{ needs.prepare.outputs.release-tag }}
       - name: Declare release files
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.release-tag }}
@@ -209,7 +221,7 @@ jobs:
           if ! forge-ci release notes --changelog-file CHANGELOG.md --release-version "${RELEASE_TAG}" --target-file dist/release-notes.md; then
             forge-ci release notes --source-file /nonexistent --target-file dist/release-notes.md --release-version "${RELEASE_TAG}" --release-commit "${RELEASE_SHA}"
           fi
-          forge-ci release files declare --asset 'dist/linux-*/hello-worker-linux-*' --asset 'dist/linux-*/hello-keytool-linux-*'
+          forge-ci release files declare --asset 'dist/linux-*/hello-worker-linux-*' --asset 'dist/linux-*/hello-keytool-linux-*' --sbom 'dist/sboms/*'
       - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/upload-dist@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
         with:
           artifact-name: release-files

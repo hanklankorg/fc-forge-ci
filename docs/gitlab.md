@@ -712,7 +712,12 @@ android (Gradle Android); a family the plan uses needs its
 `runtime-image-<family>`, and `Check: release plan` refuses the release without it.
 A Cargo or Go artifact built `container-first` is built by its Containerfile
 (see [Files exported from a Containerfile](#files-exported-from-a-containerfile)),
-not by a family job, though it is still version-bumped.
+not by a family job, though it is still version-bumped. When its `sboms` keep
+the build layer, `SBOM: go` or `SBOM: rust` writes its build SBOM from the
+lockfile, running the engine alone in the family's runtime image, and hands
+it on in `dist/sboms/`: the build commands declare it with `--sbom
+'dist/sboms/*'`, and `rc_build_handoff` refuses a bundle without it. See
+[Container-first build SBOMs](sbom.md#container-first-build-sboms-on-every-forge).
 
 `Build: release files` then plans the release again, requires a hand-off
 from exactly the planned build jobs, lays every family's and export job's

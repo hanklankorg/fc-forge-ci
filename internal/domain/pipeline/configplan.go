@@ -165,8 +165,8 @@ func (a PlannedArtifact) ProducesBuildSBOM() bool {
 // BuildSBOMArtifacts are the names of the artifacts whose release build hands
 // over a build SBOM, in declaration order; nil when none does. A
 // container-first Go or Cargo artifact is built inside its image and has no
-// release build of its own: only GitHub writes its build SBOM, in a job apart
-// (sbom-go.yml, sbom-cargo.yml), which its release plan requires.
+// release build of its own: forge-ci writes its build SBOM in a job apart
+// (ContainerFirstBuildSBOMs).
 func (a ArtifactSets) BuildSBOMArtifacts() []string {
 	var names []string
 
@@ -177,6 +177,24 @@ func (a ArtifactSets) BuildSBOMArtifacts() []string {
 	}
 
 	return names
+}
+
+// ContainerFirstBuildSBOMs are the container-first Go and Cargo artifacts
+// whose layers keep the build layer, in declaration order; nil when there
+// are none. forge-ci writes each one's build SBOM from its lockfile, in a job
+// of its own, on every forge: sbom-go.yml and sbom-cargo.yml on GitHub,
+// "SBOM: go" and "SBOM: rust" on GitLab, the sbom-go and sbom-cargo actions
+// on Forgejo.
+func (a ArtifactSets) ContainerFirstBuildSBOMs() []PlannedArtifact {
+	var artifacts []PlannedArtifact
+
+	for _, artifact := range a.All {
+		if artifact.ProducesBuildSBOM() && artifact.containerFirst() {
+			artifacts = append(artifacts, artifact)
+		}
+	}
+
+	return artifacts
 }
 
 func (a PlannedArtifact) containerFirst() bool {

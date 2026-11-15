@@ -41,7 +41,7 @@ func TestPlanReleaseFamilies_NamesThePlannedFamiliesJobs(t *testing.T) {
 
 	prepare, build := monorepoRelease()
 
-	families, err := gitlabpipeline.PlanReleaseFamilies(prepare, build)
+	families, err := gitlabpipeline.PlanReleaseFamilies(prepare, build, nil)
 	require.NoError(t, err)
 	assert.Equal(t, gitlabpipeline.ReleaseFamilies{Version: []string{"java", "node"}, Build: []string{"java", "node", "go"}}, families)
 	assert.Equal(t, map[string]any{
@@ -59,7 +59,7 @@ func TestPlanReleaseFamilies_NamesThePlannedFamiliesJobs(t *testing.T) {
 	build.Targets.NPM.Items[0].PublishTo = []config.PublishTarget{config.PublishForgePackages}
 	build.Targets.Maven.Items[0].PublishTo = []config.PublishTarget{config.PublishForgePackages}
 	build.Targets.NPM.Items[0].WorkingDirectory = "web"
-	families, err = gitlabpipeline.PlanReleaseFamilies(prepare, build)
+	families, err = gitlabpipeline.PlanReleaseFamilies(prepare, build, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"web"}, families.Packages, "the project directories")
 	assert.Equal(t, map[string]any{"extends": ".forge-ci-release-publish-npm-packages"}, families.Jobs()["Publish: npm packages"])
@@ -67,7 +67,7 @@ func TestPlanReleaseFamilies_NamesThePlannedFamiliesJobs(t *testing.T) {
 
 	// A library the release would not publish is refused, not left out.
 	build.Targets.Maven.Items[0].BuildType = config.BuildTypeLibrary
-	_, err = gitlabpipeline.PlanReleaseFamilies(prepare, build)
+	_, err = gitlabpipeline.PlanReleaseFamilies(prepare, build, nil)
 	require.ErrorIs(t, err, errs.ErrUnsupported)
 	require.ErrorContains(t, err, `maven project "backend" lists forge-packages`)
 
@@ -79,7 +79,7 @@ func TestPlanReleaseFamilies_NamesThePlannedFamiliesJobs(t *testing.T) {
 
 	// A plan that does not bump runs no version job.
 	prepare.Targets.VersionBump.Runs = false
-	families, err = gitlabpipeline.PlanReleaseFamilies(prepare, build)
+	families, err = gitlabpipeline.PlanReleaseFamilies(prepare, build, nil)
 	require.NoError(t, err)
 	assert.Empty(t, families.Version)
 }
@@ -91,7 +91,7 @@ func TestReleaseFamilies_JobsOfNoFamilyIsOneHiddenKey(t *testing.T) {
 
 	prepare, build := pipeline.UndeclaredReleaseStagePlans()
 
-	families, err := gitlabpipeline.PlanReleaseFamilies(prepare, build)
+	families, err := gitlabpipeline.PlanReleaseFamilies(prepare, build, nil)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]any{".forge-ci-release-families": map[string]any{"script": []string{"true"}}}, families.Jobs())
 }
@@ -104,7 +104,7 @@ func TestPlanReleaseFamilies_RefusesWhatNoJobCanRun(t *testing.T) {
 	images := testRuntimeImages
 	images.Node = ""
 
-	families, err := gitlabpipeline.PlanReleaseFamilies(prepare, build)
+	families, err := gitlabpipeline.PlanReleaseFamilies(prepare, build, nil)
 	require.NoError(t, err)
 	require.NoError(t, families.RequireImages(testRuntimeImages))
 	err = families.RequireImages(images)
@@ -113,12 +113,12 @@ func TestPlanReleaseFamilies_RefusesWhatNoJobCanRun(t *testing.T) {
 
 	// The bump alone needs the family's image too.
 	build.Targets.NPM = pipeline.TargetPlan[pipeline.PlannedArtifact]{}
-	families, err = gitlabpipeline.PlanReleaseFamilies(prepare, build)
+	families, err = gitlabpipeline.PlanReleaseFamilies(prepare, build, nil)
 	require.NoError(t, err)
 	require.ErrorContains(t, families.RequireImages(images), "runtime-image-node")
 
 	build.Targets.XcodeIOS = runningTarget(pipeline.PlannedArtifact{Name: "app", ProjectType: projecttype.XcodeIOS, WorkingDirectory: "ios"})
-	_, err = gitlabpipeline.PlanReleaseFamilies(prepare, build)
+	_, err = gitlabpipeline.PlanReleaseFamilies(prepare, build, nil)
 	require.ErrorIs(t, err, errs.ErrUnsupported)
 }
 
@@ -207,4 +207,29 @@ func TestReleaseFamilyArtifacts_ListsTheFamilyPlannedArtifacts(t *testing.T) {
 
 	_, err = gitlabpipeline.ReleaseFamilyArtifacts(build, "python")
 	require.ErrorIs(t, err, errs.ErrUsage)
+}
+
+// A container-first artifact whose build SBOM forge-ci writes adds the SBOM
+// job of its family, which needs the family's runtime image though no build
+// job runs; a family with two such artifacts has one job.
+func TestPlanReleaseFamilies_NamesTheContainerFirstSBOMJobs(t *testing.T) {
+	t.Parallel()
+
+	families, err := gitlabpipeline.PlanReleaseFamilies(pipeline.ReleasePrepareStagePlan{}, pipeline.ReleaseBuildStagePlan{}, []pipeline.PlannedArtifact{
+		{Name: "worker", ProjectType: projecttype.Cargo},
+		{Name: "api", ProjectType: projecttype.Go},
+		{Name: "bff", ProjectType: projecttype.Cargo},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"go", "rust"}, families.SBOM)
+	assert.Equal(t, []string{"SBOM: go", "SBOM: rust"}, families.JobNames())
+	assert.Equal(t, map[string]any{
+		"SBOM: go":   map[string]any{"extends": ".forge-ci-release-sbom-go"},
+		"SBOM: rust": map[string]any{"extends": ".forge-ci-release-sbom-rust"},
+	}, families.Jobs())
+	require.ErrorIs(t, families.RequireImages(gitlabpipeline.RuntimeImages{Go: "go@sha256:0"}), errs.ErrUsage)
+	require.NoError(t, families.RequireImages(gitlabpipeline.RuntimeImages{Go: "go@sha256:0", Rust: "rust@sha256:0"}))
+
+	_, err = gitlabpipeline.PlanReleaseFamilies(pipeline.ReleasePrepareStagePlan{}, pipeline.ReleaseBuildStagePlan{}, []pipeline.PlannedArtifact{{Name: "app", ProjectType: projecttype.Maven}})
+	require.ErrorIs(t, err, errs.ErrInvalidConfig)
 }

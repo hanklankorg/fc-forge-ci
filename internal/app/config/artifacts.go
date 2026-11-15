@@ -410,6 +410,9 @@ type ReleaseStagePlans struct {
 	// BuildSBOMArtifacts are the artifacts whose builds hand over a build
 	// SBOM, nil without a declaration or without one.
 	BuildSBOMArtifacts []string
+	// ContainerFirstBuildSBOMs are the container-first artifacts whose build
+	// SBOM forge-ci writes, nil without a declaration or without one.
+	ContainerFirstBuildSBOMs []pipeline.PlannedArtifact
 }
 
 // LoadReleaseStagePlans plans the version bump and the builds of the
@@ -439,5 +442,7 @@ func LoadReleaseStagePlans(in EmitConfigPlanInput, annot output.Annotator, absen
 		return ReleaseStagePlans{}, err
 	}
 
-	return ReleaseStagePlans{Prepare: prepare, Build: build, DistroPackages: plan.DistroPackages, Sign: cfg.Sign, BuildSBOMArtifacts: plan.Artifacts.BuildSBOMArtifacts()}, nil
+	return ReleaseStagePlans{Prepare: prepare, Build: build, DistroPackages: plan.DistroPackages, Sign: cfg.Sign, BuildSBOMArtifacts: plan.Artifacts.BuildSBOMArtifacts(),
+		ContainerFirstBuildSBOMs: plan.Artifacts.ContainerFirstBuildSBOMs(),
+	}, nil
 }

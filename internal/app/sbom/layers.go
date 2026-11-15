@@ -193,7 +193,8 @@ func maybeGenerateBuildBOM(ctx context.Context, deps layerDeps, projectType proj
 		return files, nil
 	}
 
-	if genErr := deps.gen.GenerateBuildSBOM(ctx, projectType, ".", name, deps.stderr); genErr != nil {
+	// In the workspace, the --working-dir, not the job's directory.
+	if genErr := deps.gen.GenerateBuildSBOM(ctx, projectType, deps.ws.outputPath(root), name, deps.stderr); genErr != nil {
 		if errors.Is(genErr, errs.ErrUnsupported) {
 			return files, nil
 		}
@@ -277,6 +278,10 @@ func emitBuildBOMSource(deps layerDeps, root, src string, subj subject, spec bui
 	}
 
 	_, _ = fmt.Fprintf(deps.w, "   %s %s (harvested from %s, %s)\n", clicolor.Check(deps.w), out, srcPath, describeSubject(declared))
+
+	if deps.ws.generatedOutputs != nil {
+		deps.ws.generatedOutputs[deps.ws.outputPath(out)] = true
+	}
 
 	return nil
 }

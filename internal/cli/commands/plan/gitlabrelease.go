@@ -50,7 +50,9 @@ func gitlabReleasePipelineCmd() *cli.Command {
                           one "Prepare: version <family>" job per toolchain
                           family whose projects the plan bumps with their
                           native tool, one "Build: <family>" job per family it
-                          builds, and "Publish: npm packages" when an npm
+                          builds, one "SBOM: <family>" job per family of the
+                          container-first artifacts whose build SBOM forge-ci
+                          writes, and "Publish: npm packages" when an npm
                           project lists forge-packages. Each extends its
                           hidden job in templates/release-jobs.yml and carries
                           nothing else.
@@ -204,7 +206,7 @@ func writeVersionProjectType(path string, prepare pipeline.ReleasePrepareStagePl
 // writeReleaseFamilies writes the generated family jobs, which need each
 // planned family's runtime image, and their names, which do not.
 func writeReleaseFamilies(cmd *cli.Command, plans appconfig.ReleaseStagePlans) error {
-	families, err := gitlabpipeline.PlanReleaseFamilies(plans.Prepare, plans.Build)
+	families, err := gitlabpipeline.PlanReleaseFamilies(plans.Prepare, plans.Build, plans.ContainerFirstBuildSBOMs)
 	if err != nil {
 		return err
 	}

@@ -3216,7 +3216,9 @@ Plans the release's version bump and builds from the declaration, as
                           one "Prepare: version <family>" job per toolchain
                           family whose projects the plan bumps with their
                           native tool, one "Build: <family>" job per family it
-                          builds, and "Publish: npm packages" when an npm
+                          builds, one "SBOM: <family>" job per family of the
+                          container-first artifacts whose build SBOM forge-ci
+                          writes, and "Publish: npm packages" when an npm
                           project lists forge-packages. Each extends its
                           hidden job in templates/release-jobs.yml and carries
                           nothing else.
@@ -4418,8 +4420,10 @@ The release's artifacts.yml (--artifacts-config, by default
 build hands over a build SBOM: a Maven, npm, Gradle or Android artifact, or an
 artifact-first Go or Cargo one, whose sboms keep the build layer. A manifest
 that then declares no SBOM is refused. An Xcode, Python or meta artifact, a
-docs or script project, writes none and needs none; a container-first Go or
-Cargo artifact is built inside its image and hands over none.
+docs or script project, writes none and needs none. A container-first Go or
+Cargo artifact is built inside its image: forge-ci writes its build SBOM from
+the lockfile (sbom assemble --artifacts-config), and the SBOM bundle must hold
+it, named <artifact>-<version>[-<sha>]-build-sbom.cyclonedx.json.
 ```
 
 | Flag | Description | Type | Default | Env vars |
@@ -5349,6 +5353,17 @@ EXAMPLES:
    forge-ci sbom assemble --project-type=go \
        --layers=build,analyzed-container \
        --container-image=ghcr.io/examplescope/myapp:v1.2.3
+
+   # The build SBOMs of the release's container-first Cargo artifacts, from
+   # their lockfiles, into dist/sboms/ for release files declare --sbom
+   forge-ci sbom assemble --artifacts-config .forge-ci/artifacts.yml \
+       --project-type=cargo --version "${RELEASE_TAG}" --output-dir dist/sboms
+
+With --artifacts-config, writes the build SBOM of every container-first
+artifact of --project-type (go or cargo) the declaration plans one for, as
+GitHub's sbom-go.yml and sbom-cargo.yml do, on a runner with that toolchain:
+each named <artifact>-<version>-<sha>-build-sbom.cyclonedx.json in
+--output-dir. The release refuses an SBOM bundle without them.
 ```
 
 | Flag | Description | Type | Default | Env vars |
@@ -5362,6 +5377,8 @@ EXAMPLES:
 | `--plan` | typed config-plan JSON: assemble one layer set per artifact in the plan (from "config parse-artifacts") | string | `""` | `$CONFIG_PLAN_JSON` |
 | `--acquisition-dir` | plan mode: use only this fresh producer tree for build BOMs, artifact scans, and generated outputs; requires --version | string | `""` | `$ACQUISITION_DIR` |
 | `--sboms` | plan mode: sboms enum ("all", "build,source", …) selecting which layers to produce per artifact | string | `"all"` | `$SBOMS` |
+| `--artifacts-config` | container-first mode: the release's artifacts.yml; writes the build SBOM of each container-first artifact of --project-type it plans one for | string | `""` | n/a |
+| `--output-dir` | container-first mode: directory the build SBOMs are written to | string | `""` | n/a |
 | `--image-name` | container mode: base image name without tag/digest; with --image-digest forms the syft target | string | `""` | `$IMAGE_NAME` |
 | `--image-digest` | container mode: sha256:… digest pinning the exact image manifest | string | `""` | `$IMAGE_DIGEST` |
 | `--artifact-types` | container mode: ecosystems embedded in the multi-artifact container SBOM | string | `""` | `$ARTIFACT_TYPES` |

@@ -306,6 +306,27 @@ rc_family_handoff() {
   done
 }
 
+# rc_container_first_sboms writes, from the release commit, the build SBOM
+# of each container-first artifact of one family the declaration plans one
+# for, from its lockfile, and hands them to the release files job under
+# dist/sboms/, where the build commands declare them with --sbom. The
+# engine runs alone: no build command of the project.
+rc_container_first_sboms() {
+  local family=$1 type handoff="${CI_PROJECT_DIR}/_release-sbom-$1"
+  case "${family}" in
+    go) type=go ;;
+    rust) type=cargo ;;
+    *)
+      echo "ERROR: no container-first build SBOM is written for the ${family} family." >&2
+      return 1
+      ;;
+  esac
+  rc_release_checkout || return
+  rc_new_handoff "${handoff}" || return
+  rc_engine sbom assemble --artifacts-config "${RC_ARTIFACTS_CONFIG:-.forge-ci/artifacts.yml}" \
+    --project-type "${type}" --version "${RELEASE_TAG:?}" --output-dir "${handoff}/dist/sboms"
+}
+
 # rc_planned_jobs writes the names of the release child's plan-driven jobs,
 # one a line, to $1, planned again from the checkout as "Check: release plan"
 # planned them.
@@ -313,32 +334,39 @@ rc_planned_jobs() {
   rc_release_plan --job-names-output "$1"
 }
 
-# rc_gather_families lays every family build's dist/ and image-context/ into
-# the release files job's, refusing a path two of them, or the checkout,
-# both hold. The hand-offs must be exactly the planned build jobs', so a
-# child that diverged from the plan cannot skip a build. The build commands
-# then run with no family.
+# rc_gather_families lays every family build's dist/ and image-context/,
+# and every SBOM job's dist/, into the release files job's, refusing a path
+# two of them, or the checkout, both hold. The hand-offs must be exactly the
+# planned build and SBOM jobs', so a child that diverged from the plan
+# cannot skip a build or an SBOM. The build commands then run with no family.
 rc_gather_families() {
-  local tree family planned handoff
+  local tree family job planned handoff
   local -a sources
   rc_planned_jobs "${RC_WORK:?}/planned-jobs" || return
-  for family in java node go rust android; do
-    planned=false handoff="${CI_PROJECT_DIR}/_release-build-${family}"
-    if grep -qxF "Build: ${family}" "${RC_WORK}/planned-jobs"; then planned=true; fi
-    if [ "${planned}" = true ] && { [ ! -d "${handoff}" ] || [ -L "${handoff}" ]; }; then
-      echo "ERROR: the plan builds the ${family} family, but \"Build: ${family}\" handed nothing on." >&2
-      return 1
-    fi
-    if [ "${planned}" = false ] && { [ -e "${handoff}" ] || [ -L "${handoff}" ]; }; then
-      echo "ERROR: \"Build: ${family}\" handed files on, but the plan builds no ${family} family." >&2
-      return 1
-    fi
+  for job in build:Build sbom:SBOM; do
+    for family in java node go rust android; do
+      planned=false handoff="${CI_PROJECT_DIR}/_release-${job%%:*}-${family}"
+      if grep -qxF "${job#*:}: ${family}" "${RC_WORK}/planned-jobs"; then planned=true; fi
+      if [ "${planned}" = true ] && { [ ! -d "${handoff}" ] || [ -L "${handoff}" ]; }; then
+        echo "ERROR: the plan runs \"${job#*:}: ${family}\", which handed nothing on." >&2
+        return 1
+      fi
+      if [ "${planned}" = false ] && { [ -e "${handoff}" ] || [ -L "${handoff}" ]; }; then
+        echo "ERROR: \"${job#*:}: ${family}\" handed files on, but the plan does not run it." >&2
+        return 1
+      fi
+    done
   done
   for tree in dist image-context; do
     sources=()
     for family in java node go rust android; do
       sources+=(--source "${CI_PROJECT_DIR}/_release-build-${family}/${tree}")
     done
+    if [ "${tree}" = dist ]; then
+      for family in go rust; do
+        sources+=(--source "${CI_PROJECT_DIR}/_release-sbom-${family}/dist")
+      done
+    fi
     rc_engine release gather-exports --allow-missing --path "${tree}" "${sources[@]}" || return
   done
   export FORGE_CI_BUILD_FAMILY='' FORGE_CI_ARTIFACTS=''

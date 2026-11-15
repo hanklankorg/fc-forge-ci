@@ -127,6 +127,12 @@ type ValidateReleaseFileManifestInput struct {
 	// build SBOM (pipeline.ArtifactSets.BuildSBOMArtifacts): a manifest that
 	// then declares no SBOM is refused. Empty checks nothing.
 	BuildSBOMArtifacts []string
+
+	// ContainerFirstBuildSBOMs are the container-first artifacts whose build
+	// SBOM forge-ci writes (pipeline.ArtifactSets.ContainerFirstBuildSBOMs):
+	// the SBOM bundle must hold each one's, by its release name. Empty checks
+	// nothing.
+	ContainerFirstBuildSBOMs []string
 }
 
 // WriteReleaseFileManifestInput drives WriteReleaseFileManifest.
@@ -489,6 +495,10 @@ func ValidateReleaseFileManifest(in ValidateReleaseFileManifestInput) error {
 	if len(in.BuildSBOMArtifacts) != 0 && len(manifest.SBOMs) == 0 {
 		return fmt.Errorf("the declaration plans a build SBOM for %s, and the release file manifest %s declares no SBOM: declare the build's SBOM with `release files declare --sbom`, or give GoReleaser an sboms section; an artifact without one sets sboms in artifacts.yml: %w",
 			strings.Join(in.BuildSBOMArtifacts, ", "), ctx.manifestFile, errs.ErrValidation)
+	}
+
+	if err := requireContainerFirstBuildSBOMs(ctx, manifest, in.ContainerFirstBuildSBOMs); err != nil {
+		return err
 	}
 
 	if in.Unsigned {

@@ -169,7 +169,7 @@ jobs:
           mise-github-token: ${{ secrets.DEPENDENCY_GITHUB_TOKEN }}
           # Release isolation: no cache in token-bearing release jobs.
           cache: "false"
-      # Tests, Build SBOM and one binary per platform, as
+      # Tests and one binary per platform, as
       # dist/<os>-<arch>/<name>-<os>-<arch>. The version and the commit are the
       # prepared release's: the runner's own ref and commit are the request's.
       - name: Build
@@ -181,6 +181,14 @@ jobs:
           # FIXME: match the service's main Go package.
           main-package: ./cmd/my-service
           platforms: linux/amd64,linux/arm64
+          # The service is container-first: its build SBOM is the one below.
+          enable-build-sbom: 'false'
+      # The build SBOM of the container-first service, as on every forge:
+      # forge-ci writes it from go.mod and go.sum into dist/sboms/.
+      - name: Build SBOM
+        uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/sbom-go@2f4e845cee96973d1082bf00a5a18689c1482148
+        with:
+          version: ${{ needs.prepare.outputs.release-tag }}
       - name: Prepare the image context
         run: |
           set -euo pipefail
@@ -210,15 +218,14 @@ jobs:
           RELEASE_SHA: ${{ needs.prepare.outputs.release-sha }}
         run: |
           set -euo pipefail
-          cp -- ".forge-ci/go-build-sbom/${ARTIFACT_NAME}/bom.json" "dist/${ARTIFACT_NAME}.cdx.json"
           forge-ci release notes \
             --source-file release-notes.md \
             --target-file dist/release-notes.md \
             --release-version "${RELEASE_TAG}" \
             --release-commit "${RELEASE_SHA}"
           forge-ci release files declare \
-            --asset 'dist/*/*' \
-            --sbom "dist/${ARTIFACT_NAME}.cdx.json"
+            --asset 'dist/linux-*/*' \
+            --sbom 'dist/sboms/*'
       - name: Upload dist/ with hand-off digest
         id: dist
         uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/upload-dist@2f4e845cee96973d1082bf00a5a18689c1482148

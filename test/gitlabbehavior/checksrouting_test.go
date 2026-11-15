@@ -110,10 +110,14 @@ func TestReleaseChecksRoutingAndPreparationBarrier(t *testing.T) {
 		t.Fatalf("release preparation lost the checks, changelog or optional version barrier: %+v", prepare)
 	}
 
-	if family := jobs[".forge-ci-release-build-family"]; !reflect.DeepEqual(family.Needs, []any{
-		map[string]any{"job": "Prepare: release commit and tag", "artifacts": false},
-	}) || family.Tags != "$[[ inputs.build-runner-tags-linux-amd64 ]]" || len(family.Rules) != 0 {
-		t.Fatalf("a family build bypasses gated release preparation: %+v", family)
+	// A family build runs build commands, on the build runner; an SBOM job
+	// runs the engine alone, on runner-tags.
+	for hidden, tags := range map[string]string{".forge-ci-release-build-family": "$[[ inputs.build-runner-tags-linux-amd64 ]]", ".forge-ci-release-sbom-family": ""} {
+		if family := jobs[hidden]; !reflect.DeepEqual(family.Needs, []any{
+			map[string]any{"job": "Prepare: release commit and tag", "artifacts": false},
+		}) || family.Tags != tags || len(family.Rules) != 0 {
+			t.Fatalf("%s bypasses gated release preparation: %+v", hidden, family)
+		}
 	}
 
 	buildNeeds := make([]any, 0, 3+len(families["build"]))
@@ -127,11 +131,16 @@ func TestReleaseChecksRoutingAndPreparationBarrier(t *testing.T) {
 		buildNeeds = append(buildNeeds, map[string]any{"job": "Build: " + family, "artifacts": true, "optional": true})
 	}
 
+	// The container-first build SBOMs, which no family build writes.
+	for _, family := range []string{"go", "rust"} {
+		buildNeeds = append(buildNeeds, map[string]any{"job": "SBOM: " + family, "artifacts": true, "optional": true})
+	}
+
 	// With base stages, the files wait for every base's promotion.
 	buildNeeds = append(buildNeeds, map[string]any{"job": "Base: all promoted", "artifacts": true, "optional": true})
 
 	if !reflect.DeepEqual(jobs["Build: release files"].Needs, buildNeeds) {
-		t.Fatal("build bypasses gated release preparation or a family build")
+		t.Fatal("build bypasses gated release preparation, a family build or an SBOM job")
 	}
 
 	for _, arch := range []string{"amd64", "arm64"} {

@@ -333,6 +333,7 @@ alone. Each `action.yml` documents its own inputs and outputs.
 | `setup-toolchain` | Installs the consumer's pinned tools with mise, verified and cache-aware. |
 | `lint-nanolinter` | The pull-request lint gate: the repository's nanolinter plan with a mandated floor. |
 | `build-go`, `build-cargo` | The build step of the consumer's job: tests, Build SBOM and one binary per platform. |
+| `sbom-go`, `sbom-cargo` | The build SBOMs of the container-first artifacts, which their Containerfiles build: written from the lockfile into `dist/sboms/`, for `release files declare --sbom 'dist/sboms/*'`. See [Container-first build SBOMs](sbom.md#container-first-build-sboms-on-every-forge). |
 | `build-goreleaser` | The build step of a GoReleaser release: packages the prepared release unsigned and imports its manifest. See [Unsigned GoReleaser handoff](#unsigned-goreleaser-handoff). |
 | `build-maven` | The build step of a Maven consumer's job: tests, the jar and the Build SBOM, as GitHub's `build-maven` workflow builds them, after checking that the POM declares the release version. |
 | `guard-release-tag`, `generate-changelog`, `prepare-release` | The steps `prepare-release.yml` is made of, with rendering and signing in separate jobs. Call the workflow; see [The prepare job](#the-prepare-job). |

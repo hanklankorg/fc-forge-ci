@@ -115,24 +115,40 @@ func TestUnsignedManifestEvidenceRefusalsPreserveOriginal(t *testing.T) {
 // A hand-off whose declaration plans a build SBOM declares at least one;
 // one that plans none needs none.
 func TestValidateReleaseFileManifestHoldsPlannedBuildSBOMs(t *testing.T) {
+	const (
+		svc     = "dist/sboms/svc-1.2.3-0123abcd-build-sbom.cyclonedx.json"
+		svcCore = "dist/sboms/svc-core-1.2.3-0123abcd-build-sbom.cyclonedx.json"
+	)
+
 	for name, test := range map[string]struct {
-		sboms   []string
-		planned []string
-		want    string
+		sboms          []string
+		planned        []string
+		containerFirst []string
+		want           string
 	}{
 		"planned and declared": {sboms: []string{"dist/app.cdx.json"}, planned: []string{"app"}},
 		"planned, none":        {planned: []string{"app", "lib"}, want: "plans a build SBOM for app, lib"},
 		"nothing planned":      {},
+		// The build SBOMs forge-ci writes are held by name, beside a build's.
+		"container-first, written":    {sboms: []string{"dist/app.cdx.json", svc, svcCore}, planned: []string{"app"}, containerFirst: []string{"svc", "svc-core"}},
+		"container-first, none":       {containerFirst: []string{"svc"}, want: "no build SBOM of the container-first svc"},
+		"container-first, another's":  {sboms: []string{"dist/app.cdx.json"}, containerFirst: []string{"svc"}, want: "container-first svc:"},
+		"container-first, the longer": {sboms: []string{svcCore}, containerFirst: []string{"svc", "svc-core"}, want: "container-first svc:"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Chdir(t.TempDir())
 			writeReleaseFilesTestFile(t, "dist/app.tar.gz", "archive")
-			writeReleaseFilesTestFile(t, "dist/app.cdx.json", `{"bomFormat":"CycloneDX","specVersion":"1.6"}`)
+
+			for _, file := range []string{"dist/app.cdx.json", svc, svcCore} {
+				writeReleaseFilesTestFile(t, file, `{"bomFormat":"CycloneDX","specVersion":"1.6"}`)
+			}
 
 			_, err := apprelease.DeclareReleaseFiles(apprelease.DeclareReleaseFilesInput{SBOMBundleNaming: testSBOMBundleNaming, Assets: []string{"dist/app.tar.gz"}, SBOMs: test.sboms})
 			require.NoError(t, err)
 
-			err = apprelease.ValidateReleaseFileManifest(apprelease.ValidateReleaseFileManifestInput{Unsigned: true, BuildSBOMArtifacts: test.planned})
+			err = apprelease.ValidateReleaseFileManifest(apprelease.ValidateReleaseFileManifestInput{
+				Unsigned: true, BuildSBOMArtifacts: test.planned, ContainerFirstBuildSBOMs: test.containerFirst,
+			})
 			if test.want == "" {
 				require.NoError(t, err)
 

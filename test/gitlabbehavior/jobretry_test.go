@@ -29,7 +29,7 @@ var retriedJobs = map[string][]string{
 	"templates/release-jobs.yml": {
 		"Check: signing access", "Check: publishing access", "Check: registry access",
 		"Check: release request", "Check: consumer checks", "Prepare: changelog",
-		".forge-ci-release-version", ".forge-ci-release-build-family", "Build: release files",
+		".forge-ci-release-version", ".forge-ci-release-build-family", ".forge-ci-release-sbom-family", "Build: release files",
 		".forge-ci-release-base-plan", ".forge-ci-release-base-parent", ".forge-ci-release-base-build",
 		".forge-ci-release-base-gate", ".forge-ci-release-exports", "Build: export amd64", "Build: export arm64",
 		"Images: plan", "Images: build amd64", "Images: build arm64", "Summary: release",

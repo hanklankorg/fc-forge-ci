@@ -18,6 +18,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/cli/cienv"
 	"github.com/diggsweden/forge-ci/internal/cli/deps"
 	"github.com/diggsweden/forge-ci/internal/cliio"
+	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
 	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 )
 
@@ -282,8 +283,10 @@ The release's artifacts.yml (--artifacts-config, by default
 build hands over a build SBOM: a Maven, npm, Gradle or Android artifact, or an
 artifact-first Go or Cargo one, whose sboms keep the build layer. A manifest
 that then declares no SBOM is refused. An Xcode, Python or meta artifact, a
-docs or script project, writes none and needs none; a container-first Go or
-Cargo artifact is built inside its image and hands over none.`,
+docs or script project, writes none and needs none. A container-first Go or
+Cargo artifact is built inside its image: forge-ci writes its build SBOM from
+the lockfile (sbom assemble --artifacts-config), and the SBOM bundle must hold
+it, named <artifact>-<version>[-<sha>]-build-sbom.cyclonedx.json.`,
 		Flags: append(releaseFilesFlags(),
 			&cli.BoolFlag{Name: "unsigned", Usage: "require the unsigned hand-off state: no declared provenance or signature, and no provenance statement or signature of a declared file in the dist"},
 			&cli.StringFlag{Name: flagArtifactsConfig, Usage: "artifacts.yml of the release, whose artifacts with a build SBOM need one in the manifest (default: .forge-ci/artifacts.yml, which may be absent)"},
@@ -300,9 +303,10 @@ Cargo artifact is built inside its image and hands over none.`,
 			}
 
 			if err := apprelease.ValidateReleaseFileManifest(apprelease.ValidateReleaseFileManifestInput{
-				FilesInput:         releaseFilesInput(cmd),
-				Unsigned:           cmd.Bool("unsigned"),
-				BuildSBOMArtifacts: plans.BuildSBOMArtifacts,
+				FilesInput:               releaseFilesInput(cmd),
+				Unsigned:                 cmd.Bool("unsigned"),
+				BuildSBOMArtifacts:       plans.BuildSBOMArtifacts,
+				ContainerFirstBuildSBOMs: plannedNames(plans.ContainerFirstBuildSBOMs),
 			}); err != nil {
 				return err
 			}
@@ -397,4 +401,13 @@ func writeJSON(path string, value any) error {
 	}
 
 	return cliio.WriteFile(path, body, 0o644)
+}
+
+func plannedNames(artifacts []pipeline.PlannedArtifact) []string {
+	var names []string
+	for _, artifact := range artifacts {
+		names = append(names, artifact.Name)
+	}
+
+	return names
 }

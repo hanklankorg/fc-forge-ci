@@ -1296,7 +1296,7 @@ type gitLabReleaseRunnerRole struct {
 }
 
 func gitLabReleaseRunnerRoles(buildTags, runnerTags []string, images, exports bool, baseStages string, plans appconfig.ReleaseStagePlans) (map[string]gitLabReleaseRunnerRole, error) {
-	families, err := gitlabpipeline.PlanReleaseFamilies(plans.Prepare, plans.Build)
+	families, err := gitlabpipeline.PlanReleaseFamilies(plans.Prepare, plans.Build, plans.ContainerFirstBuildSBOMs)
 	if err != nil {
 		return nil, err
 	}

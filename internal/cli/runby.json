@@ -161,7 +161,7 @@
   "report status quality-check": [".github/workflows/pullrequest-quality-stage.yml"],
   "report status sbom-count": [".github/workflows/sbom-cargo.yml",".github/workflows/sbom-go.yml"],
   "report swift-lint": [".github/workflows/lint-swift.yml"],
-  "sbom assemble": [".github/workflows/publish-container.yml",".github/workflows/release-create-github.yml",".github/workflows/release-snapshot-publish-stage.yml",".github/workflows/self-runtime-container.yml"],
+  "sbom assemble": [".forgejo/actions/sbom-cargo",".forgejo/actions/sbom-go",".github/workflows/publish-container.yml",".github/workflows/release-create-github.yml",".github/workflows/release-snapshot-publish-stage.yml",".github/workflows/self-runtime-container.yml"],
   "sbom build": [".github/workflows/sbom-cargo.yml",".github/workflows/sbom-go.yml"],
   "security report enrich-sarif": [".github/workflows/lint-megalinter.yml",".github/workflows/lint-nanolinter.yml"],
   "security report to-gitlab-sast": ["templates/megalinter.yml","templates/nanolinter.yml"],

@@ -348,7 +348,8 @@ func names(artifacts []pipeline.PlannedArtifact) []string {
 // The artifacts whose release build hands over a build SBOM are the ones of a
 // type that writes one, whose SBOM layers keep the build layer, built outside
 // an image: a docs or script project, an Xcode app, an artifact without the
-// build layer and a container-first service hand over none.
+// build layer and a container-first service hand over none. forge-ci writes
+// the build SBOM of a container-first service that keeps the layer.
 func TestArtifactSets_BuildSBOMArtifacts(t *testing.T) {
 	t.Parallel()
 
@@ -364,17 +365,29 @@ func TestArtifactSets_BuildSBOMArtifacts(t *testing.T) {
 			{Name: "go-service", ProjectType: projecttype.Go, Go: &config.GoConfig{BuildMode: config.GoBuildModeContainerFirst}},
 			{Name: "tool", ProjectType: projecttype.Cargo, Cargo: &config.CargoConfig{BuildMode: config.CargoBuildModeArtifactFirst}},
 			{Name: "cli", ProjectType: projecttype.Go},
+			{Name: "unscanned-service", ProjectType: projecttype.Go, SBOMs: "none", Go: &config.GoConfig{BuildMode: config.GoBuildModeContainerFirst}},
 		},
 	}
 	if err := config.Derive(cfg); err != nil {
 		t.Fatal(err)
 	}
 
-	if got, want := pipeline.NewConfigPlan(cfg).Artifacts.BuildSBOMArtifacts(), []string{"app", "tool", "cli"}; !slices.Equal(got, want) {
+	sets := pipeline.NewConfigPlan(cfg).Artifacts
+	if got, want := sets.BuildSBOMArtifacts(), []string{"app", "tool", "cli"}; !slices.Equal(got, want) {
 		t.Errorf("build SBOM artifacts = %q, want %q", got, want)
 	}
 
-	if got := pipeline.NewConfigPlan(&config.Config{}).Artifacts.BuildSBOMArtifacts(); got != nil {
-		t.Errorf("without artifacts: %q, want none", got)
+	var containerFirst []string
+	for _, artifact := range sets.ContainerFirstBuildSBOMs() {
+		containerFirst = append(containerFirst, artifact.Name)
+	}
+
+	if want := []string{"service", "go-service"}; !slices.Equal(containerFirst, want) {
+		t.Errorf("container-first build SBOMs = %q, want %q", containerFirst, want)
+	}
+
+	empty := pipeline.NewConfigPlan(&config.Config{}).Artifacts
+	if got, gotContainerFirst := empty.BuildSBOMArtifacts(), empty.ContainerFirstBuildSBOMs(); got != nil || gotContainerFirst != nil {
+		t.Errorf("without artifacts: %q and %v, want none", got, gotContainerFirst)
 	}
 }

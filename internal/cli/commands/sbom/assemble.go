@@ -14,9 +14,11 @@ import (
 	"github.com/diggsweden/forge-ci/internal/adapters/git"
 	"github.com/diggsweden/forge-ci/internal/adapters/maven"
 	"github.com/diggsweden/forge-ci/internal/adapters/syft"
+	appconfig "github.com/diggsweden/forge-ci/internal/app/config"
 	apprelease "github.com/diggsweden/forge-ci/internal/app/release"
 	appsbom "github.com/diggsweden/forge-ci/internal/app/sbom"
 	"github.com/diggsweden/forge-ci/internal/cli/cienv"
+	"github.com/diggsweden/forge-ci/internal/cli/deps"
 	"github.com/diggsweden/forge-ci/internal/cli/signflags"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
@@ -53,7 +55,18 @@ EXAMPLES:
    # required whenever the analyzed-container layer is requested)
    forge-ci sbom assemble --project-type=go \
        --layers=build,analyzed-container \
-       --container-image=ghcr.io/examplescope/myapp:v1.2.3`,
+       --container-image=ghcr.io/examplescope/myapp:v1.2.3
+
+   # The build SBOMs of the release's container-first Cargo artifacts, from
+   # their lockfiles, into dist/sboms/ for release files declare --sbom
+   forge-ci sbom assemble --artifacts-config .forge-ci/artifacts.yml \
+       --project-type=cargo --version "${RELEASE_TAG}" --output-dir dist/sboms
+
+With --artifacts-config, writes the build SBOM of every container-first
+artifact of --project-type (go or cargo) the declaration plans one for, as
+GitHub's sbom-go.yml and sbom-cargo.yml do, on a runner with that toolchain:
+each named <artifact>-<version>-<sha>-build-sbom.cyclonedx.json in
+--output-dir. The release refuses an SBOM bundle without them.`,
 		Flags: append([]cli.Flag{
 			&cli.StringFlag{Name: "project-type", Value: string(projecttype.Auto), Usage: "ecosystem driving the syft scan (auto/maven/gradle/npm/go/cargo/…)"},
 			&cli.StringFlag{Name: "layers", Value: "all", Usage: "comma/space/newline-separated CISA layers to assemble: all | build | analyzed-artifact | analyzed-container (\"all\" = every layer)"},
@@ -65,6 +78,9 @@ EXAMPLES:
 			&cli.StringFlag{Name: "plan", Sources: cli.EnvVars("CONFIG_PLAN_JSON"), Usage: "typed config-plan JSON: assemble one layer set per artifact in the plan (from \"config parse-artifacts\")"},
 			&cli.StringFlag{Name: "acquisition-dir", Sources: cli.EnvVars("ACQUISITION_DIR"), Usage: "plan mode: use only this fresh producer tree for build BOMs, artifact scans, and generated outputs; requires --version"},
 			&cli.StringFlag{Name: "sboms", Value: "all", Sources: cli.EnvVars("SBOMS"), Usage: "plan mode: sboms enum (\"all\", \"build,source\", …) selecting which layers to produce per artifact"},
+			// Container-first mode: the build SBOMs forge-ci writes itself.
+			&cli.StringFlag{Name: "artifacts-config", Usage: "container-first mode: the release's artifacts.yml; writes the build SBOM of each container-first artifact of --project-type it plans one for"},
+			&cli.StringFlag{Name: "output-dir", Usage: "container-first mode: directory the build SBOMs are written to"},
 			// Multi-artifact container mode (was `sbom generate container`).
 			&cli.StringFlag{Name: "image-name", Sources: cli.EnvVars("IMAGE_NAME"), Usage: "container mode: base image name without tag/digest; with --image-digest forms the syft target"},
 			&cli.StringFlag{Name: "image-digest", Sources: cli.EnvVars("IMAGE_DIGEST"), Usage: "container mode: sha256:… digest pinning the exact image manifest"},
@@ -104,7 +120,8 @@ EXAMPLES:
 }
 
 // runAssembleMode dispatches the assemble mode by the flags/env present, in
-// precedence order: --plan → per-artifact matrix; --image-name/-digest →
+// precedence order: --artifacts-config → the container-first build SBOMs;
+// --plan → per-artifact matrix; --image-name/-digest →
 // multi-artifact container; otherwise → single-project assembly.
 func runAssembleMode(ctx context.Context, cmd *cli.Command) error {
 	// This verb can hold a signing key for --sign; syft runs with only the
@@ -112,6 +129,20 @@ func runAssembleMode(ctx context.Context, cmd *cli.Command) error {
 	scanner := syft.New()
 
 	switch {
+	case cmd.String("artifacts-config") != "":
+		plans, err := appconfig.LoadReleaseStagePlans(appconfig.EmitConfigPlanInput{Path: cmd.String("artifacts-config")}, deps.Annotator(cmd), false)
+		if err != nil {
+			return err
+		}
+
+		_, err = appsbom.ContainerFirstBuildSBOMs(ctx, git.New(), buildSBOMGenerator{}, os.Stderr, os.Stderr, appsbom.ContainerFirstBuildSBOMsInput{
+			Artifacts:   plans.ContainerFirstBuildSBOMs,
+			ProjectType: projecttype.Type(cmd.String("project-type")),
+			Version:     cmd.String("version"),
+			OutputDir:   cmd.String("output-dir"),
+		})
+
+		return err
 	case cmd.String("plan") != "":
 		return appsbom.GenerateArtifacts(ctx, scanner, maven.New(), git.New(), os.Stderr, os.Stderr, appsbom.GenerateArtifactsInput{
 			ConfigPlanJSON: cmd.String("plan"),

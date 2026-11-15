@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -139,9 +140,10 @@ func requireMode(t *testing.T, path string, mode os.FileMode) {
 	}
 }
 
-// "Build: release files" gathers exactly the planned build jobs' hand-offs: a
-// planned family that handed nothing on, or files from a family the plan
-// does not build, stops the release before the declaring build runs.
+// "Build: release files" gathers exactly the planned build and SBOM jobs'
+// hand-offs: a planned job that handed nothing on, or files from a job the
+// plan does not run, stops the release before the declaring build runs. An
+// SBOM job's dist/ is laid into the release files' dist/.
 func TestReleaseFilesGatherExactlyThePlannedFamilies(t *testing.T) {
 	t.Parallel()
 
@@ -151,16 +153,18 @@ func TestReleaseFilesGatherExactlyThePlannedFamilies(t *testing.T) {
 		handoffs []string
 		refusal  string
 	}{
-		"as planned":                  {handoffs: []string{"java"}},
-		"a planned build is gone":     {refusal: `the plan builds the java family, but "Build: java" handed nothing on`},
-		"an unplanned family's files": {handoffs: []string{"java", "node"}, refusal: `"Build: node" handed files on, but the plan builds no node family`},
+		"as planned":                  {handoffs: []string{"build-java", "sbom-rust"}},
+		"a planned build is gone":     {handoffs: []string{"sbom-rust"}, refusal: `the plan runs "Build: java", which handed nothing on`},
+		"a planned SBOM is gone":      {handoffs: []string{"build-java"}, refusal: `the plan runs "SBOM: rust", which handed nothing on`},
+		"an unplanned family's files": {handoffs: []string{"build-java", "sbom-rust", "build-node"}, refusal: `"Build: node" handed files on, but the plan does not run it`},
+		"an unplanned SBOM's files":   {handoffs: []string{"build-java", "sbom-rust", "sbom-go"}, refusal: `"SBOM: go" handed files on, but the plan does not run it`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			dir := t.TempDir()
-			for _, family := range scenario.handoffs {
-				if err := os.Mkdir(filepath.Join(dir, "_release-build-"+family), 0o700); err != nil {
+			for _, job := range scenario.handoffs {
+				if err := os.Mkdir(filepath.Join(dir, "_release-"+job), 0o700); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -168,13 +172,13 @@ func TestReleaseFilesGatherExactlyThePlannedFamilies(t *testing.T) {
 			ctx := commandContext(t)
 
 			command := exec.CommandContext(ctx, componentBash(t), "--noprofile", "--norc", "-eu", "-c",
-				`source "$1"; rc_engine() { printf 'engine %s\n' "$*"; }; rc_planned_jobs() { printf 'Prepare: version java\nBuild: java\n' >"$1"; }; rc_gather_families`,
+				`source "$1"; rc_engine() { printf 'engine %s\n' "$*"; }; rc_planned_jobs() { printf 'Prepare: version java\nBuild: java\nSBOM: rust\n' >"$1"; }; rc_gather_families`,
 				"gather", script)
 			command.Env = []string{"PATH=/usr/bin:/bin", "CI_PROJECT_DIR=" + dir, "RC_WORK=" + t.TempDir()}
 
 			out, err := command.CombinedOutput()
 			if scenario.refusal == "" {
-				if err != nil || !strings.Contains(string(out), "engine release gather-exports") {
+				if err != nil || !strings.Contains(string(out), "--source "+dir+"/_release-sbom-rust/dist") {
 					t.Fatalf("gather refused the planned hand-offs: %v\n%s", err, out)
 				}
 
@@ -321,6 +325,43 @@ func TestReleasePublishesExactlyThePlannedPackages(t *testing.T) {
 
 			if err == nil || !strings.Contains(out, scenario.refusal) || strings.Contains(out, "deploy ") {
 				t.Fatalf("publishing went on: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
+// An SBOM job writes its family's container-first build SBOMs with the
+// engine alone, from the release commit, into its own hand-off.
+func TestContainerFirstSBOMJobRunsTheEngineAlone(t *testing.T) {
+	t.Parallel()
+
+	script := filepath.Join(reporoot.Path(t), ".gitlab", "bin", "release.sh")
+
+	for family, want := range map[string]string{
+		"rust": "--project-type cargo --version v1.2.3 --output-dir %s/_release-sbom-rust/dist/sboms",
+		"go":   "--project-type go --version v1.2.3 --output-dir %s/_release-sbom-go/dist/sboms",
+		"java": "",
+	} {
+		t.Run(family, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			command := exec.CommandContext(commandContext(t), componentBash(t), "--noprofile", "--norc", "-eu", "-c",
+				`source "$1"; rc_release_checkout() { echo checkout; }; rc_engine() { printf 'engine %s\n' "$*"; }; rc_container_first_sboms "$2"`,
+				"sbom", script, family)
+			command.Env = []string{"PATH=/usr/bin:/bin", "CI_PROJECT_DIR=" + dir, "RC_ARTIFACTS_CONFIG=", "RELEASE_TAG=v1.2.3"}
+
+			out, err := command.CombinedOutput()
+			if want == "" {
+				if err == nil || !strings.Contains(string(out), "no container-first build SBOM is written for the java family") || strings.Contains(string(out), "engine") {
+					t.Fatalf("an SBOM job ran for java: %v\n%s", err, out)
+				}
+
+				return
+			}
+
+			if wantLine := "checkout\nengine sbom assemble --artifacts-config .forge-ci/artifacts.yml " + fmt.Sprintf(want, dir) + "\n"; err != nil || string(out) != wantLine {
+				t.Fatalf("got %v\n%s\nwant\n%s", err, out, wantLine)
 			}
 		})
 	}
