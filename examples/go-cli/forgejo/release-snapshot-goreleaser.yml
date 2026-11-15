@@ -20,9 +20,12 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA
-      - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/checkout-consumer@PIN_FORGE_CI_SHA
-        with:
-          ref: ${{ forgejo.sha }}
+      # As the release checks out: the tags give the snapshot its base
+      # version and GoReleaser its previous tag.
+      - name: Checkout pushed commit
+        env:
+          CHECKOUT_REF: ${{ forgejo.sha }}
+        run: forge-ci platform checkout --fetch-all-refs
       - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-toolchain@PIN_FORGE_CI_SHA
         with:
           cache-key-suffix: snapshot-build

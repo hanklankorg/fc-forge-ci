@@ -43,9 +43,12 @@ type step struct {
 
 // action is the part of actions/<name>/action.yml the behavior tests read.
 type action struct {
-	name   string
-	Inputs map[string]actionInput `yaml:"inputs"`
-	Runs   struct {
+	name    string
+	Inputs  map[string]actionInput `yaml:"inputs"`
+	Outputs map[string]struct {
+		Value string `yaml:"value"`
+	} `yaml:"outputs"`
+	Runs struct {
 		Using string `yaml:"using"`
 		Steps []step `yaml:"steps"`
 	} `yaml:"runs"`

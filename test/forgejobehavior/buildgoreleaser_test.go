@@ -85,19 +85,21 @@ func TestGoReleaserSnapshotBuildsTheCheckoutUnderTheSnapshotVersion(t *testing.T
 	action := loadAction(t, "build-goreleaser")
 
 	for _, test := range []struct {
-		name, snapshot, tag string
-		want               int
-		argv               []string
+		name, snapshot, tag, sha, notes string
+		want                            int
+		argv                            []string
 	}{
-		{"snapshot", "true", "", 0, []string{"release", "--clean", "--skip=publish,sign,announce,validate", "--config", "config with spaces.yml"}},
-		{"snapshot given a tag", "true", "v1.2.3", 1, nil},
-		{"neither true nor false", "yes", "", 1, nil},
+		{"snapshot", "true", "", "", "", 0, []string{"release", "--clean", "--skip=publish,sign,announce,validate", "--config", "config with spaces.yml"}},
+		{"snapshot given a tag", "true", "v1.2.3", "", "", 1, nil},
+		{"snapshot given a commit", "true", "", "0123456789abcdef0123456789abcdef01234567", "", 1, nil},
+		{"snapshot given release notes", "true", "", "", "notes.md", 1, nil},
+		{"neither true nor false", "yes", "", "", "", 1, nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
 			box := newSandbox(t, "build-goreleaser")
-			box.write(".engine/bin/forge-ci", "#!/bin/sh\nset -eu\ntest \"$*\" = 'version generate-snapshot'\necho 0.9.1-snapshot-feat-x-abc1234\n", 0o700)
+			box.write(".engine/bin/forge-ci", "#!/bin/sh\nset -eu\ntest \"$FORGE_CI_PROVIDER $*\" = 'forgejo version generate-snapshot'\necho 0.9.1-snapshot-feat-x-abc1234\n", 0o700)
 			box.write("tools/goreleaser", `#!/bin/sh
 set -eu
 test "$GORELEASER_CURRENT_TAG" = v0.9.1-snapshot-feat-x-abc1234
@@ -106,8 +108,8 @@ printf '%s\0' "$@" >"$FAKE_ARGV_LOG"
 
 			got := box.run(action.Runs.Steps[0].Run,
 				"PATH="+filepath.Join(box.root, "tools")+":"+os.Getenv("PATH"),
-				"SNAPSHOT="+test.snapshot, "RELEASE_SHA=", "GORELEASER_CURRENT_TAG="+test.tag,
-				"GORELEASER_CONFIG=config with spaces.yml", "RELEASE_NOTES=")
+				"SNAPSHOT="+test.snapshot, "RELEASE_SHA="+test.sha, "GORELEASER_CURRENT_TAG="+test.tag,
+				"GORELEASER_CONFIG=config with spaces.yml", "RELEASE_NOTES="+test.notes, "FORGE_CI_PROVIDER=")
 			if got.status != test.want {
 				t.Fatalf("status %d, expected %d: %s", got.status, test.want, got.stderr)
 			}
@@ -154,7 +156,11 @@ func TestGoReleaserBuildImportsThroughThePinnedEngine(t *testing.T) {
 	box.write("dist tree/.keep", "", 0o600)
 
 	// The version the build step used, the release tag here, names the
-	// SBOM bundle of GoReleaser's SBOMs.
+	// SBOM bundle of GoReleaser's SBOMs, and is the action's output.
+	if action.Runs.Steps[0].ID != "build" || action.Outputs["version"].Value != "${{ steps.build.outputs.version }}" {
+		t.Fatalf("version is not the build step's output: step id %q, output %q", action.Runs.Steps[0].ID, action.Outputs["version"].Value)
+	}
+
 	action.requireStepEnv(t, 1, map[string]string{
 		"SNAPSHOT": "${{ inputs.snapshot }}", "VERSION": "${{ steps.build.outputs.version }}", "RELEASE_NOTES": "${{ inputs.release-notes }}",
 		"DIST_DIRECTORY": "${{ inputs.dist-directory }}",

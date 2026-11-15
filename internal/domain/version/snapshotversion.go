@@ -25,15 +25,29 @@ const SnapshotShortSHALen = 7
 //
 //	→ "0.5.9-snapshot-feat-awesome-abc1234"
 //
-// branch is sanitised via SanitizePathToken; shortSHA is used verbatim
-// (callers responsible for clamping to 7 chars).
+// shortSHA is used verbatim (callers responsible for clamping to 7 chars).
 func ComposeSnapshotVersion(baseVersion, branch, shortSHA string) string {
 	if baseVersion == "" {
 		baseVersion = SnapshotVersionDefaultBase
 	}
 
 	return fmt.Sprintf("%s-snapshot-%s-%s",
-		baseVersion, SanitizePathToken(branch), shortSHA)
+		baseVersion, SnapshotBranchToken(branch), shortSHA)
+}
+
+// SnapshotBranchToken is the branch as it appears in a snapshot version:
+// SanitizePathToken with '.' and '_' also mapped to '-', so the version is
+// one semver pre-release identifier. Semver forbids '_', and a '.' would
+// split it into identifiers a numeric one with a leading zero makes invalid,
+// as in release/1.02. npm, Cargo and GoReleaser parse these versions.
+func SnapshotBranchToken(branch string) string {
+	return strings.Trim(strings.Map(func(r rune) rune {
+		if r == '.' || r == '_' {
+			return '-'
+		}
+
+		return r
+	}, SanitizePathToken(branch)), "-")
 }
 
 // Semver is a validated, strict three-component semantic version. Version has

@@ -6,6 +6,8 @@ package version_test
 import (
 	"testing"
 
+	"golang.org/x/mod/semver"
+
 	"github.com/diggsweden/forge-ci/internal/domain/version"
 )
 
@@ -88,7 +90,10 @@ func TestComposeSnapshotVersion_CombinesBaseBranchAndSHA(t *testing.T) {
 		{name: "main happy path", baseVersion: "0.5.9", branch: "main", shortSHA: "abc1234", want: "0.5.9-snapshot-main-abc1234"},
 		{name: "branch sanitised", baseVersion: "1.0.0", branch: "feat/awesome", shortSHA: "deadbee", want: "1.0.0-snapshot-feat-awesome-deadbee"},
 		{name: "empty base falls back to 0.0.0", baseVersion: "", branch: "main", shortSHA: "abc1234", want: "0.0.0-snapshot-main-abc1234"},
-		{name: "renovate slashes", baseVersion: "2.1.0", branch: "renovate/some-pkg/3.x", shortSHA: "1234567", want: "2.1.0-snapshot-renovate-some-pkg-3.x-1234567"},
+		{name: "renovate slashes", baseVersion: "2.1.0", branch: "renovate/some-pkg/3.x", shortSHA: "1234567", want: "2.1.0-snapshot-renovate-some-pkg-3-x-1234567"},
+		{name: "underscore", baseVersion: "1.2.3", branch: "fix_x", shortSHA: "abc1234", want: "1.2.3-snapshot-fix-x-abc1234"},
+		{name: "leading-zero number", baseVersion: "1.2.3", branch: "release/1.02", shortSHA: "abc1234", want: "1.2.3-snapshot-release-1-02-abc1234"},
+		{name: "edge dots", baseVersion: "1.2.3", branch: ".hidden.", shortSHA: "abc1234", want: "1.2.3-snapshot-hidden-abc1234"},
 	}
 
 	for _, tc := range tests {
@@ -98,6 +103,10 @@ func TestComposeSnapshotVersion_CombinesBaseBranchAndSHA(t *testing.T) {
 			got := version.ComposeSnapshotVersion(tc.baseVersion, tc.branch, tc.shortSHA)
 			if got != tc.want {
 				t.Errorf("ComposeSnapshotVersion = %q, want %q", got, tc.want)
+			}
+
+			if !semver.IsValid("v" + got) {
+				t.Errorf("ComposeSnapshotVersion = %q, not a semantic version", got)
 			}
 		})
 	}

@@ -52,7 +52,7 @@ func GenerateSnapshotVersion(ctx context.Context, ops GenerateSnapshotOps, out i
 
 	// A name made only of characters the sanitizer drops would leave an empty
 	// segment: 0.0.0-snapshot--abc1234 identifies no branch.
-	if version.SanitizePathToken(in.RefName) == "" {
+	if version.SnapshotBranchToken(in.RefName) == "" {
 		return fmt.Errorf("ref-name %q has no characters usable in a snapshot version: %w", in.RefName, errs.ErrUsage)
 	}
 
