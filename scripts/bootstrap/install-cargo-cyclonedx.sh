@@ -8,10 +8,12 @@
 # consumer's runner instead, so build-cargo brings it the same way
 # release-images brings Trivy. A cargo-cyclonedx already on PATH (from the
 # consumer's mise config, say) is used only when it is the pinned version.
-# Upstream ships it only as .tar.xz; the forge-ci engine, on PATH in every
-# job that installs it, unpacks it, so the runner needs no xz.
+# Upstream ships it only as .tar.xz; the verified forge-ci engine unpacks
+# it, so the runner needs no xz.
 #
-# Usage: source this file, then call install_cargo_cyclonedx
+# Usage: source .engine/bin/lib-forge-ci.sh and fetch the engine first, so
+# run_forge_ci is defined; then source this file and call
+# install_cargo_cyclonedx
 #   source "$(dirname "$0")/../bootstrap/install-cargo-cyclonedx.sh"
 #   install_cargo_cyclonedx
 
@@ -66,7 +68,7 @@ install_cargo_cyclonedx() {
 
   printf "Installing cargo-cyclonedx (version: %s)...\n" "${CARGO_CYCLONEDX_VERSION}"
   if ! ci_download_verified "https://github.com/CycloneDX/cyclonedx-rust-cargo/releases/download/cargo-cyclonedx-${CARGO_CYCLONEDX_VERSION}/${asset}" "$archive" "$sha256" ||
-    ! forge-ci platform extract-archive --archive "$archive" --destination "$unpacked" ||
+    ! run_forge_ci platform extract-archive --archive "$archive" --destination "$unpacked" ||
     ! mv "$unpacked/cargo-cyclonedx" "$install_dir/cargo-cyclonedx"; then
     rm -rf "$archive" "$unpacked" "$install_dir/cargo-cyclonedx"
     printf "ERROR: Failed to install cargo-cyclonedx %s\n" "${CARGO_CYCLONEDX_VERSION}" >&2

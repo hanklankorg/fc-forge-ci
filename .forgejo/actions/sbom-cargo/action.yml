@@ -30,6 +30,11 @@ runs:
       run: |
         set -euo pipefail
         export CI_TEMP_DIR="${RUNNER_TEMP:?}"
+        # The verified engine unpacks the generator's .tar.xz.
+        # shellcheck source=.engine/bin/lib-forge-ci.sh
+        source "${GITHUB_ACTION_PATH}/../../../.engine/bin/lib-forge-ci.sh"
+        if [ -z "${FORGE_CI_BIN:-}" ]; then fetch_forge_ci; fi
+        SIGNER_STRICT=1 verify_forge_ci
         # shellcheck source=scripts/bootstrap/install-cargo-cyclonedx.sh
         source "${GITHUB_ACTION_PATH}/../../../scripts/bootstrap/install-cargo-cyclonedx.sh"
         install_cargo_cyclonedx
