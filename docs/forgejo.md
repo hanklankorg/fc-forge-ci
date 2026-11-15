@@ -701,6 +701,16 @@ one runner, so it avoids emulation only when the target stages copy files and
 any `RUN` is in a `FROM --platform=$BUILDPLATFORM` stage. For native builds
 per architecture use `release-images.yml`; see [Release images](#release-images).
 
+Before `record-release-image`, write the image's CycloneDX SBOM where its
+`sbom` input points; `forge-ci sbom assemble` in container mode scans the
+pushed digest. The SBOM goes into the release's SBOM bundle:
+
+```bash
+forge-ci sbom assemble --image-name "${IMAGE_REPOSITORY}" \
+  --image-digest "${IMAGE_DIGEST}" --platform linux/amd64 --ref-name "${RELEASE_TAG}"
+mv -- *-analyzed-container-linux-amd64-sbom.cyclonedx.json dist/image-sbom-app.cyclonedx.json
+```
+
 ### Unsigned GoReleaser handoff
 
 `.forgejo/actions/build-goreleaser` packages an already checked-out prepared
