@@ -502,8 +502,8 @@ func TestReleaseImages_RefusesProviderTokenAndRegistryPasswordBothFromStdin(t *t
 }
 
 // Images on another registry are not the forge's packages: the deleter is
-// that registry's, through the login's auth file, and no provider token is
-// read.
+// that registry's, through the login's auth file, no provider token is
+// read and nothing is linked as a forge package.
 func TestReleaseImagesTagDeleter_AnotherRegistryUsesTheImagesRegistry(t *testing.T) {
 	t.Parallel()
 
@@ -519,6 +519,10 @@ func TestReleaseImagesTagDeleter_AnotherRegistryUsesTheImagesRegistry(t *testing
 
 	_, isAdapter := deleter.(*ociregistry.Adapter)
 	require.True(t, isAdapter, "deleter = %T, want the plain OCI adapter", deleter)
+
+	// Another registry's images are no forge packages, so cleanup links none.
+	_, links := deleter.(provider.ForgePackageLinker)
+	require.False(t, links, "deleter = %T links forge packages", deleter)
 }
 
 // Where the images are is derived from the repository's host: the forge's

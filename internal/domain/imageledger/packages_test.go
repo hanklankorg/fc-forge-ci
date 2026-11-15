@@ -28,4 +28,10 @@ func TestPackageNames_TakesTheOwnersImagesOnce(t *testing.T) {
 
 	require.Equal(t, []string{"app", "tools/cli"}, imageledger.PackageNames(entries, "forge.example", "Owner"))
 	require.Empty(t, imageledger.PackageNames(entries, "forge.example", "nobody"))
+
+	// A registry is its host with the port: the same name on another port
+	// is another registry.
+	onPort := []imageledger.Entry{{FinalTag: "forge.example:8443/owner/app:v1.0.0"}}
+	require.Equal(t, []string{"app"}, imageledger.PackageNames(onPort, "forge.example:8443", "owner"))
+	require.Empty(t, imageledger.PackageNames(onPort, "forge.example", "owner"))
 }
