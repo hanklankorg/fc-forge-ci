@@ -714,7 +714,8 @@ A Cargo or Go artifact built `container-first` is built by its Containerfile
 (see [Files exported from a Containerfile](#files-exported-from-a-containerfile)),
 not by a family job, though it is still version-bumped. When its `sboms` keep
 the build layer, `SBOM: go` or `SBOM: rust` writes its build SBOM from the
-lockfile, running the engine alone in the family's runtime image, and hands
+lockfile in the family's runtime image, on the build runner, since go and
+cargo read the project's configuration as a build does, and hands
 it on in `dist/sboms/`: the build commands declare it with `--sbom
 'dist/sboms/*'`, and `rc_build_handoff` refuses a bundle without it. See
 [Container-first build SBOMs](sbom.md#container-first-build-sboms-on-every-forge).

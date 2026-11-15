@@ -174,7 +174,7 @@ on every forge, under one name in the release's SBOM bundle,
 | Forge | Writer |
 |---|---|
 | GitHub | `sbom-go.yml` and `sbom-cargo.yml`, at publish stage |
-| GitLab | `SBOM: go` and `SBOM: rust`, release jobs that run the engine alone in `runtime-image-go` and `runtime-image-rust`, beside the family build jobs; their files reach the build commands in `dist/sboms/` |
+| GitLab | `SBOM: go` and `SBOM: rust`, release jobs that run the engine without a build command in `runtime-image-go` and `runtime-image-rust`, on the build runner beside the family build jobs; their files reach the build commands in `dist/sboms/` |
 | Forgejo | the `sbom-go` and `sbom-cargo` actions, a step of the build job, which write to `dist/sboms/` |
 
 Each runs `forge-ci sbom assemble --artifacts-config <artifacts.yml>

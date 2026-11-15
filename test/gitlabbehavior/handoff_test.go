@@ -331,8 +331,8 @@ func TestReleasePublishesExactlyThePlannedPackages(t *testing.T) {
 }
 
 // An SBOM job writes its family's container-first build SBOMs with the
-// engine alone, from the release commit, into its own hand-off.
-func TestContainerFirstSBOMJobRunsTheEngineAlone(t *testing.T) {
+// engine, no build command, from the release commit, into its own hand-off.
+func TestContainerFirstSBOMJobRunsNoBuildCommand(t *testing.T) {
 	t.Parallel()
 
 	script := filepath.Join(reporoot.Path(t), ".gitlab", "bin", "release.sh")

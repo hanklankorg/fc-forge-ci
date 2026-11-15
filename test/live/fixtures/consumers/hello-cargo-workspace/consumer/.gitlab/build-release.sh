@@ -24,9 +24,11 @@ if ! forge-ci release notes --changelog-file CHANGELOG.md \
 fi
 
 # extract.binary: the export jobs' binaries, dist/linux-<arch>/<name>-linux-<arch>.
+# The "SBOM: rust" job has written the build SBOMs under dist/sboms/.
 forge-ci release files declare \
   --asset "dist/linux-*/hello-worker-linux-*" \
-  --asset "dist/linux-*/hello-keytool-linux-*"
+  --asset "dist/linux-*/hello-keytool-linux-*" \
+  --sbom 'dist/sboms/*'
 
 printf 'Release handoff files (bytes, path relative to dist):\n'
 find dist -type f -printf '%s\t%P\n' | LC_ALL=C sort -k2

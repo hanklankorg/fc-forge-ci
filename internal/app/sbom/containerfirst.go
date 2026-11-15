@@ -5,8 +5,10 @@ package sbom
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -71,11 +73,7 @@ func ContainerFirstBuildSBOMs(ctx context.Context, gitRepo GitOps, gen BuildSBOM
 
 		for _, path := range slices.Sorted(maps.Keys(outputs)) {
 			target := filepath.Join(in.OutputDir, filepath.Base(path))
-			if _, err := os.Lstat(target); err == nil {
-				return nil, fmt.Errorf("%s already exists: %w", target, errs.ErrValidation)
-			}
-
-			if err := os.Rename(path, target); err != nil {
+			if err := moveAcrossDevices(path, target); err != nil {
 				return nil, fmt.Errorf("move build SBOM of %s: %w", artifact.Name, err)
 			}
 
@@ -84,6 +82,37 @@ func ContainerFirstBuildSBOMs(ctx context.Context, gitRepo GitOps, gen BuildSBOM
 	}
 
 	return written, nil
+}
+
+// moveAcrossDevices moves src to dst, which must not exist. It copies: on a
+// GitLab runner the checkout and the hand-off can be different filesystems,
+// where a rename fails.
+func moveAcrossDevices(src, dst string) error {
+	body, err := os.ReadFile(src) //nolint:gosec // src is a file the generator wrote
+	if err != nil {
+		return err
+	}
+
+	file, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // dst is under the caller's output dir
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("%s already exists: %w", dst, errs.ErrValidation)
+		}
+
+		return err
+	}
+
+	if _, err := file.Write(body); err != nil {
+		_ = file.Close()
+
+		return err
+	}
+
+	if err := file.Close(); err != nil {
+		return err
+	}
+
+	return os.Remove(src)
 }
 
 func dirOrDot(dir string) string {

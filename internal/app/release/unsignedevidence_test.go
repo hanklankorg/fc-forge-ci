@@ -130,10 +130,11 @@ func TestValidateReleaseFileManifestHoldsPlannedBuildSBOMs(t *testing.T) {
 		"planned, none":        {planned: []string{"app", "lib"}, want: "plans a build SBOM for app, lib"},
 		"nothing planned":      {},
 		// The build SBOMs forge-ci writes are held by name, beside a build's.
-		"container-first, written":    {sboms: []string{"dist/app.cdx.json", svc, svcCore}, planned: []string{"app"}, containerFirst: []string{"svc", "svc-core"}},
-		"container-first, none":       {containerFirst: []string{"svc"}, want: "no build SBOM of the container-first svc"},
-		"container-first, another's":  {sboms: []string{"dist/app.cdx.json"}, containerFirst: []string{"svc"}, want: "container-first svc:"},
-		"container-first, the longer": {sboms: []string{svcCore}, containerFirst: []string{"svc", "svc-core"}, want: "container-first svc:"},
+		"container-first, written":       {sboms: []string{"dist/app.cdx.json", svc, svcCore}, planned: []string{"app"}, containerFirst: []string{"svc", "svc-core"}},
+		"container-first, none":          {containerFirst: []string{"svc"}, want: "no build SBOM of the container-first svc"},
+		"container-first, another's":     {sboms: []string{"dist/app.cdx.json"}, containerFirst: []string{"svc"}, want: "container-first svc:"},
+		"container-first, the longer":    {sboms: []string{svcCore}, containerFirst: []string{"svc", "svc-core"}, want: "container-first svc:"},
+		"container-first, a built one's": {sboms: []string{svcCore}, planned: []string{"svc-core"}, containerFirst: []string{"svc"}, want: "container-first svc:"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Chdir(t.TempDir())

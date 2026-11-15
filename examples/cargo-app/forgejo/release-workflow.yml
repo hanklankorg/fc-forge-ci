@@ -8,7 +8,9 @@
 # worker and api-service crates artifacts.yml declares, released as binaries
 # (no containers): the Go CLI release (examples/go-cli/forgejo/) with one
 # build-cargo step a crate in place of build-go. Copy artifacts.yml to
-# .forge-ci/artifacts.yml: the release plan bumps the crates it declares.
+# .forge-ci/artifacts.yml: the release plan bumps the crates it declares,
+# and their build SBOMs are the sbom-cargo step's, since it declares them
+# container-first, as on every forge.
 # Copy to your repo as .forgejo/workflows/release-workflow.yml, then replace the
 # placeholders. Every one is a literal in the file, so `git grep` finds them:
 #
@@ -172,9 +174,8 @@ jobs:
           # Release isolation: no cache in token-bearing release jobs.
           cache: "false"
 
-      # Once a crate, as artifacts.yml declares them: tests, Build SBOM
-      # (bom.json beside the crate's Cargo.toml) and one binary per platform,
-      # as <crate>/dist/<os>-<arch>/<name>-<os>-<arch>. The version and the
+      # Once a crate, as artifacts.yml declares them: tests and one binary
+      # per platform, as <crate>/dist/<os>-<arch>/<name>-<os>-<arch>. The version and the
       # commit are the prepared release's: the runner's own ref and commit are
       # the request's.
       - name: Build worker
@@ -186,6 +187,8 @@ jobs:
           artifact-name: worker
           # Add linux/arm64 once the job has its Rust target and linker.
           platforms: linux/amd64
+          # The crates are container-first: their build SBOMs are below.
+          enable-build-sbom: 'false'
 
       - name: Build api-service
         uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/build-cargo@PIN_FORGE_CI_SHA
@@ -195,6 +198,14 @@ jobs:
           working-directory: api-service
           artifact-name: api-service
           platforms: linux/amd64
+          enable-build-sbom: 'false'
+
+      # The build SBOMs of the container-first crates, as on every forge:
+      # forge-ci writes them from the Cargo.lock into dist/sboms/.
+      - name: Build SBOM
+        uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/sbom-cargo@PIN_FORGE_CI_SHA
+        with:
+          version: ${{ needs.prepare.outputs.release-tag }}
 
       # Both crates' binaries and SBOMs go into one dist/. The hand-off the
       # signer takes: the public files, exactly one checksums
@@ -220,7 +231,6 @@ jobs:
           mkdir -p dist
           for crate in worker api-service; do
             cp -R -- "${crate}/dist/." dist/
-            cp -- "${crate}/bom.json" "dist/${crate}.cdx.json"
           done
           forge-ci release notes \
             --source-file release-notes.md \
@@ -228,8 +238,8 @@ jobs:
             --release-version "${RELEASE_TAG}" \
             --release-commit "${RELEASE_SHA}"
           forge-ci release files declare \
-            --asset 'dist/*/*' \
-            --sbom 'dist/*.cdx.json'
+            --asset 'dist/linux-*/*' \
+            --sbom 'dist/sboms/*'
 
       - name: Upload dist/ with hand-off digest
         id: dist

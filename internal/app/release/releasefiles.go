@@ -497,7 +497,7 @@ func ValidateReleaseFileManifest(in ValidateReleaseFileManifestInput) error {
 			strings.Join(in.BuildSBOMArtifacts, ", "), ctx.manifestFile, errs.ErrValidation)
 	}
 
-	if err := requireContainerFirstBuildSBOMs(ctx, manifest, in.ContainerFirstBuildSBOMs); err != nil {
+	if err := requireContainerFirstBuildSBOMs(ctx, manifest, in.ContainerFirstBuildSBOMs, in.BuildSBOMArtifacts); err != nil {
 		return err
 	}
 

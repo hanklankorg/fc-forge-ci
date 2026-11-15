@@ -6,9 +6,11 @@
 #
 # Isolated release flow for a Go service: binaries, then native image builds
 # through release-images.yml, then one unsigned hand-off to the signer.
-# Copy artifacts-forgejo.yml to .forge-ci/images.yml and forgejo/Containerfile.example
-# to Containerfile.forgejo. The container-first ../artifacts.yml with extract is
-# for the other providers; release-images never extracts binaries from images.
+# Copy artifacts-forgejo.yml to .forge-ci/images.yml, forgejo/Containerfile.example
+# to Containerfile.forgejo and ../artifacts.yml to .forge-ci/artifacts.yml: it
+# declares the service container-first, which the sbom-go step writes the build
+# SBOM of. Its extract is for the other providers; release-images never
+# extracts binaries from images.
 # Copy to your repo as .forgejo/workflows/release-workflow.yml, then replace the
 # placeholders. Every one is a literal in the file, so `git grep` finds them:
 #

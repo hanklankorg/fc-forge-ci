@@ -638,15 +638,17 @@ stages: [check, prepare, build, images, sign, publish]
     expire_in: 1 day
     paths: [_release-build-android/]
 # The build SBOMs of the container-first artifacts, which their
-# Containerfiles build and no family job does: the engine alone writes each
-# from its lockfile, as sbom-go.yml and sbom-cargo.yml do on GitHub, in the
-# family's runtime image. No build command of the project runs here, so,
-# as a version job, it runs on runner-tags, and it holds no credential.
+# Containerfiles build and no family job does: the engine writes each from
+# its lockfile, as sbom-go.yml and sbom-cargo.yml do on GitHub, in the
+# family's runtime image. No build command of the project runs, but go and
+# cargo read the project's own configuration, as a build does, so the job
+# runs where the builds run and holds no credential.
 .forge-ci-release-sbom-family:
   extends: .forge-ci-release
   stage: build
   before_script: [readonly rc_job_role=sbom, *forge-ci-release-start]
   retry: *forge-ci-release-retry
+  tags: $[[ inputs.build-runner-tags-linux-amd64 ]]
   variables:
     RC_JOB_USER: ''
   needs:

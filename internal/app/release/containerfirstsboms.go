@@ -5,6 +5,7 @@ package release
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/archive"
@@ -18,8 +19,10 @@ const buildSBOMSuffix = "-build-sbom.cyclonedx.json"
 // requireContainerFirstBuildSBOMs holds the SBOM bundle to the build SBOM
 // of each named container-first artifact, as `sbom assemble
 // --artifacts-config` names it: <artifact>-<version>[-<sha>]-build-sbom.
-// cyclonedx.json.
-func requireContainerFirstBuildSBOMs(ctx releaseFilesCtx, manifest *FileManifest, names []string) error {
+// cyclonedx.json. A file is credited to the longest name it starts with,
+// among these and the built artifacts' names, so the build SBOM of a built
+// api-gateway is never a container-first api's.
+func requireContainerFirstBuildSBOMs(ctx releaseFilesCtx, manifest *FileManifest, names, built []string) error {
 	if len(names) == 0 {
 		return nil
 	}
@@ -33,9 +36,11 @@ func requireContainerFirstBuildSBOMs(ctx releaseFilesCtx, manifest *FileManifest
 		}
 	}
 
+	all := append(slices.Clone(names), built...)
 	covered := map[string]bool{}
+
 	for _, member := range members {
-		covered[buildSBOMSubject(member.Name, names)] = true
+		covered[buildSBOMSubject(member.Name, all)] = true
 	}
 
 	var missing []string

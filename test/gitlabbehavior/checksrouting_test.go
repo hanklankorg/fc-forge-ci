@@ -110,9 +110,9 @@ func TestReleaseChecksRoutingAndPreparationBarrier(t *testing.T) {
 		t.Fatalf("release preparation lost the checks, changelog or optional version barrier: %+v", prepare)
 	}
 
-	// A family build runs build commands, on the build runner; an SBOM job
-	// runs the engine alone, on runner-tags.
-	for hidden, tags := range map[string]string{".forge-ci-release-build-family": "$[[ inputs.build-runner-tags-linux-amd64 ]]", ".forge-ci-release-sbom-family": ""} {
+	// A family build runs build commands, and an SBOM job tools that read the
+	// project's configuration: both on the build runner.
+	for hidden, tags := range map[string]string{".forge-ci-release-build-family": "$[[ inputs.build-runner-tags-linux-amd64 ]]", ".forge-ci-release-sbom-family": "$[[ inputs.build-runner-tags-linux-amd64 ]]"} {
 		if family := jobs[hidden]; !reflect.DeepEqual(family.Needs, []any{
 			map[string]any{"job": "Prepare: release commit and tag", "artifacts": false},
 		}) || family.Tags != tags || len(family.Rules) != 0 {
@@ -164,6 +164,7 @@ func TestReleaseChecksRoutingAndPreparationBarrier(t *testing.T) {
 		"Check: consumer checks":           "$[[ inputs.build-runner-tags-linux-amd64 ]]",
 		"Build: release files":             "$[[ inputs.build-runner-tags-linux-amd64 ]]",
 		".forge-ci-release-build-family":   "$[[ inputs.build-runner-tags-linux-amd64 ]]",
+		".forge-ci-release-sbom-family":    "$[[ inputs.build-runner-tags-linux-amd64 ]]",
 		".forge-ci-release-image-builder":  "$[[ inputs.build-runner-tags-linux-amd64 ]]",
 		"Images: build arm64":              "$[[ inputs.build-runner-tags-linux-arm64 ]]",
 		".forge-ci-release-export-builder": "$[[ inputs.build-runner-tags-linux-amd64 ]]",

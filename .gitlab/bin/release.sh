@@ -309,8 +309,8 @@ rc_family_handoff() {
 # rc_container_first_sboms writes, from the release commit, the build SBOM
 # of each container-first artifact of one family the declaration plans one
 # for, from its lockfile, and hands them to the release files job under
-# dist/sboms/, where the build commands declare them with --sbom. The
-# engine runs alone: no build command of the project.
+# dist/sboms/, where the build commands declare them with --sbom. No build
+# command of the project runs, though go and cargo read its configuration.
 rc_container_first_sboms() {
   local family=$1 type handoff="${CI_PROJECT_DIR}/_release-sbom-$1"
   case "${family}" in
