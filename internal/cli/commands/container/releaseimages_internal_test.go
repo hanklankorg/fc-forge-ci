@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/diggsweden/forge-ci/internal/adapters/ociregistry"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
 	"github.com/diggsweden/forge-ci/internal/runcontext"
 	"github.com/diggsweden/forge-ci/internal/testutil/testenv"
@@ -611,4 +613,26 @@ func TestLoginUser_DefaultsToTheOwnerOnTheForgesOwnRegistryOnly(t *testing.T) {
 
 	_, err = loginUser("", "", "forge.example:8443", "https://forge.example:8443")
 	require.ErrorIs(t, err, errs.ErrUsage, "no repository, no owner to log in as")
+}
+
+// The signer's default admits the index SBOM the engine names for a release
+// image and a consumer's default ledger name, and nothing else: no platform
+// inventory, no other directory.
+func TestDefaultReleaseImageSBOMPattern(t *testing.T) {
+	pattern := regexp.MustCompile(defaultReleaseImageSBOMPattern("dist"))
+	engine := imageledger.ReleaseImageSBOMPath("", "app", "v1.2.3", strings.Repeat("ab", 20))
+
+	for _, path := range []string{engine, imageledger.DefaultSBOMPath(imageledger.ImageKindRelease, "", "app")} {
+		require.True(t, pattern.MatchString(path), path)
+	}
+
+	for _, path := range []string{
+		"dist/" + imageledger.ReleaseImageSBOMFilename("", "app", "v1.2.3", strings.Repeat("ab", 20), "linux/amd64"),
+		"dist/app-1.2.3-analyzed-container-index-sbom.cyclonedx.json",
+		"dist/sub/" + strings.TrimPrefix(engine, "dist/"),
+		"other/" + strings.TrimPrefix(engine, "dist/"),
+		strings.TrimSuffix(engine, ".cyclonedx.json") + ".spdx.json",
+	} {
+		require.False(t, pattern.MatchString(path), path)
+	}
 }

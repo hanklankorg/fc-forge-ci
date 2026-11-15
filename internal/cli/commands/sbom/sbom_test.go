@@ -127,6 +127,7 @@ done
 	env.Setenv("ARTIFACT_TYPES", "maven")
 	env.Setenv("IMAGE_NAME", "registry.example.com/team/app")
 	env.Setenv("IMAGE_DIGEST", "sha256:"+strings.Repeat("d", 64))
+	env.Setenv("PLATFORM", "linux/arm64")
 
 	cmd := sbomcmd.New()
 	if err := cmd.Run(context.Background(), []string{"sbom", "assemble"}); err != nil {
@@ -134,8 +135,8 @@ done
 	}
 
 	for _, want := range []string{
-		"my-service-2.5.3-analyzed-container-sbom.spdx.json",
-		"my-service-2.5.3-analyzed-container-sbom.cyclonedx.json",
+		"my-service-2.5.3-analyzed-container-linux-arm64-sbom.spdx.json",
+		"my-service-2.5.3-analyzed-container-linux-arm64-sbom.cyclonedx.json",
 	} {
 		if _, err := os.Stat(filepath.Join(dir, want)); err != nil {
 			t.Errorf("missing %s: %v", want, err)
@@ -159,8 +160,8 @@ done
 
 	wantArgs := []string{
 		"registry.example.com/team/app@sha256:" + strings.Repeat("d", 64),
-		"-o", "cyclonedx-json=" + filepath.Join(cwd, "my-service-2.5.3-analyzed-container-sbom.cyclonedx.json"),
-		"-o", "spdx-json=" + filepath.Join(cwd, "my-service-2.5.3-analyzed-container-sbom.spdx.json"),
+		"-o", "cyclonedx-json=" + filepath.Join(cwd, "my-service-2.5.3-analyzed-container-linux-arm64-sbom.cyclonedx.json"),
+		"-o", "spdx-json=" + filepath.Join(cwd, "my-service-2.5.3-analyzed-container-linux-arm64-sbom.spdx.json"),
 		"--config",
 	}
 	if args := calls[0].Args; len(args) != len(wantArgs)+1 || !slices.Equal(args[:len(wantArgs)], wantArgs) {
@@ -209,6 +210,7 @@ done
 	env.Setenv("ARTIFACT_TYPES", "maven")
 	env.Setenv("IMAGE_NAME", "registry.example.com/team/app")
 	env.Setenv("IMAGE_DIGEST", "sha256:"+strings.Repeat("d", 64))
+	env.Setenv("PLATFORM", "linux/arm64")
 	env.Setenv("MY_SIGNING_KEY", "fixture-signing-key")
 	env.Setenv("COSIGN_PASSWORD", "fixture-passphrase")
 	env.Setenv("FORGEJO_TOKEN", "fixture-token")

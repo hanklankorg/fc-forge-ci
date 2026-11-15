@@ -85,7 +85,7 @@ func TestCreateSBOMBundle_FlattensSBOMsFoundInDifferentPlaces(t *testing.T) {
 	fsys.Chdir()
 	fsys.WriteFile("my-app-sbom.spdx.json", []byte(`{"spdx":1}`))
 	fsys.WriteFile("my-app-sbom.cyclonedx.json", []byte(`{"cdx":1}`))
-	fsys.WriteFile(filepath.Join("sbom-artifacts", "my-app-analyzed-container-sbom.spdx.json"), []byte(`{}`))
+	fsys.WriteFile(filepath.Join("sbom-artifacts", "my-app-analyzed-container-linux-amd64-sbom.spdx.json"), []byte(`{}`))
 
 	res, err := apprelease.CreateSBOMBundle(context.Background(), nil, apprelease.SBOMBundleInput{
 		ProjectName: "my-app", Version: "1.2.3",
@@ -103,7 +103,7 @@ func TestCreateSBOMBundle_FlattensSBOMsFoundInDifferentPlaces(t *testing.T) {
 	}
 
 	assertBundleEntries(t, res.BundleName, []string{
-		"my-app-analyzed-container-sbom.spdx.json", // flattened: no sbom-artifacts/ prefix
+		"my-app-analyzed-container-linux-amd64-sbom.spdx.json", // flattened: no sbom-artifacts/ prefix
 		"my-app-sbom.cyclonedx.json",
 		"my-app-sbom.spdx.json",
 	})
@@ -178,8 +178,8 @@ func TestCreateSBOMBundle_ScopesDiscoveryToTheProjectName(t *testing.T) {
 	fsys.Chdir()
 	fsys.WriteFile("my-app-sbom.spdx.json", []byte(`{}`))
 	fsys.WriteFile("other-app-sbom.spdx.json", []byte(`{}`))
-	fsys.WriteFile(filepath.Join("sbom-artifacts", "my-app-analyzed-container-sbom.spdx.json"), []byte(`{}`))
-	fsys.WriteFile(filepath.Join("sbom-artifacts", "other-app-analyzed-container-sbom.spdx.json"), []byte(`{}`))
+	fsys.WriteFile(filepath.Join("sbom-artifacts", "my-app-analyzed-container-linux-amd64-sbom.spdx.json"), []byte(`{}`))
+	fsys.WriteFile(filepath.Join("sbom-artifacts", "other-app-analyzed-container-linux-amd64-sbom.spdx.json"), []byte(`{}`))
 
 	res, err := apprelease.CreateSBOMBundle(context.Background(), nil, apprelease.SBOMBundleInput{
 		ProjectName: "my-app", Version: "1.2.3",
@@ -190,7 +190,7 @@ func TestCreateSBOMBundle_ScopesDiscoveryToTheProjectName(t *testing.T) {
 
 	assertBundleEntries(t, res.BundleName, []string{
 		"my-app-sbom.spdx.json",
-		"my-app-analyzed-container-sbom.spdx.json",
+		"my-app-analyzed-container-linux-amd64-sbom.spdx.json",
 	})
 }
 

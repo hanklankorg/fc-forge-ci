@@ -615,7 +615,8 @@ the build and signing, as the Forgejo
    results, and joins them to the build's `dist/` in a hand-off of its own,
    digested again. A finding in any image leaves the registry untouched.
    It writes each image's index SBOM and platform inventories into the
-   release's SBOM bundle, beside the build's SBOMs, and the checksums file
+   release's SBOM bundle, under the names in
+   [SBOM generation](sbom.md#delivery-and-verification), beside the build's SBOMs, and the checksums file
    lists that bundle; the job holds no signing key, and the provenance
    statement and every signature are made after it, by the signing job. No
    image SBOM is a release file of its own.

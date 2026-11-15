@@ -457,16 +457,19 @@ The SBOM bundle holds each SBOM under the file name the build gave it. The
 bundle is reproducible: the same SBOMs give the same bytes.
 
 For a release with container images the bundle also holds the image SBOMs:
-`image-sbom-<image>.cyclonedx.json`, the index SBOM of a multi-platform
-image, and `sbom-<image>-<arch>.json`, the inventory of each platform. They
-are not release files of their own. The index SBOM names each platform's
+`<image>-<version>-<short-sha>-analyzed-container-index-sbom.cyclonedx.json`,
+the index SBOM of a multi-platform image, and
+`<image>-<version>-<short-sha>-analyzed-container-<os>-<arch>-sbom.cyclonedx.json`,
+the inventory of each platform. They are not release files of their own. The index SBOM names each platform's
 image by digest and its inventory by that file name with the inventory's
 SHA-256:
 
 ```bash
 jq -r '.components[] | [.name, .externalReferences[0].url,
-  .externalReferences[0].hashes[0].content] | @tsv' image-sbom-app.cyclonedx.json
-sha256sum sbom-app-amd64.json sbom-app-arm64.json
+  .externalReferences[0].hashes[0].content] | @tsv' \
+  app-1.2.3-abcdef0-analyzed-container-index-sbom.cyclonedx.json
+sha256sum app-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json \
+  app-1.2.3-abcdef0-analyzed-container-linux-arm64-sbom.cyclonedx.json
 ```
 
 The same documents are attested in the registry: the index SBOM on the image
@@ -1775,7 +1778,7 @@ unpack it:
 
 ```bash
 gh release download "$TAG" --pattern '*-sboms.tar.gz*'
-tar -tzf PROJECT-1.0.0-sboms.tar.gz | grep -- '-analyzed-container-sbom\.'
+tar -tzf PROJECT-1.0.0-sboms.tar.gz | grep -- '-analyzed-container-.*-sbom\.'
 ```
 
 ### 2. Maven Artifact Verification

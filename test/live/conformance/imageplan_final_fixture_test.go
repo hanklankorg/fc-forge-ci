@@ -67,7 +67,16 @@ func imagePlanFinalReview(tree map[string][]byte, repository string) (imageledge
 		return fail("missing delivered native scan")
 	}
 
-	inventory := tree["sbom-distroless-amd64.json"]
+	// The image SBOMs are named as the SBOM bundle names them, with the
+	// release commit's first seven characters.
+	commit := strings.TrimSuffix(strings.TrimPrefix(entry.SBOM, "dist/distroless-0.0.1-"), "-analyzed-container-index-sbom.cyclonedx.json")
+	if len(commit) != 7 || strings.Trim(commit, "0123456789abcdef") != "" ||
+		entry.SBOM != "dist/distroless-0.0.1-"+commit+"-analyzed-container-index-sbom.cyclonedx.json" {
+		return fail("ledger does not name the index BOM as the SBOM bundle names it")
+	}
+
+	inventoryName := "distroless-0.0.1-" + commit + "-analyzed-container-linux-amd64-sbom.cyclonedx.json"
+	inventory := tree[inventoryName]
 
 	var header struct {
 		Format string `json:"bomFormat"`
@@ -77,8 +86,8 @@ func imagePlanFinalReview(tree map[string][]byte, repository string) (imageledge
 		return fail("missing delivered native CycloneDX inventory")
 	}
 
-	bomBytes := tree["image-sbom-distroless.cyclonedx.json"]
-	if entry.SBOM != "dist/image-sbom-distroless.cyclonedx.json" || entry.SBOMSHA256 != imagePlanSHA256(bomBytes) {
+	bomBytes := tree[strings.TrimPrefix(entry.SBOM, "dist/")]
+	if entry.SBOMSHA256 != imagePlanSHA256(bomBytes) {
 		return fail("ledger does not pin the delivered index BOM")
 	}
 
@@ -89,7 +98,7 @@ func imagePlanFinalReview(tree map[string][]byte, repository string) (imageledge
 		"components": []any{map[string]any{
 			"type": "container", "name": childRef, "bom-ref": childRef + "#linux/amd64",
 			"properties": []any{map[string]any{"name": "oci:platform", "value": "linux/amd64"}},
-			"externalReferences": []any{map[string]any{"type": "bom", "url": "sbom-distroless-amd64.json",
+			"externalReferences": []any{map[string]any{"type": "bom", "url": inventoryName,
 				"hashes": []any{map[string]any{"alg": "SHA-256", "content": imagePlanSHA256(inventory)}}}},
 		}},
 	}
@@ -105,16 +114,21 @@ func imagePlanFinalReview(tree map[string][]byte, repository string) (imageledge
 func TestResolvedFinalImageReviewRejectsContradictoryDelivery(t *testing.T) {
 	const repository = "registry.example/base"
 
-	for _, broken := range []string{"", "ledger", "duplicate", "role", "tag", "pin", "base-sbom-path", "index", "platform", "child", "scan", "inventory", "missing-bom", "bom-platform", "bom-digest", "bom-url", "bom-hash"} {
+	const (
+		bomName       = "distroless-0.0.1-abcdef0-analyzed-container-index-sbom.cyclonedx.json"
+		inventoryName = "distroless-0.0.1-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"
+	)
+
+	for _, broken := range []string{"", "ledger", "duplicate", "role", "tag", "pin", "base-sbom-path", "former-sbom-path", "commit", "index", "platform", "child", "scan", "inventory", "missing-bom", "bom-platform", "bom-digest", "bom-url", "bom-hash"} {
 		t.Run(broken, func(t *testing.T) {
 			child := "sha256:" + strings.Repeat("a", 64)
 			index := []byte(`{"schemaVersion":2,"manifests":[{"digest":"` + child + `","platform":{"os":"linux","architecture":"amd64"}}]}`)
 			inventory := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","components":[]}`)
 			childRef := repository + "@" + child
 			ref := repository + "@sha256:" + imagePlanSHA256(index)
-			bom := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"metadata":{"component":{"type":"container","name":"` + repository + `","bom-ref":"` + ref + `"}},"components":[{"type":"container","name":"` + childRef + `","bom-ref":"` + childRef + `#linux/amd64","properties":[{"name":"oci:platform","value":"linux/amd64"}],"externalReferences":[{"type":"bom","url":"sbom-distroless-amd64.json","hashes":[{"alg":"SHA-256","content":"` + imagePlanSHA256(inventory) + `"}]}]}]}`)
-			entry := imageledger.Entry{Role: "distroless", ImageKind: "release", Ref: ref, Digest: "sha256:" + imagePlanSHA256(index), FinalTag: repository + ":v0.0.1", CandidateTag: repository + ":staging-v0.0.1", SBOM: "dist/image-sbom-distroless.cyclonedx.json", SBOMSHA256: imagePlanSHA256(bom)}
-			tree := map[string][]byte{"index-final.json": index, "sbom-distroless-amd64.json": inventory, "image-sbom-distroless.cyclonedx.json": bom, "trivy-results-final-amd64.json": []byte(`{"SchemaVersion":2,"ArtifactName":"staged-layout"}`)}
+			bom := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"metadata":{"component":{"type":"container","name":"` + repository + `","bom-ref":"` + ref + `"}},"components":[{"type":"container","name":"` + childRef + `","bom-ref":"` + childRef + `#linux/amd64","properties":[{"name":"oci:platform","value":"linux/amd64"}],"externalReferences":[{"type":"bom","url":"` + inventoryName + `","hashes":[{"alg":"SHA-256","content":"` + imagePlanSHA256(inventory) + `"}]}]}]}`)
+			entry := imageledger.Entry{Role: "distroless", ImageKind: "release", Ref: ref, Digest: "sha256:" + imagePlanSHA256(index), FinalTag: repository + ":v0.0.1", CandidateTag: repository + ":staging-v0.0.1", SBOM: "dist/" + bomName, SBOMSHA256: imagePlanSHA256(bom)}
+			tree := map[string][]byte{"index-final.json": index, inventoryName: inventory, bomName: bom, "trivy-results-final-amd64.json": []byte(`{"SchemaVersion":2,"ArtifactName":"staged-layout"}`)}
 
 			switch broken {
 			case "role":
@@ -124,7 +138,13 @@ func TestResolvedFinalImageReviewRejectsContradictoryDelivery(t *testing.T) {
 			case "pin":
 				entry.SBOMSHA256 = strings.Repeat("b", 64)
 			case "base-sbom-path":
-				entry.SBOM = "premade-sboms/image-sbom-distroless.cyclonedx.json"
+				entry.SBOM = "premade-sboms/" + bomName
+			case "former-sbom-path":
+				entry.SBOM = "dist/image-sbom-distroless.cyclonedx.json"
+				tree["image-sbom-distroless.cyclonedx.json"] = bom
+			case "commit":
+				entry.SBOM = "dist/distroless-0.0.1-ABCDEF0-analyzed-container-index-sbom.cyclonedx.json"
+				tree[strings.TrimPrefix(entry.SBOM, "dist/")] = bom
 			case "index":
 				tree["index-final.json"] = append(index, '\n')
 			case "platform":
@@ -138,21 +158,21 @@ func TestResolvedFinalImageReviewRejectsContradictoryDelivery(t *testing.T) {
 			case "scan":
 				delete(tree, "trivy-results-final-amd64.json")
 			case "inventory":
-				tree["sbom-distroless-amd64.json"] = append(inventory, '\n')
+				tree[inventoryName] = append(inventory, '\n')
 			case "missing-bom":
-				delete(tree, "image-sbom-distroless.cyclonedx.json")
+				delete(tree, bomName)
 			case "bom-platform":
-				tree["image-sbom-distroless.cyclonedx.json"] = []byte(strings.ReplaceAll(string(bom), "linux/amd64", "linux/arm64"))
+				tree[bomName] = []byte(strings.ReplaceAll(string(bom), "linux/amd64", "linux/arm64"))
 			case "bom-digest":
-				tree["image-sbom-distroless.cyclonedx.json"] = []byte(strings.ReplaceAll(string(bom), child, "sha256:"+strings.Repeat("b", 64)))
+				tree[bomName] = []byte(strings.ReplaceAll(string(bom), child, "sha256:"+strings.Repeat("b", 64)))
 			case "bom-url":
-				tree["image-sbom-distroless.cyclonedx.json"] = []byte(strings.ReplaceAll(string(bom), `"url":"sbom-`, `"url":"https://other.example/release/sbom-`))
+				tree[bomName] = []byte(strings.ReplaceAll(string(bom), `"url":"distroless-`, `"url":"https://other.example/release/distroless-`))
 			case "bom-hash":
-				tree["image-sbom-distroless.cyclonedx.json"] = []byte(strings.ReplaceAll(string(bom), imagePlanSHA256(inventory), strings.Repeat("b", 64)))
+				tree[bomName] = []byte(strings.ReplaceAll(string(bom), imagePlanSHA256(inventory), strings.Repeat("b", 64)))
 			}
 
 			if strings.HasPrefix(broken, "bom-") {
-				entry.SBOMSHA256 = imagePlanSHA256(tree["image-sbom-distroless.cyclonedx.json"])
+				entry.SBOMSHA256 = imagePlanSHA256(tree[bomName])
 			}
 
 			entries := []imageledger.Entry{entry}

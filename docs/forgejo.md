@@ -831,7 +831,9 @@ admitted builder job image on the ordinary runner pool instead.
   consumer hands to `sign-and-publish-release.yml`, which signs the images,
   attests their SBOMs and promotes the staging tags to the final ones. The
   artifact also holds each image's index SBOM and platform inventories,
-  which the ledger pins.
+  which the ledger pins, named as the SBOM bundle names them
+  (`<flavor>-<version>-<short-sha>-analyzed-container-index-sbom.cyclonedx.json`
+  and `…-analyzed-container-linux-<arch>-sbom.cyclonedx.json`).
 
 The layouts travel between the jobs as run artifacts, which Forgejo counts
 against the repository owner's storage quota for a day. A layer shared by

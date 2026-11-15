@@ -496,6 +496,7 @@ jobs:
         env:
           IMAGE_NAME: ${{ needs.image-coordinates.outputs.image-namespace }}/${{ matrix.runtime.name }}
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          PLATFORM: ${{ matrix.platform.platform }}
         run: forge-ci sbom assemble
       - name: Attest SBOM (cosign keyless)
         if: ${{ vars.FORGE_CI_COSIGN_TRANSPARENCY != 'none' }}
@@ -511,7 +512,7 @@ jobs:
           IMAGE_REF: ${{ needs.image-coordinates.outputs.image-namespace }}/${{ matrix.runtime.name }}@${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
-          pred="$(find . -maxdepth 1 -name '*-analyzed-container-sbom.cyclonedx.json' | head -1)"
+          pred="$(find . -maxdepth 1 -name '*-analyzed-container-*-sbom.cyclonedx.json' | head -1)"
           forge-ci container attest \
             --type cyclonedx \
             --predicate "$pred" \

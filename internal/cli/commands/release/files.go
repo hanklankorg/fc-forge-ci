@@ -202,7 +202,7 @@ func filesManifestCmd() *cli.Command {
 		// the job's environment as a producer's hand-off reads them.
 		&cli.StringFlag{Name: flagProjectName, Usage: "with --release-images-ledger: project in the name of an SBOM bundle the hand-off does not have yet (default: the name of --repository)"},
 		&cli.StringFlag{Name: flagRepository, Usage: "with --release-images-ledger: \"owner/repo\" slug whose name is the default --project-name"},
-		&cli.StringFlag{Name: flagVersion, Usage: "with --release-images-ledger: release version or tag in the name of an SBOM bundle the hand-off does not have yet; a v prefix is dropped"},
+		&cli.StringFlag{Name: flagVersion, Usage: "with --release-images-ledger: release version or tag in the name of an SBOM bundle the hand-off does not have yet, and in the names of the files --image-sbom names; a v prefix is dropped"},
 	)
 
 	return &cli.Command{
@@ -230,7 +230,8 @@ provenance statement and the signatures exist, and a dist that holds either
 is refused. A hand-off without an SBOM gets its bundle here.
 
 --image-sbom names each file a trusted publisher wrote; they must be exactly
-the ledger's set. --image-sboms-from-ledger takes them from the dist directory
+the ledger's set, named as the engine names a release image's SBOMs, with
+the version of --version and one release commit. --image-sboms-from-ledger takes them from the dist directory
 by the ledger's pins, for a ledger a consumer's jobs handed over: an entry
 without a pin has its SBOM generated and attested by the signer and none to
 bundle.`,
@@ -246,6 +247,7 @@ bundle.`,
 					Ledger:     cmd.String("release-images-ledger"),
 					Files:      cmd.StringSlice("image-sbom"),
 					FromLedger: cmd.Bool("image-sboms-from-ledger"),
+					ReleaseTag: cmd.String(flagVersion),
 				},
 				SBOMBundleNaming: sbomBundleNaming(cmd),
 			}

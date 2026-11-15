@@ -69,6 +69,7 @@ EXAMPLES:
 			&cli.StringFlag{Name: "image-name", Sources: cli.EnvVars("IMAGE_NAME"), Usage: "container mode: base image name without tag/digest; with --image-digest forms the syft target"},
 			&cli.StringFlag{Name: "image-digest", Sources: cli.EnvVars("IMAGE_DIGEST"), Usage: "container mode: sha256:… digest pinning the exact image manifest"},
 			&cli.StringFlag{Name: "artifact-types", Sources: cli.EnvVars("ARTIFACT_TYPES"), Usage: "container mode: ecosystems embedded in the multi-artifact container SBOM"},
+			&cli.StringFlag{Name: "platform", Sources: cli.EnvVars("PLATFORM"), Usage: "container mode: platform the digest is the image of, os/arch[/variant]; named in the SBOM filenames"},
 			&cli.StringFlag{Name: "ref-name", Sources: cienv.RefName(), Usage: "container mode: git ref name (leading \"v\" stripped) used in the SBOM filename"},
 			&cli.StringFlag{Name: "repository", Sources: cienv.Repository(), Usage: "container mode: \"owner/repo\" used to derive the project slug"},
 			// Signing (any mode): cosign-sign each assembled SBOM into a .bundle.
@@ -126,6 +127,7 @@ func runAssembleMode(ctx context.Context, cmd *cli.Command) error {
 			Repo:          cmd.String("repository"),
 			ImageName:     cmd.String("image-name"),
 			ImageDigest:   cmd.String("image-digest"),
+			Platform:      cmd.String("platform"),
 		})
 	default:
 		return appsbom.Generate(ctx, scanner, maven.New(), git.New(), buildSBOMGenerator{}, os.Stderr, os.Stderr, appsbom.GenerateInput{

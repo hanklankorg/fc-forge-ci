@@ -108,7 +108,7 @@ func writeCompletionHandoff(t *testing.T, box *sandbox) map[string]string {
 
 	for index, arch := range []string{"amd64", "arm64"} {
 		digest := "sha256:" + strings.Repeat(strconv.Itoa(index+1), 64)
-		name := "sbom-app-" + arch + ".json"
+		name := "app-1.2.3-aaaaaaa-analyzed-container-linux-" + arch + "-sbom.cyclonedx.json"
 		body := `{"bomFormat":"CycloneDX","specVersion":"1.6","components":[{"type":"library","name":"` + arch + `"}]}`
 		want[name] = body
 
@@ -122,14 +122,14 @@ func writeCompletionHandoff(t *testing.T, box *sandbox) map[string]string {
 	}
 
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(index))
-	entry := imageledger.Entry{Role: "app", Ref: repository + "@" + digest, Digest: digest, FinalTag: repository + ":v1.2.3", SBOM: "dist/image-sbom-app.cyclonedx.json"}
+	entry := imageledger.Entry{Role: "app", Ref: repository + "@" + digest, Digest: digest, FinalTag: repository + ":v1.2.3", SBOM: "dist/app-1.2.3-aaaaaaa-analyzed-container-index-sbom.cyclonedx.json"}
 
 	bom, err := sbom.ComposeIndexBOM(entry.Ref, index, parts)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	want["image-sbom-app.cyclonedx.json"] = string(bom)
+	want["app-1.2.3-aaaaaaa-analyzed-container-index-sbom.cyclonedx.json"] = string(bom)
 	entry.SBOMSHA256 = fmt.Sprintf("%x", sha256.Sum256(bom))
 
 	ledger, err := imageledger.Marshal([]imageledger.Entry{entry})
@@ -195,7 +195,7 @@ func TestSBOMBundleCompletionStepThroughTheEngine(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "changed inventory":
-				box.write("dist/sbom-app-arm64.json", `{"bomFormat":"CycloneDX","specVersion":"1.6"}`, 0o600)
+				box.write("dist/app-1.2.3-aaaaaaa-analyzed-container-linux-arm64-sbom.cyclonedx.json", `{"bomFormat":"CycloneDX","specVersion":"1.6"}`, 0o600)
 			case "bundle already signed":
 				box.write("dist/project-1.2.3-sboms.tar.gz.sig", "early\n", 0o600)
 			}
@@ -256,7 +256,7 @@ func TestSBOMBundleCompletionStepThroughTheEngine(t *testing.T) {
 				t.Errorf("checksums.sha256 does not list the completed bundle once:\n%s", checksums)
 			}
 
-			if manifest := read("release-files.json"); strings.Contains(manifest, "image-sbom-") || strings.Contains(manifest, "sbom-app-") {
+			if manifest := read("release-files.json"); strings.Contains(manifest, "-analyzed-container-") {
 				t.Errorf("an image SBOM became a release file of its own:\n%s", manifest)
 			}
 		})

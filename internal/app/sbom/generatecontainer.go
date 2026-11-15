@@ -32,6 +32,10 @@ type GenerateContainerInput struct {
 	ImageName string
 	// ImageDigest is the @sha256:... suffix the bash joins with @.
 	ImageDigest string
+	// Platform is the platform the digest is the image of, os/arch[/variant]:
+	// each platform of a multi-platform image has an SBOM of its own, named
+	// for it.
+	Platform string
 }
 
 // GenerateContainer is the thin wrapper around the SBOM generator for
@@ -67,15 +71,20 @@ func GenerateContainer(
 		return fmt.Errorf("image digest must be canonical sha256:<64 lowercase hex>: %w", errs.ErrUsage)
 	}
 
+	if !validPlatform(in.Platform) {
+		return fmt.Errorf("platform is required as os/arch[/variant]: pass --platform <linux/amd64> or set $PLATFORM: %w", errs.ErrUsage)
+	}
+
 	version := domainversion.StripVPrefix(in.RefName)
 	projectName := filepath.Base(in.Repo)
 	image := in.ImageName + "@" + in.ImageDigest
 
 	gen := GenerateInput{
-		Layers:         "analyzed-container",
-		Version:        version,
-		Name:           projectName,
-		ContainerImage: image,
+		Layers:            "analyzed-container",
+		Version:           version,
+		Name:              projectName,
+		ContainerImage:    image,
+		ContainerPlatform: in.Platform,
 	}
 
 	// The declared artifact types are reported, not iterated over: the
@@ -112,4 +121,21 @@ func declaredArtifactTypes(raw string) []string {
 	}
 
 	return out
+}
+
+// validPlatform holds a platform to os/arch[/variant], each part lowercase
+// letters and digits, so that it names a file.
+func validPlatform(platform string) bool {
+	parts := strings.Split(platform, "/")
+	if len(parts) < 2 || len(parts) > 3 {
+		return false
+	}
+
+	for _, part := range parts {
+		if part == "" || strings.Trim(part, "abcdefghijklmnopqrstuvwxyz0123456789") != "" {
+			return false
+		}
+	}
+
+	return true
 }

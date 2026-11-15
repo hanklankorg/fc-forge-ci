@@ -486,7 +486,7 @@ func TestSignLedgerImages_RejectsStrictSBOMPatternMismatch(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	entry := ledgerSignEntry(t)
-	entry.SBOM = "gommitlint-1.2.3-analyzed-container-sbom.cyclonedx.json"
+	entry.SBOM = "gommitlint-1.2.3-abc1234-analyzed-container-index-sbom.cyclonedx.json"
 
 	signer := &recordingImageSigner{}
 

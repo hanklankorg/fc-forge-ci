@@ -23,7 +23,7 @@ type releaseImageEvidenceMapping struct {
 	ledger     string
 }
 
-func mapReleaseImageEvidence(image pipeline.ReleaseImage) (releaseImageEvidenceMapping, error) {
+func mapReleaseImageEvidence(image pipeline.ReleaseImage, releaseTag, releaseSHA string) (releaseImageEvidenceMapping, error) {
 	kind := imageledger.ImageKind(cmp.Or(image.ImageKind, string(imageledger.ImageKindRelease)))
 
 	var root, ledger string
@@ -38,6 +38,9 @@ func mapReleaseImageEvidence(image pipeline.ReleaseImage) (releaseImageEvidenceM
 	}
 
 	canonical := imageledger.DefaultSBOMPath(kind, image.Flavor, cmp.Or(image.Role, image.Name))
+	if kind == imageledger.ImageKindRelease {
+		canonical = imageledger.ReleaseImageSBOMPath(image.Flavor, cmp.Or(image.Role, image.Name), releaseTag, releaseSHA)
+	}
 
 	name, ok := strings.CutPrefix(canonical, root)
 	if !ok || name == "" || filepath.Base(name) != name || strings.ContainsAny(name, "\\\r\n\x00") {

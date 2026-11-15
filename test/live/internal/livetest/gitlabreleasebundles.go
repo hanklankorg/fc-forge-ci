@@ -268,15 +268,22 @@ func verifyPublisherDeclaration(producer, publisher string, original apprelease.
 	args := []string{"manifest", evidenceUnsignedFlag, evidenceDistFlag, evidenceDist, evidenceManifestFlag, "dist/release-files.json",
 		"--output", evidenceExpectedManifest, "--release-images-ledger", evidenceLedger}
 
-	// A hand-off without an SBOM has no bundle yet; the publisher named the
-	// one it wrote, and the published file set holds that name.
-	if len(original.SBOMs) == 0 && len(declared.SBOMs) == 1 {
-		naming, ok := sbomBundleNaming(declared.SBOMs[0].Name)
-		if !ok {
-			return empty, nil, fmt.Errorf("publisher manifest's SBOM %s is not <project>-<version>%s: %w", declared.SBOMs[0].Name, sbomBundleSuffix, errReleaseEvidence)
-		}
+	// The publisher named its one SBOM bundle, and the published file set
+	// holds that name. A hand-off without an SBOM has no bundle yet and takes
+	// the project and version from it; the image SBOMs carry the version.
+	if len(declared.SBOMs) != 1 {
+		return empty, nil, fmt.Errorf("publisher manifest declares %d SBOM bundles, want one: %w", len(declared.SBOMs), errReleaseEvidence)
+	}
 
+	naming, ok := sbomBundleNaming(declared.SBOMs[0].Name)
+	if !ok {
+		return empty, nil, fmt.Errorf("publisher manifest's SBOM %s is not <project>-<version>%s: %w", declared.SBOMs[0].Name, sbomBundleSuffix, errReleaseEvidence)
+	}
+
+	if len(original.SBOMs) == 0 {
 		args = append(args, naming...)
+	} else {
+		args = append(args, naming[2:]...)
 	}
 
 	for _, name := range imageSBOMs {
@@ -314,10 +321,13 @@ func stagePublisherImageSBOMs(producer, publisher string) ([]string, error) {
 
 	for _, entry := range entries {
 		name := entry.Name()
-		imageDocument := strings.HasPrefix(name, "image-sbom-") && strings.HasSuffix(name, ".cyclonedx.json")
-		inventory := strings.HasPrefix(name, "sbom-") && strings.HasSuffix(name, ".json")
+		// <name>-<version>-<sha>-analyzed-container-<platform|index>-sbom.cyclonedx.json,
+		// and the names image SBOMs had before, which admission refuses.
+		imageSBOM := strings.Contains(name, "-analyzed-container-") && strings.HasSuffix(name, "-sbom.cyclonedx.json")
+		former := (strings.HasPrefix(name, "image-sbom-") && strings.HasSuffix(name, ".cyclonedx.json")) ||
+			(strings.HasPrefix(name, "sbom-") && strings.HasSuffix(name, ".json"))
 
-		if _, err := os.Lstat(filepath.Join(producer, evidenceDist, name)); err == nil || (!imageDocument && !inventory) {
+		if _, err := os.Lstat(filepath.Join(producer, evidenceDist, name)); err == nil || (!imageSBOM && !former) {
 			continue
 		}
 

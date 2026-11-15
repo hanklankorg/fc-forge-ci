@@ -157,7 +157,7 @@ func TestChecksums_RejectsLinkedInputsInEveryDiscoveryBranch(t *testing.T) {
 
 				name := "app-sbom.spdx.json"
 				if branch == "container" {
-					name = "app-analyzed-container-sbom.spdx.json"
+					name = "app-analyzed-container-linux-amd64-sbom.spdx.json"
 				}
 
 				bad := linkedReleaseInput(t, name, parent)
@@ -191,7 +191,7 @@ func TestCreateSBOMBundle_RejectsLinkedInputsBeforeArchiveCreation(t *testing.T)
 
 				name := "app-sbom.spdx.json"
 				if branch == "container" {
-					name = "app-analyzed-container-sbom.spdx.json"
+					name = "app-analyzed-container-linux-amd64-sbom.spdx.json"
 				}
 
 				bad := linkedReleaseInput(t, name, parent)

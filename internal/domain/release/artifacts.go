@@ -43,9 +43,10 @@ var SBOMFilePatterns = []string{
 	"*-sbom.cyclonedx.json",
 }
 
-// AnalyzedContainerSBOMPattern matches per-arch / per-container SBOMs that
-// land in ./sbom-artifacts/ from publish-container.yml.
-const AnalyzedContainerSBOMPattern = "*-analyzed-container-sbom.*.json"
+// AnalyzedContainerSBOMPattern matches the per-platform image SBOMs,
+// <name>-<version>-<sha>-analyzed-container-<platform>-sbom.<format>.json,
+// that land in ./sbom-artifacts/ from publish-container.yml.
+const AnalyzedContainerSBOMPattern = "*-analyzed-container-*-sbom.*.json"
 
 // ChecksumsFile is the canonical filename for the SHA256 manifest.
 const ChecksumsFile = "checksums.sha256"

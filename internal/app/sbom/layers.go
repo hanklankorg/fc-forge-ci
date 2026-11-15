@@ -65,8 +65,13 @@ func generateDualSBOMs(
 	layerName, customBasename string,
 ) error {
 	spdxFile := domainsbom.Filename(customBasename, subj.name, subj.version, layerName, domainsbom.FormatSPDX)
-
 	cdxFile := domainsbom.Filename(customBasename, subj.name, subj.version, layerName, domainsbom.FormatCycloneDX)
+
+	return generateDualSBOMFiles(ctx, deps, scanTarget, spdxFile, cdxFile)
+}
+
+// generateDualSBOMFiles scans scanTarget once into the two named files.
+func generateDualSBOMFiles(ctx context.Context, deps layerDeps, scanTarget, spdxFile, cdxFile string) error {
 	if deps.ws.freshOutputs {
 		for _, name := range []string{spdxFile, cdxFile} {
 			if _, err := deps.ws.host.Lstat(name); !errors.Is(err, fs.ErrNotExist) && !deps.ws.generatedOutputs[deps.ws.outputPath(name)] {
@@ -523,7 +528,10 @@ func scanPythonWheels(ctx context.Context, deps layerDeps, subj subject) error {
 // Container layer
 // -----------------------------------------------------------------------
 
-func generateContainerLayer(ctx context.Context, deps layerDeps, containerImage string, subj subject) error {
+// generateContainerLayer scans one image. With a platform, the image is that
+// platform's and the files are named for it, as the release's SBOM bundle
+// names image SBOMs.
+func generateContainerLayer(ctx context.Context, deps layerDeps, containerImage, platform string, subj subject) error {
 	_, _ = fmt.Fprintln(deps.w, "📦 Assembling Container layer (syft scan)...")
 
 	if containerImage == "" {
@@ -535,9 +543,18 @@ func generateContainerLayer(ctx context.Context, deps layerDeps, containerImage 
 
 	_, _ = fmt.Fprintf(deps.w, "   Scanning container: %s\n", containerImage)
 
-	custom := domainsbom.AnalyzedBasename(subj.name+"-"+subj.version, "analyzed-container", subj.sha)
-	if err := generateDualSBOMs(ctx, deps, containerImage, subj, "analyzed-container", custom); err != nil {
-		return err
+	if platform != "" {
+		spdxFile := domainsbom.ImageSBOMFilename(subj.name, subj.version, subj.sha, platform, domainsbom.FormatSPDX)
+		cdxFile := domainsbom.ImageSBOMFilename(subj.name, subj.version, subj.sha, platform, domainsbom.FormatCycloneDX)
+
+		if err := generateDualSBOMFiles(ctx, deps, containerImage, spdxFile, cdxFile); err != nil {
+			return err
+		}
+	} else {
+		custom := domainsbom.AnalyzedBasename(subj.name+"-"+subj.version, "analyzed-container", subj.sha)
+		if err := generateDualSBOMs(ctx, deps, containerImage, subj, "analyzed-container", custom); err != nil {
+			return err
+		}
 	}
 
 	_, _ = fmt.Fprintln(deps.w)

@@ -435,6 +435,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not in `dist/`. `--project-name`, `--repository` and `--version` name
   the bundle of a hand-off that has none. An `--evidence-file` that is an
   image SBOM is refused with a ledger.
+- **BREAKING**: Image SBOMs have one naming scheme on every forge, the
+  analyzed-container layer's with the platform added:
+  `<name>-<version>-<short-sha>-analyzed-container-<os>-<arch>-sbom.<format>.json`
+  for each platform and
+  `<name>-<version>-<short-sha>-analyzed-container-index-sbom.cyclonedx.json`
+  for an index SBOM. On GitHub every platform of an image wrote the same
+  names, so the SBOM bundle kept the SBOMs of one platform only; `forge-ci
+  sbom assemble` in container mode (`--image-name`, `--image-digest`) now
+  requires `--platform` (`PLATFORM`). On Forgejo
+  and GitLab the names replace `image-sbom-<id>.cyclonedx.json` and
+  `sbom-<id>-<arch>.json`, and the ledger pins the index SBOM under its new
+  name. `release files manifest --image-sbom` takes the release from
+  `--version` and admits only these names, all with one commit. A
+  consumer ledger's default `dist/image-sbom-<id>.cyclonedx.json` is
+  unchanged.
 
 - A lint-runner check that could not complete now follows the enforcement of
   the gate it belongs to. With `enforce-lint` or `enforce-vulnerabilities` on,

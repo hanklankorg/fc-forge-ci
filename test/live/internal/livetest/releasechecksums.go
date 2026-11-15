@@ -73,15 +73,18 @@ func VerifyReleaseReadback(evidence *ReleaseEvidence, names []string, download f
 }
 
 // releaseImageSBOMsUnbundled refuses an image SBOM offered as a release file
-// of its own. On every forge the one SBOM bundle holds them: an image's index
-// SBOM (image-sbom-<id>.cyclonedx.json), its platform inventories
-// (sbom-<id>-<arch>.json) and a GitHub image's analysed container SBOMs.
+// of its own. On every forge the one SBOM bundle holds them, each named
+// <name>-<version>-<sha>-analyzed-container-<platform|index>-sbom.<format>.json:
+// an image's index SBOM and its platform SBOMs. The names image SBOMs had
+// before (image-sbom-<id>.cyclonedx.json, sbom-<id>-<arch>.json and
+// *-analyzed-container-sbom.<format>.json) are refused as well.
 func releaseImageSBOMsUnbundled(names []string) error {
 	var unbundled []string
 
 	for _, name := range names {
 		subject := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(name, cosignBundle), openPGPSignature), packageSignature)
-		if strings.HasPrefix(subject, "image-sbom-") || (strings.HasPrefix(subject, "sbom-") && strings.HasSuffix(subject, ".json")) || strings.Contains(subject, "container-sbom.") {
+		if strings.HasPrefix(subject, "image-sbom-") || (strings.HasPrefix(subject, "sbom-") && strings.HasSuffix(subject, ".json")) || strings.Contains(subject, "container-sbom.") ||
+			(strings.Contains(subject, "-analyzed-container-") && strings.Contains(subject, "-sbom.")) {
 			unbundled = append(unbundled, name)
 		}
 	}

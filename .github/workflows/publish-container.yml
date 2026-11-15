@@ -1196,6 +1196,9 @@ jobs:
           REF_NAME: ${{ inputs['release-tag'] || needs.prep.outputs.source-ref-name }}
           IMAGE_NAME: ${{ needs.prep.outputs.image-name }}
           IMAGE_DIGEST: ${{ fromJson(needs.publish-images.outputs.platform-digests)[matrix.platform] }}
+          # Each platform's SBOM is named for it, so the SBOM bundle holds
+          # one per platform.
+          PLATFORM: ${{ matrix.platform }}
         run: forge-ci sbom assemble
       - name: Upload Analyzed-Container SBOMs
         if: *if_sbom_enabled
@@ -1203,8 +1206,8 @@ jobs:
         with:
           name: analyzed-container-sbom-${{ github.run_id }}-${{ inputs.name || 'container' }}-${{ steps.arch.outputs.suffix }}
           path: |
-            *-analyzed-container-sbom.spdx.json
-            *-analyzed-container-sbom.cyclonedx.json
+            *-analyzed-container-*-sbom.spdx.json
+            *-analyzed-container-*-sbom.cyclonedx.json
           retention-days: "30"
           if-no-files-found: error
       - name: Bind Cosign signing key to trusted public key
@@ -1240,7 +1243,7 @@ jobs:
           IMAGE_REF: ${{ needs.prep.outputs.image-name }}@${{ fromJson(needs.publish-images.outputs.platform-digests)[matrix.platform] }}
         run: |
           set -euo pipefail
-          pred="$(find . -maxdepth 1 -name '*-analyzed-container-sbom.cyclonedx.json' | head -1)"
+          pred="$(find . -maxdepth 1 -name '*-analyzed-container-*-sbom.cyclonedx.json' | head -1)"
           forge-ci validate signing-privacy
           forge-ci container attest --type cyclonedx --predicate "$pred" "$IMAGE_REF"
 

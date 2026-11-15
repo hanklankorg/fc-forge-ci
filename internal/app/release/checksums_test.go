@@ -119,7 +119,7 @@ func TestChecksums_ListsBothSBOMFormats(t *testing.T) {
 func TestChecksums_LabelsContainerSBOMsWithoutTheirDirectory(t *testing.T) {
 	fsys := testfs.NewReal(t)
 	fsys.Chdir()
-	fsys.WriteFile(filepath.Join("sbom-artifacts", "my-app-analyzed-container-sbom.spdx.json"), []byte(`{}`))
+	fsys.WriteFile(filepath.Join("sbom-artifacts", "my-app-analyzed-container-linux-amd64-sbom.spdx.json"), []byte(`{}`))
 
 	count, err := apprelease.Checksums(&bytes.Buffer{}, apprelease.ChecksumsInput{})
 	if err != nil {
@@ -130,7 +130,7 @@ func TestChecksums_LabelsContainerSBOMsWithoutTheirDirectory(t *testing.T) {
 		t.Errorf("count = %d, want 1", count)
 	}
 
-	want := []string{"my-app-analyzed-container-sbom.spdx.json"}
+	want := []string{"my-app-analyzed-container-linux-amd64-sbom.spdx.json"}
 	if got := checksumSubjects(t, "checksums.sha256"); !slices.Equal(got, want) {
 		t.Errorf("subjects = %v, want %v", got, want)
 	}
@@ -459,7 +459,7 @@ func TestChecksums_RefusesLineBreaksInLabels(t *testing.T) {
 
 					input.AttachArtifacts = "extra/*"
 				case "container":
-					fsys.WriteFile("sbom-artifacts/"+name+"-analyzed-container-sbom.spdx.json", []byte("{}"))
+					fsys.WriteFile("sbom-artifacts/"+name+"-analyzed-container-linux-amd64-sbom.spdx.json", []byte("{}"))
 				case "workdir":
 					fsys.WriteFile(name+"-sbom.spdx.json", []byte("{}"))
 				case "assembly":

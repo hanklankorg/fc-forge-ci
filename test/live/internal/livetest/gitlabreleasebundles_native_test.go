@@ -306,8 +306,8 @@ func addNativeImageEvidence(t *testing.T, binary, root string) {
 		index := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"mediaType":"application/vnd.oci.image.manifest.v1+json","size":123,"digest":"` + child + `","platform":{"os":"linux","architecture":"amd64"}}]}`)
 		inventory := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[]}`)
 		ref := fmt.Sprintf("%s@sha256:%x", repository, sha256.Sum256(index))
-		inventoryName := "sbom-" + role + "-amd64.json"
-		bomName := "image-sbom-" + role + ".cyclonedx.json"
+		inventoryName := role + "-0.94.0-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"
+		bomName := role + "-0.94.0-abcdef0-analyzed-container-index-sbom.cyclonedx.json"
 
 		bom, err := domainsbom.ComposeIndexBOM(ref, index, []domainsbom.IndexBOMPart{{
 			Platform: "linux/amd64", ImageRef: repository + "@" + child, Name: inventoryName,
@@ -338,9 +338,9 @@ func addNativeImageEvidence(t *testing.T, binary, root string) {
 		t.Fatal(err)
 	}
 
-	args := make([]string, 0, 6+2*len(names))
+	args := make([]string, 0, 8+2*len(names))
 
-	args = append(args, "manifest", "--unsigned", "--manifest", "dist/release-files.json", "--release-images-ledger", "dist/release-images.json")
+	args = append(args, "manifest", "--unsigned", "--manifest", "dist/release-files.json", "--release-images-ledger", "dist/release-images.json", "--version", "v0.94.0")
 	for _, name := range names {
 		args = append(args, "--image-sbom", "dist/"+name)
 	}

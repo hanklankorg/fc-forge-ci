@@ -36,12 +36,12 @@ func TestGitLabReleaseEvidenceNativeImageJourney(t *testing.T) {
 			}
 
 			bundled, err := tarGzipNames(fixture.published["hello-cli-0.94.0-sboms.tar.gz"])
-			if want := []string{"app.tar.gz.sbom.json", "image-sbom-app.cyclonedx.json", "image-sbom-distroless.cyclonedx.json", "sbom-app-amd64.json", "sbom-distroless-amd64.json"}; err != nil || !slices.Equal(bundled, want) {
+			if want := []string{"app-0.94.0-abcdef0-analyzed-container-index-sbom.cyclonedx.json", "app-0.94.0-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json", "app.tar.gz.sbom.json", "distroless-0.94.0-abcdef0-analyzed-container-index-sbom.cyclonedx.json", "distroless-0.94.0-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"}; err != nil || !slices.Equal(bundled, want) {
 				t.Fatalf("the published SBOM bundle holds %v, %v; want %v", bundled, err, want)
 			}
 
 			for name := range fixture.published {
-				if strings.HasPrefix(name, "image-sbom-") || strings.HasPrefix(name, "sbom-") {
+				if strings.Contains(name, "-analyzed-container-") {
 					t.Errorf("image SBOM %s is published as a file of its own", name)
 				}
 			}
@@ -65,13 +65,13 @@ func TestGitLabReleaseEvidenceRejectsImageSubstitutions(t *testing.T) {
 			case "missing ledger":
 				delete(publisher, "dist/release-images.json")
 			case "missing index":
-				delete(publisher, "dist/image-sbom-app.cyclonedx.json")
+				delete(publisher, "dist/app-0.94.0-abcdef0-analyzed-container-index-sbom.cyclonedx.json")
 			case "changed index":
-				publisher["dist/image-sbom-app.cyclonedx.json"] = append(publisher["dist/image-sbom-app.cyclonedx.json"], '\n')
+				publisher["dist/app-0.94.0-abcdef0-analyzed-container-index-sbom.cyclonedx.json"] = append(publisher["dist/app-0.94.0-abcdef0-analyzed-container-index-sbom.cyclonedx.json"], '\n')
 			case "missing platform":
-				delete(publisher, "dist/sbom-app-amd64.json")
+				delete(publisher, "dist/app-0.94.0-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json")
 			case "changed platform":
-				publisher["dist/sbom-app-amd64.json"] = []byte(`{"bomFormat":"CycloneDX","components":[{"name":"other"}]}`)
+				publisher["dist/app-0.94.0-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"] = []byte(`{"bomFormat":"CycloneDX","components":[{"name":"other"}]}`)
 			case "missing pin", "wrong pin":
 				var ledger []imageledger.Entry
 				if err := json.Unmarshal(publisher["dist/release-images.json"], &ledger); err != nil {
@@ -90,7 +90,7 @@ func TestGitLabReleaseEvidenceRejectsImageSubstitutions(t *testing.T) {
 
 				publisher["dist/release-images.json"] = body
 			case "unplanned image":
-				addNativeDeclaredEvidence(t, publisher, "image-sbom-extra.cyclonedx.json")
+				addNativeDeclaredEvidence(t, publisher, "extra-0.94.0-abcdef0-analyzed-container-index-sbom.cyclonedx.json")
 			case "unplanned ordinary evidence":
 				addNativeDeclaredEvidence(t, publisher, "unexpected.txt")
 			case "removed build declaration":
@@ -102,13 +102,13 @@ func TestGitLabReleaseEvidenceRejectsImageSubstitutions(t *testing.T) {
 			case "changed signer ledger":
 				signer["dist/release-images.json"] = []byte("[]")
 			case "changed signer evidence":
-				signer["dist/sbom-app-amd64.json"] = []byte("substituted signer bytes")
+				signer["dist/app-0.94.0-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"] = []byte("substituted signer bytes")
 			case "bundle left without image SBOMs":
 				for _, file := range []string{"dist/hello-cli-0.94.0-sboms.tar.gz", "dist/" + fixture.checksum} {
 					publisher[file] = build[file]
 				}
 			case "image SBOM published as a file":
-				published["sbom-app-amd64.json"] = publisher["dist/sbom-app-amd64.json"]
+				published["app-0.94.0-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"] = publisher["dist/app-0.94.0-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"]
 			}
 
 			_, err := fixture.checkWithPublisher(t, build, publisher, signer, published)

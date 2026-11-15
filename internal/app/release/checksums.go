@@ -126,7 +126,7 @@ func (m *checksumManifest) report(out io.Writer) {
 //
 //   - release-artifacts/*       → basename in the manifest
 //   - $ATTACH_ARTIFACTS globs   → original path in the manifest
-//   - sbom-artifacts/*-analyzed-container-sbom.*.json → basename
+//   - sbom-artifacts/*-analyzed-container-*-sbom.*.json → basename
 //   - cwd *-sbom.{spdx,cyclonedx}.json → basename
 //
 // Returns the line count and any I/O error.

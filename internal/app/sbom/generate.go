@@ -89,6 +89,9 @@ type GenerateInput struct {
 	// FS overrides read-only workspace access for tests. It must be rooted at WorkingDir.
 	FS             fs.FS
 	ContainerImage string // analyzed-container target
+	// ContainerPlatform is the platform of ContainerImage, os/arch[/variant],
+	// when the image is one platform's; it names the analyzed-container files.
+	ContainerPlatform string
 	// RequireFreshOutputs prevents generated release evidence from overwriting
 	// acquired producer members that already have a canonical SBOM filename.
 	RequireFreshOutputs bool
@@ -168,7 +171,7 @@ func Generate(
 
 	deps := layerDeps{ws: ws, syft: syft, gen: gen, w: out, stderr: stderr}
 
-	if err := generateLayers(ctx, deps, parsedLayers, projectType, subj, in.ContainerImage); err != nil {
+	if err := generateLayers(ctx, deps, parsedLayers, projectType, subj, in.ContainerImage, in.ContainerPlatform); err != nil {
 		return err
 	}
 
@@ -286,7 +289,7 @@ func generateLayers(
 	parsedLayers []string,
 	projectType projecttype.Type,
 	subj subject,
-	containerImage string,
+	containerImage, containerPlatform string,
 ) error {
 	for _, layer := range parsedLayers {
 		if !domainsbom.IsValidLayer(layer) {
@@ -305,7 +308,7 @@ func generateLayers(
 				return err
 			}
 		case domainsbom.LayerAnalyzedContainer:
-			if err := generateContainerLayer(ctx, deps, containerImage, subj); err != nil {
+			if err := generateContainerLayer(ctx, deps, containerImage, containerPlatform, subj); err != nil {
 				return err
 			}
 		}

@@ -187,7 +187,7 @@ func TestForgejoLayer_ResolvedImagePlan(t *testing.T) {
 			t.Fatal("final index child does not contain the selected target's marker")
 		}
 
-		t.Logf("final release evidence verified: phase=%s run=%d index=%s child=%s inventory-sha256=%s index-bom-sha256=%s artifact=%s", phase, run.ID, final.Ref, child, imagePlanSHA256(finalTree["sbom-distroless-amd64.json"]), final.SBOMSHA256, finalArtifact)
+		t.Logf("final release evidence verified: phase=%s run=%d index=%s child=%s inventory-sha256=%s index-bom-sha256=%s artifact=%s", phase, run.ID, final.Ref, child, imagePlanSHA256(finalTree[strings.Replace(strings.TrimPrefix(final.SBOM, "dist/"), "-index-sbom.", "-linux-amd64-sbom.", 1)]), final.SBOMSHA256, finalArtifact)
 	}
 }
 

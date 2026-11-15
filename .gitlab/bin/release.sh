@@ -647,7 +647,7 @@ rc_bundle_release_image_sboms() {
   local images=$1 file
   local -a sboms=()
   rc_require_regular_file "${DIST_DIR:?}/release-images.json" || return
-  for file in "${images}"/image-sbom-*.cyclonedx.json "${images}"/sbom-*.json; do
+  for file in "${images}"/*-analyzed-container-*-sbom.cyclonedx.json; do
     [ -e "${file}" ] || continue
     sboms+=(--image-sbom "${DIST_DIR:?}/${file##*/}")
   done

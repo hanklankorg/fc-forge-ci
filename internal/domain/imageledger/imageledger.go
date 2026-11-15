@@ -26,6 +26,7 @@ import (
 
 	"github.com/diggsweden/forge-ci/internal/domain/container"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/sbom"
 	"github.com/diggsweden/forge-ci/internal/domain/version"
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
 )
@@ -427,6 +428,35 @@ func DefaultSBOMPath(kind ImageKind, flavor, role string) string {
 	}
 
 	return "dist/image-sbom-" + suffix + ".cyclonedx.json"
+}
+
+// ReleaseImageSBOMPath is the dist path of the index SBOM the engine writes
+// for a release image it publishes, named as the release's SBOM bundle names
+// image SBOMs: dist/<name>-<version>-<sha>-analyzed-container-index-sbom.cyclonedx.json,
+// the name being the flavor or else the role, the version the release tag
+// without its v, and the sha the first seven characters of the release
+// commit. Empty means required naming input is missing.
+func ReleaseImageSBOMPath(flavor, role, releaseTag, sha string) string {
+	name := ReleaseImageSBOMFilename(flavor, role, releaseTag, sha, sbom.ImageSBOMIndexSlot)
+	if name == "" {
+		return ""
+	}
+
+	return "dist/" + name
+}
+
+// ReleaseImageSBOMFilename names one of the image SBOMs the engine writes for
+// a release image it publishes: its index SBOM for the slot
+// sbom.ImageSBOMIndexSlot, or a platform's inventory for a platform such as
+// linux/arm64. See ReleaseImageSBOMPath. Empty means required naming input is
+// missing.
+func ReleaseImageSBOMFilename(flavor, role, releaseTag, sha, slot string) string {
+	name := cmp.Or(flavor, role)
+	if name == "" || releaseTag == "" || len(sha) < version.SnapshotShortSHALen || strings.Trim(sha, "0123456789abcdef") != "" {
+		return ""
+	}
+
+	return sbom.ImageSBOMFilename(name, version.StripVPrefix(releaseTag), sha[:version.SnapshotShortSHALen], slot, sbom.FormatCycloneDX)
 }
 
 // validateSBOM checks the optional SBOM path, which must stay inside the

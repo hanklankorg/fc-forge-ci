@@ -425,8 +425,8 @@ func TestResolvedImagePlanPolicyPhases(t *testing.T) {
 		}
 
 		image, build := final.Images[0], final.Builds[0]
-		if path := imageledger.DefaultSBOMPath(imageledger.ImageKind(image.ImageKind), image.Flavor, image.Role); path != "dist/image-sbom-distroless.cyclonedx.json" {
-			t.Fatalf("final fixture disagrees with production default SBOM path: %s", path)
+		if path := imageledger.ReleaseImageSBOMPath(image.Flavor, image.Role, "v0.0.1", strings.Repeat("a", 40)); path != "dist/distroless-0.0.1-aaaaaaa-analyzed-container-index-sbom.cyclonedx.json" {
+			t.Fatalf("final fixture disagrees with the production release image SBOM path: %s", path)
 		}
 
 		if image.Role != "distroless" || image.ImageKind != "release" || !image.Scan || image.Archs != "amd64" || build.Platform != "linux/amd64" || build.Context != "steady" || build.Target != "selected" || build.CacheTag != "" || image.CacheTagPrefix != "" || image.CandidateTag != "staging-v0.0.1" || image.FinalTagName != "v0.0.1" {

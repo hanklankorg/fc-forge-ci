@@ -245,10 +245,10 @@ func TestValidate_AcceptsOptionalManifestMetadata(t *testing.T) {
 	}
 
 	// When present, SBOM accepts the convention domain/sbom/filenames.go
-	// emits (e.g. <name>-<version>-analyzed-container-sbom.cyclonedx.json),
+	// emits (e.g. <name>-<version>-<sha>-analyzed-container-index-sbom.cyclonedx.json),
 	// not just the legacy dist/image-sbom* name.
 	convention := validEntry()
-	convention.SBOM = "myapp-1.2.3-analyzed-container-sbom.cyclonedx.json"
+	convention.SBOM = "myapp-1.2.3-abc1234-analyzed-container-index-sbom.cyclonedx.json"
 
 	if err := convention.Validate("v1.2.3"); err != nil {
 		t.Errorf("codebase SBOM filename should be accepted, got %v", err)
@@ -620,5 +620,29 @@ func TestParse_RejectsRepeatedMembers(t *testing.T) {
 	two := `[{` + base + `},{` + strings.Replace(base, "ghcr.io/o/a", "ghcr.io/o/b", 2) + `}]`
 	if entries, err := imageledger.Parse([]byte(two)); err != nil || len(entries) != 2 {
 		t.Errorf("two entries: %v, %v", entries, err)
+	}
+}
+
+// A release image's SBOMs carry the bundle's layer naming: the flavor or else
+// the role, the version without its v, and the release commit's first seven
+// characters. Any missing or malformed naming input names nothing.
+func TestReleaseImageSBOMPath(t *testing.T) {
+	t.Parallel()
+
+	sha := "abcdef0123456789abcdef0123456789abcdef01"
+	for _, tc := range []struct{ got, want string }{
+		{imageledger.ReleaseImageSBOMPath("", "app", "v1.2.3", sha), "dist/app-1.2.3-abcdef0-analyzed-container-index-sbom.cyclonedx.json"},
+		{imageledger.ReleaseImageSBOMPath("core", "app", "v1.2.3-rc.1", sha), "dist/core-1.2.3-rc.1-abcdef0-analyzed-container-index-sbom.cyclonedx.json"},
+		{imageledger.ReleaseImageSBOMFilename("", "app", "v1.2.3", sha, "linux/arm64"), "app-1.2.3-abcdef0-analyzed-container-linux-arm64-sbom.cyclonedx.json"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("got %q, want %q", tc.got, tc.want)
+		}
+	}
+
+	for _, naming := range [][4]string{{"", "", "v1.2.3", sha}, {"", "app", "", sha}, {"", "app", "v1.2.3", ""}, {"", "app", "v1.2.3", "abcdef"}, {"", "app", "v1.2.3", "ABCDEF0123"}} {
+		if got := imageledger.ReleaseImageSBOMPath(naming[0], naming[1], naming[2], naming[3]); got != "" {
+			t.Errorf("ReleaseImageSBOMPath(%q) = %q, want none", naming, got)
+		}
 	}
 }

@@ -228,10 +228,10 @@ Source SBOMs are not generated and are not part of the user-facing `sboms` enum.
 <artifact-basename>-<short-sha>-analyzed-jar-sbom.{cyclonedx,spdx}.json          # Maven / Gradle (JVM)
 <artifact-basename>-<short-sha>-analyzed-tararchive-sbom.{cyclonedx,spdx}.json   # npm
 <artifact-basename>-<short-sha>-analyzed-binary-sbom.{cyclonedx,spdx}.json       # Go / Rust
-<project>-<version>-<short-sha>-analyzed-container-sbom.{cyclonedx,spdx}.json
+<project>-<version>-<short-sha>-analyzed-container-<os>-<arch>-sbom.{cyclonedx,spdx}.json
 ```
 
-`<artifact-basename>` is derived from the actual scanned file (so multi-jar projects get unique names per jar). `build` SBOMs use `<project>-<version>` instead, because there is one Build SBOM per project, not per output file. Container scans have a single artifact-type so the analyzed-container layer omits the further modifier.
+`<artifact-basename>` is derived from the actual scanned file (so multi-jar projects get unique names per jar). `build` SBOMs use `<project>-<version>` instead, because there is one Build SBOM per project, not per output file. Container scans have a single artifact-type, so the analyzed-container layer names the platform instead: each platform of a multi-platform image has SBOMs of its own, such as `-analyzed-container-linux-arm64-sbom.cyclonedx.json`.
 
 Release creation downloads the exact artifact names in the typed transfer plan
 through `forge-ci release download-artifacts`. Build-BOM lookup is relative
@@ -286,11 +286,22 @@ Release SBOMs have two delivery paths:
   [Verify a Forgejo or GitLab release](verification.md#verify-a-forgejo-or-gitlab-release)
   has the commands.
 - The SBOMs of the release's images are in the same bundle on every forge,
-  beside the SBOMs of the build. On Forgejo and GitLab these are, for each
-  image, the index SBOM `image-sbom-<image>.cyclonedx.json` and one
-  inventory per platform, `sbom-<image>-<arch>.json`; on GitHub, each
-  architecture's analyzed-container SBOMs. No image SBOM is a release file
-  of its own.
+  beside the SBOMs of the build, under one naming scheme:
+
+  ```text
+  <name>-<version>-<short-sha>-analyzed-container-<os>-<arch>-sbom.<format>.json
+  <name>-<version>-<short-sha>-analyzed-container-index-sbom.cyclonedx.json
+  ```
+
+  For an image `app` of release `v1.2.3` built for two platforms these are
+  `app-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json`,
+  `app-1.2.3-abcdef0-analyzed-container-linux-arm64-sbom.cyclonedx.json`
+  and the index SBOM
+  `app-1.2.3-abcdef0-analyzed-container-index-sbom.cyclonedx.json`. On
+  GitHub `<name>` is the repository's and each platform has an SPDX and a
+  CycloneDX SBOM, with no index SBOM; on Forgejo and GitLab `<name>` is the
+  image's flavor or role, each platform has a CycloneDX inventory and the
+  index SBOM names them. No image SBOM is a release file of its own.
 - Each per-architecture container digest also receives its CycloneDX
   document as a signed cosign attestation, and on Forgejo and GitLab the
   image index receives the index SBOM. This path is registry- and

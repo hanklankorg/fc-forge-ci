@@ -54,7 +54,7 @@ func TestAssemble_StagesEveryProducerLayoutIntoOneManifest(t *testing.T) {
 	fsys.WriteFile(filepath.Join("release-artifacts", "release-images-ledger.json"), []byte(`{}`))
 	fsys.WriteFile(filepath.Join("extra", "nested", "readme.txt"), []byte("attached"))
 	fsys.WriteFile(filepath.Join("services", "api", "api-sbom.spdx.json"), []byte(`{"spdxVersion":"2.3"}`))
-	fsys.WriteFile(filepath.Join("sbom-artifacts", "web-analyzed-container-sbom.spdx.json"), []byte(`{"name":"web-container","spdxVersion":"SPDX-2.3"}`))
+	fsys.WriteFile(filepath.Join("sbom-artifacts", "web-analyzed-container-linux-amd64-sbom.spdx.json"), []byte(`{"name":"web-container","spdxVersion":"SPDX-2.3"}`))
 
 	asm, err := apprelease.Assemble(&bytes.Buffer{}, apprelease.AssembleInput{
 		ConfigPlanJSON: releaseAssemblyConfigJSON(t),
@@ -128,8 +128,8 @@ func TestAssemble_StagesEveryProducerLayoutIntoOneManifest(t *testing.T) {
 				SourceArtifact: "", Required: false,
 			},
 			{
-				Path: "release-files/sboms/web-analyzed-container-sbom.spdx.json", Name: "web-analyzed-container-sbom.spdx.json",
-				SourcePath: "sbom-artifacts/web-analyzed-container-sbom.spdx.json", SourceKind: "analyzed_container_sbom",
+				Path: "release-files/sboms/web-analyzed-container-linux-amd64-sbom.spdx.json", Name: "web-analyzed-container-linux-amd64-sbom.spdx.json",
+				SourcePath: "sbom-artifacts/web-analyzed-container-linux-amd64-sbom.spdx.json", SourceKind: "analyzed_container_sbom",
 				SourceArtifact: "", Required: false,
 			},
 		},
@@ -139,16 +139,16 @@ func TestAssemble_StagesEveryProducerLayoutIntoOneManifest(t *testing.T) {
 	}
 
 	for path, wantBody := range map[string]string{
-		"release-files/assets/app.aab":                              "android bundle\x00payload",
-		"release-files/assets/app.apk":                              "apk",
-		"release-files/assets/app.exe":                              "windows executable\x00payload",
-		"release-files/assets/app.ipa":                              "ipa",
-		"release-files/assets/app.jar":                              "jar",
-		"release-files/assets/readme.txt":                           "attached",
-		"release-files/assets/service-darwin-arm64":                 "extracted",
-		"release-files/assets/service-linux-amd64":                  "go binary",
-		"release-files/sboms/api-sbom.spdx.json":                    `{"spdxVersion":"2.3"}`,
-		"release-files/sboms/web-analyzed-container-sbom.spdx.json": `{"name":"web-container","spdxVersion":"SPDX-2.3"}`,
+		"release-files/assets/app.aab":                                          "android bundle\x00payload",
+		"release-files/assets/app.apk":                                          "apk",
+		"release-files/assets/app.exe":                                          "windows executable\x00payload",
+		"release-files/assets/app.ipa":                                          "ipa",
+		"release-files/assets/app.jar":                                          "jar",
+		"release-files/assets/readme.txt":                                       "attached",
+		"release-files/assets/service-darwin-arm64":                             "extracted",
+		"release-files/assets/service-linux-amd64":                              "go binary",
+		"release-files/sboms/api-sbom.spdx.json":                                `{"spdxVersion":"2.3"}`,
+		"release-files/sboms/web-analyzed-container-linux-amd64-sbom.spdx.json": `{"name":"web-container","spdxVersion":"SPDX-2.3"}`,
 	} {
 		if got := readFile(t, path); got != wantBody {
 			t.Errorf("staged file %s = %q, want %q", path, got, wantBody)

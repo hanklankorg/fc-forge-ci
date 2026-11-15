@@ -146,7 +146,7 @@ func TestPublishReleaseImagesRecordsEveryImageInOneLedger(t *testing.T) {
 		require.Equal(t, image.ImageRepository+":v1.2.3", entry.FinalTag)
 		require.Equal(t, image.ImageRepository+":staging-v1.2.3", entry.CandidateTag)
 		require.Empty(t, entry.SBOMSHA256, "ordinary native publication leaves SBOM generation to signing")
-		require.NoFileExists(t, filepath.Join(fixture.in.OutputDir, "image-sbom-"+image.Name+".cyclonedx.json"))
+		require.NoFileExists(t, filepath.Join(fixture.in.OutputDir, image.Name+"-1.2.3-bbbbbbb-analyzed-container-index-sbom.cyclonedx.json"))
 	}
 
 	// The job's working directory keeps nothing of the run.
@@ -269,8 +269,8 @@ func TestPublishReleaseImagesPinsOriginalInventoriesAndIndexBOM(t *testing.T) {
 	require.NoError(t, err)
 	entries, err := imageledger.Parse(body)
 	require.NoError(t, err)
-	require.Equal(t, "dist/image-sbom-app.cyclonedx.json", entries[0].SBOM)
-	require.Equal(t, "dist/image-sbom-core.cyclonedx.json", entries[1].SBOM)
+	require.Equal(t, "dist/app-1.2.3-bbbbbbb-analyzed-container-index-sbom.cyclonedx.json", entries[0].SBOM)
+	require.Equal(t, "dist/core-1.2.3-bbbbbbb-analyzed-container-index-sbom.cyclonedx.json", entries[1].SBOM)
 
 	for _, entry := range entries {
 		body, err := os.ReadFile(entry.SBOM)
@@ -278,16 +278,16 @@ func TestPublishReleaseImagesPinsOriginalInventoriesAndIndexBOM(t *testing.T) {
 		require.Equal(t, fmt.Sprintf("%x", sha256.Sum256(body)), entry.SBOMSHA256)
 	}
 
-	inventory, err := os.ReadFile(filepath.Join(fixture.in.OutputDir, "sbom-core-amd64.json"))
+	inventory, err := os.ReadFile(filepath.Join(fixture.in.OutputDir, "core-1.2.3-bbbbbbb-analyzed-container-linux-amd64-sbom.cyclonedx.json"))
 	require.NoError(t, err)
 	index, err := os.ReadFile(filepath.Join(fixture.in.OutputDir, "index-worker.json"))
 	require.NoError(t, err)
 	wantBOM, err := domainsbom.ComposeIndexBOM(entries[1].Ref, index, []domainsbom.IndexBOMPart{{
 		Platform: "linux/amd64", ImageRef: fixture.in.Plan.Images[1].ImageRepository + "@" + fixture.digest["worker-amd64"],
-		Name: "sbom-core-amd64.json", SHA256: fmt.Sprintf("%x", sha256.Sum256(inventory)), Document: inventory,
+		Name: "core-1.2.3-bbbbbbb-analyzed-container-linux-amd64-sbom.cyclonedx.json", SHA256: fmt.Sprintf("%x", sha256.Sum256(inventory)), Document: inventory,
 	}})
 	require.NoError(t, err)
-	gotBOM, err := os.ReadFile(filepath.Join(fixture.in.OutputDir, "image-sbom-core.cyclonedx.json"))
+	gotBOM, err := os.ReadFile(filepath.Join(fixture.in.OutputDir, "core-1.2.3-bbbbbbb-analyzed-container-index-sbom.cyclonedx.json"))
 	require.NoError(t, err)
 	require.Equal(t, wantBOM, gotBOM)
 	// The signer reads the literal canonical ledger paths, verifies pins and
@@ -378,12 +378,12 @@ func TestNativeImageSBOMsJoinTheSBOMBundleJourney(t *testing.T) {
 			before, err := apprelease.DeclareReleaseFiles(declared)
 			require.NoError(t, err)
 			// A consumer's pre-existing inventory must never become public.
-			require.NoError(t, os.WriteFile("dist/sbom-consumer-amd64.json", []byte("{}"), 0o600))
+			require.NoError(t, os.WriteFile("dist/consumer-1.2.3-bbbbbbb-analyzed-container-linux-amd64-sbom.cyclonedx.json", []byte("{}"), 0o600))
 
 			output, err := collectNativeImageEvidence(t, fixture.in.OutputDir)
 			require.NoError(t, err, "%s", output)
 
-			imageSBOMs := []string{"image-sbom-app.cyclonedx.json", "image-sbom-worker.cyclonedx.json", "sbom-app-amd64.json", "sbom-worker-amd64.json"}
+			imageSBOMs := []string{"app-1.2.3-bbbbbbb-analyzed-container-index-sbom.cyclonedx.json", "app-1.2.3-bbbbbbb-analyzed-container-linux-amd64-sbom.cyclonedx.json", "worker-1.2.3-bbbbbbb-analyzed-container-index-sbom.cyclonedx.json", "worker-1.2.3-bbbbbbb-analyzed-container-linux-amd64-sbom.cyclonedx.json"}
 			want := map[string][]byte{}
 
 			for _, name := range imageSBOMs {
@@ -397,16 +397,16 @@ func TestNativeImageSBOMsJoinTheSBOMBundleJourney(t *testing.T) {
 
 			switch defect {
 			case "missing index":
-				require.NoError(t, os.Remove("dist/image-sbom-app.cyclonedx.json"))
+				require.NoError(t, os.Remove("dist/app-1.2.3-bbbbbbb-analyzed-container-index-sbom.cyclonedx.json"))
 			case "changed index":
-				require.NoError(t, os.WriteFile("dist/image-sbom-app.cyclonedx.json", []byte("{}"), 0o600))
+				require.NoError(t, os.WriteFile("dist/app-1.2.3-bbbbbbb-analyzed-container-index-sbom.cyclonedx.json", []byte("{}"), 0o600))
 			case "missing platform":
-				require.NoError(t, os.Remove("dist/sbom-app-amd64.json"))
+				require.NoError(t, os.Remove("dist/app-1.2.3-bbbbbbb-analyzed-container-linux-amd64-sbom.cyclonedx.json"))
 			case "changed platform":
-				require.NoError(t, os.WriteFile("dist/sbom-app-amd64.json", []byte("{}"), 0o600))
+				require.NoError(t, os.WriteFile("dist/app-1.2.3-bbbbbbb-analyzed-container-linux-amd64-sbom.cyclonedx.json", []byte("{}"), 0o600))
 			case "extra publisher SBOM":
-				require.NoError(t, os.WriteFile(filepath.Join(fixture.in.OutputDir, "sbom-unplanned-amd64.json"), []byte("{}"), 0o600))
-				require.NoError(t, os.WriteFile("dist/sbom-unplanned-amd64.json", []byte("{}"), 0o600))
+				require.NoError(t, os.WriteFile(filepath.Join(fixture.in.OutputDir, "unplanned-1.2.3-bbbbbbb-analyzed-container-linux-amd64-sbom.cyclonedx.json"), []byte("{}"), 0o600))
+				require.NoError(t, os.WriteFile("dist/unplanned-1.2.3-bbbbbbb-analyzed-container-linux-amd64-sbom.cyclonedx.json", []byte("{}"), 0o600))
 			case "missing pin":
 				body, err := os.ReadFile("dist/release-images.json")
 				require.NoError(t, err)
@@ -418,7 +418,7 @@ func TestNativeImageSBOMsJoinTheSBOMBundleJourney(t *testing.T) {
 				require.NoError(t, err)
 				require.NoError(t, os.WriteFile("dist/release-images.json", body, 0o600))
 			case "unregistered platform":
-				require.NoError(t, os.Remove(filepath.Join(fixture.in.OutputDir, "sbom-app-amd64.json")))
+				require.NoError(t, os.Remove(filepath.Join(fixture.in.OutputDir, "app-1.2.3-bbbbbbb-analyzed-container-linux-amd64-sbom.cyclonedx.json")))
 			case "bundle not the checksummed one":
 				// A hand-off whose bundle and checksums line disagree is refused,
 				// not repaired by the line this step writes.

@@ -25,7 +25,8 @@ import (
 const handoffBundle = "dist/app-1.2.3-sboms.tar.gz"
 
 // writeIndexSBOM writes a two-platform index SBOM and its inventories into
-// dist and returns the pinned ledger entry of the image they describe.
+// dist, named as the engine names a release image's SBOMs, and returns the
+// pinned ledger entry of the image they describe.
 func writeIndexSBOM(t *testing.T, role string) imageledger.Entry {
 	t.Helper()
 
@@ -35,7 +36,7 @@ func writeIndexSBOM(t *testing.T, role string) imageledger.Entry {
 
 	for index, arch := range []string{"amd64", "arm64"} {
 		digest := "sha256:" + strings.Repeat(strconv.Itoa(index+1), 64)
-		name := "sbom-" + role + "-" + arch + ".json"
+		name := role + "-1.2.3-abcdef0-analyzed-container-linux-" + arch + "-sbom.cyclonedx.json"
 		body := fmt.Appendf(nil, `{"bomFormat":"CycloneDX","specVersion":"1.6","components":[{"type":"library","name":"%s-%s"}]}`, role, arch)
 		writeReleaseFilesTestFile(t, "dist/"+name, string(body))
 
@@ -47,7 +48,7 @@ func writeIndexSBOM(t *testing.T, role string) imageledger.Entry {
 	require.NoError(t, err)
 
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(index))
-	entry := imageledger.Entry{Role: role, Ref: repository + "@" + digest, Digest: digest, FinalTag: repository + ":v1.2.3", SBOM: "dist/image-sbom-" + role + ".cyclonedx.json"}
+	entry := imageledger.Entry{Role: role, Ref: repository + "@" + digest, Digest: digest, FinalTag: repository + ":v1.2.3", SBOM: "dist/" + role + "-1.2.3-abcdef0-analyzed-container-index-sbom.cyclonedx.json"}
 
 	body, err := sbom.ComposeIndexBOM(entry.Ref, index, parts)
 	require.NoError(t, err)
@@ -135,7 +136,7 @@ func TestHandoffLedgerImageSBOMsJoinTheSBOMBundle(t *testing.T) {
 
 			writeImageLedger(t, indexed, single, unpinned, base)
 			// A file in dist that no ledger pin names is never bundled.
-			writeReleaseFilesTestFile(t, "dist/sbom-consumer-amd64.json", "{}")
+			writeReleaseFilesTestFile(t, "dist/consumer-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json", "{}")
 
 			after, err := apprelease.WriteReleaseFileManifest(fromLedger())
 			require.NoError(t, err)
@@ -143,7 +144,7 @@ func TestHandoffLedgerImageSBOMsJoinTheSBOMBundle(t *testing.T) {
 			require.Empty(t, after.Evidence)
 
 			want := map[string]string{}
-			for _, name := range []string{"image-sbom-app.cyclonedx.json", "sbom-app-amd64.json", "sbom-app-arm64.json", "image-sbom-tool.cyclonedx.json"} {
+			for _, name := range []string{"app-1.2.3-abcdef0-analyzed-container-index-sbom.cyclonedx.json", "app-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json", "app-1.2.3-abcdef0-analyzed-container-linux-arm64-sbom.cyclonedx.json", "image-sbom-tool.cyclonedx.json"} {
 				want[name] = readFile(t, "dist/"+name)
 			}
 
@@ -195,9 +196,9 @@ func TestHandoffLedgerImageSBOMRefusalsLeaveTheHandoffUnchanged(t *testing.T) {
 			case "missing index":
 				require.NoError(t, os.Remove(first.SBOM))
 			case "changed inventory":
-				writeReleaseFilesTestFile(t, "dist/sbom-app-arm64.json", `{"bomFormat":"CycloneDX","specVersion":"1.6"}`)
+				writeReleaseFilesTestFile(t, "dist/app-1.2.3-abcdef0-analyzed-container-linux-arm64-sbom.cyclonedx.json", `{"bomFormat":"CycloneDX","specVersion":"1.6"}`)
 			case "missing inventory":
-				require.NoError(t, os.Remove("dist/sbom-worker-amd64.json"))
+				require.NoError(t, os.Remove("dist/worker-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"))
 			case "index of another image":
 				second.SBOM, second.SBOMSHA256 = "dist/image-sbom-other.cyclonedx.json", first.SBOMSHA256
 				writeReleaseFilesTestFile(t, second.SBOM, readFile(t, first.SBOM))
@@ -208,7 +209,7 @@ func TestHandoffLedgerImageSBOMRefusalsLeaveTheHandoffUnchanged(t *testing.T) {
 			case "without a ledger":
 				in.ReleaseImages.Ledger = ""
 			case "image SBOM as evidence":
-				in.EvidenceFiles = []string{"dist/sbom-app-amd64.json"}
+				in.EvidenceFiles = []string{"dist/app-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"}
 			case "bundle not the checksummed one":
 				// A readable bundle, so only its checksums line refuses it.
 				var other bytes.Buffer
@@ -222,7 +223,7 @@ func TestHandoffLedgerImageSBOMRefusalsLeaveTheHandoffUnchanged(t *testing.T) {
 			case "pinned outside dist":
 				// Attested but never published: the bundle must hold it.
 				second.SBOM = "evidence/image-sbom-worker.cyclonedx.json"
-				writeReleaseFilesTestFile(t, second.SBOM, readFile(t, "dist/image-sbom-worker.cyclonedx.json"))
+				writeReleaseFilesTestFile(t, second.SBOM, readFile(t, "dist/worker-1.2.3-abcdef0-analyzed-container-index-sbom.cyclonedx.json"))
 			}
 
 			writeImageLedger(t, first, second)

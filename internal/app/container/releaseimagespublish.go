@@ -190,8 +190,10 @@ func releaseImageAssembleInput(out io.Writer, in PublishReleaseImagesInput, imag
 			return SignerImageAssembleInput{}, err
 		}
 
-		id := cmp.Or(image.Flavor, image.Role, image.Name)
-		evidence.SBOMOutputTemplate = filepath.Join(in.OutputDir, "sbom-"+id+"-{arch}.json")
+		// Each platform's inventory is named as the index SBOM is, with its
+		// platform in place of the index.
+		inventory := imageledger.ReleaseImageSBOMFilename(image.Flavor, cmp.Or(image.Role, image.Name), in.ReleaseTag, in.ReleaseSHA, "linux/{arch}")
+		evidence.SBOMOutputTemplate = filepath.Join(in.OutputDir, inventory)
 		evidence.IndexSBOMOutput = file
 	}
 
@@ -216,7 +218,7 @@ func releaseImageAssembleInput(out io.Writer, in PublishReleaseImagesInput, imag
 }
 
 func releaseImageSBOMFile(in PublishReleaseImagesInput, image pipeline.ReleaseImage) (string, error) {
-	mapping, err := mapReleaseImageEvidence(image)
+	mapping, err := mapReleaseImageEvidence(image, in.ReleaseTag, in.ReleaseSHA)
 	if err != nil {
 		return "", err
 	}
@@ -257,6 +259,9 @@ func validateReleaseImagePublication(in PublishReleaseImagesInput) error {
 		}
 
 		entry := releaseImageLedgerEntry(in, image, "sha256:"+strings.Repeat("0", 64))
+		if entry.SBOM == "" && !entry.DefaultSBOM {
+			return fmt.Errorf("release image %s: its SBOM is named by the release tag and the full release commit: %w", image.Name, errs.ErrUsage)
+		}
 		// Duplicate placeholder digests are legitimate for different roles.
 		ledger, err = AppendLedgerEntry(ledger, entry)
 		if err != nil {
@@ -264,7 +269,7 @@ func validateReleaseImagePublication(in PublishReleaseImagesInput) error {
 		}
 
 		if in.PrepublicationSBOMs {
-			mapping, err := mapReleaseImageEvidence(image)
+			mapping, err := mapReleaseImageEvidence(image, in.ReleaseTag, in.ReleaseSHA)
 			if err != nil {
 				return err
 			}
@@ -307,14 +312,24 @@ func validateReleaseImagePublicationMetadata(image pipeline.ReleaseImage) error 
 // releaseImageLedgerEntry records one pushed image. The publication caller
 // adds its SBOM byte pin when inventories were requested.
 func releaseImageLedgerEntry(in PublishReleaseImagesInput, image pipeline.ReleaseImage, digest string) AddLedgerEntryInput {
+	kind := cmp.Or(image.ImageKind, string(imageledger.ImageKindRelease))
+
+	// A release image's SBOM is its index SBOM, named for the SBOM bundle; a
+	// base image keeps the premade path.
+	var sbom string
+	if kind == string(imageledger.ImageKindRelease) {
+		sbom = imageledger.ReleaseImageSBOMPath(image.Flavor, cmp.Or(image.Role, image.Name), in.ReleaseTag, in.ReleaseSHA)
+	}
+
 	return AddLedgerEntryInput{
 		ReleaseTag:         in.ReleaseTag,
 		Role:               cmp.Or(image.Role, image.Name),
-		ImageKind:          cmp.Or(image.ImageKind, string(imageledger.ImageKindRelease)),
+		ImageKind:          kind,
 		ImageName:          image.ImageRepository,
 		Digest:             digest,
+		SBOM:               sbom,
 		ProvenanceJSON:     image.ProvenanceJSON,
-		DefaultSBOM:        true,
+		DefaultSBOM:        kind == string(imageledger.ImageKindBase),
 		FinalTagName:       image.FinalTagName,
 		MovingTagName:      image.MovingTagName,
 		Flavor:             image.Flavor,

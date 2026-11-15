@@ -31,6 +31,7 @@ func TestGenerateContainer_NoArtifactTypes_SingleGeneration(t *testing.T) {
 		Repo:        "examplescope/example",
 		ImageName:   "ghcr.io/examplescope/example",
 		ImageDigest: "sha256:" + strings.Repeat("a", 64),
+		Platform:    "linux/amd64",
 	})
 	if err != nil {
 		t.Fatalf("GenerateContainer: %v\nstdout: %s", err, out.String())
@@ -47,6 +48,15 @@ func TestGenerateContainer_NoArtifactTypes_SingleGeneration(t *testing.T) {
 	expectedImage := "ghcr.io/examplescope/example@sha256:" + strings.Repeat("a", 64)
 	if syft.calls[0].target != expectedImage {
 		t.Errorf("syft target = %q, want %q", syft.calls[0].target, expectedImage)
+	}
+
+	// Each platform's SBOM is named for it, as the SBOM bundle names image SBOMs.
+	wantOutputs := map[string]string{
+		"cyclonedx-json": "example-1.2.3-abc1234-analyzed-container-linux-amd64-sbom.cyclonedx.json",
+		"spdx-json":      "example-1.2.3-abc1234-analyzed-container-linux-amd64-sbom.spdx.json",
+	}
+	if !reflect.DeepEqual(syft.calls[0].outputs, wantOutputs) {
+		t.Errorf("syft outputs = %v, want %v", syft.calls[0].outputs, wantOutputs)
 	}
 
 	if !strings.Contains(out.String(), "No artifact dependencies") {
@@ -69,6 +79,7 @@ func TestGenerateContainer_VPrefixStripped(t *testing.T) {
 		Repo:        "org/repo",
 		ImageName:   "img",
 		ImageDigest: "sha256:" + strings.Repeat("a", 64),
+		Platform:    "linux/amd64",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -111,6 +122,7 @@ func TestGenerateContainer_NamesEveryTypeButScansOnce(t *testing.T) {
 		Repo:          "org/repo",
 		ImageName:     "img",
 		ImageDigest:   "sha256:" + strings.Repeat("a", 64),
+		Platform:      "linux/arm64",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -122,8 +134,8 @@ func TestGenerateContainer_NamesEveryTypeButScansOnce(t *testing.T) {
 	want := []syftCall{{
 		target: "img@sha256:" + strings.Repeat("a", 64),
 		outputs: map[string]string{
-			"cyclonedx-json": "repo-1.0.0-analyzed-container-sbom.cyclonedx.json",
-			"spdx-json":      "repo-1.0.0-analyzed-container-sbom.spdx.json",
+			"cyclonedx-json": "repo-1.0.0-analyzed-container-linux-arm64-sbom.cyclonedx.json",
+			"spdx-json":      "repo-1.0.0-analyzed-container-linux-arm64-sbom.spdx.json",
 		},
 	}}
 	if !reflect.DeepEqual(syft.calls, want) {
@@ -170,6 +182,35 @@ func TestGenerateContainer_RequiresEveryIdentifyingField(t *testing.T) {
 
 			if len(syft.calls) != 0 {
 				t.Errorf("scanned before validating the input: %+v", syft.calls)
+			}
+		})
+	}
+}
+
+// TestGenerateContainer_RequiresThePlatform: the digest is one platform's
+// image, and its SBOM is named for that platform, so a missing or malformed
+// platform is refused before any scan.
+func TestGenerateContainer_RequiresThePlatform(t *testing.T) {
+	for _, platform := range []string{"", "linux", "linux/", "Linux/amd64", "linux/amd64/v8/x", "linux/../amd64", "linux/amd 64"} {
+		t.Run(platform, func(t *testing.T) {
+			fsys := testfs.NewReal(t)
+			fsys.Chdir()
+
+			syft := &fakeSyft{}
+
+			err := appsbom.GenerateContainer(context.Background(), syft, nil, &fakeGit{}, io.Discard, io.Discard, appsbom.GenerateContainerInput{
+				RefName:     "v1.0.0",
+				Repo:        "org/repo",
+				ImageName:   "img",
+				ImageDigest: "sha256:" + strings.Repeat("a", 64),
+				Platform:    platform,
+			})
+			if !errors.Is(err, errs.ErrUsage) {
+				t.Fatalf("err = %v, want ErrUsage", err)
+			}
+
+			if len(syft.calls) != 0 {
+				t.Fatalf("syft ran %d time(s) before the platform was checked", len(syft.calls))
 			}
 		})
 	}

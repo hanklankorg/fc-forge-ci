@@ -31,6 +31,10 @@ type ImageSBOMs struct {
 	// pins instead, for a ledger a consumer's jobs handed over. Exclusive
 	// with Files.
 	FromLedger bool
+	// ReleaseTag is the release whose version the names of the files a
+	// trusted publisher wrote carry: they are admitted under the names the
+	// engine gives a release image's SBOMs.
+	ReleaseTag string
 }
 
 // admitReleaseImageSBOMs returns the names of the image SBOM files in the dist
@@ -68,7 +72,7 @@ func admitReleaseImageSBOMs(ctx releaseFilesCtx, in ImageSBOMs) ([]string, error
 		return nil, err
 	}
 
-	collect := collectReleaseImageEvidence
+	collect := collectReleaseImageEvidence(in.ReleaseTag)
 	if in.FromLedger {
 		collect = collectHandoffImageSBOMs(ctx)
 	}
@@ -112,7 +116,8 @@ func requireNamedImageSBOMs(ctx releaseFilesCtx, files []string, want map[string
 // of its own: with a ledger, the SBOM bundle is where it goes.
 func refuseImageSBOMEvidence(files []string) error {
 	for _, file := range files {
-		if name := filepath.Base(file); strings.HasPrefix(name, "image-sbom-") || strings.HasPrefix(name, "sbom-") {
+		if name := filepath.Base(file); strings.HasPrefix(name, "image-sbom-") || strings.HasPrefix(name, "sbom-") ||
+			strings.Contains(name, "-"+string(sbom.LayerAnalyzedContainer)+"-") {
 			return fmt.Errorf("unplanned release image evidence %s: an image SBOM is published in the SBOM bundle: %w", file, errs.ErrValidation)
 		}
 	}
@@ -120,41 +125,68 @@ func refuseImageSBOMEvidence(files []string) error {
 	return nil
 }
 
-// Admit one image's pinned index and referenced inventories, retaining the
-// shared filename set so duplicate inventories across images remain invalid.
-func collectReleaseImageEvidence(root *os.Root, entry imageledger.Entry, want map[string]bool) error {
-	canonical := imageledger.DefaultSBOMPath(entry.ImageKind, entry.Flavor, entry.Role)
+// collectReleaseImageEvidence admits one image's pinned index SBOM and the
+// platform inventories it names, under the names the engine gives them,
+// retaining the shared filename set so duplicate inventories across images
+// remain invalid. The names carry the release commit; one release has one, so
+// every image's names must carry the commit the first one's does.
+func collectReleaseImageEvidence(releaseTag string) func(*os.Root, imageledger.Entry, map[string]bool) error {
+	var commit string
 
-	name := strings.TrimPrefix(canonical, "dist/")
-	if entry.SBOM != canonical || name == canonical || filepath.Base(name) != name || entry.SBOMSHA256 == "" {
-		return fmt.Errorf("release image evidence requires canonical dist paths and producer pins: %w", errs.ErrValidation)
-	}
-
-	body, err := root.ReadFile(name)
-	if err != nil {
-		return err
-	}
-
-	if fmt.Sprintf("%x", sha256.Sum256(body)) != entry.SBOMSHA256 {
-		return fmt.Errorf("image SBOM %s does not match sbom_sha256: %w", name, errs.ErrValidation)
-	}
-
-	want[name] = true
-	id := strings.TrimSuffix(strings.TrimPrefix(name, "image-sbom-"), ".cyclonedx.json")
-
-	return sbom.ReadIndexBOMInventories(body, entry.Ref, func(name string) ([]byte, error) {
-		if name != "sbom-"+id+"-amd64.json" && name != "sbom-"+id+"-arm64.json" {
-			return nil, fmt.Errorf("unplanned native inventory %s: %w", name, errs.ErrValidation)
+	return func(root *os.Root, entry imageledger.Entry, want map[string]bool) error {
+		if commit == "" {
+			commit = imageSBOMCommit(entry.SBOM)
 		}
 
-		if want[name] {
-			return nil, fmt.Errorf("duplicate native inventory %s: %w", name, errs.ErrValidation)
+		canonical := imageledger.ReleaseImageSBOMPath(entry.Flavor, entry.Role, releaseTag, commit)
+		if entry.ImageKind == imageledger.ImageKindBase {
+			canonical = ""
+		}
+
+		name := strings.TrimPrefix(canonical, "dist/")
+		if entry.SBOM != canonical || name == canonical || filepath.Base(name) != name || entry.SBOMSHA256 == "" {
+			return fmt.Errorf("release image evidence requires canonical dist paths and producer pins: %w", errs.ErrValidation)
+		}
+
+		body, err := root.ReadFile(name)
+		if err != nil {
+			return err
+		}
+
+		if fmt.Sprintf("%x", sha256.Sum256(body)) != entry.SBOMSHA256 {
+			return fmt.Errorf("image SBOM %s does not match sbom_sha256: %w", name, errs.ErrValidation)
 		}
 
 		want[name] = true
+		inventories := map[string]bool{}
 
-		return root.ReadFile(name)
-	})
+		for _, platform := range []string{"linux/amd64", "linux/arm64"} {
+			inventories[imageledger.ReleaseImageSBOMFilename(entry.Flavor, entry.Role, releaseTag, commit, platform)] = true
+		}
+
+		return sbom.ReadIndexBOMInventories(body, entry.Ref, func(name string) ([]byte, error) {
+			if !inventories[name] {
+				return nil, fmt.Errorf("unplanned native inventory %s: %w", name, errs.ErrValidation)
+			}
+
+			if want[name] {
+				return nil, fmt.Errorf("duplicate native inventory %s: %w", name, errs.ErrValidation)
+			}
+
+			want[name] = true
+
+			return root.ReadFile(name)
+		})
+	}
+}
+
+// imageSBOMCommit is the commit segment of an index SBOM path the engine
+// names, <name>-<version>-<commit>-analyzed-container-index-sbom.cyclonedx.json.
+// Whether it is a commit at all is for the caller's canonical name to decide.
+func imageSBOMCommit(path string) string {
+	stem, _ := strings.CutSuffix(path, "-"+string(sbom.LayerAnalyzedContainer)+"-"+sbom.ImageSBOMIndexSlot+"-sbom.cyclonedx.json")
+
+	return stem[strings.LastIndex(stem, "-")+1:]
 }
 
 // collectHandoffImageSBOMs admits the image SBOMs of a ledger that a

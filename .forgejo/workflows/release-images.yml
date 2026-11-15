@@ -768,6 +768,7 @@ jobs:
           REQUIRED_IMAGE_LABELS: ${{ matrix.image['required-labels'] }}
           CACHE_TAG_PREFIX: ${{ matrix.image['cache-tag-prefix'] }}
           RELEASE_SHA: ${{ matrix.image.revision || inputs['release-sha'] }}
+          RELEASE_TAG: ${{ inputs['release-tag'] }}
           RELEASE_IMAGES_ADMIN_VULNERABILITIES: ${{ inputs['enforce-vulnerabilities'] }}
           REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
           # The plan decided the user: the owner on this forge's registry.
@@ -795,9 +796,14 @@ jobs:
           if [ "${IMAGE_KIND:-}" = base ]; then
             scan+=(--sbom-output-template "${ledger_dir}/inventory-${IMAGE_NAME}-{arch}.cyclonedx.json")
           else
+            # Named as every SBOM in the release's SBOM bundle:
+            # <name>-<version>-<sha>-analyzed-container-<platform|index>-sbom.
             evidence_id=${IMAGE_FLAVOR:-${IMAGE_ROLE:-${IMAGE_NAME}}}
-            scan+=(--sbom-output-template "${ledger_dir}/sbom-${evidence_id}-{arch}.json"
-              --index-sbom-output "${ledger_dir}/image-sbom-${evidence_id}.cyclonedx.json")
+            : "${RELEASE_TAG:?}" "${RELEASE_SHA:?}"
+            image_sbom="${evidence_id}-${RELEASE_TAG#v}-${RELEASE_SHA:0:7}-analyzed-container"
+            scan+=(--sbom-output-template "${ledger_dir}/${image_sbom}-linux-{arch}-sbom.cyclonedx.json"
+              --index-sbom-output "${ledger_dir}/${image_sbom}-index-sbom.cyclonedx.json")
+            echo "image-sbom=dist/${image_sbom}-index-sbom.cyclonedx.json" >>"${FORGEJO_OUTPUT:?}"
           fi
           if [ -n "${CACHE_TAG_PREFIX:-}" ]; then
             scan+=(--cache-tag-prefix "${CACHE_TAG_PREFIX}")
@@ -829,6 +835,7 @@ jobs:
           IMAGE_ARCHS: ${{ matrix.image.archs }}
           IMAGE_REPOSITORY: ${{ matrix.image['image-repository'] }}
           IMAGE_DIGEST: ${{ steps.assemble.outputs.image-digest }}
+          IMAGE_SBOM: ${{ steps.assemble.outputs.image-sbom }}
           IMAGE_SBOM_SHA256: ${{ steps.assemble.outputs.image-sbom-sha256 }}
           FINAL_TAG_NAME: ${{ matrix.image['final-tag-name'] }}
           IMAGE_KIND: ${{ matrix.image['image-kind'] }}
@@ -856,7 +863,8 @@ jobs:
             sbom_sha256=$(sha256sum -- "${sbom}")
             policy+=(--sbom-sha256 "${sbom_sha256%% *}")
           else
-            policy+=(--sbom-sha256 "${IMAGE_SBOM_SHA256:?scanned release image requires its index SBOM pin}")
+            policy+=(--sbom "${IMAGE_SBOM:?scanned release image requires its index SBOM}"
+              --sbom-sha256 "${IMAGE_SBOM_SHA256:?scanned release image requires its index SBOM pin}")
           fi
           if [ -n "${IMAGE_KIND:-}" ]; then policy+=(--image-kind "${IMAGE_KIND}"); fi
           if [ -n "${IMAGE_FLAVOR:-}" ]; then policy+=(--flavor "${IMAGE_FLAVOR}"); fi
@@ -968,7 +976,7 @@ jobs:
             printf 'FORGE_CI_LEDGER_JSON\n'
           } >> "${FORGEJO_OUTPUT:?}"
           find "${ledgers}" -type f -name 'trivy-results-*.json' -exec cp -- {} "${out}/" \;
-          find "${ledgers}" -type f \( -name 'base-sbom-*.cyclonedx.json' -o -name 'inventory-*.cyclonedx.json' -o -name 'sbom-*.json' -o -name 'image-sbom-*.cyclonedx.json' -o -name 'index-*.json' \) -exec cp -- {} "${out}/" \;
+          find "${ledgers}" -type f \( -name 'base-sbom-*.cyclonedx.json' -o -name 'inventory-*.cyclonedx.json' -o -name '*-analyzed-container-*-sbom.cyclonedx.json' -o -name 'index-*.json' \) -exec cp -- {} "${out}/" \;
           run_forge_ci artifact upload \
             --name "${IMAGE_ARTIFACT_NAMESPACE}" \
             --dir "${out}/" \

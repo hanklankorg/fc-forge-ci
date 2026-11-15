@@ -2445,7 +2445,7 @@ sign and attest release images from the confined release-image ledger
 | `--provenance-envelope` | in-toto statement JSON; defaults to <dist-dir>/slsa-provenance.intoto.json | string | `""` | `$SLSA_PROVENANCE_ENVELOPE` |
 | `--recursive` | pass --recursive to cosign sign for manifest-list children | bool | `false` | `$LEDGER_SIGN_RECURSIVE` |
 | `--expected-base-repository` | exact base image repository allowed for ledger base_ref values (default: <expected-image-repository>-base) | string | `""` | `$LEDGER_SIGN_EXPECTED_BASE_REPOSITORY` |
-| `--sbom-path-pattern` | regular expression every ledger SBOM path must match (default: <dist-dir>/image-sbom*.cyclonedx.json) | string | `""` | `$LEDGER_SIGN_SBOM_PATH_PATTERN` |
+| `--sbom-path-pattern` | regular expression every ledger SBOM path must match (default: <dist-dir>/image-sbom*.cyclonedx.json or <dist-dir>/<name>-<version>-<sha>-analyzed-container-index-sbom.cyclonedx.json) | string | `""` | `$LEDGER_SIGN_SBOM_PATH_PATTERN` |
 | `--method` | signing backend: sigstore (keyless cosign + OIDC) or kms (cosign + --key). gpg is rejected — it cannot sign OCI images. | string | `""` | `$SIGN_METHOD` |
 | `--key` | cosign --key for --method=kms: KMS/PKCS#11 URI (awskms://, gcpkms://, hashivault://, azurekms://, pkcs11:), env://VAR, or file path. Forbidden for --method=sigstore. | string | `""` | `$SIGN_KEY` |
 | `--oidc-issuer` | OIDC issuer URL for --method=sigstore (default: cosign auto-detect). Forbidden for --method=kms. | string | `""` | `$SIGN_OIDC_ISSUER` |
@@ -4371,7 +4371,8 @@ provenance statement and the signatures exist, and a dist that holds either
 is refused. A hand-off without an SBOM gets its bundle here.
 
 --image-sbom names each file a trusted publisher wrote; they must be exactly
-the ledger's set. --image-sboms-from-ledger takes them from the dist directory
+the ledger's set, named as the engine names a release image's SBOMs, with
+the version of --version and one release commit. --image-sboms-from-ledger takes them from the dist directory
 by the ledger's pins, for a ledger a consumer's jobs handed over: an entry
 without a pin has its SBOM generated and attested by the signer and none to
 bundle.
@@ -4390,7 +4391,7 @@ bundle.
 | `--image-sboms-from-ledger` | take the image SBOMs from the dist directory by the pins of --release-images-ledger instead of naming each; an entry without a pin, or a base image, has none to bundle; any other pinned SBOM outside the dist directory is refused | bool | `false` | n/a |
 | `--project-name` | with --release-images-ledger: project in the name of an SBOM bundle the hand-off does not have yet (default: the name of --repository) | string | `""` | n/a |
 | `--repository` | with --release-images-ledger: "owner/repo" slug whose name is the default --project-name | string | `""` | n/a |
-| `--version` | with --release-images-ledger: release version or tag in the name of an SBOM bundle the hand-off does not have yet; a v prefix is dropped | string | `""` | n/a |
+| `--version` | with --release-images-ledger: release version or tag in the name of an SBOM bundle the hand-off does not have yet, and in the names of the files --image-sbom names; a v prefix is dropped | string | `""` | n/a |
 
 #### `forge-ci release files validate`
 
@@ -5350,6 +5351,7 @@ EXAMPLES:
 | `--image-name` | container mode: base image name without tag/digest; with --image-digest forms the syft target | string | `""` | `$IMAGE_NAME` |
 | `--image-digest` | container mode: sha256:… digest pinning the exact image manifest | string | `""` | `$IMAGE_DIGEST` |
 | `--artifact-types` | container mode: ecosystems embedded in the multi-artifact container SBOM | string | `""` | `$ARTIFACT_TYPES` |
+| `--platform` | container mode: platform the digest is the image of, os/arch[/variant]; named in the SBOM filenames | string | `""` | `$PLATFORM` |
 | `--ref-name` | container mode: git ref name (leading "v" stripped) used in the SBOM filename | string | `""` | `$REF_NAME`, `$CI_REF_NAME`, `$FORGEJO_REF_NAME`, `$GITHUB_REF_NAME` |
 | `--repository` | container mode: "owner/repo" used to derive the project slug | string | `""` | `$REPOSITORY`, `$CI_REPO`, `$CI_PROJECT_PATH`, `$FORGEJO_REPOSITORY`, `$FORGEJO_REPO`, `$GITHUB_REPOSITORY` |
 | `--sign` | cosign-sign each assembled SBOM (produces <file>.bundle); reuses the "release sign" signing path | bool | `false` | `$SIGN_SBOMS` |

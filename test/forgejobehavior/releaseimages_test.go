@@ -244,7 +244,7 @@ case "$1 $2" in
   'artifact download')
     mkdir -p "$6"
     image=${4##*-}
-    for name in "sbom-${image}-amd64.json" "image-sbom-${image}.cyclonedx.json" "index-${image}.json"; do
+    for name in "${image}-1.2.3-aaaaaaa-analyzed-container-linux-amd64-sbom.cyclonedx.json" "${image}-1.2.3-aaaaaaa-analyzed-container-index-sbom.cyclonedx.json" "index-${image}.json"; do
       printf '%s' "$name" >"$6/$name"
     done
     ;;
@@ -269,7 +269,7 @@ esac
 			t.Fatalf("missing exact planned ledger %s: %s", name, log)
 		}
 
-		for _, evidence := range []string{"sbom-" + name + "-amd64.json", "image-sbom-" + name + ".cyclonedx.json", "index-" + name + ".json"} {
+		for _, evidence := range []string{name + "-1.2.3-aaaaaaa-analyzed-container-linux-amd64-sbom.cyclonedx.json", name + "-1.2.3-aaaaaaa-analyzed-container-index-sbom.cyclonedx.json", "index-" + name + ".json"} {
 			body, err := os.ReadFile(filepath.Join(box.root, "image-artifacts", "forge-ci-layer", evidence))
 			if err != nil || string(body) != evidence {
 				t.Fatalf("collected evidence %s missing or changed: %s, %v", evidence, body, err)
@@ -297,11 +297,12 @@ func TestReleaseImages_AlwaysScansWhatItPublishes(t *testing.T) {
 		"IMAGE_REPOSITORY=registry.invalid/owner/app", "CANDIDATE_TAG=staging-v1.2.3", "FINAL_TAG_NAME=v1.2.3",
 		"RELEASE_SHA=" + strings.Repeat("a", 40), "RELEASE_TAG=v1.2.3", "FORGEJO_SERVER=https://forgejo.invalid", "FORGEJO_REPO=owner/app",
 		"REGISTRY_TOKEN=fixture-token", "REGISTRY_USER=owner", "IMAGE_DIGEST=sha256:" + strings.Repeat("b", 64),
+		"IMAGE_SBOM=dist/app-1.2.3-aaaaaaa-analyzed-container-index-sbom.cyclonedx.json",
 		"IMAGE_SBOM_SHA256=" + strings.Repeat("c", 64), "RELEASE_IMAGES_ADMIN_VULNERABILITIES=true",
 	}
 	for step, required := range map[string][]string{
 		"Scan and publish ${{ matrix.image.name }}":     {"--scan-output-template", "--sbom-output-template", "--index-sbom-output"},
-		"Record ${{ matrix.image.name }} in the ledger": {"--sbom-sha256"},
+		"Record ${{ matrix.image.name }} in the ledger": {"--sbom", "--sbom-sha256"},
 	} {
 		got := box.run(workflowStep(t, "release-images.yml", "publish", step).Run, env...)
 		if got.status != 0 {
@@ -339,6 +340,9 @@ func TestReleaseImages_RetainsPinnedIndexEvidenceForEveryReleaseVariant(t *testi
 				role, flavor = variant, ""
 			}
 
+			// The ledger records the index SBOM under the name it has in the
+			// SBOM bundle.
+			indexSBOM := "dist/" + variant + "-1.2.3-aaaaaaa-analyzed-container-index-sbom.cyclonedx.json"
 			env := []string{
 				"HELPERS_DIR=" + box.root, "GITHUB_WORKSPACE=" + box.root, "PUBLISH_DIR=" + box.root, "RUNNER_TEMP=" + box.root,
 				"IMAGE_ARTIFACT_NAMESPACE=release-images", "IMAGE_NAME=selected-variant", "IMAGE_ARCHS=amd64\narm64",
@@ -346,7 +350,7 @@ func TestReleaseImages_RetainsPinnedIndexEvidenceForEveryReleaseVariant(t *testi
 				"IMAGE_SCAN=true", "IMAGE_KIND=", "IMAGE_ROLE=" + role, "IMAGE_FLAVOR=" + flavor,
 				"RELEASE_SHA=" + strings.Repeat("a", 40), "RELEASE_TAG=v1.2.3", "FORGEJO_SERVER=https://forgejo.invalid", "FORGEJO_REPO=owner/app",
 				"REGISTRY_TOKEN=fixture-token", "REGISTRY_USER=owner", "IMAGE_DIGEST=sha256:" + strings.Repeat("b", 64),
-				"IMAGE_SBOM_SHA256=" + strings.Repeat("c", 64), "RELEASE_IMAGES_ADMIN_VULNERABILITIES=true",
+				"IMAGE_SBOM=" + indexSBOM, "IMAGE_SBOM_SHA256=" + strings.Repeat("c", 64), "RELEASE_IMAGES_ADMIN_VULNERABILITIES=true",
 			}
 
 			got := box.run(workflowStep(t, "release-images.yml", "publish", "Scan and publish ${{ matrix.image.name }}").Run, env...)
@@ -358,12 +362,16 @@ func TestReleaseImages_RetainsPinnedIndexEvidenceForEveryReleaseVariant(t *testi
 			joined := strings.Join(argv, " ")
 
 			for _, expected := range []string{
-				"--sbom-output-template " + box.root + "/image-artifacts/release-images-ledger-selected-variant/sbom-" + variant + "-{arch}.json",
-				"--index-sbom-output " + box.root + "/image-artifacts/release-images-ledger-selected-variant/image-sbom-" + variant + ".cyclonedx.json",
+				"--sbom-output-template " + box.root + "/image-artifacts/release-images-ledger-selected-variant/" + variant + "-1.2.3-aaaaaaa-analyzed-container-linux-{arch}-sbom.cyclonedx.json",
+				"--index-sbom-output " + box.root + "/image-artifacts/release-images-ledger-selected-variant/" + variant + "-1.2.3-aaaaaaa-analyzed-container-index-sbom.cyclonedx.json",
 			} {
 				if !strings.Contains(joined, expected) {
 					t.Fatalf("missing %q: %q", expected, argv)
 				}
+			}
+
+			if !slices.Contains(strings.Split(box.output(), "\n"), "image-sbom="+indexSBOM) {
+				t.Fatalf("assemble output %q does not name the index SBOM %s", box.output(), indexSBOM)
 			}
 
 			// The index SBOM names each inventory by file name and checksum.
@@ -374,15 +382,15 @@ func TestReleaseImages_RetainsPinnedIndexEvidenceForEveryReleaseVariant(t *testi
 			}
 
 			got = box.run(workflowStep(t, "release-images.yml", "publish", "Record ${{ matrix.image.name }} in the ledger").Run, env...)
-			if got.status != 0 || !slices.Contains(box.argv(), strings.Repeat("c", 64)) {
-				t.Fatalf("record lost the exact index BOM pin: status %d: %s", got.status, got.stderr)
+			if record := box.argv(); got.status != 0 || !slices.Contains(record, strings.Repeat("c", 64)) || !strings.Contains(strings.Join(record, " "), "--sbom "+indexSBOM+" ") {
+				t.Fatalf("record lost the exact index BOM or its pin: status %d: %s: %q", got.status, got.stderr, record)
 			}
 
-			env[len(env)-1] = "IMAGE_SBOM_SHA256="
-
-			got = box.run(workflowStep(t, "release-images.yml", "publish", "Record ${{ matrix.image.name }} in the ledger").Run, env...)
-			if got.status == 0 {
-				t.Fatal("scanned release image accepted without its index BOM pin")
+			for _, missing := range []string{"IMAGE_SBOM=", "IMAGE_SBOM_SHA256="} {
+				got = box.run(workflowStep(t, "release-images.yml", "publish", "Record ${{ matrix.image.name }} in the ledger").Run, append(slices.Clone(env), missing)...)
+				if got.status == 0 {
+					t.Fatalf("scanned release image accepted with %s", missing)
+				}
 			}
 		})
 	}
