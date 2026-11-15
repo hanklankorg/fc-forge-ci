@@ -6,6 +6,8 @@
 package forgejobehavior
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -213,6 +215,82 @@ esac
 				if at := slices.Index(argv, flag); at < 0 || argv[at+1] != want {
 					t.Fatalf("%s: argv=%v", flag, argv)
 				}
+			}
+		})
+	}
+}
+
+// Both image workflows hand the ledger on as one single-line output: a
+// caller admits it with `forge-ci platform dependency`, which refuses a
+// multi-line value, and the engine writes the ledger indented.
+func TestImageWorkflowsEmitTheLedgerOnOneLine(t *testing.T) {
+	t.Parallel()
+
+	const ledger = "[\n  {\n    \"flavor\": \"core\",\n    \"ref\": \"" + baseStageRef + "\"\n  }\n]\n"
+
+	for _, tc := range []struct {
+		workflow, job, step, engine string
+		env                         []string
+	}{
+		{
+			workflow: "base-images.yml", job: "publish", step: "Scan and publish the unsigned candidate",
+			engine: `case "$2 ${3:-}" in
+'login '*) cat >/dev/null ;;
+'base-images declared-inputs') printf '[]\n' ;;
+'base-images root-base')
+  while (($#)); do if [ "$1" = --output-dir ]; then mkdir -p "$2/dist" && printf '%s' "${LEDGER}" >"$2/dist/base-images.json"; fi; shift; done
+  ;;
+*) exit 99 ;;
+esac`,
+			env: []string{
+				"IMAGE_PLAN_JSON={}", "PARENT_BASE_JSON=", "IMAGE_REPOSITORY=registry.example/owner/base", "RELEASE_SHA=cccc",
+				"REGISTRY_TOKEN=fixture-token", "REGISTRY_USER=", "BASE_IMAGES_ADMIN_VULNERABILITIES=true",
+			},
+		},
+		{
+			workflow: "release-images.yml", job: "collect", step: "Merge and upload the release-images artifact",
+			engine: `case "$1 $2" in
+'artifact download') mkdir -p "$6" ;;
+'artifact upload') ;;
+'container ledger') printf '%s' "${LEDGER}" >"$5" ;;
+*) exit 99 ;;
+esac`,
+			env: []string{"IMAGE_ARTIFACT_NAMESPACE=forge-ci-layer", "IMAGE_NAMES=core"},
+		},
+	} {
+		t.Run(tc.workflow, func(t *testing.T) {
+			t.Parallel()
+
+			box := newSandbox(t, "image-ledger")
+			box.write(".engine/bin/forge-ci", "#!/usr/bin/env bash\nset -euo pipefail\n"+tc.engine+"\n", 0o700)
+
+			if err := os.Mkdir(filepath.Join(box.root, "source"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+
+			got := box.run(workflowStep(t, tc.workflow, tc.job, tc.step).Run, slices.Concat([]string{
+				"HELPERS_DIR=" + box.root, "GITHUB_WORKSPACE=" + box.root, "RUNNER_TEMP=" + box.root, "LEDGER=" + ledger,
+				"FORGEJO_SERVER=https://forge.example", "FORGEJO_REPO=owner/app",
+			}, tc.env)...)
+			if got.status != 0 {
+				t.Fatalf("status=%d stderr=%s", got.status, got.stderr)
+			}
+
+			var values []string
+
+			for line := range strings.Lines(box.output()) {
+				if value, ok := strings.CutPrefix(line, "ledger-json="); ok {
+					values = append(values, strings.TrimSuffix(value, "\n"))
+				}
+			}
+
+			var want, value bytes.Buffer
+			if err := json.Compact(&want, []byte(ledger)); err != nil {
+				t.Fatal(err)
+			}
+
+			if len(values) != 1 || json.Compact(&value, []byte(values[0])) != nil || value.String() != want.String() {
+				t.Fatalf("ledger-json is not the ledger on one line: outputs=%q", box.output())
 			}
 		})
 	}

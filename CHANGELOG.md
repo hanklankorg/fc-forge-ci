@@ -880,6 +880,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   action now requires the SBOM file the image job wrote and records it with
   its SHA-256. Base images, build inputs rather than released things, keep
   their SBOM as an attestation only.
+- The Forgejo `base-images.yml` and `release-images.yml` hand on
+  `ledger-json` on one line. They wrote the indented ledger as a multi-line
+  output, which `forge-ci platform dependency --output ledger-json`
+  refuses, so a caller that admitted the ledger that way failed after a
+  successful build.
 - A Forgejo release's index SBOM no longer points at release files that
   were never published. It named each platform inventory by a release
   download address, and the Forgejo release offered no such file.

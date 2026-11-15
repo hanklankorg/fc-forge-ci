@@ -701,10 +701,10 @@ jobs:
           rm -f -- "${auth_file}"
           inputs=$(run_forge_ci container base-images declared-inputs \
             --ledger "${payload}/dist/base-images.json" --expected-repository "${IMAGE_REPOSITORY}")
+          # JSON outputs are single-line, as `platform dependency` admits them;
+          # the indented ledger holds newlines only between tokens.
           {
-            printf 'ledger-json<<FORGE_CI_LEDGER_JSON\n'
-            cat "${payload}/dist/base-images.json"
-            printf '\nFORGE_CI_LEDGER_JSON\n'
+            printf 'ledger-json=%s\n' "$(tr -d '\n' <"${payload}/dist/base-images.json")"
             printf 'base-inputs-json=%s\n' "${inputs}"
           } >>"${FORGEJO_OUTPUT:?}"
 

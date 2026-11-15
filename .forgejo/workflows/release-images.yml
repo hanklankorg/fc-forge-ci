@@ -970,11 +970,9 @@ jobs:
           done <<<"${IMAGE_NAMES:?}"
           mkdir -p "${out}"
           run_forge_ci container ledger merge --ledger "${out}/release-images.json" "${ledgers}"
-          {
-            printf 'ledger-json<<FORGE_CI_LEDGER_JSON\n'
-            cat "${out}/release-images.json"
-            printf 'FORGE_CI_LEDGER_JSON\n'
-          } >> "${FORGEJO_OUTPUT:?}"
+          # JSON outputs are single-line, as `platform dependency` admits them;
+          # the indented ledger holds newlines only between tokens.
+          printf 'ledger-json=%s\n' "$(tr -d '\n' <"${out}/release-images.json")" >>"${FORGEJO_OUTPUT:?}"
           find "${ledgers}" -type f -name 'trivy-results-*.json' -exec cp -- {} "${out}/" \;
           find "${ledgers}" -type f \( -name 'base-sbom-*.cyclonedx.json' -o -name 'inventory-*.cyclonedx.json' -o -name '*-analyzed-container-*-sbom.cyclonedx.json' -o -name 'index-*.json' \) -exec cp -- {} "${out}/" \;
           run_forge_ci artifact upload \
