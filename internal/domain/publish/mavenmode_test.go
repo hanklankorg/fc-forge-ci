@@ -52,3 +52,33 @@ func TestSnapshotCanExplicitlyRequireCentralMetadata(t *testing.T) {
 	_, err = publish.ParseMavenSnapshot(body, "", true)
 	require.ErrorContains(t, err, "metadata")
 }
+
+// Every project of the reactor is named by its own coordinates, the parent's
+// in a single project's POM never.
+func TestMavenReactorCoordinates(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name, body string
+		want       []string
+	}{
+		{"one project", `<project><parent><groupId>org.parent</groupId><artifactId>parent</artifactId></parent><groupId>org.example</groupId><artifactId>app</artifactId><version>1.2.3</version></project>`, []string{"org.example:app"}},
+		{"reactor", `<projects><project><groupId>org.example</groupId><artifactId>parent</artifactId></project><project><groupId>org.example.lib</groupId><artifactId>lib</artifactId></project></projects>`, []string{"org.example:parent", "org.example.lib:lib"}},
+		{"no groupId", `<project><artifactId>app</artifactId></project>`, nil},
+		{"no projects", `<projects/>`, nil},
+		{"not a model", `<settings/>`, nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := publish.MavenReactorCoordinates([]byte(test.body))
+			if test.want == nil {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			require.Equal(t, test.want, got)
+		})
+	}
+}

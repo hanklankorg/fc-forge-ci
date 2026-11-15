@@ -16,6 +16,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/adapters/cosign"
 	"github.com/diggsweden/forge-ci/internal/adapters/ociregistry"
 	appcontainer "github.com/diggsweden/forge-ci/internal/app/container"
+	apppublish "github.com/diggsweden/forge-ci/internal/app/publish"
 	apprelease "github.com/diggsweden/forge-ci/internal/app/release"
 	"github.com/diggsweden/forge-ci/internal/cli/cienv"
 	"github.com/diggsweden/forge-ci/internal/cli/deps"
@@ -324,7 +325,7 @@ func releaseImagesRollback(ctx context.Context, cmd *cli.Command, common release
 func releaseImagesCleanupCmd() *cli.Command {
 	return &cli.Command{
 		Name:  subCmdCleanup,
-		Usage: "delete release candidate tags after verified final/moving promotion",
+		Usage: "delete release candidate tags after verified final/moving promotion; on Forgejo, link the promoted images to the repository first",
 		Flags: append(
 			releaseImagesCommonFlags(),
 			releaseImagesAllowMissingLedgerFlag(),
@@ -365,6 +366,13 @@ func releaseImagesCleanupCmd() *cli.Command {
 				if err != nil {
 					return err
 				}
+
+				// The images are promoted by now. On the forge's own registry
+				// the deleter is the forge, holding the package-API token, and
+				// one that keeps packages under the owner links them to the
+				// repository; another forge or registry links nothing.
+				owner, _, _ := strings.Cut(common.Repository, "/")
+				apppublish.LinkPackages(ctx, deleter, os.Stderr, "container", imageledger.PackageNames(entries, common.Registry, owner)...)
 
 				reg := auditDeleter{
 					CleanupRegistry: cleanupRegistry{resolver: ociregistry.WithAuthFile(authFile), deleter: deleter},

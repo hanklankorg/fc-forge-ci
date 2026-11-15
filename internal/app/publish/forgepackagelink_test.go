@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -89,23 +90,33 @@ func TestNPMPublishLinksThePackageItPublished(t *testing.T) {
 
 // The package is published by the time it is linked: a link the forge
 // refuses is a warning that names the package and the reason, and the
-// publication stays a success.
+// publication stays a success. A package the publication made and the forge
+// does not list is a warning too.
 func TestARefusedLinkIsAWarningAndThePublicationStands(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
 	writeNPMPackage(t, filepath.Join(dir, "pkg.tgz"), "@fixture/pkg", "1.2.3")
 
-	forge := &linkingForge{
-		reg:    provider.ForgeNPMRegistry{Registry: "https://registry.example/", Token: "synthetic"},
-		refuse: errors.New("this Forgejo has no API that links a package to a repository"),
+	for _, refuse := range []error{
+		errors.New("this Forgejo has no API that links a package to a repository"),
+		fmt.Errorf("it is %w among the npm packages of fixture", provider.ErrForgePackageNotListed),
+	} {
+		t.Run(refuse.Error(), func(t *testing.T) {
+			t.Parallel()
+
+			forge := &linkingForge{
+				reg:    provider.ForgeNPMRegistry{Registry: "https://registry.example/", Token: "synthetic"},
+				refuse: refuse,
+			}
+
+			var said bytes.Buffer
+
+			err := apppublish.ForgePackagesNPMPublish(t.Context(), &npmTagProbe{response: "release-0.0.1: 0.0.1\n"}, forge, io.Discard, &said, apppublish.ForgePackagesNPMPublishInput{WorkingDir: dir, Tag: "release-{version}"})
+			require.NoError(t, err)
+			require.Equal(t, "Warning: npm package @fixture/pkg is published but not linked to the repository: "+refuse.Error()+"\n", said.String())
+		})
 	}
-
-	var said bytes.Buffer
-
-	err := apppublish.ForgePackagesNPMPublish(t.Context(), &npmTagProbe{response: "release-0.0.1: 0.0.1\n"}, forge, io.Discard, &said, apppublish.ForgePackagesNPMPublishInput{WorkingDir: dir, Tag: "release-{version}"})
-	require.NoError(t, err)
-	require.Equal(t, "Warning: npm package @fixture/pkg is published but not linked to the repository: this Forgejo has no API that links a package to a repository\n", said.String())
 }
 
 // Each Maven publication of an uploaded directory is one package, named by
@@ -121,4 +132,78 @@ func TestMavenPublicationsAreLinkedByTheirCoordinates(t *testing.T) {
 
 	apppublish.LinkMavenPublications(t.Context(), fakeNPMRegistryResolver{}, &said, t.TempDir(), "1.2.3", false)
 	require.Empty(t, said.String())
+}
+
+// namingForge is a forge that keeps packages under their owner and answers
+// each link by the package's name.
+type namingForge struct {
+	answers map[string]error
+	linked  []string
+}
+
+func (f *namingForge) LinkForgePackage(_ context.Context, packageType, name string) error {
+	f.linked = append(f.linked, packageType+" "+name)
+
+	return f.answers[name]
+}
+
+// effectivePOM is a Maven that writes one effective POM where it is asked.
+type effectivePOM struct {
+	body string
+	ran  int
+}
+
+func (m *effectivePOM) RunInherit(_ context.Context, _, _ io.Writer, args ...string) error {
+	m.ran++
+
+	for _, arg := range args {
+		if output, found := strings.CutPrefix(arg, "-Doutput="); found {
+			return os.WriteFile(output, []byte(m.body), 0o600)
+		}
+	}
+
+	return fmt.Errorf("mvn %s: %w", strings.Join(args, " "), errs.ErrValidation)
+}
+
+// Every project of the deployed reactor is linked by its coordinates. One the
+// forge does not list was not deployed, which is Maven's decision and no
+// warning; a link the forge refuses is.
+func TestMavenDeployLinksTheReactorProjects(t *testing.T) {
+	t.Parallel()
+
+	const reactor = `<projects><project><groupId>org.example</groupId><artifactId>parent</artifactId></project>` +
+		`<project><groupId>org.example</groupId><artifactId>app</artifactId></project></projects>`
+
+	notListed := fmt.Errorf("it is %w among the maven packages of owner", provider.ErrForgePackageNotListed)
+
+	for _, tc := range []struct {
+		name, body string
+		answers    map[string]error
+		wantLinked []string
+		wantSaid   string
+	}{
+		{"every project deployed", reactor, nil, []string{"maven org.example:parent", "maven org.example:app"}, ""},
+		{"a project not deployed", reactor, map[string]error{"org.example:parent": notListed}, []string{"maven org.example:parent", "maven org.example:app"}, ""},
+		{"a link refused", reactor, map[string]error{"org.example:app": errors.New("no API")}, []string{"maven org.example:parent", "maven org.example:app"},
+			"Warning: maven package org.example:app is published but not linked to the repository: no API\n"},
+		{"no coordinates", `<settings/>`, nil, nil,
+			"Warning: the Maven packages are published but not linked to the repository: expected Maven project or reactor effective POM: malformed input\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			forge := &namingForge{answers: tc.answers}
+
+			var said bytes.Buffer
+
+			apppublish.LinkMavenProjects(t.Context(), &effectivePOM{body: tc.body}, forge, &said, apppublish.MavenCentralDeployInput{CLIOpts: []string{"-B"}})
+			require.Equal(t, tc.wantLinked, forge.linked)
+			require.Equal(t, tc.wantSaid, said.String())
+		})
+	}
+
+	// A forge without the role is asked nothing, and Maven is not run.
+	maven := &effectivePOM{body: reactor}
+	apppublish.LinkMavenProjects(t.Context(), maven, fakeNPMRegistryResolver{}, io.Discard, apppublish.MavenCentralDeployInput{})
+	require.Zero(t, maven.ran)
 }

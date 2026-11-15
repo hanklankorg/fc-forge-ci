@@ -152,8 +152,9 @@ func deployForgeMaven(ctx context.Context, cmd *cli.Command, dependencies *deps.
 		return deployMavenBuild(ctx, cmd, dependencies)
 	}
 
+	model := apppublish.MavenCentralDeployInput{CLIOpts: strings.Fields(cmd.String("cli-opts")), Profile: cmd.String("profile")}
 	if cmd.Bool("snapshot") {
-		if err := apppublish.ValidateMavenDeployment(ctx, mavenModelAdapter(), os.Stderr, apppublish.MavenCentralDeployInput{CLIOpts: strings.Fields(cmd.String("cli-opts")), Profile: cmd.String("profile")}, true, ""); err != nil {
+		if err := apppublish.ValidateMavenDeployment(ctx, mavenModelAdapter(), os.Stderr, model, true, ""); err != nil {
 			return err
 		}
 	}
@@ -163,10 +164,16 @@ func deployForgeMaven(ctx context.Context, cmd *cli.Command, dependencies *deps.
 		return err
 	}
 
-	return apppublish.ForgePackagesDeploy(ctx, maven.New(), resolver, os.Stderr, os.Stderr, apppublish.ForgePackagesDeployInput{
-		CLIOpts: strings.Fields(cmd.String("cli-opts")),
-		Profile: cmd.String("profile"),
-	})
+	if err := apppublish.ForgePackagesDeploy(ctx, maven.New(), resolver, os.Stderr, os.Stderr, apppublish.ForgePackagesDeployInput{
+		CLIOpts: model.CLIOpts,
+		Profile: model.Profile,
+	}); err != nil {
+		return err
+	}
+
+	apppublish.LinkMavenProjects(ctx, mavenModelAdapter(), resolver, os.Stderr, model)
+
+	return nil
 }
 
 func deployMavenBuild(ctx context.Context, cmd *cli.Command, dependencies *deps.Deps) (result error) {

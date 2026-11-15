@@ -19,17 +19,26 @@ import (
 
 // ValidateMavenDeployment checks every project's resolved version. The caller
 // supplies either the secret-free preflight or the actual deployment environment.
-func ValidateMavenDeployment(ctx context.Context, ops MavenOps, stderr io.Writer, in MavenCentralDeployInput, snapshot bool, expected string) (result error) {
-	if err := validateMavenModelOptions(in.CLIOpts); err != nil {
-		return err
-	}
-
-	directory, err := os.MkdirTemp("", "forge-ci-maven-model-*")
+func ValidateMavenDeployment(ctx context.Context, ops MavenOps, stderr io.Writer, in MavenCentralDeployInput, snapshot bool, expected string) error {
+	body, err := effectiveMavenModel(ctx, ops, stderr, in)
 	if err != nil {
 		return err
 	}
 
-	defer func() { result = errors.Join(result, os.RemoveAll(directory)) }()
+	return domainpublish.ValidateMavenReactorVersions(body, snapshot, expected)
+}
+
+// effectiveMavenModel returns the effective POM of the project or reactor in
+// the working directory, as the deployment with the same options resolves it.
+func effectiveMavenModel(ctx context.Context, ops MavenOps, stderr io.Writer, in MavenCentralDeployInput) ([]byte, error) {
+	if err := validateMavenModelOptions(in.CLIOpts); err != nil {
+		return nil, err
+	}
+
+	directory, err := os.MkdirTemp("", "forge-ci-maven-model-*")
+	if err != nil {
+		return nil, err
+	}
 
 	args := append([]string{}, in.CLIOpts...)
 	if in.SettingsPath != "" {
@@ -41,16 +50,19 @@ func ValidateMavenDeployment(ctx context.Context, ops MavenOps, stderr io.Writer
 	}
 
 	args = append(args, "-DskipTests", "org.apache.maven.plugins:maven-help-plugin:3.5.1:effective-pom", "-Doutput="+filepath.Join(directory, "effective.xml"))
-	if runErr := ops.RunInherit(ctx, io.Discard, stderr, args...); runErr != nil {
-		return runErr
+
+	var body []byte
+
+	err = ops.RunInherit(ctx, io.Discard, stderr, args...)
+	if err == nil {
+		body, err = readEffectiveMavenPOM(directory)
 	}
 
-	body, err := readEffectiveMavenPOM(directory)
-	if err != nil {
-		return err
+	if err = errors.Join(err, os.RemoveAll(directory)); err != nil {
+		return nil, err
 	}
 
-	return domainpublish.ValidateMavenReactorVersions(body, snapshot, expected)
+	return body, nil
 }
 
 func readEffectiveMavenPOM(directory string) ([]byte, error) {

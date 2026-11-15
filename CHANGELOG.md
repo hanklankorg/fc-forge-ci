@@ -18,8 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does not fail the job, since the package is published by then: the job
   prints one warning that names the package and the reason, with a plain
   sentence for a Forgejo without the link API and for a token Forgejo
-  refuses. The plain `mvn deploy` form is not linked. GitHub and GitLab are
-  unchanged: their packages belong to the repository already. See
+  refuses. GitHub and GitLab are unchanged: their packages belong to the
+  repository already. See
   `docs/forgejo.md#maven-npm-and-gradle-packages-in-the-owners-registry`.
 - The Forgejo `build-maven` action uploads the hand-off of a library build
   (`build-type: lib`), as GitHub's `build-maven` workflow does: every
@@ -869,6 +869,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer a reserved `build-secrets` name.
 
 ### Fixed
+
+- On Forgejo, a release links every package it publishes to the repository
+  it runs from, as GitHub does. The plain `mvn deploy` form of
+  `forge-ci publish forge-packages deploy` now links each reactor project
+  of the effective POM that Forgejo lists, and passes over without a
+  warning a project Maven did not deploy. `forge-ci container
+  release-images cleanup` links each promoted release image on the
+  forge's own registry before it deletes the candidate tags. Forgejo links
+  neither on its own, so a deleted demo's images and Maven packages stayed
+  with the owner, and the next demo of that name was refused the Maven
+  version with 409 Conflict. A refused link stays a warning. GitHub and
+  GitLab are unchanged. See
+  `docs/forgejo.md#maven-npm-and-gradle-packages-in-the-owners-registry`.
 
 - Every SBOM name carries the first seven characters of the commit.
   `forge-ci sbom assemble` took git's own abbreviation, which is longer in

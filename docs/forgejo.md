@@ -287,7 +287,7 @@ the caller passes them by name. Never use `secrets: inherit`.
 | Workflow | Does | Secrets |
 |---|---|---|
 | `prepare-release.yml` | Checks that every secret the release will need is configured, before its own checkout; guards the request tag; requires the request at the head of the release branch; renders the changelog; bumps the version files of the projects `artifacts.yml` plans, in one key-free job per toolchain family, and verifies that bump; makes the signed release commit and the final tag once. Outputs `release-tag`, `release-sha` and the `artifacts-config` it planned from. | `RELEASE_SSH_SIGNING_KEY`; presence only of the others; none in the version-plan and version jobs |
-| `sign-and-publish-release.yml` | Five separately privileged jobs after a secret-free preflight: `sign` (checksums, SBOMs, provenance, images, distro packages), `promote` (final image tags), `publish` (the Forgejo release), `packages` (distro packages to the owner's registries; it starts only when they are declared), `cleanup` (candidate tags). | Cosign, GPG, `RELEASE_TOKEN`, `RELEASE_REGISTRY_TOKEN`, each only in the job that needs it |
+| `sign-and-publish-release.yml` | Five separately privileged jobs after a secret-free preflight: `sign` (checksums, SBOMs, provenance, images, distro packages), `promote` (final image tags), `publish` (the Forgejo release), `packages` (distro packages to the owner's registries; it starts only when they are declared), `cleanup` (the images' link to the repository, candidate tags). | Cosign, GPG, `RELEASE_TOKEN`, `RELEASE_REGISTRY_TOKEN`, each only in the job that needs it |
 | `base-images.yml` | Builds one stage of the caller's own graph of base images, a root or the children of one authenticated parent, one child or all its siblings: one native job per image and architecture without a secret, then one job that scans every layout and stages the unsigned candidates. See [Base images](#base-images). | `RELEASE_REGISTRY_TOKEN`, in the parent fetch and publish jobs only |
 | `sign-container-images.yml` | Signs and attests a base-image ledger in one engine call. | Cosign, `RELEASE_REGISTRY_TOKEN` |
 | `verify-base-container-images.yml` | Verifies existing base images against the trusted key; optional explicit registry authentication supports private bases. Only missing images (or anonymous access refusal) are cache misses. With the token, `parent-bases-json` names every found base as a parent. With `expected-ref` it authenticates exactly one published base as a parent instead, and a missing base is a failure. | optional `RELEASE_REGISTRY_TOKEN`, `registry-user` for external registries; required with `expected-ref` |
@@ -759,7 +759,8 @@ The consumer's `release-workflow.yml` calls the layer around its own build job:
 3. **`sign-and-publish-release.yml`** runs five separately privileged jobs:
    `sign`, `promote` (final image tags), `publish` (the Forgejo release),
    `packages` ([distro packages](#distro-packages-in-the-owners-registries),
-   when declared) and `cleanup` (candidate tags).
+   when declared) and `cleanup` (the images' link to the repository, and
+   candidate tags).
 
 The `sign` job verifies the hand-off against its digest and then, before it
 writes the provenance statement or loads a key, writes the image SBOMs the
@@ -1264,11 +1265,21 @@ Forgejo keeps a package under its owner, not under a repository. Once the
 package is in the registry, the deploy links it to the repository the job
 runs in, so the package is listed on the repository's page and its page
 leads back to the source. This holds for an npm package, for a Maven
-library published with `from-build: 'true'` and for exported Gradle
-publications, each named by its `groupId:artifactId`. The plain `maven`
-form is not linked: there Maven decides what `mvn deploy` publishes.
-Container images need no link from the deploy, since Forgejo links an image
-by its source label.
+library published with `from-build: 'true'`, for exported Gradle
+publications and for the plain `maven` form, each Maven package named by
+its `groupId:artifactId`. After a plain `mvn deploy` the deploy reads the
+reactor's projects from its effective POM, with the same `cli-opts` and
+`profile`, and links each one Forgejo lists. Maven decides which projects
+it deploys, so a project Forgejo does not list, such as one with
+`maven.deploy.skip`, was not published and is passed over without a
+warning.
+
+Forgejo links no container image on its own either. The `cleanup` job of
+`sign-and-publish-release.yml`, the first after promotion that holds the
+package token, links each release image on this Forgejo's registry under
+the repository's owner, by the image's path beneath the owner, before it
+deletes the candidate tags. An image on another registry, such as GHCR, is
+no package of the owner's and is not linked.
 
 - A package this repository already has is left as it is, so a rerun is no
   error. A package another repository has is never taken from it.

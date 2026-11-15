@@ -5,6 +5,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -78,9 +79,16 @@ type ForgeNPMRegistryResolver interface {
 // name is the package's name in its own ecosystem: the npm package name, or
 // groupId:artifactId for Maven. Linking a package that is already linked to
 // the run's repository is no error.
+//
+// A package the owner does not list is an error that wraps
+// ErrForgePackageNotListed: nothing was published under that name.
 type ForgePackageLinker interface {
 	LinkForgePackage(ctx context.Context, packageType, name string) error
 }
+
+// ErrForgePackageNotListed says the owner lists no package of the name a
+// ForgePackageLinker was asked to link.
+var ErrForgePackageNotListed = errors.New("not listed")
 
 // DistroPackageFormat is a distribution package format a forge has a
 // registry for.

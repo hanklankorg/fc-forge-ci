@@ -2228,7 +2228,7 @@ import verified parents and build using only secret-free prepared registry input
 
 #### `forge-ci container release-images cleanup`
 
-delete release candidate tags after verified final/moving promotion
+delete release candidate tags after verified final/moving promotion; on Forgejo, link the promoted images to the repository first
 
 | Flag | Description | Type | Default | Env vars |
 |------|-------------|------|---------|----------|

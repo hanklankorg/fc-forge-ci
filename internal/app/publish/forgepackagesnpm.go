@@ -94,7 +94,7 @@ func ForgePackagesNPMPublish(ctx context.Context, ops NPMPublishOps, resolver pr
 
 		_, _ = fmt.Fprintf(stdout, "%s@%s is already published with tag %s and this content to %s\n", meta.Name, meta.Version, tag, reg.Registry)
 
-		linkPackages(ctx, resolver, stderr, "npm", meta.Name)
+		LinkPackages(ctx, resolver, stderr, "npm", meta.Name)
 
 		return nil
 	}
@@ -117,7 +117,7 @@ func ForgePackagesNPMPublish(ctx context.Context, ops NPMPublishOps, resolver pr
 		return err
 	}
 
-	linkPackages(ctx, resolver, stderr, "npm", meta.Name)
+	LinkPackages(ctx, resolver, stderr, "npm", meta.Name)
 
 	return nil
 }

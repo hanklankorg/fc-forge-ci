@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/provider"
 )
 
 const (
@@ -88,7 +89,8 @@ func TestLinkForgePackage_FindsThePackageOnALaterPageOrLinksNothing(t *testing.T
 
 	err := absent.provider().LinkForgePackage(context.Background(), "npm", "@owner/pkg")
 	require.ErrorIs(t, err, errs.ErrMissingInput)
-	require.ErrorContains(t, err, "it is not listed among the npm packages of owner")
+	require.ErrorIs(t, err, provider.ErrForgePackageNotListed)
+	require.EqualError(t, err, "it is not listed among the npm packages of owner: missing input")
 	require.Equal(t, []string{pageOne + " | token tok"}, absent.trace)
 }
 

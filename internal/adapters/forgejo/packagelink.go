@@ -12,12 +12,12 @@ import (
 	"code.gitea.io/sdk/gitea"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/provider"
 )
 
 // LinkForgePackage implements provider.ForgePackageLinker: it links one of
 // the owner's packages to the repository the run belongs to. Forgejo keeps a
-// package under its owner, and only a container image is linked on its own,
-// through its source label.
+// package under its owner and links none to a repository on its own.
 //
 // The package is read first, so that a package this repository already has
 // is left alone and one that another repository has is never taken from it.
@@ -94,7 +94,7 @@ func packageRepository(client *gitea.Client, owner, packageType, name string) (s
 		}
 
 		if resp == nil || resp.NextPage <= page {
-			return "", fmt.Errorf("it is not listed among the %s packages of %s: %w", packageType, owner, errs.ErrMissingInput)
+			return "", fmt.Errorf("it is %w among the %s packages of %s: %w", provider.ErrForgePackageNotListed, packageType, owner, errs.ErrMissingInput)
 		}
 
 		page = resp.NextPage

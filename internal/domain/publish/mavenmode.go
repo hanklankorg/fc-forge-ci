@@ -43,32 +43,12 @@ func ValidateMavenVersion(value string, snapshot bool) error {
 // reactor project. A snapshot flag or a root project's version alone is not proof
 // that the reactor cannot deploy an immutable release.
 func ValidateMavenReactorVersions(body []byte, snapshot bool, expected string) error {
-	type project struct {
-		Version string `xml:"version"`
+	projects, err := effectiveProjects(body)
+	if err != nil {
+		return err
 	}
 
-	var model struct {
-		XMLName  xml.Name  `xml:""`
-		Version  string    `xml:"version"`
-		Projects []project `xml:"project"`
-	}
-	if err := xml.Unmarshal(body, &model); err != nil {
-		return fmt.Errorf("invalid Maven effective POM: %w", errs.ErrMalformedInput)
-	}
-
-	switch model.XMLName.Local {
-	case "project":
-		model.Projects = []project{{Version: model.Version}}
-	case "projects":
-	default:
-		return fmt.Errorf("expected Maven project or reactor effective POM: %w", errs.ErrMalformedInput)
-	}
-
-	if len(model.Projects) == 0 {
-		return fmt.Errorf("maven reactor has no resolved projects: %w", errs.ErrMissingInput)
-	}
-
-	for index, item := range model.Projects {
+	for index, item := range projects {
 		if err := ValidateMavenVersion(item.Version, snapshot); err != nil {
 			return fmt.Errorf("maven reactor project %d: %w", index+1, err)
 		}
@@ -79,4 +59,61 @@ func ValidateMavenReactorVersions(body []byte, snapshot bool, expected string) e
 	}
 
 	return nil
+}
+
+// MavenReactorCoordinates returns the groupId:artifactId of every project of
+// a resolved effective POM, in reactor order: what a deploy of that reactor
+// may publish.
+func MavenReactorCoordinates(body []byte) ([]string, error) {
+	projects, err := effectiveProjects(body)
+	if err != nil {
+		return nil, err
+	}
+
+	coordinates := make([]string, 0, len(projects))
+
+	for index, item := range projects {
+		if item.GroupID == "" || item.ArtifactID == "" {
+			return nil, fmt.Errorf("maven reactor project %d has no groupId or artifactId: %w", index+1, errs.ErrMalformedInput)
+		}
+
+		coordinates = append(coordinates, item.GroupID+":"+item.ArtifactID)
+	}
+
+	return coordinates, nil
+}
+
+// effectiveProject is one project of a resolved effective POM.
+type effectiveProject struct {
+	GroupID    string `xml:"groupId"`
+	ArtifactID string `xml:"artifactId"`
+	Version    string `xml:"version"`
+}
+
+// effectiveProjects returns the projects of a resolved effective POM: the
+// one project, or every project of a reactor.
+func effectiveProjects(body []byte) ([]effectiveProject, error) {
+	var model struct {
+		effectiveProject
+
+		XMLName  xml.Name           `xml:""`
+		Projects []effectiveProject `xml:"project"`
+	}
+	if err := xml.Unmarshal(body, &model); err != nil {
+		return nil, fmt.Errorf("invalid Maven effective POM: %w", errs.ErrMalformedInput)
+	}
+
+	switch model.XMLName.Local {
+	case "project":
+		model.Projects = []effectiveProject{model.effectiveProject}
+	case "projects":
+	default:
+		return nil, fmt.Errorf("expected Maven project or reactor effective POM: %w", errs.ErrMalformedInput)
+	}
+
+	if len(model.Projects) == 0 {
+		return nil, fmt.Errorf("maven reactor has no resolved projects: %w", errs.ErrMissingInput)
+	}
+
+	return model.Projects, nil
 }
