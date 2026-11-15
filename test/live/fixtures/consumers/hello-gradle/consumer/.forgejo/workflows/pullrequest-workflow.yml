@@ -81,6 +81,8 @@ jobs:
 
       # Engine checkout: sha256-aware, node-free, never persists credentials.
       - name: Checkout repository
+        env:
+          FORGEJO_TOKEN: ${{ forgejo.token }}
         run: |
           set -euo pipefail
           forge-ci platform checkout --depth 1

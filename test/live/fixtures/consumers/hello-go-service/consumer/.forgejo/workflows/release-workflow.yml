@@ -153,6 +153,7 @@ jobs:
       - name: Checkout prepared release
         env:
           CHECKOUT_REF: ${{ needs.prepare.outputs.release-sha }}
+          FORGEJO_TOKEN: ${{ forgejo.token }}
         run: |
           set -euo pipefail
           forge-ci platform checkout
@@ -209,9 +210,7 @@ jobs:
       # is unsigned: dist/ holds no <file>.sig or <file>.bundle and no
       # slsa-provenance.intoto.json, because the signer writes those.
       # A release-notes.md you render before this step becomes the release
-      # body; without one the body is a stub naming the tag. Render it in the
-      # checkout root and list it in .gitignore: GoReleaser refuses a checkout
-      # with an untracked file that is not ignored ("git is in a dirty state").
+      # body; without one the body is a stub naming the tag.
       # A GoReleaser build ends with `release files import-goreleaser`
       # instead, and leaves GoReleaser `signs:` out.
       - name: Declare the release files

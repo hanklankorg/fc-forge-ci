@@ -689,15 +689,17 @@ declares the version the jar carries.
 another. [The prepare job](#the-prepare-job) says how the bump is kept out
 of the job that holds the signing key.
 
-**Rendered release notes are ignored by Git.** The hand-off step of
-`release-workflow.yml` reads a `release-notes.md` that an earlier step of the build job
-rendered in the checkout root. List that file in `.gitignore`: an untracked
-file that is not ignored makes the checkout dirty, and GoReleaser then stops
-with `git is in a dirty state`.
+**Release notes are the release page's text, and optional.** The hand-off
+step of `release-workflow.yml` turns a `release-notes.md` that an earlier
+step of the build job rendered into `dist/release-notes.md`; without one,
+the text is a stub naming the tag. A GoReleaser build refuses a checkout with
+an untracked file that is not ignored (`git is in a dirty state`), so
+`release-goreleaser.yml` renders its notes in `$RUNNER_TEMP` and passes that
+path as `release-notes`.
 
 Extract release notes from the prepared, signed changelog with
 `forge-ci release notes --changelog-file CHANGELOG.md --release-version
-vX.Y.Z --target-file release-notes.md`. It selects exactly that version's
+vX.Y.Z --target-file "$RUNNER_TEMP/release-notes.md"`. It selects exactly that version's
 level-two section, retains Markdown reference links, and refuses a missing
 or duplicate section.
 
@@ -752,9 +754,9 @@ configuration needs no `snapshot` block. A dirty tree, packaging and the
 hand-off layout then fail on the branch instead of at the release. It takes
 no `release-tag`, `release-sha` or `release-notes`, and refuses them. The
 action's `version` output is the version the files carry. Check out as the
-release does, with `forge-ci platform checkout --fetch-all-refs` and
-`FORGEJO_TOKEN: ${{ forgejo.token }}` for a private repository: without the
-tags the base is `0.0.0` and GoReleaser's changelog has no previous tag.
+release does, with `forge-ci platform checkout --fetch-all-refs`, with
+`FORGEJO_TOKEN: ${{ forgejo.token }}` as every direct checkout in the
+examples has, so a private repository clones too: without the tags the base is `0.0.0` and GoReleaser's changelog has no previous tag.
 [`examples/go-cli/forgejo/release-snapshot-goreleaser.yml`](../examples/go-cli/forgejo/release-snapshot-goreleaser.yml)
 is the caller beside `release-goreleaser.yml`; it keeps the unsigned files as
 a run artifact for 7 days and signs and publishes nothing.
@@ -1940,7 +1942,7 @@ that the consumer and the layer agree on the lab's runner, not on yours.
 | The `coordinates` job fails | No `forge-ci-repository` input or `FORGE_CI_REPOSITORY` variable, a missing or tag-only `signer-image`, credentials or a query in a URL, or a `transparency-log` other than `none` or `public`. |
 | `prepare-release.yml` fails before checkout | A secret the release needs is not configured, or the signer image cannot be read anonymously; pass `skip-signer-image-check: 'true'` for a private image. |
 | The request is refused as ahead of or behind the release branch | See [The request is the head of the release branch](#the-request-is-the-head-of-the-release-branch). |
-| GoReleaser stops with `git is in a dirty state` | `release-notes.md` is not in `.gitignore`. |
+| GoReleaser stops with `git is in a dirty state` | A step left an untracked file in the checkout, such as `release-notes.md`; render it in `$RUNNER_TEMP`. |
 | `lint-nanolinter` stops: no `nanolinter` | `CI_JOB_IMAGE` does not carry nanolinter. |
 | `check-l3-isolation` fails a pull request | Mixed pins, a signing secret in the build job, a prepare call without a secret the sign job takes, or a signer image, key digest or transparency-log setting that is not a literal. |
 | A signing job cannot start its container, after the final tag exists | The signer image reference names no image. Publish the image it names and re-run the failed jobs. |

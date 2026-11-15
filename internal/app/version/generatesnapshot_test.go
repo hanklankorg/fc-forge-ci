@@ -236,12 +236,6 @@ func TestGenerateSnapshotVersion_GitHubFormatEmitsOutput(t *testing.T) {
 	}
 }
 
-// TestGenerateSnapshotVersion_EveryFailureWritesNothing covers each way the
-// version cannot be produced or delivered. A ref name the sanitizer empties
-// and a short SHA that is not an abbreviated commit are refused -- both used
-// to compose a version with an empty or garbage segment -- the tag listing
-// failure is returned, and a sink that refuses the output stops the version
-// line from being printed as if it had been delivered.
 // A version maps '_' and '.' to '-' and a container tag keeps them, so a branch
 // made only of them is refused as a version and accepted as a tag: each mode
 // checks the token it uses.
@@ -270,6 +264,12 @@ func TestGenerateSnapshotVersion_EachModeChecksItsOwnBranchToken(t *testing.T) {
 	}
 }
 
+// TestGenerateSnapshotVersion_EveryFailureWritesNothing covers each way the
+// version cannot be produced or delivered. A ref name the sanitizer empties
+// and a short SHA that is not an abbreviated commit are refused -- both used
+// to compose a version with an empty or garbage segment -- the tag listing
+// failure is returned, and a sink that refuses the output stops the version
+// line from being printed as if it had been delivered.
 func TestGenerateSnapshotVersion_EveryFailureWritesNothing(t *testing.T) {
 	t.Parallel()
 

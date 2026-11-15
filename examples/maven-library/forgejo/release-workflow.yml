@@ -162,6 +162,7 @@ jobs:
       - name: Checkout prepared release
         env:
           CHECKOUT_REF: ${{ needs.prepare.outputs.release-sha }}
+          FORGEJO_TOKEN: ${{ forgejo.token }}
         run: |
           set -euo pipefail
           forge-ci platform checkout
