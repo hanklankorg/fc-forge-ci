@@ -165,7 +165,12 @@ func TestCompiledAdminPolicyCannotBeOverriddenByConsumers(t *testing.T) {
 			assertions := filepath.Join(dir, "tests.sh")
 			runtimeLint := filepath.Join(dir, "runtime-lint.sh")
 			write(runtimeLint, "#!/bin/sh\nprintf '%s\\n' '{\"version\":\"2.1.0\",\"runs\":[{\"tool\":{\"driver\":{\"name\":\"nanolinter\"}},\"results\":[{\"ruleId\":\"sast\",\"properties\":{\"source\":\"curated\",\"check_id\":\"sast\",\"class\":\"security\",\"status\":\"fail\",\"details\":\"tool failed (exit 2)\",\"exit_code\":2}}]}]}'\nexit 1\n", 0o700)
-			run(false, "policy", "nanolinter", "--", "/bin/sh", runtimeLint)
+			// A check that could not complete fails an enforced gate and is a
+			// warning under a report-only one.
+			if body := run(!variant.lint, "policy", "nanolinter", "--", "/bin/sh", runtimeLint); !strings.Contains(body, "could-not-complete=sast") ||
+				variant.lint == strings.Contains(body, "lint is report-only, so this does not block") {
+				t.Fatalf("incomplete lint check misreported:\n%s", body)
+			}
 			write(assertions, "#!/bin/sh\nprintf '%s\\n' 'Tests run: 4, Failures: 1, Errors: 0, Skipped: 0' '[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.5.4:test on project app: There are test failures.'\nexit 1\n", 0o700)
 			run(!variant.tests, "policy", "tests", "--protocol", "maven", "--", "/bin/sh", assertions)
 			write(assertions, "#!/bin/sh\nprintf '%s\\n' 'Tests run: 4, Failures: 0, Errors: 1, Skipped: 0'\nexit 1\n", 0o700)
