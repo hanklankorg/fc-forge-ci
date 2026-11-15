@@ -5,6 +5,7 @@ package sbom_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	appsbom "github.com/diggsweden/forge-ci/internal/app/sbom"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
 	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
 )
@@ -66,8 +68,36 @@ func TestContainerFirstBuildSBOMs(t *testing.T) {
 		}
 	}
 
-	if _, err := os.Stat("svc/svc-1.2.3-abc1234-build-sbom.cyclonedx.json"); !os.IsNotExist(err) {
-		t.Errorf("the SBOM stayed in the artifact's directory: %v", err)
+	// The generator's bom.json goes; the artifact's directory stays.
+	for _, dir := range []string{"svc", "worker"} {
+		entries, err := os.ReadDir(dir)
+		if err != nil || len(entries) != 0 {
+			t.Errorf("%s holds %v (%v), want the directory as it was", dir, entries, err)
+		}
+	}
+}
+
+// A bom.json already in an artifact's directory, committed or left by a
+// build step, would stand in for the one forge-ci writes from the lockfile.
+func TestContainerFirstBuildSBOMsRefusesABOMAlreadyThere(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	if err := os.MkdirAll("svc", 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile("svc/bom.json", []byte(`{"bomFormat":"CycloneDX"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	gen := &lockfileGenerator{}
+
+	_, err := appsbom.ContainerFirstBuildSBOMs(context.Background(), &fakeGit{sha: "abc1234"}, gen, io.Discard, io.Discard, appsbom.ContainerFirstBuildSBOMsInput{
+		Artifacts:   []pipeline.PlannedArtifact{{Name: "svc", ProjectType: projecttype.Cargo, WorkingDirectory: "svc"}},
+		ProjectType: projecttype.Cargo, Version: "1.2.3", OutputDir: "dist/sboms",
+	})
+	if !errors.Is(err, errs.ErrValidation) || len(gen.ran) != 0 {
+		t.Fatalf("err %v after running for %q, want ErrValidation before any run", err, gen.ran)
 	}
 }
 

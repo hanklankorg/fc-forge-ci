@@ -24,6 +24,7 @@ type workspace struct {
 	host             *os.Root
 	freshOutputs     bool
 	generatedOutputs map[string]bool
+	generatedSources map[string]bool
 }
 
 func newWorkspace(in GenerateInput) (workspace, error) {
@@ -56,7 +57,7 @@ func newWorkspace(in GenerateInput) (workspace, error) {
 		fsys = root.FS()
 	}
 
-	return workspace{root: abs, fsys: fsys, cwd: cwd, hostFS: hostFS, host: root, freshOutputs: in.RequireFreshOutputs, generatedOutputs: in.generatedOutputs}, nil
+	return workspace{root: abs, fsys: fsys, cwd: cwd, hostFS: hostFS, host: root, freshOutputs: in.RequireFreshOutputs, generatedOutputs: in.generatedOutputs, generatedSources: in.generatedSources}, nil
 }
 
 func (w workspace) close() error {

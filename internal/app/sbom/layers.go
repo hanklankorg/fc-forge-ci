@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/clicolor"
@@ -189,6 +190,11 @@ func maybeGenerateBuildBOM(ctx context.Context, deps layerDeps, projectType proj
 		return nil, err
 	}
 
+	fresh := deps.ws.generatedSources != nil
+	if fresh && !noBuildBOM(files) {
+		return nil, fmt.Errorf("a bom.json is already under %s, which would stand in for the build SBOM forge-ci writes from the lockfile; remove it, or skip the build step's own build SBOM: %w", dirOrDot(root), errs.ErrValidation)
+	}
+
 	if deps.gen == nil || !noBuildBOM(files) {
 		return files, nil
 	}
@@ -202,7 +208,18 @@ func maybeGenerateBuildBOM(ctx context.Context, deps layerDeps, projectType proj
 		return nil, fmt.Errorf("generate build BOM: %w", genErr)
 	}
 
-	return walkAllFiles(deps.ws, root) // re-walk to pick up the generated bom.json
+	after, err := walkAllFiles(deps.ws, root) // re-walk to pick up the generated bom.json
+	if err != nil || !fresh {
+		return after, err
+	}
+
+	for _, file := range after {
+		if !slices.Contains(files, file) {
+			deps.ws.generatedSources[deps.ws.outputPath(file)] = true
+		}
+	}
+
+	return after, nil
 }
 
 // noBuildBOM reports whether the workspace contains no bom.json anywhere — the

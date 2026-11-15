@@ -59,7 +59,7 @@ func ContainerFirstBuildSBOMs(ctx context.Context, gitRepo GitOps, gen BuildSBOM
 			continue
 		}
 
-		outputs := map[string]bool{}
+		outputs, sources := map[string]bool{}, map[string]bool{}
 		if err := Generate(ctx, nil, nil, gitRepo, gen, out, stderr, GenerateInput{
 			ProjectType:      string(artifact.ProjectType),
 			Layers:           "build",
@@ -67,8 +67,15 @@ func ContainerFirstBuildSBOMs(ctx context.Context, gitRepo GitOps, gen BuildSBOM
 			Name:             artifact.Name,
 			WorkingDir:       dirOrDot(artifact.WorkingDirectory),
 			generatedOutputs: outputs,
+			generatedSources: sources,
 		}); err != nil {
 			return nil, fmt.Errorf("build SBOM of %s: %w", artifact.Name, err)
+		}
+
+		// The generator's own files go, so the checkout stays as it was and
+		// the next artifact's BOM is its own.
+		if err := removeGenerated(slices.Sorted(maps.Keys(sources)), dirOrDot(artifact.WorkingDirectory)); err != nil {
+			return nil, fmt.Errorf("remove the generated BOM of %s: %w", artifact.Name, err)
 		}
 
 		for _, path := range slices.Sorted(maps.Keys(outputs)) {
@@ -113,6 +120,34 @@ func moveAcrossDevices(src, dst string) error {
 	}
 
 	return os.Remove(src)
+}
+
+// removeGenerated removes the generator's files and the directories it left
+// empty, up to the working directory.
+func removeGenerated(files []string, workingDir string) error {
+	stop, err := filepath.Abs(workingDir)
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		abs, err := filepath.Abs(file)
+		if err != nil {
+			return err
+		}
+
+		if err := os.Remove(abs); err != nil {
+			return err
+		}
+
+		for dir := filepath.Dir(abs); strings.HasPrefix(dir, stop+string(filepath.Separator)); dir = filepath.Dir(dir) {
+			if os.Remove(dir) != nil {
+				break // not empty
+			}
+		}
+	}
+
+	return nil
 }
 
 func dirOrDot(dir string) string {

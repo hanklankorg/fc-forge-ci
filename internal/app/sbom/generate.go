@@ -96,6 +96,10 @@ type GenerateInput struct {
 	// acquired producer members that already have a canonical SBOM filename.
 	RequireFreshOutputs bool
 	generatedOutputs    map[string]bool // invocation-local; never a producer receipt
+	// generatedSources, when set, makes the build layer derive its BOM from
+	// the lockfile, refusing one already there, and records the generator's
+	// own files for the caller to remove: container-first assembly.
+	generatedSources map[string]bool
 }
 
 // BuildSBOMGenerator produces a build-layer CycloneDX bom.json on demand, for
