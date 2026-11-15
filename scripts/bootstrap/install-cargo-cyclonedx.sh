@@ -8,6 +8,8 @@
 # consumer's runner instead, so build-cargo brings it the same way
 # release-images brings Trivy. A cargo-cyclonedx already on PATH (from the
 # consumer's mise config, say) is used only when it is the pinned version.
+# Upstream ships it only as .tar.xz; the forge-ci engine, on PATH in every
+# job that installs it, unpacks it, so the runner needs no xz.
 #
 # Usage: source this file, then call install_cargo_cyclonedx
 #   source "$(dirname "$0")/../bootstrap/install-cargo-cyclonedx.sh"
@@ -29,7 +31,7 @@ readonly CARGO_CYCLONEDX_SHA256_DARWIN_ARM64="4c53dfa21e70b65bf7f8d2592aadde3bcb
 install_cargo_cyclonedx() {
   ci_use_installed_pin cargo-cyclonedx cargo-cyclonedx "$CARGO_CYCLONEDX_VERSION" cyclonedx --version && return 0
 
-  local install_dir raw_os raw_arch platform triple asset sha256 archive
+  local install_dir raw_os raw_arch platform triple asset sha256 archive unpacked
   install_dir="$(ci_install_dir cargo-cyclonedx)"
   mkdir -p "$install_dir"
   raw_os="${OS:-$(uname -s)}"
@@ -60,16 +62,17 @@ install_cargo_cyclonedx() {
   esac
   asset="cargo-cyclonedx-${triple}.tar.xz"
   archive="$install_dir/$asset"
+  unpacked="$install_dir/unpacked"
 
   printf "Installing cargo-cyclonedx (version: %s)...\n" "${CARGO_CYCLONEDX_VERSION}"
-  # tar -xf detects the compression; upstream ships xz, which needs xz on PATH.
   if ! ci_download_verified "https://github.com/CycloneDX/cyclonedx-rust-cargo/releases/download/cargo-cyclonedx-${CARGO_CYCLONEDX_VERSION}/${asset}" "$archive" "$sha256" ||
-    ! tar -xf "$archive" -C "$install_dir" --strip-components=1 "cargo-cyclonedx-${triple}/cargo-cyclonedx"; then
-    rm -f "$archive" "$install_dir/cargo-cyclonedx"
-    printf "ERROR: Failed to install cargo-cyclonedx %s (the archive is .tar.xz: the runner needs xz)\n" "${CARGO_CYCLONEDX_VERSION}" >&2
+    ! forge-ci platform extract-archive --archive "$archive" --destination "$unpacked" ||
+    ! mv "$unpacked/cargo-cyclonedx" "$install_dir/cargo-cyclonedx"; then
+    rm -rf "$archive" "$unpacked" "$install_dir/cargo-cyclonedx"
+    printf "ERROR: Failed to install cargo-cyclonedx %s\n" "${CARGO_CYCLONEDX_VERSION}" >&2
     return 1
   fi
-  rm -f "$archive"
+  rm -rf "$archive" "$unpacked"
 
   ci_prepend_path "$install_dir"
   ci_require_command cargo-cyclonedx cargo-cyclonedx || return 1

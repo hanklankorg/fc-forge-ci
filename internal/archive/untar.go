@@ -21,6 +21,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ulikunitz/xz"
+
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
 )
@@ -86,8 +88,26 @@ func defaultTarLimits() tarLimits {
 //   - Aggregate uncompressed size is bounded by maxTarballUncompressedSize.
 //   - Entries are validated in private staging before any destination replacement.
 func UntarStripOne(archive, dest string) error {
-	return untarStripOne(archive, dest, defaultTarLimits())
+	return untarStripOne(archive, dest, gzipCodec, defaultTarLimits())
 }
+
+// UntarXzStripOne is UntarStripOne for an xz-compressed tar, as
+// `tar -xJf <file> --strip-components=1`, with the same defenses. It needs no
+// xz on the host.
+func UntarXzStripOne(archive, dest string) error {
+	return untarStripOne(archive, dest, xzCodec, defaultTarLimits())
+}
+
+// codec names a tar's compression and opens its decompressed stream.
+type codec struct {
+	name string
+	open func(io.Reader) (io.Reader, error)
+}
+
+var (
+	gzipCodec = codec{"gzip", func(r io.Reader) (io.Reader, error) { return gzip.NewReader(r) }}
+	xzCodec   = codec{"xz", func(r io.Reader) (io.Reader, error) { return xz.NewReader(r) }}
+)
 
 // inspectArchive stats the archive path without following a link. A missing
 // archive is the caller's input not being there, so it is classified here: two
@@ -108,7 +128,7 @@ func inspectArchive(archive string) (fs.FileInfo, error) {
 }
 
 //nolint:cyclop // extraction keeps each archive safety invariant explicit.
-func untarStripOne(archive, dest string, limits tarLimits) error {
+func untarStripOne(archive, dest string, compression codec, limits tarLimits) error {
 	archiveInfo, err := inspectArchive(archive)
 	if err != nil {
 		return err
@@ -136,15 +156,13 @@ func untarStripOne(archive, dest string, limits tarLimits) error {
 
 	compressed := &io.LimitedReader{R: f, N: limits.bodySize + 1}
 
-	// Stream errors from the gzip and tar readers are malformed input: the
-	// archive exists and cannot be read as what it claims to be. The decoder's
-	// own error is kept as the cause.
-	gz, err := gzip.NewReader(compressed)
+	// Stream errors from the decompressor and tar readers are malformed input:
+	// the archive exists and cannot be read as what it claims to be. The
+	// decoder's own error is kept as the cause.
+	decompressed, err := compression.open(compressed)
 	if err != nil {
-		return fmt.Errorf("gzip: %w: %w", err, errs.ErrMalformedInput)
+		return fmt.Errorf("%s: %w: %w", compression.name, err, errs.ErrMalformedInput)
 	}
-
-	defer func() { _ = gz.Close() }()
 
 	staging, err := pathsafe.NewArtifactStaging(dest)
 	if err != nil {
@@ -152,12 +170,13 @@ func untarStripOne(archive, dest string, limits tarLimits) error {
 	}
 	defer func() { _ = staging.Close() }()
 
-	expanded := &io.LimitedReader{R: gz, N: limits.streamSize + 1}
+	expanded := &io.LimitedReader{R: decompressed, N: limits.streamSize + 1}
 	if err := extractEntries(staging.Root(), expanded, limits, stripFirstComponent); err != nil {
 		return err
 	}
 
-	// Tar EOF precedes the gzip trailer. Read to gzip EOF before committing,
+	// Tar EOF precedes the compressed stream's trailer, which carries its
+	// check (gzip's CRC, xz's index). Read to its EOF before committing,
 	// with a separate padding budget so ignored trailing data cannot grow freely.
 	//
 	// Three separate limits are checked here, and each says which one it was.
@@ -179,7 +198,7 @@ func untarStripOne(archive, dest string, limits tarLimits) error {
 	}
 
 	if !errors.Is(trailerErr, io.EOF) {
-		return fmt.Errorf("gzip trailer: %w: %w", trailerErr, errs.ErrMalformedInput)
+		return fmt.Errorf("%s trailer: %w: %w", compression.name, trailerErr, errs.ErrMalformedInput)
 	}
 
 	return staging.InstallWithRelativeSymlinks()

@@ -663,8 +663,8 @@ in whatever the job provides:
 - The release build job installs Go and the tools of the consumer's mise
   config with `setup-toolchain`. `build-go` and `build-cargo` fetch their
   pinned, checksum-verified SBOM generator unless one is on `PATH` or
-  `enable-build-sbom: 'false'` skips the SBOM; `build-cargo`'s is a `.tar.xz`,
-  so the runner needs `xz`. A Maven build needs the JDK and Maven from the
+  `enable-build-sbom: 'false'` skips the SBOM; the engine unpacks
+  `build-cargo`'s `.tar.xz`, so the runner needs no `xz`. A Maven build needs the JDK and Maven from the
   mise config or the job image.
 - When the mise config declares `go`, the job runs with `GOTOOLCHAIN=local`,
   so a `go.mod` asking for a newer Go fails instead of fetching one; without
@@ -1521,7 +1521,7 @@ before anything builds. The
 Declared artifacts that the images take are built first, automatically, with
 the Go, Cargo, Maven, Gradle JVM and npm builders. Go and Cargo producers fetch
 the same pinned SBOM generator as `build-go` and `build-cargo`, so their image
-needs `curl`, `tar` and `sha256sum` (and `xz` for Cargo).
+needs `curl`, `tar` and `sha256sum`.
 
 Optional `artifact-job-image-go`, `artifact-job-image-java`,
 `artifact-job-image-node` and `artifact-job-image-rust` inputs select trusted

@@ -317,6 +317,17 @@ func checkPinnedInstaller(t *testing.T, tc pinnedInstallerCase, mode installerMo
 		}
 	}
 
+	// cargo-cyclonedx is unpacked by the engine; its own tests cover the
+	// .tar.xz extraction, this stand-in the script's call to it.
+	if tc.tool == "cargo-cyclonedx" {
+		engine := "#!/usr/bin/env bash\nset -eu\n" +
+			`test "$1 $2 $3 $5" = 'platform extract-archive --archive --destination'` + "\n" +
+			`mkdir -p "$6" && tar -xzf "$4" -C "$6" --strip-components=1` + "\n"
+		if writeErr := os.WriteFile(filepath.Join(binDir, "forge-ci"), []byte(engine), 0o700); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+	}
+
 	command := `uname() { case "$1" in -s) printf ` + tc.os + ` ;; -m) printf ` + tc.arch + ` ;; esac; }; install_` + strings.ReplaceAll(tc.tool, "-", "_")
 
 	failDownload := ""

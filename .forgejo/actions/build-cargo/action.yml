@@ -4,7 +4,7 @@
 
 name: 'Build Cargo'
 description: >-
-  The build step of a consumer's own job for a Cargo project: one `forge-ci build cargo run`, which fetches the locked crates, runs `cargo test --locked --all-targets`, writes the CycloneDX Build SBOM and compiles one release binary per platform. Binaries land in <working-directory>/dist/<os>-<arch>/, and the SBOM as bom.json beside each Cargo.toml. The job brings the toolchain: cargo with the Rust target and linker of every platform (see setup-toolchain). The step installs its pinned cargo-cyclonedx for the Build SBOM unless enable-build-sbom is 'false' or the job already has one on PATH; that download is .tar.xz, so the runner needs xz. The step holds no secret.
+  The build step of a consumer's own job for a Cargo project: one `forge-ci build cargo run`, which fetches the locked crates, runs `cargo test --locked --all-targets`, writes the CycloneDX Build SBOM and compiles one release binary per platform. Binaries land in <working-directory>/dist/<os>-<arch>/, and the SBOM as bom.json beside each Cargo.toml. The job brings the toolchain: cargo with the Rust target and linker of every platform (see setup-toolchain). The step installs its pinned cargo-cyclonedx for the Build SBOM unless enable-build-sbom is 'false' or the job already has one on PATH; the engine unpacks its .tar.xz, so the runner needs no xz. The step holds no secret.
 inputs:
   version:
     description: >-

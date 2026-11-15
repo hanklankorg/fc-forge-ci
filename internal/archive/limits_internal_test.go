@@ -101,13 +101,13 @@ func TestTarLimits_EntryCountBoundary(t *testing.T) {
 	limits := defaultTarLimits()
 	limits.entries = len(headers) // the directory entry counts too
 
-	if err := untarStripOne(tarballWithBodies(t, headers, bodies), filepath.Join(t.TempDir(), "dest"), limits); err != nil {
+	if err := untarStripOne(tarballWithBodies(t, headers, bodies), filepath.Join(t.TempDir(), "dest"), gzipCodec, limits); err != nil {
 		t.Fatalf("an archive exactly at the entry cap was refused: %v", err)
 	}
 
 	limits.entries = len(headers) - 1
 
-	err := untarStripOne(tarballWithBodies(t, headers, bodies), filepath.Join(t.TempDir(), "dest2"), limits)
+	err := untarStripOne(tarballWithBodies(t, headers, bodies), filepath.Join(t.TempDir(), "dest2"), gzipCodec, limits)
 	if !errors.Is(err, errs.ErrValidation) {
 		t.Fatalf("err = %v, want ErrValidation for one entry over the cap", err)
 	}
@@ -129,14 +129,14 @@ func TestTarLimits_UncompressedSizeBoundary(t *testing.T) {
 	limits := defaultTarLimits()
 	limits.uncompressedSize = 16
 
-	if err := untarStripOne(tarballWithBodies(t, headers, bodies), filepath.Join(t.TempDir(), "dest"), limits); err != nil {
+	if err := untarStripOne(tarballWithBodies(t, headers, bodies), filepath.Join(t.TempDir(), "dest"), gzipCodec, limits); err != nil {
 		t.Fatalf("an archive exactly at the uncompressed cap was refused: %v", err)
 	}
 
 	limits.uncompressedSize = 15
 
 	dest := filepath.Join(t.TempDir(), "dest2")
-	if err := untarStripOne(tarballWithBodies(t, headers, bodies), dest, limits); !errors.Is(err, errs.ErrValidation) {
+	if err := untarStripOne(tarballWithBodies(t, headers, bodies), dest, gzipCodec, limits); !errors.Is(err, errs.ErrValidation) {
 		t.Fatalf("err = %v, want ErrValidation one byte over the cumulative cap", err)
 	}
 
@@ -209,11 +209,11 @@ func TestTarLimits_TrailingPaddingBoundary(t *testing.T) {
 	limits := defaultTarLimits()
 	limits.padding = 64
 
-	if err := untarStripOne(build(t, 64), filepath.Join(t.TempDir(), "dest"), limits); err != nil {
+	if err := untarStripOne(build(t, 64), filepath.Join(t.TempDir(), "dest"), gzipCodec, limits); err != nil {
 		t.Fatalf("padding exactly at the cap was refused: %v", err)
 	}
 
-	err := untarStripOne(build(t, 65), filepath.Join(t.TempDir(), "dest2"), limits)
+	err := untarStripOne(build(t, 65), filepath.Join(t.TempDir(), "dest2"), gzipCodec, limits)
 	if !errors.Is(err, errs.ErrValidation) {
 		t.Fatalf("err = %v, want ErrValidation one byte over the padding cap", err)
 	}
@@ -238,13 +238,13 @@ func TestTarLimits_ArchiveFileSizeBoundary(t *testing.T) {
 	limits := defaultTarLimits()
 	limits.bodySize = info.Size()
 
-	if refusal := untarStripOne(archive, filepath.Join(t.TempDir(), "dest"), limits); refusal != nil {
+	if refusal := untarStripOne(archive, filepath.Join(t.TempDir(), "dest"), gzipCodec, limits); refusal != nil {
 		t.Fatalf("an archive exactly at the file-size cap was refused: %v", refusal)
 	}
 
 	limits.bodySize = info.Size() - 1
 
-	err = untarStripOne(archive, filepath.Join(t.TempDir(), "dest2"), limits)
+	err = untarStripOne(archive, filepath.Join(t.TempDir(), "dest2"), gzipCodec, limits)
 	if !errors.Is(err, errs.ErrValidation) {
 		t.Fatalf("err = %v, want ErrValidation one byte over the file-size cap", err)
 	}
@@ -269,7 +269,7 @@ func TestTarLimits_ExpandedStreamBoundary(t *testing.T) {
 	limits := defaultTarLimits()
 	limits.streamSize = 4 // far below one 512-byte tar header
 
-	err := untarStripOne(archive, filepath.Join(t.TempDir(), "dest"), limits)
+	err := untarStripOne(archive, filepath.Join(t.TempDir(), "dest"), gzipCodec, limits)
 	if err == nil {
 		t.Fatal("an archive whose expanded stream exceeds the cap was extracted")
 	}
@@ -296,7 +296,7 @@ func TestTarLimits_CompressedBytesCapIsItsOwnRefusal(t *testing.T) {
 	// the reader exhausts its compressed budget.
 	limits.bodySize = info.Size()
 
-	err = untarStripOne(archive, filepath.Join(t.TempDir(), "dest"), limits)
+	err = untarStripOne(archive, filepath.Join(t.TempDir(), "dest"), gzipCodec, limits)
 	if err == nil {
 		return // the budget was exactly enough; nothing to assert
 	}

@@ -52,7 +52,7 @@ then the environment variables listed per flag, then the flag default.
 - [`init`](#forge-ci-init) — write a repository's first Forge CI files from an example
 - [`lint`](#forge-ci-lint) — code-style lint wrappers (swift-format, swiftlint)
 - [`plan`](#forge-ci-plan) — typed release, snapshot-release, and pull-request plan composition
-- [`platform`](#forge-ci-platform) — CI-runtime git + workspace operations (check out a repo, resolve a ref, inspect the workspace)
+- [`platform`](#forge-ci-platform) — CI-runtime git + workspace operations (check out a repo, resolve a ref, inspect the workspace, unpack a tool)
 - [`policy`](#forge-ci-policy) — administrator check policy: inspect it and run gates under it
 - [`publish`](#forge-ci-publish) — publish-side validators, output helpers, and registry uploads
 - [`release`](#forge-ci-release) — release-flow helpers (GPG lifecycle, signing, checksums, notes, create, attachments, …)
@@ -3515,7 +3515,7 @@ EXAMPLE:
 
 ## `forge-ci platform`
 
-CI-runtime git + workspace operations (check out a repo, resolve a ref, inspect the workspace)
+CI-runtime git + workspace operations (check out a repo, resolve a ref, inspect the workspace, unpack a tool)
 
 ### `forge-ci platform checkout`
 
@@ -3578,6 +3578,25 @@ Requires exactly one matching local job ID and an admitted result (success by de
 | `--result` | admitted result (repeatable); defaults to success | string | `""` | n/a |
 | `--output` | return this string output instead of the dependency JSON object | string | `""` | n/a |
 | `--allow-missing-output` | allow absent/empty output after result admission; only for explicitly optional paths | bool | `false` | n/a |
+
+### `forge-ci platform extract-archive`
+
+unpack a .tar.gz or .tar.xz into a directory, dropping its top directory
+
+```
+As tar -xf <archive> --strip-components=1, with the engine's own
+decompressor: absolute, parent-traversing and escaping entries, devices and
+oversized archives are refused, and nothing reaches the directory until every
+entry is checked. Verify the archive's checksum first.
+
+EXAMPLE:
+   forge-ci platform extract-archive --archive tool.tar.xz --destination bin/tool
+```
+
+| Flag | Description | Type | Default | Env vars |
+|------|-------------|------|---------|----------|
+| `--archive` | the .tar.gz, .tgz or .tar.xz to unpack (required) | string | `""` | n/a |
+| `--destination` | directory the entries are written to (required) | string | `""` | n/a |
 
 ### `forge-ci platform request-runner`
 

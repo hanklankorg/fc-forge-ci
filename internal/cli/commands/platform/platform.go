@@ -45,7 +45,7 @@ const (
 func New() *cli.Command {
 	return &cli.Command{
 		Name:  "platform",
-		Usage: "CI-runtime git + workspace operations (check out a repo, resolve a ref, inspect the workspace)",
+		Usage: "CI-runtime git + workspace operations (check out a repo, resolve a ref, inspect the workspace, unpack a tool)",
 		Commands: []*cli.Command{
 			debugWorkspaceCmd(),
 			resolveRefCmd(),
@@ -53,6 +53,7 @@ func New() *cli.Command {
 			stagePublicKeyCmd(),
 			requestRunnerCmd(),
 			dependencyCmd(),
+			extractArchiveCmd(),
 		},
 	}
 }
