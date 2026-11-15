@@ -176,6 +176,16 @@ func runForgejoConsumerTrial(t *testing.T, root string, releaseCase forgejoRelea
 		t.Fatalf("the consumer has no workflow %s; name the one to judge with workflow=<file>", settings.Workflow)
 	}
 
+	// A pull request starts the pull_request run, a release request the push.
+	event := "pull_request"
+	if settings.Event == livetest.TrialRelease {
+		event = "push"
+	}
+
+	if runs, err := livetest.WorkflowRunsOn(workflows[settings.Workflow], event); err != nil || !runs {
+		t.Fatalf("the %s trial waits for a %s run, which workflow %s does not start on (%v); a snapshot workflow is tried with the snapshot event", settings.Event, event, settings.Workflow, err)
+	}
+
 	const name = livetest.ConsumerTrial
 
 	// A demo shows the whole flow in one repository it keeps: the release,

@@ -926,3 +926,36 @@ func TestConsumer_TheNPMScopeIsRenderedWhereverAPackageIsNamed(t *testing.T) {
 		}
 	}
 }
+
+// A trial refuses at once a workflow that does not start on its event,
+// whichever form the on: key takes.
+func TestWorkflowRunsOn(t *testing.T) {
+	snapshot := "on:\n  workflow_dispatch: {}\n  push:\n    branches-ignore: [main]\njobs: {}\n"
+
+	for name, test := range map[string]struct {
+		content, event string
+		want           bool
+	}{
+		"map, listed":      {content: snapshot, event: "push", want: true},
+		"map, not listed":  {content: snapshot, event: "pull_request"},
+		"scalar":           {content: "on: pull_request\n", event: "pull_request", want: true},
+		"scalar, another":  {content: "on: push\n", event: "pull_request"},
+		"sequence":         {content: "on: [push, pull_request]\n", event: "pull_request", want: true},
+		"sequence, absent": {content: "on: [push]\n", event: "pull_request"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			runs, err := WorkflowRunsOn(test.content, test.event)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if runs != test.want {
+				t.Fatalf("WorkflowRunsOn(%q) = %t, want %t", test.event, runs, test.want)
+			}
+		})
+	}
+
+	if _, err := WorkflowRunsOn("jobs: {}\n", "push"); !errors.Is(err, errs.ErrValidation) {
+		t.Fatalf("a workflow without on: = %v, want ErrValidation", err)
+	}
+}

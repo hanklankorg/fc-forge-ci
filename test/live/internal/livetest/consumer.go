@@ -18,6 +18,7 @@ import (
 
 	"codefloe.com/itiquette/forge-lab-contract/labcontract"
 	"golang.org/x/mod/semver"
+	"gopkg.in/yaml.v3"
 
 	"github.com/diggsweden/forge-ci/internal/domain/container"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
@@ -1129,6 +1130,38 @@ func (consumer Consumer) Workflows(tb TB) map[string]string {
 	}
 
 	return workflows
+}
+
+// WorkflowRunsOn reports whether a workflow file starts on event, under any
+// of the three forms of its on: key. A trial that sends an event the
+// workflow does not start on would wait out its timeout for no run.
+func WorkflowRunsOn(content, event string) (bool, error) {
+	var workflow struct {
+		On yaml.Node `yaml:"on"`
+	}
+
+	if err := yaml.Unmarshal([]byte(content), &workflow); err != nil {
+		return false, fmt.Errorf("parse the workflow: %w", err)
+	}
+
+	on := workflow.On
+
+	switch on.Kind {
+	case yaml.ScalarNode:
+		return on.Value == event, nil
+	case yaml.SequenceNode:
+		return slices.ContainsFunc(on.Content, func(node *yaml.Node) bool { return node.Value == event }), nil
+	case yaml.MappingNode:
+		for i := 0; i < len(on.Content); i += 2 {
+			if on.Content[i].Value == event {
+				return true, nil
+			}
+		}
+
+		return false, nil
+	default:
+		return false, fmt.Errorf("the workflow has no on: key: %w", errs.ErrValidation)
+	}
 }
 
 // Push pushes the rendered consumer to main of the scratch repository as one
