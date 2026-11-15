@@ -752,7 +752,8 @@ configuration needs no `snapshot` block. A dirty tree, packaging and the
 hand-off layout then fail on the branch instead of at the release. It takes
 no `release-tag`, `release-sha` or `release-notes`, and refuses them. The
 action's `version` output is the version the files carry. Check out as the
-release does, with `forge-ci platform checkout --fetch-all-refs`: without the
+release does, with `forge-ci platform checkout --fetch-all-refs` and
+`FORGEJO_TOKEN: ${{ forgejo.token }}` for a private repository: without the
 tags the base is `0.0.0` and GoReleaser's changelog has no previous tag.
 [`examples/go-cli/forgejo/release-snapshot-goreleaser.yml`](../examples/go-cli/forgejo/release-snapshot-goreleaser.yml)
 is the caller beside `release-goreleaser.yml`; it keeps the unsigned files as

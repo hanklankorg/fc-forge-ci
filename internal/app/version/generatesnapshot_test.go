@@ -242,6 +242,34 @@ func TestGenerateSnapshotVersion_GitHubFormatEmitsOutput(t *testing.T) {
 // to compose a version with an empty or garbage segment -- the tag listing
 // failure is returned, and a sink that refuses the output stops the version
 // line from being printed as if it had been delivered.
+// A version maps '_' and '.' to '-' and a container tag keeps them, so a branch
+// made only of them is refused as a version and accepted as a tag: each mode
+// checks the token it uses.
+func TestGenerateSnapshotVersion_EachModeChecksItsOwnBranchToken(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		containerTag bool
+		wantErr      error
+	}{
+		"version":       {wantErr: errs.ErrUsage},
+		"container tag": {containerTag: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+
+			err := appversion.GenerateSnapshotVersion(context.Background(), &fakeGit{shortSHAOut: "abc1234"}, &out, appversion.GenerateSnapshotVersionInput{
+				RefName: "_", ContainerTag: tc.containerTag,
+			})
+			if !errors.Is(err, tc.wantErr) || tc.wantErr == nil && err != nil {
+				t.Fatalf("err = %v, want %v (out %q)", err, tc.wantErr, out.String())
+			}
+		})
+	}
+}
+
 func TestGenerateSnapshotVersion_EveryFailureWritesNothing(t *testing.T) {
 	t.Parallel()
 

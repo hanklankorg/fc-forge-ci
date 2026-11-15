@@ -303,7 +303,7 @@ func TestGoReleaserCallerDelegatesPackagingAndUnsignedHandoff(t *testing.T) {
 			for name, expected := range map[string]string{
 				"release-tag":   "${{ needs.prepare.outputs.release-tag }}",
 				"release-sha":   "${{ needs.prepare.outputs.release-sha }}",
-				"release-notes": "release-notes.md",
+				"release-notes": "${{ runner.temp }}/release-notes.md",
 			} {
 				if got := scalarString(mappingValue(with, name)); got != expected {
 					t.Errorf("GoReleaser %s = %q, want %q", name, got, expected)

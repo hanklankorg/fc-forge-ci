@@ -5,7 +5,7 @@
 # and key placeholders as the ordinary Go CLI example, after publication.
 # The product owns .goreleaser.yml and its locked mise tools: go, GoReleaser and
 # syft in the mise config, with a committed mise.lock. Keep any generation hooks
-# there, without signing/publishing hooks. Ignore release-notes.md in Git.
+# there, without signing/publishing hooks; they must leave the tree clean.
 # ../.goreleaser.yml builds .deb, .rpm and .apk packages, so both calls below
 # set sign-distro-packages: "true": each package gets the release's OpenPGP
 # .sig file, signed with the three RELEASE_GPG_* secrets. Copy
@@ -68,15 +68,16 @@ jobs:
           tools: go aqua:goreleaser/goreleaser aqua:anchore/syft
       - name: Test prepared source
         run: forge-ci policy tests --protocol go-json -- go test -json ./...
+      # Outside the checkout: GoReleaser refuses a dirty tree.
       - name: Render release notes
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.release-tag }}
-        run: forge-ci release notes --changelog-file CHANGELOG.md --release-version "$RELEASE_TAG" --target-file release-notes.md
+        run: forge-ci release notes --changelog-file CHANGELOG.md --release-version "$RELEASE_TAG" --target-file "$RUNNER_TEMP/release-notes.md"
       - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/build-goreleaser@2f4e845cee96973d1082bf00a5a18689c1482148
         with:
           release-tag: ${{ needs.prepare.outputs.release-tag }}
           release-sha: ${{ needs.prepare.outputs.release-sha }}
-          release-notes: release-notes.md
+          release-notes: ${{ runner.temp }}/release-notes.md
       # Keep any required independent rebuild comparison before this upload.
       - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/upload-dist@2f4e845cee96973d1082bf00a5a18689c1482148
         id: dist
