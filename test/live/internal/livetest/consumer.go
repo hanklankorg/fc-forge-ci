@@ -1132,6 +1132,36 @@ func (consumer Consumer) Workflows(tb TB) map[string]string {
 	return workflows
 }
 
+// EventWorkflowDispatch is the event of a dispatched workflow run.
+const EventWorkflowDispatch = "workflow_dispatch"
+
+// TrialStartEvent is the event a Forgejo consumer trial starts the judged
+// workflow with: a release request's push, a pull request's pull_request,
+// or, for a pull-request trial of a workflow that starts on no pull request,
+// as a project's snapshot workflow, a dispatch on the trial branch, the one
+// start every such workflow shares. A workflow that starts on none is
+// refused before anything runs, where it would otherwise wait out the
+// consumer timeout for a run that never comes.
+func TrialStartEvent(workflow, trial string) (string, error) {
+	starts := []string{"pull_request", EventWorkflowDispatch}
+	if trial == TrialRelease {
+		starts = []string{"push"}
+	}
+
+	for _, event := range starts {
+		runs, err := WorkflowRunsOn(workflow, event)
+		if err != nil {
+			return "", err
+		}
+
+		if runs {
+			return event, nil
+		}
+	}
+
+	return "", fmt.Errorf("a %s trial starts it with %s, which it does not start on: %w", trial, strings.Join(starts, " or "), errs.ErrValidation)
+}
+
 // WorkflowRunsOn reports whether a workflow file starts on event, under any
 // of the three forms of its on: key. A trial that sends an event the
 // workflow does not start on would wait out its timeout for no run.

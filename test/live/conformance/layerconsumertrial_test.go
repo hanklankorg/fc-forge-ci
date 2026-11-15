@@ -176,14 +176,9 @@ func runForgejoConsumerTrial(t *testing.T, root string, releaseCase forgejoRelea
 		t.Fatalf("the consumer has no workflow %s; name the one to judge with workflow=<file>", settings.Workflow)
 	}
 
-	// A pull request starts the pull_request run, a release request the push.
-	event := "pull_request"
-	if settings.Event == livetest.TrialRelease {
-		event = "push"
-	}
-
-	if runs, err := livetest.WorkflowRunsOn(workflows[settings.Workflow], event); err != nil || !runs {
-		t.Fatalf("the %s trial waits for a %s run, which workflow %s does not start on (%v); a snapshot workflow is tried with the snapshot event", settings.Event, event, settings.Workflow, err)
+	event, err := livetest.TrialStartEvent(workflows[settings.Workflow], settings.Event)
+	if err != nil {
+		t.Fatalf("workflow %s: %v", settings.Workflow, err)
 	}
 
 	const name = livetest.ConsumerTrial
@@ -298,9 +293,13 @@ func runForgejoConsumerTrial(t *testing.T, root string, releaseCase forgejoRelea
 	}
 
 	if !release {
-		requirePullRequest(t, livetest.OpenPullRequest(t, target, repo, trialBranch, layerMain, "test: consumer trial"), trialBranch, head, main)
+		if event == livetest.EventWorkflowDispatch {
+			livetest.DispatchConsumerWorkflow(t, target, repo, settings.Workflow, trialBranch)
+		} else {
+			requirePullRequest(t, livetest.OpenPullRequest(t, target, repo, trialBranch, layerMain, "test: consumer trial"), trialBranch, head, main)
+		}
 
-		run := livetest.WaitForConsumerRun(t, target, repo, settings.Workflow, "pull_request", "")
+		run := livetest.WaitForConsumerRun(t, target, repo, settings.Workflow, event, "")
 		scenario.logJobs(t, livetest.RunJobs(t, target, repo, run.ID), facts.Secrets, plan.Secrets)
 		logArtifacts(t, run, livetest.RunArtifacts(t, target, repo, run.ID))
 		requireRunSuccess(t, run)

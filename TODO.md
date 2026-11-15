@@ -79,8 +79,7 @@ Last checked against `main` on 2026-11-14.
 ## Live tests to retire or repair
 
 - **Tests that need an outside project**:
-  `TestForgejoLayer_NPMApplicationDevelopment`,
-  `TestForgejoLayer_ConsumerSnapshotTrial`, and the modes of
+  `TestForgejoLayer_NPMApplicationDevelopment` and the modes of
   `TestForgejoLayer_ConsumerTrial` that use an outside npm or Maven
   application. Move what each checks into a test of a shipped demo, then
   delete it.

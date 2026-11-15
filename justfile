@@ -933,7 +933,9 @@ test-live-image kind forge_lab budget="" cpus="" memory_mib="" compiler_jobs="":
 #                        token, for a token the consumer reads under a name of
 #                        its own. No other secret value can be given.
 #   workflow=<file>      the workflow to judge; pullrequest-workflow.yml or release-workflow.yml
-#                        when left out.
+#                        when left out. A pull-request trial dispatches one
+#                        that starts on no pull request on the trial branch,
+#                        as release-snapshot-workflow.yml.
 #   version=<X.Y.Z>      the version a release requests; 0.0.1 when left out.
 #   image=<reference>    release only: an image on an external registry that
 #                        must verify against the trial's key afterwards.

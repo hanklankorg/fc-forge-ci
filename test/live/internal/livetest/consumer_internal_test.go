@@ -959,3 +959,38 @@ func TestWorkflowRunsOn(t *testing.T) {
 		t.Fatalf("a workflow without on: = %v, want ErrValidation", err)
 	}
 }
+
+// A trial starts the judged workflow the way it starts: a pull request, or a
+// dispatch on the trial branch for a snapshot workflow, and a release's push.
+func TestTrialStartEvent(t *testing.T) {
+	const (
+		pullRequest = "on:\n  pull_request:\njobs: {}\n"
+		snapshot    = "on:\n  workflow_dispatch: {}\n  push:\n    branches-ignore: [main]\njobs: {}\n"
+		mainPush    = "on:\n  push:\n    branches: [main]\njobs: {}\n"
+	)
+
+	for name, test := range map[string]struct {
+		workflow, trial, want string
+	}{
+		"pull request":         {workflow: pullRequest, trial: TrialPullRequest, want: "pull_request"},
+		"snapshot, dispatched": {workflow: snapshot, trial: TrialPullRequest, want: EventWorkflowDispatch},
+		"release":              {workflow: mainPush, trial: TrialRelease, want: "push"},
+		"main push, refused":   {workflow: mainPush, trial: TrialPullRequest},
+		"release, no push":     {workflow: pullRequest, trial: TrialRelease},
+	} {
+		t.Run(name, func(t *testing.T) {
+			event, err := TrialStartEvent(test.workflow, test.trial)
+			if test.want == "" {
+				if !errors.Is(err, errs.ErrValidation) {
+					t.Fatalf("TrialStartEvent = %q, %v; want ErrValidation", event, err)
+				}
+
+				return
+			}
+
+			if err != nil || event != test.want {
+				t.Fatalf("TrialStartEvent = %q, %v; want %q", event, err, test.want)
+			}
+		})
+	}
+}
