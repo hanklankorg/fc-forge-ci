@@ -198,6 +198,7 @@ func TestCheckJobGraph_FromJSONOfSkippableProducerInWith(t *testing.T) {
 		{"plain read", "${{ needs.plan.outputs.build == 'true' }}", "${{ needs.promote.outputs.images }}", true, 0},
 		{"unconditional producer", "", "${{ fromJSON(needs.promote.outputs.images)[0].ref }}", true, 0},
 		{"github", "${{ needs.plan.outputs.build == 'true' }}", "${{ fromJSON(needs.promote.outputs.images)[0].ref }}", false, 0},
+		{"non-ASCII before the call", "${{ needs.plan.outputs.build == 'true' }}", "ȺȺȺȺȺȺȺȺȺȺȺȺȺ ${{ fromJSON(needs.promote.outputs.images)[0].ref }}", true, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

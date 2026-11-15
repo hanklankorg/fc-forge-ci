@@ -4,6 +4,7 @@
 package validate
 
 import (
+	"bytes"
 	"cmp"
 	"fmt"
 	"regexp"
@@ -223,10 +224,17 @@ func appendParsedOutputViolations(violations []JobGraphViolation, name string, l
 func unguardedFromJSONProducers(text string) []string {
 	var out []string
 
-	lower := strings.ToLower(text)
+	// Only ASCII is folded, so every offset found in lower is the same byte
+	// offset in text; Unicode case mapping can change a character's length.
+	lower := []byte(text)
+	for i, c := range lower {
+		if 'A' <= c && c <= 'Z' {
+			lower[i] = c + 'a' - 'A'
+		}
+	}
 
 	for start := 0; ; {
-		open := strings.Index(lower[start:], "fromjson(")
+		open := bytes.Index(lower[start:], []byte("fromjson("))
 		if open < 0 {
 			return out
 		}
