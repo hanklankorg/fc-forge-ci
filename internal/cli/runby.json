@@ -196,7 +196,7 @@
   "version commit-push": [".github/workflows/release-prepare-stage.yml",".github/workflows/version-bump.yml"],
   "version derive-release": [".forgejo/actions/generate-changelog",".forgejo/actions/prepare-release",".github/workflows/release-binary.yml",".github/workflows/release-orchestrator.yml",".github/workflows/release-prepare-stage.yml",".github/workflows/version-bump.yml"],
   "version file-pattern": [".github/workflows/version-bump.yml"],
-  "version generate-snapshot": [".github/workflows/publish-snapshot-npm.yml"],
+  "version generate-snapshot": [".forgejo/actions/build-goreleaser",".github/workflows/publish-snapshot-npm.yml"],
   "version render-changelog": [".forgejo/actions/generate-changelog"],
   "version tag-release": [".github/workflows/release-prepare-stage.yml"]
 }

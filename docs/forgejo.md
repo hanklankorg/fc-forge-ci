@@ -737,11 +737,15 @@ is the complete caller: copy it as `release-workflow.yml`, beside the example's
 `release files manifest --unsigned --evidence-file <file>`.
 
 With `snapshot: "true"` the same action is a dry run of that release for a
-snapshot workflow: it packages the checked-out commit with GoReleaser's
-`--snapshot`, with the same skips, and imports the manifest under the
-version `v0.0.0-snapshot`, so packaging and the hand-off layout fail on the
-branch instead of at the release. It takes no `release-tag`, `release-sha`
-or `release-notes`, and refuses them.
+snapshot workflow: it packages the checked-out commit with the same skips,
+under forge-ci's snapshot version, `<base>-snapshot-<branch>-<short commit>`
+as `forge-ci version generate-snapshot` prints it, the version a snapshot's
+files and packages carry on every forge. GoReleaser takes it as the tag, so
+every file name and the SBOM bundle carry it, and the manifest is imported
+under it; the configuration needs no `snapshot` block. Packaging and the
+hand-off layout then fail on the branch instead of at the release. It takes
+no `release-tag`, `release-sha` or `release-notes`, and refuses them. The
+action's `version` output is the version the files carry.
 [`examples/go-cli/forgejo/release-snapshot-goreleaser.yml`](../examples/go-cli/forgejo/release-snapshot-goreleaser.yml)
 is the caller beside `release-goreleaser.yml`; it keeps the unsigned files as
 a run artifact for 7 days and signs and publishes nothing.

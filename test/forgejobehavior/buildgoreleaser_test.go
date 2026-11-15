@@ -67,14 +67,19 @@ exit "$BUILD_STATUS"
 			if !slices.Equal(box.argv(), want) {
 				t.Fatalf("builder argv %q, expected %q", box.argv(), want)
 			}
+
+			if test.want == 0 && box.output() != "version=v1.2.3\n" {
+				t.Fatalf("version output %q, expected the release tag", box.output())
+			}
 		})
 	}
 }
 
-// A snapshot packages the checked-out commit as the release would, with
-// GoReleaser's own snapshot version, and refuses the release's inputs so a
-// release call cannot become a snapshot by a stray flag.
-func TestGoReleaserSnapshotBuildsTheCheckoutUnsigned(t *testing.T) {
+// A snapshot packages the checked-out commit as the release would, under
+// forge-ci's snapshot version, the one its snapshot files and packages carry,
+// and refuses the release's inputs so a release call cannot become a
+// snapshot by a stray flag.
+func TestGoReleaserSnapshotBuildsTheCheckoutUnderTheSnapshotVersion(t *testing.T) {
 	t.Parallel()
 
 	action := loadAction(t, "build-goreleaser")
@@ -84,7 +89,7 @@ func TestGoReleaserSnapshotBuildsTheCheckoutUnsigned(t *testing.T) {
 		want               int
 		argv               []string
 	}{
-		{"snapshot", "true", "", 0, []string{"release", "--snapshot", "--clean", "--skip=publish,sign,announce", "--config", "config with spaces.yml"}},
+		{"snapshot", "true", "", 0, []string{"release", "--clean", "--skip=publish,sign,announce,validate", "--config", "config with spaces.yml"}},
 		{"snapshot given a tag", "true", "v1.2.3", 1, nil},
 		{"neither true nor false", "yes", "", 1, nil},
 	} {
@@ -92,9 +97,10 @@ func TestGoReleaserSnapshotBuildsTheCheckoutUnsigned(t *testing.T) {
 			t.Parallel()
 
 			box := newSandbox(t, "build-goreleaser")
+			box.write(".engine/bin/forge-ci", "#!/bin/sh\nset -eu\ntest \"$*\" = 'version generate-snapshot'\necho 0.9.1-snapshot-feat-x-abc1234\n", 0o700)
 			box.write("tools/goreleaser", `#!/bin/sh
 set -eu
-test -z "${GORELEASER_CURRENT_TAG-}"
+test "$GORELEASER_CURRENT_TAG" = v0.9.1-snapshot-feat-x-abc1234
 printf '%s\0' "$@" >"$FAKE_ARGV_LOG"
 `, 0o700)
 
@@ -109,6 +115,10 @@ printf '%s\0' "$@" >"$FAKE_ARGV_LOG"
 			if !slices.Equal(box.argv(), test.argv) {
 				t.Fatalf("builder argv %q, expected %q", box.argv(), test.argv)
 			}
+
+			if want := "version=v0.9.1-snapshot-feat-x-abc1234\n"; test.want == 0 && box.output() != want {
+				t.Fatalf("version output %q, expected %q", box.output(), want)
+			}
 		})
 	}
 }
@@ -120,12 +130,12 @@ func TestGoReleaserSnapshotImportsUnderTheSnapshotVersion(t *testing.T) {
 	box := newSandbox(t, "build-goreleaser")
 	box.write("dist/.keep", "", 0o600)
 
-	got := box.run(action.Runs.Steps[1].Run, "SNAPSHOT=true", "RELEASE_TAG=", "RELEASE_NOTES=", "DIST_DIRECTORY=dist")
+	got := box.run(action.Runs.Steps[1].Run, "SNAPSHOT=true", "VERSION=v0.9.1-snapshot-feat-x-abc1234", "RELEASE_NOTES=", "DIST_DIRECTORY=dist")
 	if got.status != 0 {
 		t.Fatalf("snapshot import failed: %d: %s", got.status, got.stderr)
 	}
 
-	want := []string{"release", "files", "import-goreleaser", "--dist-dir", "dist", "--manifest", "dist/release-files.json", "--version", "v0.0.0-snapshot"}
+	want := []string{"release", "files", "import-goreleaser", "--dist-dir", "dist", "--manifest", "dist/release-files.json", "--version", "v0.9.1-snapshot-feat-x-abc1234"}
 	if !slices.Equal(box.argv(), want) {
 		t.Fatalf("manifest import argv %q, expected %q", box.argv(), want)
 	}
@@ -143,13 +153,14 @@ func TestGoReleaserBuildImportsThroughThePinnedEngine(t *testing.T) {
 	box.write("notes.md", "public release notes", 0o600)
 	box.write("dist tree/.keep", "", 0o600)
 
-	// The release tag names the SBOM bundle of GoReleaser's SBOMs.
+	// The version the build step used, the release tag here, names the
+	// SBOM bundle of GoReleaser's SBOMs.
 	action.requireStepEnv(t, 1, map[string]string{
-		"SNAPSHOT": "${{ inputs.snapshot }}", "RELEASE_TAG": "${{ inputs.release-tag }}", "RELEASE_NOTES": "${{ inputs.release-notes }}",
+		"SNAPSHOT": "${{ inputs.snapshot }}", "VERSION": "${{ steps.build.outputs.version }}", "RELEASE_NOTES": "${{ inputs.release-notes }}",
 		"DIST_DIRECTORY": "${{ inputs.dist-directory }}",
 	})
 
-	got := box.run(action.Runs.Steps[1].Run, "SNAPSHOT=false", "RELEASE_TAG=v1.2.3", "RELEASE_NOTES=notes.md", "DIST_DIRECTORY=dist tree", "FAKE_ENGINE_STATUS=17")
+	got := box.run(action.Runs.Steps[1].Run, "SNAPSHOT=false", "VERSION=v1.2.3", "RELEASE_NOTES=notes.md", "DIST_DIRECTORY=dist tree", "FAKE_ENGINE_STATUS=17")
 	if got.status != 17 {
 		t.Fatalf("engine status lost: %d: %s", got.status, got.stderr)
 	}
