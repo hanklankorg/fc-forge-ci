@@ -24,10 +24,10 @@ func TestResolvedImagePlan_UsesThePublicationSBOMPolicy(t *testing.T) {
 		name, flavor, role, sbom string
 		refused                  bool
 	}{
-		{name: "flavor takes precedence", flavor: "rust", role: "flavor", sbom: "dist/image-sbom-rust.cyclonedx.json"},
-		{name: "unused role is not a path", flavor: "rust", role: "../../../unused", sbom: "dist/image-sbom-rust.cyclonedx.json"},
-		{name: "role override", role: "distroless", sbom: "dist/image-sbom-distroless.cyclonedx.json"},
-		{name: "name fallback", sbom: "dist/image-sbom-app.cyclonedx.json"},
+		{name: "flavor takes precedence", flavor: "rust", role: "flavor", sbom: "dist/rust-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"},
+		{name: "unused role is not a path", flavor: "rust", role: "../../../unused", sbom: "dist/rust-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"},
+		{name: "role override", role: "distroless", sbom: "dist/distroless-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"},
+		{name: "name fallback", sbom: "dist/app-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json"},
 		{name: "unsafe flavor", flavor: "../../../escape", role: "flavor", refused: true},
 		{name: "unsafe role fallback", role: "../../../escape", refused: true},
 	} {
@@ -58,7 +58,7 @@ func TestResolvedImagePlan_UsesThePublicationSBOMPolicy(t *testing.T) {
 			entry, releaseTag, err := ledgerAddEntryFromFlags(AddLedgerEntryInput{
 				ReleaseTag: tag, ImageName: repository, FinalTagName: plan.Images[0].FinalTagName,
 				Role: role, Flavor: tc.flavor, ImageKind: string(imageledger.ImageKindRelease),
-				Digest: "sha256:" + strings.Repeat("a", 64), DeriveCandidateTag: true, DefaultSBOM: true,
+				Digest: "sha256:" + strings.Repeat("a", 64), DeriveCandidateTag: true, DefaultSBOM: true, SourceSHA: "abcdef0" + strings.Repeat("1", 33),
 			})
 			require.NoError(t, err)
 
@@ -83,7 +83,7 @@ func TestLedgerAddSBOM_ExplicitPathWinsOverUnusedDefaultInputs(t *testing.T) {
 	path, err := ledgerAddSBOM(AddLedgerEntryInput{
 		SBOM: "dist/approved.cyclonedx.json", DefaultSBOM: true,
 		Flavor: "../../../unused", Role: "../../../unused",
-	})
+	}, "v1.2.3")
 	require.NoError(t, err)
 	require.Equal(t, "dist/approved.cyclonedx.json", path)
 }
@@ -93,7 +93,7 @@ func TestLedgerAddSBOM_BaseDefaultMatchesThePremadeSignerContract(t *testing.T) 
 
 	path, err := ledgerAddSBOM(AddLedgerEntryInput{
 		ImageKind: string(imageledger.ImageKindBase), Flavor: "rust", Role: "base", DefaultSBOM: true,
-	})
+	}, "")
 	require.NoError(t, err)
 	require.Equal(t, "premade-sboms/base-sbom-rust.cyclonedx.json", path)
 }

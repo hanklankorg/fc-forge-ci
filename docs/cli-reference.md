@@ -1529,13 +1529,14 @@ EXAMPLES:
    forge-ci container ledger add --role distroless \
      --candidate-tag forge.example/owner/repo:staging-v1.2.3 \
      --final-tag forge.example/owner/repo:v1.2.3 \
-     --sbom dist/image-sbom.cyclonedx.json --tag v1.2.3 --capture-digest
+     --sbom dist/distroless-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json \
+     --tag v1.2.3 --capture-digest
 
    # Direct-push consumer with an explicit digest
    forge-ci container ledger add --role alpine \
      --ref forge.example/owner/repo@sha256:… --digest sha256:… \
      --final-tag forge.example/owner/repo:v1.2.3-alpine \
-     --sbom dist/image-sbom-alpine.cyclonedx.json --tag v1.2.3
+     --default-sbom --source-sha "$(git rev-parse HEAD)" --tag v1.2.3
 ```
 
 | Flag | Description | Type | Default | Env vars |
@@ -1546,7 +1547,7 @@ EXAMPLES:
 | `--image-kind` | entry validation scope recorded as image_kind: release (default) or base | string | `"release"` | n/a |
 | `--ref` | digest-pinned image ref (registry/path@sha256:<64 hex>) | string | `""` | n/a |
 | `--digest` | image digest (sha256:<64 hex>) | string | `""` | n/a |
-| `--sbom` | CycloneDX SBOM path (dist/image-sbom*.cyclonedx.json) | string | `""` | n/a |
+| `--sbom` | CycloneDX SBOM path; a release image's is named as --default-sbom names it, or for an index <flavor\|role>-<version>-<sha>-analyzed-container-index-sbom.cyclonedx.json | string | `""` | n/a |
 | `--sbom-sha256` | sha256 hex pin of the premade --sbom file; ledger sign verifies the pin and attests that exact document instead of generating a fresh one | string | `""` | `$LEDGER_SBOM_SHA256` |
 | `--provenance-json` | JSON object of extra externalParameters recorded on the entry and merged into its enriched SLSA predicate at signing; engine-computed keys are reserved (a collision fails the signing run) | string | `""` | `$LEDGER_PROVENANCE_JSON` |
 | `--image-name` | image registry/path (no tag); with --tag, derives --final-tag=<image>:<tag> and --candidate-tag=<image>:staging-<tag> so callers don't hand-assemble both (explicit flags still win) | string | `""` | n/a |
@@ -1556,7 +1557,9 @@ EXAMPLES:
 | `--moving-tag` | optional moving tag ref, e.g. forge.example/owner/repo:rust | string | `""` | n/a |
 | `--flavor` | optional base-image flavour | string | `""` | n/a |
 | `--derive-candidate-tag` | derive --candidate-tag as <image>:staging-<final-tag-name>; mutually exclusive with explicit candidate tag flags | bool | `false` | `$LEDGER_DERIVE_CANDIDATE_TAG` |
-| `--default-sbom` | when --sbom is empty, use dist/image-sbom-<flavor\|role>.cyclonedx.json; base images use premade-sboms/base-sbom-<flavor>.cyclonedx.json | bool | `false` | n/a |
+| `--default-sbom` | when --sbom is empty, use dist/<flavor\|role>-<version>-<sha>-analyzed-container-<os>-<arch>-sbom.cyclonedx.json from --tag, --source-sha and --platform; base images use premade-sboms/base-sbom-<flavor>.cyclonedx.json | bool | `false` | n/a |
+| `--source-sha` | with --default-sbom: release commit the release image's SBOM name carries | string | `""` | n/a |
+| `--platform` | with --default-sbom: platform os/arch the release image's SBOM name carries | string | `"linux/amd64"` | n/a |
 | `--candidate-tag-name` | optional staging tag name/portion combined with --image-name | string | `""` | n/a |
 | `--candidate-tag` | optional staging tag ref (scoped to staging-<tag>); derived from --image-name when omitted | string | `""` | n/a |
 | `--base-ref` | optional digest-pinned base image | string | `""` | n/a |

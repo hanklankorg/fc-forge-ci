@@ -401,7 +401,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   --repository <flavor|role> --platform <os/arch>` into `dist/` instead. The
   action's `sbom` input defaults to that name, for its new `platform` input
   (default `linux/amd64`) and the checked-out commit, and needs
-  `release-tag` for it.
+  `release-tag` for it. `forge-ci container ledger add --default-sbom`
+  records that name for a release image too, from `--tag` and the new
+  `--source-sha` and `--platform` (default `linux/amd64`), and refuses a
+  release image without `--source-sha`.
 - Three GitLab jobs are named for their stage, as the jobs of the other
   forges are: `Release: plan` is `Check: release plan`, `Snapshot: plan` is
   `Check: snapshot plan` and `Snapshot: execute` is `Build: snapshot`. A
@@ -860,6 +863,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Every SBOM name carries the first seven characters of the commit.
+  `forge-ci sbom assemble` took git's own abbreviation, which is longer in
+  a large repository, so its names did not match the seven characters the
+  release admits.
 - The image signer attests an index SBOM's platform inventories only on the
   children of the image index it signs. It reads that index from the
   registry and refuses, before the first signature, an index SBOM that names

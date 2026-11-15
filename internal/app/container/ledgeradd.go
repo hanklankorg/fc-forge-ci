@@ -47,6 +47,10 @@ type AddLedgerEntryInput struct {
 	SBOMSHA256          string
 	ProvenanceJSON      string
 	DefaultSBOM         bool
+	// SourceSHA and Platform name a release image's default SBOM: the
+	// release commit and the platform, linux/amd64 when empty.
+	SourceSHA string
+	Platform  string
 	FinalTagName        string
 	FinalTag            string
 	MovingTagName       string
@@ -205,7 +209,7 @@ func ledgerAddEntryFromFlags(flags AddLedgerEntryInput) (imageledger.Entry, stri
 		return imageledger.Entry{}, "", err
 	}
 
-	sbom, provenanceExtras, err := ledgerAddEvidence(flags)
+	sbom, provenanceExtras, err := ledgerAddEvidence(flags, releaseTag)
 	if err != nil {
 		return imageledger.Entry{}, "", err
 	}
@@ -237,8 +241,8 @@ func ledgerAddEntryFromFlags(flags AddLedgerEntryInput) (imageledger.Entry, stri
 // (--provenance-json). The extras are parsed before any ledger write, so
 // an invalid or non-object JSON document (malformed input) never reaches
 // the file.
-func ledgerAddEvidence(flags AddLedgerEntryInput) (string, map[string]any, error) {
-	sbom, err := ledgerAddSBOM(flags)
+func ledgerAddEvidence(flags AddLedgerEntryInput, releaseTag string) (string, map[string]any, error) {
+	sbom, err := ledgerAddSBOM(flags, releaseTag)
 	if err != nil {
 		return "", nil, err
 	}
@@ -363,17 +367,29 @@ func ledgerAddCandidateTag(flags AddLedgerEntryInput, imageName, finalTagName st
 }
 
 // ledgerAddSBOM resolves the SBOM path: --sbom wins, else --default-sbom
-// derives the conventional dist path from the flavor or role.
-func ledgerAddSBOM(flags AddLedgerEntryInput) (string, error) {
-	sbom := flags.SBOM
-	if sbom == "" && flags.DefaultSBOM {
-		sbom = imageledger.DefaultSBOMPath(imageledger.ImageKind(flags.ImageKind), flags.Flavor, flags.Role)
-		if sbom == "" {
-			return "", fmt.Errorf("ledger add: --default-sbom requires --flavor or --role: %w", errs.ErrUsage)
-		}
+// derives it. A base image's is its premade SBOM; a release image's is the
+// single-platform name image SBOMs have on every forge, in dist, from the
+// flavor or role, the release tag, --source-sha and --platform: the name the
+// signer and the SBOM bundle admit.
+func ledgerAddSBOM(flags AddLedgerEntryInput, releaseTag string) (string, error) {
+	if flags.SBOM != "" || !flags.DefaultSBOM {
+		return flags.SBOM, nil
 	}
 
-	return sbom, nil
+	if kind := imageledger.ImageKind(flags.ImageKind); kind == imageledger.ImageKindBase {
+		if sbom := imageledger.DefaultSBOMPath(kind, flags.Flavor, flags.Role); sbom != "" {
+			return sbom, nil
+		}
+
+		return "", fmt.Errorf("ledger add: --default-sbom requires --flavor or --role: %w", errs.ErrUsage)
+	}
+
+	name := imageledger.ReleaseImageSBOMFilename(flags.Flavor, flags.Role, releaseTag, flags.SourceSHA, cmp.Or(flags.Platform, "linux/amd64"))
+	if name == "" {
+		return "", fmt.Errorf("ledger add: --default-sbom for a release image requires --flavor or --role, the release tag and --source-sha: %w", errs.ErrUsage)
+	}
+
+	return "dist/" + name, nil
 }
 
 func ledgerAddImageName(raw string) (string, error) {

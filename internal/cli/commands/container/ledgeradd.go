@@ -26,13 +26,14 @@ func ledgerAddCmd() *cli.Command {
    forge-ci container ledger add --role distroless \
      --candidate-tag forge.example/owner/repo:staging-v1.2.3 \
      --final-tag forge.example/owner/repo:v1.2.3 \
-     --sbom dist/image-sbom.cyclonedx.json --tag v1.2.3 --capture-digest
+     --sbom dist/distroless-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json \
+     --tag v1.2.3 --capture-digest
 
    # Direct-push consumer with an explicit digest
    forge-ci container ledger add --role alpine \
      --ref forge.example/owner/repo@sha256:… --digest sha256:… \
      --final-tag forge.example/owner/repo:v1.2.3-alpine \
-     --sbom dist/image-sbom-alpine.cyclonedx.json --tag v1.2.3`,
+     --default-sbom --source-sha "$(git rev-parse HEAD)" --tag v1.2.3`,
 		Flags: []cli.Flag{
 			ledgerPathFlag(),
 			releaseTagFlag(),
@@ -40,7 +41,7 @@ func ledgerAddCmd() *cli.Command {
 			&cli.StringFlag{Name: "image-kind", Value: string(imageledger.ImageKindRelease), Usage: "entry validation scope recorded as image_kind: release (default) or base"},
 			&cli.StringFlag{Name: flagRef, Usage: "digest-pinned image ref (registry/path@sha256:<64 hex>)"},
 			&cli.StringFlag{Name: flagDigest, Usage: "image digest (sha256:<64 hex>)"},
-			&cli.StringFlag{Name: flagSBOM, Usage: "CycloneDX SBOM path (dist/image-sbom*.cyclonedx.json)"},
+			&cli.StringFlag{Name: flagSBOM, Usage: "CycloneDX SBOM path; a release image's is named as --default-sbom names it, or for an index <flavor|role>-<version>-<sha>-analyzed-container-index-sbom.cyclonedx.json"},
 			&cli.StringFlag{Name: flagSBOMSHA256, Sources: cli.EnvVars("LEDGER_SBOM_SHA256"), Usage: "sha256 hex pin of the premade --sbom file; ledger sign verifies the pin and attests that exact document instead of generating a fresh one"},
 			&cli.StringFlag{Name: "provenance-json", Sources: cli.EnvVars("LEDGER_PROVENANCE_JSON"), Usage: "JSON object of extra externalParameters recorded on the entry and merged into its enriched SLSA predicate at signing; engine-computed keys are reserved (a collision fails the signing run)"},
 			&cli.StringFlag{Name: flagImageName, Usage: "image registry/path (no tag); with --tag, derives --final-tag=<image>:<tag> and --candidate-tag=<image>:staging-<tag> so callers don't hand-assemble both (explicit flags still win)"},
@@ -50,7 +51,9 @@ func ledgerAddCmd() *cli.Command {
 			&cli.StringFlag{Name: "moving-tag", Usage: "optional moving tag ref, e.g. forge.example/owner/repo:rust"},
 			&cli.StringFlag{Name: flagFlavor, Usage: "optional base-image flavour"},
 			&cli.BoolFlag{Name: "derive-candidate-tag", Sources: cli.EnvVars("LEDGER_DERIVE_CANDIDATE_TAG"), Usage: "derive --candidate-tag as <image>:staging-<final-tag-name>; mutually exclusive with explicit candidate tag flags"},
-			&cli.BoolFlag{Name: "default-sbom", Usage: "when --sbom is empty, use dist/image-sbom-<flavor|role>.cyclonedx.json; base images use premade-sboms/base-sbom-<flavor>.cyclonedx.json"},
+			&cli.BoolFlag{Name: "default-sbom", Usage: "when --sbom is empty, use dist/<flavor|role>-<version>-<sha>-analyzed-container-<os>-<arch>-sbom.cyclonedx.json from --tag, --source-sha and --platform; base images use premade-sboms/base-sbom-<flavor>.cyclonedx.json"},
+			&cli.StringFlag{Name: "source-sha", Usage: "with --default-sbom: release commit the release image's SBOM name carries"},
+			&cli.StringFlag{Name: "platform", Value: "linux/amd64", Usage: "with --default-sbom: platform os/arch the release image's SBOM name carries"},
 			&cli.StringFlag{Name: "candidate-tag-name", Usage: "optional staging tag name/portion combined with --image-name"},
 			&cli.StringFlag{Name: "candidate-tag", Usage: "optional staging tag ref (scoped to staging-<tag>); derived from --image-name when omitted"},
 			&cli.StringFlag{Name: "base-ref", Usage: "optional digest-pinned base image"},
@@ -72,6 +75,8 @@ func ledgerAddCmd() *cli.Command {
 				SBOMSHA256:          cmd.String(flagSBOMSHA256),
 				ProvenanceJSON:      cmd.String("provenance-json"),
 				DefaultSBOM:         cmd.Bool("default-sbom"),
+				SourceSHA:           cmd.String("source-sha"),
+				Platform:            cmd.String("platform"),
 				FinalTagName:        cmd.String("final-tag-name"),
 				FinalTag:            cmd.String("final-tag"),
 				MovingTagName:       cmd.String("moving-tag-name"),

@@ -5,6 +5,7 @@ package container
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/diggsweden/forge-ci/internal/adapters/ociregistry"
+	appcontainer "github.com/diggsweden/forge-ci/internal/app/container"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
@@ -622,7 +624,19 @@ func TestDefaultReleaseImageSBOMPattern(t *testing.T) {
 	pattern := regexp.MustCompile(defaultReleaseImageSBOMPattern("dist"))
 	engine := imageledger.ReleaseImageSBOMPath("", "app", "v1.2.3", strings.Repeat("ab", 20))
 
-	for _, path := range []string{engine, "dist/" + imageledger.ReleaseImageSBOMFilename("", "app", "v1.2.3", strings.Repeat("ab", 20), "linux/amd64")} {
+	// What ledger add --default-sbom records for a release image.
+	ledger := t.TempDir() + "/release-images.json"
+	require.NoError(t, appcontainer.AddLedgerEntry(t.Context(), nil, io.Discard, appcontainer.AddLedgerEntryInput{
+		LedgerPath: ledger, ReleaseTag: "v1.2.3", Role: "app", ImageKind: string(imageledger.ImageKindRelease),
+		ImageName: "registry.example/org/app", Digest: "sha256:" + strings.Repeat("a", 64), FinalTagName: "v1.2.3",
+		DefaultSBOM: true, SourceSHA: strings.Repeat("ab", 20),
+	}))
+	body, err := os.ReadFile(ledger)
+	require.NoError(t, err)
+	entries, err := imageledger.Parse(body)
+	require.NoError(t, err)
+
+	for _, path := range []string{engine, "dist/" + imageledger.ReleaseImageSBOMFilename("", "app", "v1.2.3", strings.Repeat("ab", 20), "linux/amd64"), entries[0].SBOM} {
 		require.True(t, pattern.MatchString(path), path)
 	}
 

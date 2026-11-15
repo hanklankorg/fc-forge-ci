@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	appcontainer "github.com/diggsweden/forge-ci/internal/app/container"
 	apprelease "github.com/diggsweden/forge-ci/internal/app/release"
 	"github.com/diggsweden/forge-ci/internal/archive"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
@@ -176,6 +178,36 @@ func TestHandoffLedgerImageSBOMsJoinTheSBOMBundle(t *testing.T) {
 			require.Equal(t, completed, readFile(t, handoffBundle), "the completed bundle is reproducible from its SBOMs")
 		})
 	}
+}
+
+// The SBOM name ledger add --default-sbom records for a release image is
+// one the SBOM bundle admits: a consumer that takes the default records a
+// ledger the release accepts.
+func TestHandoffLedgerAdmitsTheLedgerAddDefaultSBOM(t *testing.T) {
+	declareHandoff(t, true)
+
+	scratch := t.TempDir() + "/release-images.json"
+	digest := "sha256:" + strings.Repeat("a", 64)
+	require.NoError(t, appcontainer.AddLedgerEntry(t.Context(), nil, io.Discard, appcontainer.AddLedgerEntryInput{
+		LedgerPath: scratch, ReleaseTag: "v1.2.3", Role: "tool", ImageKind: string(imageledger.ImageKindRelease),
+		ImageName: "registry.example/org/tool", Digest: digest, FinalTagName: "v1.2.3",
+		DefaultSBOM: true, SourceSHA: "abcdef0" + strings.Repeat("1", 33),
+	}))
+
+	body, err := os.ReadFile(scratch)
+	require.NoError(t, err)
+	entries, err := imageledger.Parse(body)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+
+	entry := entries[0]
+	writeReleaseFilesTestFile(t, entry.SBOM, `{"bomFormat":"CycloneDX","specVersion":"1.6"}`)
+	entry.SBOMSHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte(readFile(t, entry.SBOM))))
+	writeImageLedger(t, entry)
+
+	_, err = apprelease.WriteReleaseFileManifest(fromLedger())
+	require.NoError(t, err)
+	require.Contains(t, bundleMembers(t, handoffBundle), strings.TrimPrefix(entry.SBOM, "dist/"))
 }
 
 // Every admitted file is held to the checksum the ledger or the index SBOM

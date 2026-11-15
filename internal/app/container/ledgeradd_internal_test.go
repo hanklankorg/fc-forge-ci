@@ -70,6 +70,8 @@ func TestLedgerAddEntryFromFlags_ShapesForgejoReleaseImageRecord(t *testing.T) {
 		BaseRef:          "forge.example/examplescope/myapp-base@" + dig,
 		BaseInputID:      "base-input",
 		DefaultSBOM:      true,
+		SourceSHA:        "0123456789abcdef0123456789abcdef01234567",
+		Platform:         "linux/arm64",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +87,7 @@ func TestLedgerAddEntryFromFlags_ShapesForgejoReleaseImageRecord(t *testing.T) {
 		Flavor:       "rust",
 		Ref:          "forge.example/examplescope/myapp@" + dig,
 		Digest:       dig,
-		SBOM:         "dist/image-sbom-rust.cyclonedx.json",
+		SBOM:         "dist/rust-1.2.3-0123456-analyzed-container-linux-arm64-sbom.cyclonedx.json",
 		FinalTag:     "forge.example/examplescope/myapp:v1.2.3-rust",
 		MovingTag:    "forge.example/examplescope/myapp:rust",
 		CandidateTag: "forge.example/examplescope/myapp:staging-v1.2.3-rust",
