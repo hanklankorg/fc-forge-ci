@@ -184,6 +184,8 @@ func TestMavenDeployLinksTheReactorProjects(t *testing.T) {
 	}{
 		{"every project deployed", reactor, nil, []string{"maven org.example:parent", "maven org.example:app"}, ""},
 		{"a project not deployed", reactor, map[string]error{"org.example:parent": notListed}, []string{"maven org.example:parent", "maven org.example:app"}, ""},
+		{"no project listed", reactor, map[string]error{"org.example:parent": notListed, "org.example:app": notListed}, []string{"maven org.example:parent", "maven org.example:app"},
+			"Warning: the Maven packages are published but not linked to the repository: the forge lists none of org.example:parent, org.example:app\n"},
 		{"a link refused", reactor, map[string]error{"org.example:app": errors.New("no API")}, []string{"maven org.example:parent", "maven org.example:app"},
 			"Warning: maven package org.example:app is published but not linked to the repository: no API\n"},
 		{"no coordinates", `<settings/>`, nil, nil,

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
 	domainpublish "github.com/diggsweden/forge-ci/internal/domain/publish"
@@ -26,23 +27,30 @@ func LinkPackages(ctx context.Context, forge any, stderr io.Writer, packageType 
 	linkPackages(ctx, forge, stderr, packageType, false, names)
 }
 
-// linkPackages is LinkPackages. With mayBeUnpublished, a name the forge does
-// not list is no warning: the publisher, not the engine, decided whether to
-// publish it.
-func linkPackages(ctx context.Context, forge any, stderr io.Writer, packageType string, mayBeUnpublished bool, names []string) {
+// linkPackages is LinkPackages and reports whether the forge listed any of
+// the names. With mayBeUnpublished, a name the forge does not list is no
+// warning: the publisher, not the engine, decided whether to publish it.
+func linkPackages(ctx context.Context, forge any, stderr io.Writer, packageType string, mayBeUnpublished bool, names []string) bool {
 	linker, ok := forge.(provider.ForgePackageLinker)
 	if !ok {
-		return
+		return false
 	}
+
+	listed := false
 
 	for _, name := range names {
 		err := linker.LinkForgePackage(ctx, packageType, name)
-		if err == nil || mayBeUnpublished && errors.Is(err, provider.ErrForgePackageNotListed) {
+		notListed := errors.Is(err, provider.ErrForgePackageNotListed)
+		listed = listed || !notListed
+
+		if err == nil || mayBeUnpublished && notListed {
 			continue
 		}
 
 		_, _ = fmt.Fprintf(stderr, "Warning: %s package %s is published but not linked to the repository: %v\n", packageType, name, err)
 	}
+
+	return listed
 }
 
 // LinkMavenProjects links the Maven packages a mvn deploy of the project or
@@ -68,7 +76,11 @@ func LinkMavenProjects(ctx context.Context, ops MavenOps, forge any, stderr io.W
 		return
 	}
 
-	linkPackages(ctx, forge, stderr, "maven", true, names)
+	// A deploy that succeeded published at least one project, so a forge
+	// that lists none of them names them differently and links nothing.
+	if !linkPackages(ctx, forge, stderr, "maven", true, names) {
+		_, _ = fmt.Fprintf(stderr, "Warning: the Maven packages are published but not linked to the repository: the forge lists none of %s\n", strings.Join(names, ", "))
+	}
 }
 
 // LinkMavenPublications links the Maven packages of an uploaded publication
