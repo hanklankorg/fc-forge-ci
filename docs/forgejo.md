@@ -334,7 +334,7 @@ alone. Each `action.yml` documents its own inputs and outputs.
 | `lint-nanolinter` | The pull-request lint gate: the repository's nanolinter plan with a mandated floor. |
 | `build-go`, `build-cargo` | The build step of the consumer's job: tests, Build SBOM and one binary per platform. |
 | `sbom-go`, `sbom-cargo` | The build SBOMs of the container-first artifacts, which their Containerfiles build: written from the lockfile into `dist/sboms/`, for `release files declare --sbom 'dist/sboms/*'`. See [Container-first build SBOMs](sbom.md#container-first-build-sboms-on-every-forge). |
-| `build-goreleaser` | The build step of a GoReleaser release: packages the prepared release unsigned and imports its manifest. See [Unsigned GoReleaser handoff](#unsigned-goreleaser-handoff). |
+| `build-goreleaser` | The build step of a GoReleaser release: packages the prepared release unsigned and imports its manifest, or, with `snapshot: "true"`, the checked-out commit as a dry run. See [Unsigned GoReleaser handoff](#unsigned-goreleaser-handoff). |
 | `build-maven` | The build step of a Maven consumer's job: tests, the jar and the Build SBOM, as GitHub's `build-maven` workflow builds them, after checking that the POM declares the release version. |
 | `guard-release-tag`, `generate-changelog`, `prepare-release` | The steps `prepare-release.yml` is made of, with rendering and signing in separate jobs. Call the workflow; see [The prepare job](#the-prepare-job). |
 | `publish-forge-packages` | The publish step of a consumer's own job after the release is signed and published: a Maven project, the packed npm tarball or exported Gradle publications to the owner's package registry. See [Maven, npm and Gradle packages in the owner's registry](#maven-npm-and-gradle-packages-in-the-owners-registry). |
@@ -735,6 +735,16 @@ action's digest to `sign-and-publish-release.yml`.
 is the complete caller: copy it as `release-workflow.yml`, beside the example's
 `pullrequest-workflow.yml`. Evidence that arrives after packaging is added with
 `release files manifest --unsigned --evidence-file <file>`.
+
+With `snapshot: "true"` the same action is a dry run of that release for a
+snapshot workflow: it packages the checked-out commit with GoReleaser's
+`--snapshot`, with the same skips, and imports the manifest under the
+version `v0.0.0-snapshot`, so packaging and the hand-off layout fail on the
+branch instead of at the release. It takes no `release-tag`, `release-sha`
+or `release-notes`, and refuses them.
+[`examples/go-cli/forgejo/release-snapshot-goreleaser.yml`](../examples/go-cli/forgejo/release-snapshot-goreleaser.yml)
+is the caller beside `release-goreleaser.yml`; it keeps the unsigned files as
+a run artifact for 7 days and signs and publishes nothing.
 
 Other ecosystems keep their own build tools and end their build job with
 `release files declare` and `upload-dist`. The declare step needs
@@ -1524,7 +1534,9 @@ builds the jar first in the Java image named by `artifact-job-image-java`,
 [`examples/go-cli/forgejo/snapshot-files.yml`](../examples/go-cli/forgejo/snapshot-files.yml)
 keeps a branch's built files with `publish-files: true`, and
 [`examples/go-cli/forgejo/release-snapshot-workflow.yml`](../examples/go-cli/forgejo/release-snapshot-workflow.yml)
-only builds and tests with `build-go`, publishing nothing.
+only builds and tests with `build-go`, publishing nothing, and
+[`examples/go-cli/forgejo/release-snapshot-goreleaser.yml`](../examples/go-cli/forgejo/release-snapshot-goreleaser.yml)
+is a dry run of a GoReleaser release, keeping its unsigned files.
 Build secrets remain unsupported; `extract.binary` is a release's output,
 which a snapshot does not run. Scan severity and image SBOM policy are
 independent.

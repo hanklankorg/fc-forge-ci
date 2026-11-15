@@ -94,7 +94,8 @@ func TestConsumerPRIsolationInputsMatchReleaseHandoff(t *testing.T) {
 // consumer replaces: the forge host, the owner and the forge-ci pin.
 func consumerTemplates() []string {
 	templates := consumerReleaseTemplates()
-	templates = append(templates, "examples/go-cli/forgejo/release-goreleaser.yml", "examples/go-cli/forgejo/release-snapshot-workflow.yml")
+	templates = append(templates, "examples/go-cli/forgejo/release-goreleaser.yml", "examples/go-cli/forgejo/release-snapshot-goreleaser.yml",
+		"examples/go-cli/forgejo/release-snapshot-workflow.yml")
 
 	for _, release := range consumerReleaseTemplates() {
 		templates = append(templates, strings.TrimSuffix(release, "release-workflow.yml")+"pullrequest-workflow.yml")

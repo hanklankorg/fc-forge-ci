@@ -33,7 +33,10 @@ it, [`.goreleaser.yml`](.goreleaser.yml) builds the packages with `nfpms`, and
 [`forgejo/release-goreleaser.yml`](forgejo/release-goreleaser.yml), copied as
 `release-workflow.yml`, signs each with the release's OpenPGP key. That workflow
 installs `go`, GoReleaser and syft from the project's own mise config and
-`mise.lock`. See
+`mise.lock`. Beside it,
+[`forgejo/release-snapshot-goreleaser.yml`](forgejo/release-snapshot-goreleaser.yml),
+copied as `release-snapshot-workflow.yml`, is a dry run of that release on
+each pushed branch. See
 [Distro packages in the owner's registries](../../docs/forgejo.md#distro-packages-in-the-owners-registries).
 
 ## Pull/merge-request gate coverage

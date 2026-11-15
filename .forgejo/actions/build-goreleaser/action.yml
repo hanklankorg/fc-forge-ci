@@ -3,20 +3,24 @@
 
 name: Build unsigned GoReleaser files
 description: >-
-  Package the prepared release without signing, publishing or announcements, then import its unsigned release manifest. Bring GoReleaser and syft in the job toolchain. Follow with upload-dist and pass its digest to the separate sign-and-publish workflow. Product configuration stays in the caller.
+  Package the prepared release without signing, publishing or announcements, then import its unsigned release manifest. Bring GoReleaser and syft in the job toolchain. Follow with upload-dist and pass its digest to the separate sign-and-publish workflow. Product configuration stays in the caller. With snapshot true it packages the checked-out commit the same way as a dry run of the release, for a snapshot workflow, which signs and publishes nothing.
 inputs:
+  snapshot:
+    description: >-
+      true packages the checked-out commit with GoReleaser's --snapshot and imports the manifest under the version v0.0.0-snapshot; it takes no release-tag, release-sha or release-notes. false (the default) packages the prepared release.
+    default: 'false'
   release-tag:
-    description: Final release tag emitted by prepare-release.
-    required: true
+    description: Final release tag emitted by prepare-release. Required unless snapshot is true.
+    default: ''
   release-sha:
-    description: Exact prepared source commit that must already be checked out.
-    required: true
+    description: Exact prepared source commit that must already be checked out. Required unless snapshot is true.
+    default: ''
   config:
     description: Caller-owned GoReleaser configuration path.
     default: .goreleaser.yml
   release-notes:
-    description: Existing rendered release notes, outside the dist directory.
-    required: true
+    description: Existing rendered release notes, outside the dist directory. Required unless snapshot is true.
+    default: ''
   dist-directory:
     description: Must match the dist directory in the GoReleaser configuration.
     default: dist
@@ -30,6 +34,7 @@ runs:
     - name: Build unsigned release files
       shell: bash
       env:
+        SNAPSHOT: ${{ inputs.snapshot }}
         RELEASE_SHA: ${{ inputs.release-sha }}
         GORELEASER_CURRENT_TAG: ${{ inputs.release-tag }}
         GORELEASER_CONFIG: ${{ inputs.config }}
@@ -38,20 +43,43 @@ runs:
         GH_TOKEN: ''
       run: |
         set -euo pipefail
-        test "$(git rev-parse HEAD)" = "${RELEASE_SHA:?}"
-        goreleaser release --clean --skip=publish,sign,announce \
-          --config "${GORELEASER_CONFIG:?}" --release-notes "${RELEASE_NOTES:?}"
+        case "${SNAPSHOT:?}" in
+          true)
+            if [ -n "${RELEASE_SHA}${GORELEASER_CURRENT_TAG}${RELEASE_NOTES}" ]; then
+              echo "ERROR: a snapshot takes no release-tag, release-sha or release-notes" >&2
+              exit 1
+            fi
+            unset GORELEASER_CURRENT_TAG
+            goreleaser release --snapshot --clean --skip=publish,sign,announce \
+              --config "${GORELEASER_CONFIG:?}"
+            ;;
+          false)
+            : "${GORELEASER_CURRENT_TAG:?release-tag is required}"
+            test "$(git rev-parse HEAD)" = "${RELEASE_SHA:?release-sha is required}"
+            goreleaser release --clean --skip=publish,sign,announce \
+              --config "${GORELEASER_CONFIG:?}" --release-notes "${RELEASE_NOTES:?release-notes is required}"
+            ;;
+          *)
+            echo "ERROR: snapshot must be true or false, not ${SNAPSHOT}" >&2
+            exit 1
+            ;;
+        esac
     - name: Import unsigned release hand-off
       shell: bash
       env:
+        SNAPSHOT: ${{ inputs.snapshot }}
         RELEASE_TAG: ${{ inputs.release-tag }}
         RELEASE_NOTES: ${{ inputs.release-notes }}
         DIST_DIRECTORY: ${{ inputs.dist-directory }}
       run: |
         set -euo pipefail
-        cp -- "${RELEASE_NOTES:?}" "${DIST_DIRECTORY:?}/release-notes.md"
+        version=v0.0.0-snapshot
+        if [ "${SNAPSHOT:?}" != true ]; then
+          version=${RELEASE_TAG:?}
+          cp -- "${RELEASE_NOTES:?}" "${DIST_DIRECTORY:?}/release-notes.md"
+        fi
         # shellcheck source=.engine/bin/lib-forge-ci.sh
         source "${GITHUB_ACTION_PATH}/../../../.engine/bin/lib-forge-ci.sh"
         FORGE_CI_PROVIDER=forgejo run_forge_ci release files import-goreleaser \
           --dist-dir "$DIST_DIRECTORY" --manifest "$DIST_DIRECTORY/release-files.json" \
-          --version "${RELEASE_TAG:?}"
+          --version "${version}"

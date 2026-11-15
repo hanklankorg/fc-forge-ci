@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
+# SPDX-License-Identifier: CC0-1.0
+# Alternative to release-snapshot-workflow.yml, beside release-goreleaser.yml:
+# copy this file AS .forgejo/workflows/release-snapshot-workflow.yml. It is a
+# dry run of that release: the same .goreleaser.yml, tools and import, on the
+# pushed commit with GoReleaser's snapshot version, and it signs and publishes
+# nothing. The unsigned files stay a run artifact for 7 days. Replace the same
+# reviewed pin as the release, after publication.
+name: Release Snapshot
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [main]
+concurrency:
+  group: snapshot-${{ forgejo.repository }}-${{ forgejo.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
+    timeout-minutes: 45
+    steps:
+      - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-forge-ci@PIN_FORGE_CI_SHA
+      - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/checkout-consumer@PIN_FORGE_CI_SHA
+        with:
+          ref: ${{ forgejo.sha }}
+      - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-toolchain@PIN_FORGE_CI_SHA
+        with:
+          cache-key-suffix: snapshot-build
+          cache: "false"
+          mise-locked: "true"
+          install-dev-tools: false
+          tools: go aqua:goreleaser/goreleaser aqua:anchore/syft
+      - name: Test the source
+        run: forge-ci policy tests --protocol go-json -- go test -json ./...
+      - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/build-goreleaser@PIN_FORGE_CI_SHA
+        with:
+          snapshot: "true"
+      - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/upload-dist@PIN_FORGE_CI_SHA
+        with:
+          artifact-name: snapshot-files
+          prune-dirs: "true"
+          retention-days: "7"
