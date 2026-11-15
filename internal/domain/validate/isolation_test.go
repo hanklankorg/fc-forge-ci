@@ -541,8 +541,9 @@ func TestCheckIsolation_ReleaseCallSiteInvariants(t *testing.T) {
 	t.Parallel()
 
 	const (
-		remote  = "org/forge-ci/.github/workflows/sign.yml@0123456789abcdef0123456789abcdef01234567"
-		called  = "  prepare:\n    uses: org/forge-ci/.forgejo/workflows/prepare-release.yml@0123456789abcdef0123456789abcdef01234567\n"
+		remote = "org/forge-ci/.github/workflows/sign.yml@0123456789abcdef0123456789abcdef01234567"
+		called = "  prepare:\n    uses: org/forge-ci/.forgejo/workflows/prepare-release.yml@0123456789abcdef0123456789abcdef01234567\n" +
+			"    secrets:\n      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}\n"
 		bound   = "${{ needs.prepare.outputs.artifacts-config }}"
 		mustUse = "must call the layer's prepare-release.yml"
 	)
@@ -578,11 +579,18 @@ func TestCheckIsolation_ReleaseCallSiteInvariants(t *testing.T) {
 		body string
 		want []string
 	}{
-		"clean dotted":          {body: base(remote, called, dotWith, digestOutput)},
-		"clean bracketed":       {body: base(remote, called, bracketWith, digestOutput)},
-		"composed prepare":      {body: base(remote, composed(safeSteps), dotWith, digestOutput), want: []string{mustUse}},
-		"local prepare":         {body: base(remote, strings.Replace(called, "org/forge-ci/", "./", 1), dotWith, digestOutput), want: []string{mustUse}},
-		"local sign job":        {body: base("./.github/workflows/sign.yml", called, dotWith, digestOutput), want: []string{"cross-repo workflow_call"}},
+		"clean dotted":     {body: base(remote, called, dotWith, digestOutput)},
+		"clean bracketed":  {body: base(remote, called, bracketWith, digestOutput)},
+		"composed prepare": {body: base(remote, composed(safeSteps), dotWith, digestOutput), want: []string{mustUse}},
+		"local prepare":    {body: base(remote, strings.Replace(called, "org/forge-ci/", "./", 1), dotWith, digestOutput), want: []string{mustUse}},
+		"local sign job":   {body: base("./.github/workflows/sign.yml", called, dotWith, digestOutput), want: []string{"cross-repo workflow_call"}},
+		"prepare without the sign job's secret": {
+			body: base(remote, strings.Replace(called, "RELEASE_GPG_PRIVATE_KEY: ", "RELEASE_SSH_SIGNING_KEY: ", 1), dotWith, digestOutput),
+			want: []string{`prepare job "prepare" call site is missing secret RELEASE_GPG_PRIVATE_KEY`},
+		},
+		"prepare inheriting the secrets": {
+			body: base(remote, strings.Replace(called, "    secrets:\n      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}\n", "    secrets: inherit\n", 1), dotWith, digestOutput),
+		},
 		"no dist-digest output": {body: base(remote, called, dotWith, ""), want: []string{`does not declare "dist-digest" output`}},
 		"secret after consumer checkout": {
 			body: base(remote, composed(lateSteps), dotWith, digestOutput),

@@ -328,7 +328,7 @@ alone. Each `action.yml` documents its own inputs and outputs.
 | Action | Does |
 |---|---|
 | `setup-forge-ci` | Downloads the layer's binary, verifies it against the recorded checksum and puts it on the job `PATH`. The first step of a consumer job that calls `forge-ci` itself. |
-| `check-l3-isolation` | The pull-request gate over the consumer's release workflow: no signing secret in the build job, enumerated signer secrets, a prepare job that calls `prepare-release.yml`, its `release-tag`, `release-sha` and `artifacts-config` passed to the signer as bare `needs` expressions, the digest hand-off, one commit across every reference, and the signer image, the key digest and the transparency-log setting written out as literals. |
+| `check-l3-isolation` | The pull-request gate over the consumer's release workflow: no signing secret in the build job, enumerated signer secrets, a prepare job that calls `prepare-release.yml` with every secret the signer takes, its `release-tag`, `release-sha` and `artifacts-config` passed to the signer as bare `needs` expressions, the digest hand-off, one commit across every reference, and the signer image, the key digest and the transparency-log setting written out as literals. |
 | `checkout-consumer` | Checks the consumer out without Node and without persisted credentials. |
 | `setup-toolchain` | Installs the consumer's pinned tools with mise, verified and cache-aware. |
 | `lint-nanolinter` | The pull-request lint gate: the repository's nanolinter plan with a mandated floor. |
@@ -414,7 +414,10 @@ needed only with `sign-distro-packages: 'true'` or `sign.method: gpg`, and
 `RELEASE_REGISTRY_TOKEN` only when the release publishes images or declares
 `distro-packages`; the prepare workflow checks those before the release
 commit. The examples pass all eight, configured or not: an empty secret is
-named only when an enabled feature needs it.
+named only when an enabled feature needs it. A called workflow sees only the
+secrets its caller passes, so `check-l3-isolation` refuses a prepare call that
+leaves out a secret the sign job takes. Prepare reads whether each is set, and
+uses only `RELEASE_SSH_SIGNING_KEY` itself.
 
 A pull-request job receives no secret and no rate-limit token. It installs
 nothing and uses the tools the runner already has.
@@ -613,7 +616,8 @@ for them; every `pullrequest-workflow.yml` in the examples, such as
   choice on each forge.
 - **`check-l3-isolation`**: the release-isolation gate over the consumer's
   workflows: no signing secret in the build job, enumerated signer secrets,
-  a prepare job that calls `prepare-release.yml`, its release identity and
+  a prepare job that calls `prepare-release.yml` with every secret the
+  signer takes, its release identity and
   declaration passed to the signer as bare `needs` expressions,
   the digest hand-off, one commit across every reference, and the signer
   image, key digest, transparency-log setting and every `enforce-*` setting
@@ -1725,7 +1729,8 @@ checked against your key. With `public`, leave the flag out.
 
 **What the pull-request gate does not check.** `check-l3-isolation` checks the
 declared workflow: it rejects mixed pins, a signing secret in the build job,
-an inherited signer secret set, a broken digest hand-off, and a signer image,
+an inherited signer secret set, a prepare call without a secret the signer
+takes, a broken digest hand-off, and a signer image,
 key digest or transparency-log setting that is not a literal. For secrets it
 reads the build job and the workflow-level `env` that job inherits, and looks
 for the names in `signing-secrets` alone: another secret in the build job, or a
@@ -1932,7 +1937,7 @@ that the consumer and the layer agree on the lab's runner, not on yours.
 | The request is refused as ahead of or behind the release branch | See [The request is the head of the release branch](#the-request-is-the-head-of-the-release-branch). |
 | GoReleaser stops with `git is in a dirty state` | `release-notes.md` is not in `.gitignore`. |
 | `lint-nanolinter` stops: no `nanolinter` | `CI_JOB_IMAGE` does not carry nanolinter. |
-| `check-l3-isolation` fails a pull request | Mixed pins, a signing secret in the build job, or a signer image, key digest or transparency-log setting that is not a literal. |
+| `check-l3-isolation` fails a pull request | Mixed pins, a signing secret in the build job, a prepare call without a secret the sign job takes, or a signer image, key digest or transparency-log setting that is not a literal. |
 | A signing job cannot start its container, after the final tag exists | The signer image reference names no image. Publish the image it names and re-run the failed jobs. |
 | A package publish answers 401 or 403 | The automatic token cannot write packages; supply one with `write:package`. See [forgejo](providers.md#forgejo). |
 | Plain `cosign verify` fails on a release | Signatures made with `transparency-log: none` need `--insecure-ignore-tlog`; see [The transparency log](#the-transparency-log). |

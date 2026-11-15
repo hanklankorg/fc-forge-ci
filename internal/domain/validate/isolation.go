@@ -84,6 +84,7 @@ func CheckIsolation(workflowYAML []byte, cfg IsolationConfig) ([]IsolationViolat
 
 	violations = append(violations, prepareViolations...)
 	violations = append(violations, signCallSiteViolations(doc.Jobs, cfg)...)
+	violations = append(violations, prepareCallSiteViolations(doc.Jobs, cfg)...)
 	violations = append(violations, releaseIdentityViolations(doc.Jobs, cfg)...)
 	violations = append(violations, distDigestViolations(doc.Jobs, cfg)...)
 	violations = append(violations, persistCredentialViolations(doc.Jobs)...)
@@ -253,6 +254,52 @@ func signCallSiteViolations(jobs map[string]yaml.Node, cfg IsolationConfig) []Is
 			violations = append(violations, IsolationViolation{
 				Line: node.Line,
 				Msg:  fmt.Sprintf("sign job %q call site is missing signing secret %s", cfg.SignJob, secret),
+			})
+		}
+	}
+
+	return violations
+}
+
+// prepareCallSiteViolations reports a secret the sign job takes that the
+// prepare job does not pass to prepare-release.yml. Prepare refuses the
+// release before it pushes the tag when a secret the release uses is not
+// configured, and a called workflow sees only the secrets its caller passes:
+// without this check the omission shows only at the release. It reads only
+// whether each is set, never its value.
+func prepareCallSiteViolations(jobs map[string]yaml.Node, cfg IsolationConfig) []IsolationViolation {
+	if cfg.SignJob == "" || cfg.PrepareJob == "" {
+		return nil
+	}
+
+	prepare, ok := jobs[cfg.PrepareJob]
+	if !ok {
+		return nil
+	}
+
+	uses := scalarValue(mappingValue(&prepare, "uses"))
+	if strings.HasPrefix(uses, "./") || !strings.Contains(uses, prepareReleaseWorkflow) {
+		return nil
+	}
+
+	sign, ok := jobs[cfg.SignJob]
+	if !ok {
+		return nil
+	}
+
+	passed := mappingValue(&prepare, "secrets")
+	if scalarValue(passed) == "inherit" {
+		return nil
+	}
+
+	var violations []IsolationViolation
+
+	for _, secret := range mappingKeys(mappingValue(&sign, "secrets")) {
+		if mappingValue(passed, secret) == nil {
+			violations = append(violations, IsolationViolation{
+				Line: prepare.Line,
+				Msg: fmt.Sprintf("prepare job %q call site is missing secret %s, which sign job %q takes: prepare-release.yml refuses the release before its tag when a secret the release uses is not configured, and it sees only what its caller passes",
+					cfg.PrepareJob, secret, cfg.SignJob),
 			})
 		}
 	}

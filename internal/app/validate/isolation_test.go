@@ -91,6 +91,9 @@ func runForgejoIsolationInFS(t *testing.T, mem *testfs.Memory, workflow string) 
 const forgejoIsolationCleanWorkflow = `jobs:
   prepare:
     uses: examplescope/ci-layer/.forgejo/workflows/prepare-release.yml@1111111111111111111111111111111111111111
+    secrets:
+      COSIGN_SIGNING_KEY: ${{ secrets.COSIGN_SIGNING_KEY }}
+      GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
   build-and-release:
     outputs:
       dist-digest: ${{ steps.handoff.outputs.digest }}
@@ -321,9 +324,11 @@ func TestIsolation_ForgejoStrictViolations(t *testing.T) {
 		"declaration_with_a_fallback": {strings.Replace(forgejoIsolationCleanWorkflow,
 			"artifacts-config: ${{ needs.prepare.outputs.artifacts-config }}",
 			"artifacts-config: ${{ needs.prepare.outputs.artifacts-config || '.forge-ci/evil.yml' }}", 1), "must pass artifacts-config"},
-		"missing_sign_secret": {strings.Replace(forgejoIsolationCleanWorkflow,
+		"missing_sign_secret": {strings.TrimSuffix(forgejoIsolationCleanWorkflow,
+			"      GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}\n"), "missing signing secret GPG_SIGNING_KEY"},
+		"missing_prepare_secret": {strings.Replace(forgejoIsolationCleanWorkflow,
 			`      GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
-`, "", 1), "missing signing secret GPG_SIGNING_KEY"},
+  build-and-release:`, "  build-and-release:", 1), `prepare job "prepare" call site is missing secret GPG_SIGNING_KEY`},
 		"broken_dist_digest": {strings.Replace(forgejoIsolationCleanWorkflow,
 			"dist-digest: ${{ needs.build-and-release.outputs.dist-digest }}",
 			"dist-digest: ${{ steps.local.outputs.digest }}", 1), "must pass dist-digest"},
@@ -371,6 +376,9 @@ func TestIsolation_UnmatchedSinglePinSubjectFails(t *testing.T) {
 const otherSubjectWorkflow = `jobs:
   prepare:
     uses: examplescope/ci-layer/.forgejo/workflows/prepare-release.yml@1111111111111111111111111111111111111111
+    secrets:
+      COSIGN_SIGNING_KEY: ${{ secrets.COSIGN_SIGNING_KEY }}
+      GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
   build-and-release:
     outputs:
       dist-digest: ${{ steps.handoff.outputs.digest }}
