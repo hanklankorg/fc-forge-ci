@@ -23,7 +23,7 @@ const (
 	flagBuildTags       = "build-tags"
 	flagSkipTests       = "skip-tests"
 	flagBuildSBOM       = "build-sbom"
-	flagCLIOpts         = "cli-opts"
+	flagMavenCLIOpts    = "maven-cli-opts"
 	flagTasks           = "tasks"
 	flagSBOMToolVersion = "sbom-tool-version"
 	flagRepositoryName  = "repository-name"

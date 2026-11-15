@@ -94,7 +94,7 @@ runs:
           --working-dir "${directory}" \
           --build-type "${build_type}" \
           --profile "${BUILD_MAVEN_PROFILE}" \
-          --cli-opts "${cli_opts}" \
+          --maven-cli-opts "${cli_opts}" \
           --skip-tests="${skip_tests}" \
           --build-sbom="${build_sbom}" \
           --sbom-tool-version "${CYCLONEDX_MAVEN_VERSION:?}" \

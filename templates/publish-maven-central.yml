@@ -79,7 +79,7 @@ spec:
       type: boolean
       default: false
       description: Allow metadata resolution to use the supplied DEPENDENCY_TOKEN and consumer-owned settings.
-    cli-opts:
+    maven-cli-opts:
       default: "--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always"
       description: Extra args forwarded to mvn.
     runtime-image:
@@ -99,7 +99,7 @@ spec:
   image: $[[ inputs.runtime-image ]]
   variables:
     RC_PROJECT_DIRECTORY: "$[[ inputs.working-directory ]]"
-    MAVEN_CLI_OPTS: "$[[ inputs.cli-opts ]]"
+    MAVEN_CLI_OPTS: "$[[ inputs.maven-cli-opts ]]"
     MAVEN_PROFILE: "$[[ inputs.profile ]]"
     SETTINGS_PATH: "$[[ inputs.settings-path ]]"
     PRIVATE_DEPENDENCIES: "$[[ inputs.private-dependencies ]]"

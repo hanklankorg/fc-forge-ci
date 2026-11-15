@@ -38,7 +38,7 @@ inputs:
     description: Optional Maven profile owning publication attachments (maven only).
     required: false
     default: ''
-  cli-opts:
+  maven-cli-opts:
     description: Extra args forwarded to mvn (maven only).
     required: false
     default: '--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always -Dgpg.skip=true'
@@ -60,7 +60,7 @@ runs:
         PUBLISH_SNAPSHOT: ${{ inputs.snapshot }}
         PUBLISH_FROM_BUILD: ${{ inputs.from-build }}
         PUBLISH_PROFILE: ${{ inputs.profile }}
-        PUBLISH_CLI_OPTS: ${{ inputs.cli-opts }}
+        PUBLISH_MAVEN_CLI_OPTS: ${{ inputs.maven-cli-opts }}
         PUBLISH_TOKEN_INPUT: ${{ inputs.token }}
         PUBLISH_SERVER: ${{ github.server_url }}
         PUBLISH_REPOSITORY: ${{ github.repository }}
@@ -110,7 +110,7 @@ runs:
             else
               # mvn deploy runs in the project's directory.
               cd -- "${directory}"
-              deploy+=(--cli-opts "${PUBLISH_CLI_OPTS}" --profile "${PUBLISH_PROFILE}")
+              deploy+=(--maven-cli-opts "${PUBLISH_MAVEN_CLI_OPTS}" --profile "${PUBLISH_PROFILE}")
             fi
             ;;
         esac

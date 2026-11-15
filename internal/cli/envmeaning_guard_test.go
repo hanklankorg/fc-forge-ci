@@ -190,8 +190,6 @@ func sharedEnvSpellings() map[string]sharedEnvSpelling {
 		}},
 		"JOB_STATUS": {Canonical: "job-status", Why: "the runner's job status",
 			Sites: []string{"forge-ci report job-result --status"}},
-		"MAVEN_CLI_OPTS": {Canonical: "cli-opts", Why: "extra Maven command-line options",
-			Sites: []string{"forge-ci version bump --maven-cli-opts", "forge-ci version bump-plan --maven-cli-opts"}},
 		"NPM_REGISTRY": {Canonical: "registry", Why: "the npm registry URL",
 			Sites: []string{"forge-ci plan snapshot-release --npm-registry"}},
 		"PLATFORMS": {Canonical: "platforms", Why: "the os/arch platform set; image-evidence reads $IMAGE_EVIDENCE_PLATFORMS first",

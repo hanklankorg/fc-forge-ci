@@ -93,7 +93,7 @@ EXAMPLE:
 			&cli.StringFlag{Name: "project-type", Value: forgeMavenProject, Sources: cli.EnvVars("PROJECT_TYPE"), Usage: "ecosystem: maven, npm, or gradle (exported Maven publications)"},
 			&cli.StringFlag{Name: flagVersion, Sources: cli.EnvVars("VERSION"), Usage: "expected version for prebuilt Maven or exported Gradle publications"},
 			&cli.BoolFlag{Name: "from-build", Sources: cli.EnvVars("MAVEN_FROM_BUILD"), Usage: "publish Maven library POM/main/sources/Javadoc build bytes without rerunning the project lifecycle"},
-			&cli.StringFlag{Name: "cli-opts", Sources: cli.EnvVars("MAVEN_CLI_OPTS"), Usage: "extra args forwarded to mvn (maven only; diagnostic flags and -Dproperties; whitespace-separated)"},
+			&cli.StringFlag{Name: "maven-cli-opts", Sources: cli.EnvVars("MAVEN_CLI_OPTS"), Usage: "extra args forwarded to mvn (maven only; diagnostic flags and -Dproperties; whitespace-separated)"},
 			&cli.StringFlag{Name: "profile", Sources: cli.EnvVars("MAVEN_PROFILE"), Usage: "optional project-owned Maven publication profile; also used for snapshot version preflight"},
 			commonflags.WorkingDir("packed npm tarball, Maven build handoff or exported Gradle publication directory"),
 			&cli.StringFlag{Name: flagNPMTag, Sources: cli.EnvVars("NPM_TAG"), Usage: "required for npm: release-{version}, release.{version}, release-<packed-version> or release.<packed-version>; latest, next and movable channel tags are forbidden"},
@@ -158,7 +158,7 @@ func deployForgeMaven(ctx context.Context, cmd *cli.Command, dependencies *deps.
 	}
 
 	return apppublish.ForgeMavenDeploy(ctx, mavenModelAdapter(), maven.New(), resolver, os.Stderr, os.Stderr, apppublish.ForgePackagesDeployInput{
-		CLIOpts: strings.Fields(cmd.String("cli-opts")),
+		CLIOpts: strings.Fields(cmd.String("maven-cli-opts")),
 		Profile: cmd.String("profile"),
 	}, cmd.Bool("snapshot"))
 }

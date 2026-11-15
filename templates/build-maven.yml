@@ -43,7 +43,7 @@ spec:
     settings-path:
       default: ""
       description: Consumer-owned settings.xml; required for private dependencies and never overwritten.
-    cli-opts:
+    maven-cli-opts:
       default: "--batch-mode --no-transfer-progress --errors --fail-at-end -Dstyle.color=always"
       description: Extra args forwarded to mvn.
     skip-tests:
@@ -94,7 +94,7 @@ spec:
     MAVEN_PROFILE: "$[[ inputs.profile ]]"
     PRIVATE_DEPENDENCIES: "$[[ inputs.private-dependencies ]]"
     MAVEN_SETTINGS_PATH: "$[[ inputs.settings-path ]]"
-    MAVEN_CLI_OPTS: "$[[ inputs.cli-opts ]]"
+    MAVEN_CLI_OPTS: "$[[ inputs.maven-cli-opts ]]"
     SKIP_TESTS: "$[[ inputs.skip-tests ]]"
     ENABLE_BUILD_SBOM: "$[[ inputs.enable-build-sbom ]]"
     CYCLONEDX_MAVEN_VERSION: "$[[ inputs.sbom-tool-version ]]"

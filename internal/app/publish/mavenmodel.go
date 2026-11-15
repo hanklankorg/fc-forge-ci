@@ -97,7 +97,7 @@ func validateMavenModelOptions(options []string) error {
 				continue
 			}
 
-			return fmt.Errorf("maven deployment cli-opts accepts diagnostic flags and -Dproperties only; select settings/profile through their dedicated flags: %w", errs.ErrUsage)
+			return fmt.Errorf("maven-cli-opts accepts diagnostic flags and -Dproperties only; select settings/profile through their dedicated flags: %w", errs.ErrUsage)
 		}
 	}
 

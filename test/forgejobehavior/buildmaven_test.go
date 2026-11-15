@@ -108,7 +108,7 @@ func TestBuildMavenForwardsEveryInput(t *testing.T) {
 		t.Fatalf("status %d stderr %s", got.status, got.stderr)
 	}
 
-	call := "build maven run --enforce-application-tests=admin-v --working-dir . --build-type build-type-v --profile profile-v --cli-opts " + options +
+	call := "build maven run --enforce-application-tests=admin-v --working-dir . --build-type build-type-v --profile profile-v --maven-cli-opts " + options +
 		" --skip-tests=skip-tests-v --build-sbom=build-sbom-v --sbom-tool-version 2.9.3 --private-dependencies=false --settings-path  --expect-version "
 	if got := readSandboxFile(t, box, "argv"); got != call+"1.2.3\n" {
 		t.Fatalf("engine calls\n%s\nwant\n%s", got, call+"1.2.3")

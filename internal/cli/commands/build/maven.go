@@ -73,12 +73,12 @@ func mavenRunCmd() *cli.Command {
    refused. Relative settings paths are resolved from that project directory.
 
 EXAMPLE:
-   forge-ci build maven run --working-dir module --build-type app --cli-opts "-B -ntp" --sbom-tool-version 2.9.3`,
+   forge-ci build maven run --working-dir module --build-type app --maven-cli-opts "-B -ntp" --sbom-tool-version 2.9.3`,
 		Flags: append(dependencyFlags(), []cli.Flag{
 			&cli.StringFlag{Name: "settings-path", Sources: cli.EnvVars("MAVEN_SETTINGS_PATH"), Usage: "consumer-owned Maven settings; required with private dependencies; reference DEPENDENCY_TOKEN and DEPENDENCY_USERNAME"},
 			&cli.StringFlag{Name: flagWorkingDir, Value: ".", Sources: cli.EnvVars("WORKING_DIRECTORY"), Usage: "workspace-relative project directory for metadata, lifecycle and SBOM generation"},
 			&cli.StringFlag{Name: "build-type", Sources: cli.EnvVars("BUILD_TYPE"), Usage: "lifecycle: \"app\" (clean package) or \"lib\" (compile/test/package with optional --profile; POM owns attached artifacts)"},
-			&cli.StringFlag{Name: flagCLIOpts, Sources: cli.EnvVars("MAVEN_CLI_OPTS"), Usage: "extra args forwarded to mvn (whitespace-separated, e.g. \"-B -ntp\")"},
+			&cli.StringFlag{Name: flagMavenCLIOpts, Sources: cli.EnvVars("MAVEN_CLI_OPTS"), Usage: "extra args forwarded to mvn (whitespace-separated, e.g. \"-B -ntp\")"},
 			&cli.StringFlag{Name: "profile", Sources: cli.EnvVars("MAVEN_PROFILE"), Usage: "Maven profile to activate for dependency resolution, metadata and the build lifecycle"},
 			&cli.BoolFlag{Name: flagSkipTests, Sources: cli.EnvVars("SKIP_TESTS"), Usage: usageSkipTestTask},
 			&cli.BoolFlag{Name: flagBuildSBOM, Value: true, Sources: cli.EnvVars("ENABLE_BUILD_SBOM"), Usage: "generate the cyclonedx-maven-plugin Build SBOM (default true)"},
@@ -142,7 +142,7 @@ EXAMPLE:
 						SkipTests:       cmd.Bool(flagSkipTests),
 						EnableBuildSBOM: cmd.Bool(flagBuildSBOM),
 						BuildType:       cmd.String("build-type"),
-						CLIOpts:         strings.Fields(cmd.String(flagCLIOpts)),
+						CLIOpts:         strings.Fields(cmd.String(flagMavenCLIOpts)),
 						SBOMToolVersion: cmd.String(flagSBOMToolVersion),
 						JavaVersion:     cmd.String("java-version"),
 						ExpectVersion:   cmd.String("expect-version"),

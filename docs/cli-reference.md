@@ -443,7 +443,7 @@ Runs the whole Maven build sequence in one step: install modules to the
    refused. Relative settings paths are resolved from that project directory.
 
 EXAMPLE:
-   forge-ci build maven run --working-dir module --build-type app --cli-opts "-B -ntp" --sbom-tool-version 2.9.3
+   forge-ci build maven run --working-dir module --build-type app --maven-cli-opts "-B -ntp" --sbom-tool-version 2.9.3
 ```
 
 | Flag | Description | Type | Default | Env vars |
@@ -455,7 +455,7 @@ EXAMPLE:
 | `--settings-path` | consumer-owned Maven settings; required with private dependencies; reference DEPENDENCY_TOKEN and DEPENDENCY_USERNAME | string | `""` | `$MAVEN_SETTINGS_PATH` |
 | `--working-dir` | workspace-relative project directory for metadata, lifecycle and SBOM generation | string | `"."` | `$WORKING_DIRECTORY` |
 | `--build-type` | lifecycle: "app" (clean package) or "lib" (compile/test/package with optional --profile; POM owns attached artifacts) | string | `""` | `$BUILD_TYPE` |
-| `--cli-opts` | extra args forwarded to mvn (whitespace-separated, e.g. "-B -ntp") | string | `""` | `$MAVEN_CLI_OPTS` |
+| `--maven-cli-opts` | extra args forwarded to mvn (whitespace-separated, e.g. "-B -ntp") | string | `""` | `$MAVEN_CLI_OPTS` |
 | `--profile` | Maven profile to activate for dependency resolution, metadata and the build lifecycle | string | `""` | `$MAVEN_PROFILE` |
 | `--skip-tests` | legacy opt-out; true is refused: admin policy controls enforcement, tests still run | bool | `false` | `$SKIP_TESTS` |
 | `--build-sbom` | generate the cyclonedx-maven-plugin Build SBOM (default true) | bool | `true` | `$ENABLE_BUILD_SBOM` |
@@ -3752,7 +3752,7 @@ EXAMPLE:
 | `--project-type` | ecosystem: maven, npm, or gradle (exported Maven publications) | string | `"maven"` | `$PROJECT_TYPE` |
 | `--version` | expected version for prebuilt Maven or exported Gradle publications | string | `""` | `$VERSION` |
 | `--from-build` | publish Maven library POM/main/sources/Javadoc build bytes without rerunning the project lifecycle | bool | `false` | `$MAVEN_FROM_BUILD` |
-| `--cli-opts` | extra args forwarded to mvn (maven only; diagnostic flags and -Dproperties; whitespace-separated) | string | `""` | `$MAVEN_CLI_OPTS` |
+| `--maven-cli-opts` | extra args forwarded to mvn (maven only; diagnostic flags and -Dproperties; whitespace-separated) | string | `""` | `$MAVEN_CLI_OPTS` |
 | `--profile` | optional project-owned Maven publication profile; also used for snapshot version preflight | string | `""` | `$MAVEN_PROFILE` |
 | `--working-dir` | packed npm tarball, Maven build handoff or exported Gradle publication directory | string | `"."` | `$WORKING_DIRECTORY` |
 | `--npm-tag` | required for npm: release-{version}, release.{version}, release-<packed-version> or release.<packed-version>; latest, next and movable channel tags are forbidden | string | `""` | `$NPM_TAG` |
@@ -3901,7 +3901,7 @@ EXAMPLE:
 | `--release-gpg-public-key` | public key verifying the prepared release tag when GPG-signed | string | `""` | `$RELEASE_GPG_PUBLIC_KEY` |
 | `--validate-only` | authorize and validate the resolved reactor without deploying; suitable before importing signing keys | bool | `false` | n/a |
 | `--snapshot` | deploy only a resolved all-SNAPSHOT reactor using ordinary CI credentials; no signed release request required | bool | `false` | `$MAVEN_SNAPSHOT` |
-| `--cli-opts` | diagnostic Maven flags and -Dproperties, whitespace-separated; use dedicated settings/profile flags | string | `""` | `$MAVEN_CLI_OPTS` |
+| `--maven-cli-opts` | diagnostic Maven flags and -Dproperties, whitespace-separated; use dedicated settings/profile flags | string | `""` | `$MAVEN_CLI_OPTS` |
 | `--settings-path` | path to the settings.xml passed via -s | string | `""` | `$SETTINGS_PATH` |
 | `--profile` | Maven profile activated for the deploy (e.g. release) (required) | string | `""` | `$MAVEN_PROFILE` |
 

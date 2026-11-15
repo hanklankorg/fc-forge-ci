@@ -73,7 +73,7 @@ func mavenCentralDeployCmd() *cli.Command {
 		Flags: append(publicationAuthorizationFlags(), []cli.Flag{
 			&cli.BoolFlag{Name: "validate-only", Usage: "authorize and validate the resolved reactor without deploying; suitable before importing signing keys"},
 			&cli.BoolFlag{Name: flagSnapshot, Sources: cli.EnvVars("MAVEN_SNAPSHOT"), Usage: "deploy only a resolved all-SNAPSHOT reactor using ordinary CI credentials; no signed release request required"},
-			&cli.StringFlag{Name: "cli-opts", Sources: cli.EnvVars("MAVEN_CLI_OPTS"), Usage: "diagnostic Maven flags and -Dproperties, whitespace-separated; use dedicated settings/profile flags"},
+			&cli.StringFlag{Name: "maven-cli-opts", Sources: cli.EnvVars("MAVEN_CLI_OPTS"), Usage: "diagnostic Maven flags and -Dproperties, whitespace-separated; use dedicated settings/profile flags"},
 			&cli.StringFlag{Name: "settings-path", Sources: cli.EnvVars("SETTINGS_PATH"), Usage: "path to the settings.xml passed via -s"},
 			&cli.StringFlag{Name: "profile", Required: true, Sources: cli.EnvVars("MAVEN_PROFILE"), Usage: "Maven profile activated for the deploy (e.g. release)"},
 		}...),
@@ -85,7 +85,7 @@ func mavenCentralDeployCmd() *cli.Command {
 			}
 
 			input := apppublish.MavenCentralDeployInput{
-				CLIOpts:      strings.Fields(cmd.String("cli-opts")),
+				CLIOpts:      strings.Fields(cmd.String("maven-cli-opts")),
 				SettingsPath: cmd.String("settings-path"),
 				Profile:      cmd.String("profile"),
 			}

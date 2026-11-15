@@ -249,5 +249,5 @@ func mavenBuildArgs(planned pipeline.PlannedArtifact) ([]string, bool, error) {
 		buildType = "lib"
 	}
 
-	return []string{"--build-type", buildType, "--profile", cmp.Or(mavenConfig.MavenProfile, mavenConfig.Profile), "--settings-path", settings, "--cli-opts", "-B -ntp", runTestsFlag, sbomToolVersionFlag, "2.9.3", "--java-version", mavenConfig.JavaVersion}, mavenConfig.PrivateDependencies, nil
+	return []string{"--build-type", buildType, "--profile", cmp.Or(mavenConfig.MavenProfile, mavenConfig.Profile), "--settings-path", settings, "--maven-cli-opts", "-B -ntp", runTestsFlag, sbomToolVersionFlag, "2.9.3", "--java-version", mavenConfig.JavaVersion}, mavenConfig.PrivateDependencies, nil
 }

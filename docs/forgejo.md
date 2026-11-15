@@ -1206,7 +1206,7 @@ goes to the registry of the repository's owner on this Forgejo:
 |---|---|---|
 | `npm` | the one `*.tgz` in `working-directory`, under `npm-tag`, with lifecycle scripts off | the hand-off the release signed: `artifact-name` is the build job's artifact |
 | `maven` with `from-build: 'true'` | the library's POM, jar, sources and Javadoc bytes, without running Maven | the build hand-off in `working-directory`: `artifact-name` is the artifact `build-maven` uploaded for the library |
-| `maven` | `mvn deploy` in `working-directory`, with `cli-opts` and `profile` | the checked-out project; this form runs the project's build with the token in reach |
+| `maven` | `mvn deploy` in `working-directory`, with `maven-cli-opts` and `profile` | the checked-out project; this form runs the project's build with the token in reach |
 | `gradle`, `gradle-android` | the exported Maven publications in `working-directory`, at `version` | `forge-ci build gradle export-publications` in the build job |
 
 A Maven library needs no step of its own for the hand-off. `build-maven`
@@ -1268,9 +1268,9 @@ leads back to the source. This holds for an npm package, for a Maven
 library published with `from-build: 'true'`, for exported Gradle
 publications and for the plain `maven` form, each Maven package named by
 its `groupId:artifactId`. Before a plain `mvn deploy` the deploy reads the
-reactor's projects from its effective POM, with the same `cli-opts` and
+reactor's projects from its effective POM, with the same `maven-cli-opts` and
 `profile` and, as the deploy brings its own `settings.xml`, without yours;
-after it, it links each one Forgejo lists. `cli-opts` therefore takes only
+after it, it links each one Forgejo lists. `maven-cli-opts` therefore takes only
 diagnostic flags and `-D` properties, on every forge, so the model and the
 deploy see the same reactor. Maven decides which projects it deploys, so a
 project Forgejo does not list, such as one with `maven.deploy.skip`, was
