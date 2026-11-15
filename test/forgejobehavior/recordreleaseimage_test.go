@@ -7,6 +7,8 @@
 package forgejobehavior
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -24,17 +26,23 @@ func recordReleaseImageInputs() []string {
 }
 
 // The record step forwards every input to its own engine flag (distinct values
-// catch a swapped pair), turns the candidate switch into
-// LEDGER_DERIVE_CANDIDATE_TAG, and refuses an empty required input before the
-// engine starts. Ledger semantics are covered by the external black-box
+// catch a swapped pair), pins the SBOM file it records, turns the candidate
+// switch into LEDGER_DERIVE_CANDIDATE_TAG, and refuses an empty required
+// input or a missing SBOM before the engine starts. Ledger semantics are covered by the external black-box
 // suite.
 func TestRecordReleaseImage(t *testing.T) {
 	t.Parallel()
+
+	const sbomBody = `{"bomFormat":"CycloneDX"}`
+
+	sbomPin := fmt.Sprintf("%x", sha256.Sum256([]byte(sbomBody)))
 	script := actionStep(t, "record-release-image", "") // the only step has no id
 	required := []string{"INPUT_ROLE=role-v", "INPUT_IMAGE=image-v", "INPUT_DIGEST=digest-v", "INPUT_TAG=tag-v"}
 	run := func(t *testing.T, inputs ...string) (*sandbox, result) {
 		t.Helper()
 		box := newSandbox(t, "record-release-image")
+		box.write("sbom-v", sbomBody, 0o600)
+		box.write("dist/image-sbom-role-v.cyclonedx.json", sbomBody, 0o600)
 
 		env := installRecordingFakes(box)
 		for _, name := range recordReleaseImageInputs() {
@@ -58,7 +66,7 @@ func TestRecordReleaseImage(t *testing.T) {
 				"INPUT_CANDIDATE=true"),
 			"true",
 			[]string{"container", "ledger", "add", "--ledger", "ledger-v", "--role", "role-v", "--image-name", "image-v",
-				"--digest", "digest-v", "--final-tag-name", "tag-v", "--sbom", "sbom-v", "--default-sbom",
+				"--digest", "digest-v", "--final-tag-name", "tag-v", "--sbom", "sbom-v", "--sbom-sha256", sbomPin,
 				"--tag", "release-tag-v", "--flavor", "flavor-v", "--candidate-tag-name", "candidate-tag-v",
 				"--moving-tag-name", "moving-tag-v", "--base-ref", "base-ref-v", "--base-input-id", "base-input-id-v"},
 		},
@@ -67,8 +75,8 @@ func TestRecordReleaseImage(t *testing.T) {
 			required,
 			"false",
 			[]string{"container", "ledger", "add", "--ledger", "dist/release-images.json", "--role", "role-v",
-				"--image-name", "image-v", "--digest", "digest-v", "--final-tag-name", "tag-v", "--sbom", "",
-				"--default-sbom", "--tag", "", "--flavor", "", "--candidate-tag-name", "", "--moving-tag-name", "",
+				"--image-name", "image-v", "--digest", "digest-v", "--final-tag-name", "tag-v",
+				"--sbom", "dist/image-sbom-role-v.cyclonedx.json", "--sbom-sha256", sbomPin, "--tag", "", "--flavor", "", "--candidate-tag-name", "", "--moving-tag-name", "",
 				"--base-ref", "", "--base-input-id", ""},
 		},
 	} {
@@ -85,6 +93,15 @@ func TestRecordReleaseImage(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("refuses a missing SBOM before the engine", func(t *testing.T) {
+		t.Parallel()
+
+		s, got := run(t, append(slices.Clone(required), "INPUT_SBOM=dist/absent.cyclonedx.json")...)
+		if got.status == 0 || s.argv() != nil || !strings.Contains(got.stderr, "no SBOM at dist/absent.cyclonedx.json") {
+			t.Fatalf("status %d argv %q stderr %q", got.status, s.argv(), got.stderr)
+		}
+	})
 
 	for _, missing := range required {
 		name, _, _ := strings.Cut(missing, "=")

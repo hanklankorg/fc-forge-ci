@@ -288,6 +288,19 @@ func (e Entry) ValidateForStage(stage Stage, releaseTag string) error {
 	return e.validateFormat()
 }
 
+// RequirePinnedSBOM refuses a release image whose SBOM the ledger does not
+// pin. Every released image's SBOM is in the release's SBOM bundle, which is
+// final before any image is signed, so an SBOM made at signing time would be
+// attested but never published. A base image is a build input, not a
+// released thing: its SBOM stays an attestation only and needs no pin here.
+func (e Entry) RequirePinnedSBOM() error {
+	if e.ImageKind == ImageKindBase || e.SBOMSHA256 != "" {
+		return nil
+	}
+
+	return fmt.Errorf("imageledger: release image %s has no pinned SBOM, so the SBOM bundle cannot hold it; write its CycloneDX SBOM in the build job and record it with --sbom-sha256: %w", e.Ref, errs.ErrValidation)
+}
+
 // validateBaseTags is the base-image counterpart of the release scoping.
 // A base image's final tag is content-addressed, not release-scoped, so
 // no release tag participates. The candidate discipline is preserved in

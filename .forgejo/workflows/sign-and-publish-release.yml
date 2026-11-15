@@ -497,9 +497,9 @@ jobs:
       # holds each index SBOM to its pin and each platform inventory to the
       # checksum the index SBOM records, writes them into the release's SBOM
       # bundle beside the build's SBOMs and rewrites the bundle's line in the
-      # checksums file. No image SBOM is published as a file of its own. An
-      # entry without a pin has its SBOM generated and attested by the image
-      # signing step and none to bundle. This step holds no key and no token.
+      # checksums file. No image SBOM is published as a file of its own. A
+      # release image without a pin is refused: its SBOM would be attested but
+      # never published. This step holds no key and no token.
       - name: Complete the SBOM bundle with the image SBOMs
         env:
           RELEASE_IMAGES_PATH: ${{ inputs['release-images-path'] }}

@@ -475,7 +475,8 @@ The same documents are attested in the registry: the index SBOM on the image
 index, each inventory on its platform's digest
 ([verify and inspect the SBOM](#verify--inspect-the-sbom)). The signer
 attests an inventory only on a child of the signed index, with the platform
-the index gives it.
+the index gives it. Base images are build inputs: their SBOMs are attested
+on the image, not in the bundle.
 
 The bundle is complete before the checksums file lists it, and the
 provenance statement and the signatures are made after that, so each covers

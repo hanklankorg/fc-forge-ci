@@ -854,6 +854,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a digest or platform the index does not hold. On Forgejo a consumer job
   writes the index SBOM, so it could have had the release key attest a
   forged inventory on another image in the repository.
+- A release image whose SBOM the ledger does not pin is refused, when the
+  SBOM bundle is completed and again by the image signer, which no longer
+  generates an SBOM for it: one made at signing was attested but never in
+  `<project>-<version>-sboms.tar.gz`. The Forgejo `record-release-image`
+  action now requires the SBOM file the image job wrote and records it with
+  its SHA-256. Base images, build inputs rather than released things, keep
+  their SBOM as an attestation only.
 - A Forgejo release's index SBOM no longer points at release files that
   were never published. It named each platform inventory by a release
   download address, and the Forgejo release offered no such file.

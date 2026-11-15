@@ -467,6 +467,10 @@ func validateLedgerSignEntry(entry imageledger.Entry, releaseTag string, constra
 		return fmt.Errorf("imageledger: sbom is required for signing: %w", errs.ErrValidation)
 	}
 
+	if err := entry.RequirePinnedSBOM(); err != nil {
+		return err
+	}
+
 	if constraints.evidenceRoot != "" && entry.SBOMSHA256 == "" {
 		return fmt.Errorf("verified evidence root requires producer-pinned SBOMs: %w", errs.ErrValidation)
 	}
@@ -638,7 +642,8 @@ func resolveLedgerSignRef(ctx context.Context, resolver imageDigestResolver, ent
 // entry (sbom_sha256 set) carries a PREMADE document: verify the file
 // hashes to exactly the pin and attest it as-is — regenerating would
 // break the pin by construction, and the signer must attest exactly what
-// the build produced. Unpinned entries keep the generate-fresh behavior.
+// the build produced. Only an unpinned base image, which validation lets
+// through, keeps the generate-fresh behaviour.
 // Both must contain a JSON object before signing begins; validation does not
 // rewrite the bytes supplied for attestation.
 func ensureImageSBOM(ctx context.Context, sbom ImageEvidenceSyft, stderr io.Writer, imageRef string, entry imageledger.Entry) error {

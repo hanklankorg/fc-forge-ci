@@ -320,7 +320,10 @@ written from the checksums, then every file is signed. On Forgejo and
 GitLab a trusted step adds the image SBOMs, the signing job on Forgejo and
 `Images: publish` on GitLab: it admits each against the checksum the release
 image ledger pins, and refuses a hand-off that already has a signature or a
-provenance statement.
+provenance statement. A release image whose SBOM the ledger does not pin is
+refused there and again by the image signer, which makes no SBOM for it: the
+bundle holds every released image's SBOM. A base image is a build input, not
+part of the release, so its SBOM is attested on the image only.
 
 The signer attests an index SBOM's inventories only on the children of the
 image index it signs. It reads the index from the registry at the ledger

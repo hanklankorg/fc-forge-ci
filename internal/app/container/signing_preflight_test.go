@@ -27,9 +27,7 @@ func TestSignLedgerImages_PreparesEveryEntryBeforePublication(t *testing.T) {
 			first := ledgerSignEntry(t)
 			second := first
 			second.SBOM = "dist/second.cyclonedx.json"
-
-			require.NoError(t, os.Mkdir("dist", 0o700))
-			require.NoError(t, os.WriteFile(second.SBOM, []byte("fixture"), 0o600))
+			pinLedgerSBOM(t, &second)
 
 			switch kind {
 			case "invalid entry":
@@ -68,12 +66,14 @@ func TestSignLedgerImages_RejectsMalformedSBOMsBeforeAnyPublication(t *testing.T
 				t.Run(fmt.Sprintf("pinned=%t/later=%t/%s", pinned, later, document.name), func(t *testing.T) {
 					t.Chdir(t.TempDir())
 
-					bad := ledgerSignEntry(t)
-					bad.SBOM = "dist/invalid.cyclonedx.json"
+					// Only a base image may have its SBOM generated at signing.
+					earlier := ledgerSignEntry(t)
+					bad := unpinnedBaseEntry()
 					body := []byte(document.body)
 
 					if pinned {
-						require.NoError(t, os.Mkdir("dist", 0o700))
+						bad = ledgerSignEntry(t)
+						bad.SBOM = "dist/invalid.cyclonedx.json"
 						require.NoError(t, os.WriteFile(bad.SBOM, body, 0o600))
 
 						bad.SBOMSHA256 = fmt.Sprintf("%x", sha256.Sum256(body))
@@ -81,23 +81,24 @@ func TestSignLedgerImages_RejectsMalformedSBOMsBeforeAnyPublication(t *testing.T
 
 					entries := []imageledger.Entry{bad}
 					if later {
-						entries = []imageledger.Entry{ledgerSignEntry(t), bad}
+						entries = []imageledger.Entry{earlier, bad}
 					}
 
 					signer := &recordingImageSigner{}
 					syft := &fakeLedgerSyft{documents: map[string][]byte{bad.SBOM: body}}
 
-					err := appcontainer.SignLedgerImages(t.Context(), signer, syft, fakeLedgerResolver{bad.CandidateTag: bad.Digest}, io.Discard, io.Discard, appcontainer.SignLedgerImagesInput{
+					err := appcontainer.SignLedgerImages(t.Context(), signer, syft, fakeLedgerResolver{bad.CandidateTag: bad.Digest, earlier.CandidateTag: earlier.Digest}, io.Discard, io.Discard, appcontainer.SignLedgerImagesInput{
 						Entries: entries, ReleaseTag: "v1.2.3", PredicatePath: writeBasePredicate(t), Method: domainrelease.SignMethodSigstore,
+						ExpectedImageRepository: "forge.example/examplescope/myapp",
 					})
 					require.ErrorIs(t, err, errs.ErrMalformedInput)
 					require.ErrorContains(t, err, bad.SBOM)
 					require.Empty(t, signer.signs)
 					require.Empty(t, signer.attests)
 
-					generated := len(entries)
+					generated := 1
 					if pinned {
-						generated--
+						generated = 0
 					}
 
 					require.Len(t, syft.targets, generated, "reach the requested bad entry during preparation")
@@ -115,19 +116,21 @@ func TestSignLedgerImages_PreparedEntriesPublishInOrder(t *testing.T) {
 	t.Chdir(t.TempDir())
 	first := ledgerSignEntry(t)
 	second := first
-	second.Ref = "forge.example/examplescope/second@" + ledgerSignDigest
-	second.FinalTag = "forge.example/examplescope/second:v1.2.3-rust"
-	second.MovingTag = "forge.example/examplescope/second:rust"
-	second.CandidateTag = "forge.example/examplescope/second:staging-v1.2.3-rust"
+	second.FinalTag = "forge.example/examplescope/myapp:v1.2.3-second"
+	second.MovingTag = "forge.example/examplescope/myapp:second"
+	second.CandidateTag = "forge.example/examplescope/myapp:staging-v1.2.3-second"
 	second.SBOM = "dist/second.cyclonedx.json"
+	pinLedgerSBOM(t, &second)
+	// A base image's SBOM is generated at signing; it must be ready first.
+	base := unpinnedBaseEntry()
 	syft := &fakeLedgerSyft{}
-	signer := &recordingImageSigner{beforeSign: func() { require.Len(t, syft.targets, 2, "both SBOMs must be prepared before any signature") }}
-	err := appcontainer.SignLedgerImages(t.Context(), signer, syft, fakeLedgerResolver{first.CandidateTag: ledgerSignDigest, second.CandidateTag: ledgerSignDigest}, io.Discard, io.Discard, appcontainer.SignLedgerImagesInput{Entries: []imageledger.Entry{first, second}, ReleaseTag: "v1.2.3", PredicatePath: writeBasePredicate(t), Method: domainrelease.SignMethodSigstore})
+	signer := &recordingImageSigner{beforeSign: func() { require.Len(t, syft.targets, 1, "every SBOM must be prepared before any signature") }}
+	err := appcontainer.SignLedgerImages(t.Context(), signer, syft, fakeLedgerResolver{first.CandidateTag: ledgerSignDigest, second.CandidateTag: ledgerSignDigest, base.CandidateTag: ledgerSignDigest}, io.Discard, io.Discard, appcontainer.SignLedgerImagesInput{Entries: []imageledger.Entry{first, second, base}, ReleaseTag: "v1.2.3", PredicatePath: writeBasePredicate(t), Method: domainrelease.SignMethodSigstore, ExpectedImageRepository: "forge.example/examplescope/myapp"})
 	require.NoError(t, err)
-	require.Len(t, signer.signs, 2)
-	require.Len(t, signer.attests, 4)
+	require.Len(t, signer.signs, 3)
+	require.Len(t, signer.attests, 6)
 
-	for index, entry := range []imageledger.Entry{first, second} {
+	for index, entry := range []imageledger.Entry{first, second, base} {
 		want := entry.CandidateTag + "@" + ledgerSignDigest
 		require.Equal(t, want, signer.signs[index].ImageRef)
 		require.Equal(t, want, signer.attests[2*index].input.ImageRef)

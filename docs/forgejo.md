@@ -338,7 +338,7 @@ alone. Each `action.yml` documents its own inputs and outputs.
 | `guard-release-tag`, `generate-changelog`, `prepare-release` | The steps `prepare-release.yml` is made of, with rendering and signing in separate jobs. Call the workflow; see [The prepare job](#the-prepare-job). |
 | `publish-forge-packages` | The publish step of a consumer's own job after the release is signed and published: a Maven project, the packed npm tarball or exported Gradle publications to the owner's package registry. See [Maven, npm and Gradle packages in the owner's registry](#maven-npm-and-gradle-packages-in-the-owners-registry). |
 | `upload-dist`, `assemble-release-dist` | Hand `dist/` to the signer with its digest, from one producer or several. |
-| `registry-login`, `setup-buildah`, `record-release-image` | Registry login, Buildah preparation and ledger recording for a custom image job that builds with `forge-ci container build-push-oci-image`, Buildah only. That command scans as it publishes, so it needs `--scan-output-template` and Trivy on the runner. |
+| `registry-login`, `setup-buildah`, `record-release-image` | Registry login, Buildah preparation and ledger recording for a custom image job that builds with `forge-ci container build-push-oci-image`, Buildah only. That command scans as it publishes, so it needs `--scan-output-template` and Trivy on the runner. `record-release-image` records the image's CycloneDX SBOM with its SHA-256, so the job writes that file first. |
 | `setup-image-builder` | Prepares Buildah, or checks the kaniko job image, before `multiarch-image build-arch` or `container build`; the job's `container:` is `CI_IMAGE_BUILDER_JOB_IMAGE`, empty for Buildah. |
 | `prune-base-images` | Base-image maintenance on a schedule: deletes promoted base images that no supported release image's attestation names. A dry run unless told otherwise. |
 | `verify-forgejo-token` | Checks a release token before it is needed. |
@@ -753,8 +753,11 @@ beside the build's SBOMs, and has `checksums.sha256` list that bundle. It
 takes an index SBOM and the platform inventories it names from `dist/`, each
 held to the checksum the ledger or the index SBOM records; a file that
 differs, or a pinned SBOM outside `dist/`, stops the job. No image SBOM is a
-release file of its own. An image whose SBOM the ledger does not pin gets its SBOM at signing, as an
-attestation on the image alone, and so does a base image.
+release file of its own. A release image whose SBOM the ledger does not pin
+stops the job: an SBOM made at signing would be attested but not published.
+`record-release-image` therefore takes the SBOM file the image job wrote and
+records it with its SHA-256. A base image is a build input, not part of the
+release: its SBOM stays an attestation on the image and is not in the bundle.
 
 **Promotion** is the `promote` job: after signing, it moves the final tags of
 the images the build recorded. There is no `:dev`/`:staging` ladder. Base

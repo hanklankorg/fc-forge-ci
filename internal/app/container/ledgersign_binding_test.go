@@ -103,6 +103,7 @@ func twoLedgerEntries(t *testing.T) (imageledger.Entry, imageledger.Entry) {
 		BaseRef:      "forge.example/examplescope/myapp-base@sha256:" + strings.Repeat("f", 64),
 		BaseInputID:  strings.Repeat("d", 64),
 	}
+	pinLedgerSBOM(t, &second)
 
 	return first, second
 }

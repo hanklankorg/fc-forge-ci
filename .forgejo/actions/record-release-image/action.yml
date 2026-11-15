@@ -23,7 +23,7 @@ inputs:
     required: false
     default: ''
   sbom:
-    description: SBOM path (dist/image-sbom*.cyclonedx.json). Defaults to dist/image-sbom-<flavor|role>.cyclonedx.json; the signer generates it if absent.
+    description: Path of the image's CycloneDX SBOM, which must exist (dist/image-sbom*.cyclonedx.json). Defaults to dist/image-sbom-<flavor|role>.cyclonedx.json. It is recorded with its SHA-256 and goes into the release's SBOM bundle; the signer attests exactly that file.
     required: false
     default: ''
   candidate-tag:
@@ -78,14 +78,22 @@ runs:
         set -euo pipefail
         # shellcheck source=.engine/bin/lib-forge-ci.sh
         source "${GITHUB_ACTION_PATH}/../../../.engine/bin/lib-forge-ci.sh"
+        # Every released image's SBOM is in the release's SBOM bundle, which
+        # is final before the signer runs, so the ledger pins the build's file.
+        sbom=${INPUT_SBOM:-dist/image-sbom-${INPUT_FLAVOR:-${INPUT_ROLE:?role is required}}.cyclonedx.json}
+        if [ ! -f "${sbom}" ] || [ -L "${sbom}" ]; then
+          echo "ERROR: no SBOM at ${sbom}: write the image's CycloneDX SBOM there before recording the image" >&2
+          exit 1
+        fi
+        sbom_sha256=$(sha256sum -- "${sbom}")
         LEDGER_DERIVE_CANDIDATE_TAG="${INPUT_CANDIDATE:-false}" run_forge_ci container ledger add \
           --ledger "${INPUT_LEDGER:-dist/release-images.json}" \
           --role "${INPUT_ROLE:?role is required}" \
           --image-name "${INPUT_IMAGE:?image is required}" \
           --digest "${INPUT_DIGEST:?digest is required}" \
           --final-tag-name "${INPUT_TAG:?tag is required}" \
-          --sbom "${INPUT_SBOM}" \
-          --default-sbom \
+          --sbom "${sbom}" \
+          --sbom-sha256 "${sbom_sha256%% *}" \
           --tag "${INPUT_RELEASE_TAG}" \
           --flavor "${INPUT_FLAVOR}" \
           --candidate-tag-name "${INPUT_CANDIDATE_TAG}" \

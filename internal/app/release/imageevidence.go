@@ -193,15 +193,19 @@ func imageSBOMCommit(path string) string {
 // consumer's jobs handed over. An entry has an SBOM to bundle when the ledger
 // pins it and it is a file directly in the dist directory: the pin is what
 // binds the file to the entry. An index SBOM brings the inventories it names,
-// each bound by the checksum the index SBOM records. An entry without a pin
-// has no SBOM before signing, where the signer generates and attests it, and
-// a base image's premade SBOM is outside the dist directory; both keep theirs
-// as an attestation and are left out here. Any other pinned SBOM outside the
-// dist directory is refused: it would be attested but never published.
+// each bound by the checksum the index SBOM records. A base image is a build
+// input, not a released thing: its premade SBOM is outside the dist directory
+// and stays an attestation only. A release image without a pin, or with a
+// pinned SBOM outside the dist directory, is refused: its SBOM would be
+// attested but never published.
 func collectHandoffImageSBOMs(ctx releaseFilesCtx) func(*os.Root, imageledger.Entry, map[string]bool) error {
 	return func(root *os.Root, entry imageledger.Entry, want map[string]bool) error {
-		if entry.SBOMSHA256 == "" || entry.ImageKind == imageledger.ImageKindBase {
+		if entry.ImageKind == imageledger.ImageKindBase {
 			return nil
+		}
+
+		if err := entry.RequirePinnedSBOM(); err != nil {
+			return err
 		}
 
 		name := filepath.Base(entry.SBOM)

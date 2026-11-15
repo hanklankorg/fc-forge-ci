@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -122,10 +123,12 @@ func (r indexLedgerResolver) Manifest(_ context.Context, ref string) ([]byte, er
 	return body, nil
 }
 
+// ledgerSignEntry returns a release image whose SBOM the build wrote and the
+// ledger pins, in the current directory.
 func ledgerSignEntry(t *testing.T) imageledger.Entry {
 	t.Helper()
 
-	return imageledger.Entry{
+	entry := imageledger.Entry{
 		Role:         "distroless",
 		Flavor:       "rust",
 		Ref:          "forge.example/examplescope/myapp@" + ledgerSignDigest,
@@ -137,6 +140,86 @@ func ledgerSignEntry(t *testing.T) imageledger.Entry {
 		BaseRef:      "forge.example/examplescope/myapp-base@" + ledgerSignDigest,
 		BaseInputID:  strings.TrimPrefix(ledgerSignDigest, "sha256:"),
 	}
+	pinLedgerSBOM(t, &entry)
+
+	return entry
+}
+
+// unpinnedBaseEntry returns a base image in the repository of ledgerSignEntry
+// whose SBOM the ledger does not pin.
+func unpinnedBaseEntry() imageledger.Entry {
+	const repo = "forge.example/examplescope/myapp"
+
+	id := strings.Repeat("a", 64)
+
+	return imageledger.Entry{
+		ImageKind: imageledger.ImageKindBase, Role: "base", Flavor: "core",
+		Ref: repo + "@" + ledgerSignDigest, Digest: ledgerSignDigest,
+		FinalTag: repo + ":" + id + "-core", CandidateTag: repo + ":staging-" + id + "-core",
+		SBOM: "dist/base-sbom-core.cyclonedx.json", BaseInputID: id,
+	}
+}
+
+// TestSignLedgerImages_GeneratesAnSBOMOnlyForABaseImage holds the owner's
+// rule: every released image's SBOM is in the release's SBOM bundle, which is
+// final before signing. A release image without a pinned SBOM is refused
+// before anything is published. A base image is a build input whose SBOM is
+// an attestation only, so the signer may still generate it, from the same
+// digest-pinned reference it signs.
+func TestSignLedgerImages_GeneratesAnSBOMOnlyForABaseImage(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	release := ledgerSignEntry(t)
+	release.SBOMSHA256 = ""
+	base := unpinnedBaseEntry()
+	input := appcontainer.SignLedgerImagesInput{
+		ReleaseTag: "v1.2.3", PredicatePath: writeBasePredicate(t), Method: domainrelease.SignMethodKMS, KeyRef: "env://COSIGN_KEY",
+		ExpectedImageRepository: "forge.example/examplescope/myapp",
+	}
+
+	signer, syft := &recordingImageSigner{}, &fakeLedgerSyft{}
+	input.Entries = []imageledger.Entry{base, release}
+
+	err := appcontainer.SignLedgerImages(t.Context(), signer, syft, fakeLedgerResolver{base.CandidateTag: base.Digest, release.CandidateTag: release.Digest}, io.Discard, io.Discard, input)
+	if !errors.Is(err, errs.ErrValidation) || !strings.Contains(err.Error(), release.Ref) || !strings.Contains(err.Error(), "no pinned SBOM") {
+		t.Fatalf("err = %v, want the unpinned release image refused by name", err)
+	}
+
+	assertNothingPublished(t, signer)
+
+	if len(syft.targets) != 0 {
+		t.Errorf("syft targets = %v, want none before the refusal", syft.targets)
+	}
+
+	signer, syft = &recordingImageSigner{}, &fakeLedgerSyft{}
+	input.Entries = []imageledger.Entry{base}
+
+	if err := appcontainer.SignLedgerImages(t.Context(), signer, syft, fakeLedgerResolver{base.CandidateTag: base.Digest}, io.Discard, io.Discard, input); err != nil {
+		t.Fatal(err)
+	}
+
+	signed := base.CandidateTag + "@" + base.Digest
+	if !slices.Equal(syft.targets, []string{signed}) || len(signer.signs) != 1 || signer.signs[0].ImageRef != signed {
+		t.Errorf("syft targets = %v, signs = %+v, want the SBOM generated from the signed %s", syft.targets, signer.signs, signed)
+	}
+}
+
+// pinLedgerSBOM writes a CycloneDX document at the entry's SBOM path and pins
+// it, as a build job does before it records the image.
+func pinLedgerSBOM(t *testing.T, entry *imageledger.Entry) {
+	t.Helper()
+
+	body := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6"}` + "\n")
+
+	if err := os.MkdirAll(filepath.Dir(entry.SBOM), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(entry.SBOM, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	entry.SBOMSHA256 = fmt.Sprintf("%x", sha256.Sum256(body))
 }
 
 func writeBasePredicate(t *testing.T) string {
@@ -222,9 +305,9 @@ func assertNothingPublished(t *testing.T, signer *recordingImageSigner) {
 	}
 }
 
-// TestSignLedgerImages_AttestsAGeneratedSBOMAndTheImagesLineage covers the
-// ordinary entry: no SBOM is pinned, so one is generated from the same
-// digest-pinned reference that gets signed, and the provenance that follows
+// TestSignLedgerImages_AttestsThePinnedSBOMAndTheImagesLineage covers the
+// ordinary entry: the build's SBOM is pinned, so it is attested as it is and
+// nothing is generated at signing, and the provenance that follows
 // records the image's tags and names the base it was built on as a resolved
 // dependency.
 //
@@ -233,7 +316,7 @@ func assertNothingPublished(t *testing.T, signer *recordingImageSigner) {
 // meant to attest is as much a change as one going missing, and the previous
 // seven-way condition could see neither -- it reported the entire map without
 // saying which field was wrong, and never looked at image.digest at all.
-func TestSignLedgerImages_AttestsAGeneratedSBOMAndTheImagesLineage(t *testing.T) {
+func TestSignLedgerImages_AttestsThePinnedSBOMAndTheImagesLineage(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	entry := ledgerSignEntry(t)
@@ -263,15 +346,18 @@ func TestSignLedgerImages_AttestsAGeneratedSBOMAndTheImagesLineage(t *testing.T)
 		t.Errorf("signed %q, want the digest-pinned candidate %q", got, resolvedRef)
 	}
 
-	// The SBOM is generated from the same reference that is signed. Scanning
-	// a tag while signing a digest would attest a different image than the
-	// one the signature covers.
-	if !slices.Equal(syft.targets, []string{resolvedRef}) {
-		t.Errorf("syft targets = %v, want [%s]", syft.targets, resolvedRef)
+	// The SBOM in the release's SBOM bundle is the one attested; a scan at
+	// signing would attest a document nobody can download.
+	if len(syft.targets) != 0 {
+		t.Errorf("syft targets = %v, want none", syft.targets)
 	}
 
 	if len(signer.attests) != 2 {
 		t.Fatalf("attest calls = %d, want 2", len(signer.attests))
+	}
+
+	if pinned, err := os.ReadFile(entry.SBOM); err != nil || !bytes.Equal(signer.attests[0].predicate, pinned) {
+		t.Errorf("attested SBOM = %q, want the pinned file (%v)", signer.attests[0].predicate, err)
 	}
 
 	if signer.attests[0].input.PredicateType != "cyclonedx" || signer.attests[0].input.PredicatePath != entry.SBOM {
