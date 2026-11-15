@@ -8,8 +8,9 @@ description: >-
 inputs:
   cache-key-suffix:
     description: >-
-      Distinguishes the cache between distinct jobs (e.g. prepare vs build vs sign vs lint). Same suffix across runs of the same job → cache hit. Different suffix → cold install, full cache write.
-    required: true
+      Distinguishes the cache between distinct jobs (e.g. prepare vs build vs sign vs lint). Same suffix across runs of the same job → cache hit. Different suffix → cold install, full cache write. Required when cache is on; with cache 'false' there is no cache to name and the input is unused.
+    required: false
+    default: ''
   mise-locked:
     description: >-
       Run mise install with --locked. Requires the consumer repository to commit mise.lock for the runner platform. Use only in trusted jobs that install tools; untrusted PR jobs must use pre-provisioned runner tools and install nothing, even when a lock file is available.
@@ -54,6 +55,12 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Require a cache key suffix
+      if: ${{ inputs.cache != 'false' && inputs.cache-key-suffix == '' }}
+      shell: bash
+      run: |
+        echo "::error::setup-toolchain needs cache-key-suffix when cache is on, so each job keeps a tool cache of its own" >&2
+        exit 1
     # A job downloads Go once. When the consumer's mise config declares go, the
     # tool install below brings it (provider "mise") and setup-go does not run;
     # this step then writes what setup-go wrote beside its install,
