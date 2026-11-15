@@ -26,9 +26,11 @@ import (
 )
 
 // imageDigestResolver is the registry surface ledger signing needs:
-// resolve a tag or ref to its manifest digest.
+// resolve a tag or ref to its manifest digest, and read the image index an
+// index SBOM claims to describe.
 type imageDigestResolver interface {
 	ResolveDigest(ctx context.Context, ref string) (string, error)
+	Manifest(ctx context.Context, ref string) ([]byte, error)
 }
 
 type ledgerImageSigner interface {
@@ -237,7 +239,7 @@ func (run ledgerSignRun) prepareEntry(ctx context.Context, idx int, entry imagel
 
 	sbomPath := ledgerSBOMLocation(run.in.EvidenceRoot, entry.SBOM)
 
-	inventories, err := ledgerIndexInventories(sbomPath, imageRef, entry.Digest)
+	inventories, err := ledgerIndexInventories(ctx, run.resolver, sbomPath, imageRef, entry.Digest)
 	if err != nil {
 		return ledgerSigningPlan{}, err
 	}
@@ -250,8 +252,10 @@ func (run ledgerSignRun) prepareEntry(ctx context.Context, idx int, entry imagel
 // digest, and each inventory beside it must have the checksum the index SBOM
 // records. The inventory of one image names none and yields nothing. The
 // child refs are in the repository being signed, so an imported image is
-// attested where it is published.
-func ledgerIndexInventories(sbomPath, imageRef, digest string) ([]ledgerInventory, error) {
+// attested where it is published. The index SBOM may come from an untrusted
+// job, so its children must be exactly the platforms and digests of the
+// index the registry serves at the ledger digest.
+func ledgerIndexInventories(ctx context.Context, registry imageDigestResolver, sbomPath, imageRef, digest string) ([]ledgerInventory, error) {
 	root, err := pathsafe.OpenRoot(filepath.Dir(sbomPath))
 	if err != nil {
 		return nil, err
@@ -274,6 +278,10 @@ func ledgerIndexInventories(sbomPath, imageRef, digest string) ([]ledgerInventor
 	}
 
 	repository := domaincontainer.StripTagOrDigest(imageRef)
+	if err := requireServedIndexChildren(ctx, registry, repository+"@"+digest, children); err != nil {
+		return nil, fmt.Errorf("index SBOM %s: %w", sbomPath, err)
+	}
+
 	inventories := make([]ledgerInventory, 0, len(children))
 
 	for _, child := range children {
@@ -291,6 +299,32 @@ func ledgerIndexInventories(sbomPath, imageRef, digest string) ([]ledgerInventor
 	}
 
 	return inventories, nil
+}
+
+// requireServedIndexChildren reads the index at indexRef and requires the
+// index SBOM's platforms and child digests to be exactly its entries.
+func requireServedIndexChildren(ctx context.Context, registry imageDigestResolver, indexRef string, children []domainsbom.IndexBOMInventory) error {
+	raw, err := registry.Manifest(ctx, indexRef)
+	if err != nil {
+		return err
+	}
+
+	_, digest, _ := strings.Cut(indexRef, "@")
+	if fmt.Sprintf("sha256:%x", sha256.Sum256(raw)) != digest {
+		return fmt.Errorf("registry served other bytes for %s: %w", indexRef, errs.ErrValidation)
+	}
+
+	expected := make([]domaincontainer.PlatformDigest, 0, len(children))
+	for _, child := range children {
+		_, childDigest, _ := strings.Cut(child.ImageRef, "@")
+		expected = append(expected, domaincontainer.PlatformDigest{Platform: child.Platform, Digest: childDigest})
+	}
+
+	if err := domaincontainer.ValidateImageIndex(raw, expected); err != nil {
+		return fmt.Errorf("platforms are not the children of %s: %w", indexRef, err)
+	}
+
+	return nil
 }
 
 // signEntry consumes only a prepared plan; later entries cannot fail preflight

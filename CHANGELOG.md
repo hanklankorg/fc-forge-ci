@@ -848,6 +848,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The image signer attests an index SBOM's platform inventories only on the
+  children of the image index it signs. It reads that index from the
+  registry and refuses, before the first signature, an index SBOM that names
+  a digest or platform the index does not hold. On Forgejo a consumer job
+  writes the index SBOM, so it could have had the release key attest a
+  forged inventory on another image in the repository.
 - A Forgejo release's index SBOM no longer points at release files that
   were never published. It named each platform inventory by a release
   download address, and the Forgejo release offered no such file.

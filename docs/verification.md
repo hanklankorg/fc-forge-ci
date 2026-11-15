@@ -473,7 +473,9 @@ sha256sum app-1.2.3-abcdef0-analyzed-container-linux-amd64-sbom.cyclonedx.json \
 
 The same documents are attested in the registry: the index SBOM on the image
 index, each inventory on its platform's digest
-([verify and inspect the SBOM](#verify--inspect-the-sbom)).
+([verify and inspect the SBOM](#verify--inspect-the-sbom)). The signer
+attests an inventory only on a child of the signed index, with the platform
+the index gives it.
 
 The bundle is complete before the checksums file lists it, and the
 provenance statement and the signatures are made after that, so each covers

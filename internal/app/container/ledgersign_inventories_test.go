@@ -25,8 +25,9 @@ import (
 )
 
 // indexLedgerEntry writes a pinned index SBOM and its two platform inventories
-// into dist and returns the ledger entry of the index they describe.
-func indexLedgerEntry(t *testing.T) (imageledger.Entry, map[string][]byte) {
+// into dist and returns the ledger entry of the index they describe, and a
+// registry that serves that index at the ledger digest.
+func indexLedgerEntry(t *testing.T) (imageledger.Entry, map[string][]byte, indexLedgerResolver) {
 	t.Helper()
 
 	repository := "forge.example/examplescope/myapp"
@@ -58,8 +59,24 @@ func indexLedgerEntry(t *testing.T) (imageledger.Entry, map[string][]byte) {
 	require.NoError(t, os.WriteFile(entry.SBOM, bom, 0o600))
 
 	entry.SBOMSHA256 = fmt.Sprintf("%x", sha256.Sum256(bom))
+	resolver := indexLedgerResolver{fakeLedgerResolver{entry.CandidateTag: entry.Digest}, map[string][]byte{entry.Ref: index}}
 
-	return entry, inventories
+	return entry, inventories, resolver
+}
+
+// forgeIndexSBOM rewrites the entry's index SBOM and pins the result, as a
+// job that writes both the ledger and the index SBOM can.
+func forgeIndexSBOM(t *testing.T, entry *imageledger.Entry, old, replacement string) {
+	t.Helper()
+
+	body, err := os.ReadFile(entry.SBOM)
+	require.NoError(t, err)
+
+	forged := strings.Replace(string(body), old, replacement, 1)
+	require.NotEqual(t, string(body), forged, "the forgery changed the index SBOM")
+	require.NoError(t, os.WriteFile(entry.SBOM, []byte(forged), 0o600))
+
+	entry.SBOMSHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte(forged)))
 }
 
 // The index SBOM names each platform by child digest and its inventory by
@@ -69,10 +86,10 @@ func indexLedgerEntry(t *testing.T) (imageledger.Entry, map[string][]byte) {
 func TestSignLedgerImages_AttestsEachPlatformInventoryOnItsChildDigest(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	entry, inventories := indexLedgerEntry(t)
+	entry, inventories, resolver := indexLedgerEntry(t)
 	signer := &recordingImageSigner{}
 
-	err := appcontainer.SignLedgerImages(context.Background(), signer, &fakeLedgerSyft{}, fakeLedgerResolver{entry.CandidateTag: entry.Digest}, &bytes.Buffer{}, io.Discard, signInput(t, entry))
+	err := appcontainer.SignLedgerImages(context.Background(), signer, &fakeLedgerSyft{}, resolver, &bytes.Buffer{}, io.Discard, signInput(t, entry))
 	require.NoError(t, err)
 	require.Len(t, signer.attests, 4, "index SBOM, two platform inventories, provenance")
 
@@ -93,14 +110,16 @@ func TestSignLedgerImages_AttestsEachPlatformInventoryOnItsChildDigest(t *testin
 	require.Equal(t, string(domaincontainer.PredicateTypeSLSAProvenance1), signer.attests[3].input.PredicateType)
 }
 
-// An inventory that is not the one the index SBOM records, or an index SBOM
-// of another image, is refused before the first signature.
+// An inventory that is not the one the index SBOM records, an index SBOM of
+// another image, or a platform or child digest the served index does not
+// hold is refused before the first signature. Another digest in the same
+// repository, such as an older release, must not receive an attestation.
 func TestSignLedgerImages_RefusesInventoriesTheIndexSBOMDoesNotBind(t *testing.T) {
-	for _, defect := range []string{"changed inventory", "missing inventory", "index SBOM of another image"} {
+	for _, defect := range []string{"changed inventory", "missing inventory", "index SBOM of another image", "child outside the index", "platform outside the index", "index not served"} {
 		t.Run(defect, func(t *testing.T) {
 			t.Chdir(t.TempDir())
 
-			entry, _ := indexLedgerEntry(t)
+			entry, _, resolver := indexLedgerEntry(t)
 
 			switch defect {
 			case "changed inventory":
@@ -108,18 +127,25 @@ func TestSignLedgerImages_RefusesInventoriesTheIndexSBOMDoesNotBind(t *testing.T
 			case "missing inventory":
 				require.NoError(t, os.Remove("dist/sbom-rust-amd64.json"))
 			case "index SBOM of another image":
-				other, _ := indexLedgerEntry(t)
+				other, _, _ := indexLedgerEntry(t)
 				entry.Digest = "sha256:" + strings.Repeat("9", 64)
 				entry.Ref = "forge.example/examplescope/myapp@" + entry.Digest
 				entry.SBOMSHA256 = other.SBOMSHA256
+				resolver.fakeLedgerResolver = fakeLedgerResolver{entry.CandidateTag: entry.Digest}
+			case "child outside the index":
+				forgeIndexSBOM(t, &entry, "myapp@sha256:"+strings.Repeat("1", 64), "myapp@sha256:"+strings.Repeat("7", 64))
+			case "platform outside the index":
+				forgeIndexSBOM(t, &entry, `"value": "linux/arm64"`, `"value": "linux/arm64/v7"`)
+			case "index not served":
+				resolver.manifests = nil
 			}
 
 			signer := &recordingImageSigner{}
 
-			err := appcontainer.SignLedgerImages(context.Background(), signer, &fakeLedgerSyft{}, fakeLedgerResolver{entry.CandidateTag: entry.Digest}, &bytes.Buffer{}, io.Discard, signInput(t, entry))
+			err := appcontainer.SignLedgerImages(context.Background(), signer, &fakeLedgerSyft{}, resolver, &bytes.Buffer{}, io.Discard, signInput(t, entry))
 			require.Error(t, err)
 
-			if defect != "missing inventory" {
+			if defect != "missing inventory" && defect != "index not served" {
 				require.ErrorIs(t, err, errs.ErrValidation)
 			}
 

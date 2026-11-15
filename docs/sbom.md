@@ -322,6 +322,11 @@ GitLab a trusted step adds the image SBOMs, the signing job on Forgejo and
 image ledger pins, and refuses a hand-off that already has a signature or a
 provenance statement.
 
+The signer attests an index SBOM's inventories only on the children of the
+image index it signs. It reads the index from the registry at the ledger
+digest and refuses, before the first signature, an index SBOM whose
+platforms and child digests are not exactly that index's entries.
+
 Verify the files of a GitHub release in trust order: authenticate the checksum manifest, check
 downloaded files against it, then authenticate the optional detached SBOM
 bundle signature and unpack the bundle:

@@ -101,6 +101,27 @@ func (f fakeLedgerResolver) ResolveDigest(_ context.Context, ref string) (string
 	return digest, nil
 }
 
+// Manifest serves nothing: only an index SBOM makes the signer read an index.
+func (f fakeLedgerResolver) Manifest(context.Context, string) ([]byte, error) {
+	return nil, errors.New("manifest not found")
+}
+
+// indexLedgerResolver also serves image indexes by digest ref.
+type indexLedgerResolver struct {
+	fakeLedgerResolver
+
+	manifests map[string][]byte
+}
+
+func (r indexLedgerResolver) Manifest(_ context.Context, ref string) ([]byte, error) {
+	body, ok := r.manifests[ref]
+	if !ok {
+		return nil, errors.New("manifest not found")
+	}
+
+	return body, nil
+}
+
 func ledgerSignEntry(t *testing.T) imageledger.Entry {
 	t.Helper()
 

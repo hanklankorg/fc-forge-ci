@@ -292,12 +292,18 @@ func TestPublishReleaseImagesPinsOriginalInventoriesAndIndexBOM(t *testing.T) {
 	require.Equal(t, wantBOM, gotBOM)
 	// The signer reads the literal canonical ledger paths, verifies pins and
 	// attests those exact bytes. A rescan would fail this test.
+	appIndex, err := os.ReadFile(filepath.Join(fixture.in.OutputDir, "index-app.json"))
+	require.NoError(t, err)
+
+	served := map[string][]byte{entries[0].Ref: appIndex, entries[1].Ref: index}
+
 	for _, entry := range entries {
 		signer, signerSyft := &recordingImageSigner{}, &fakeLedgerSyft{}
+		resolver := indexLedgerResolver{fakeLedgerResolver{entry.CandidateTag: entry.Digest}, served}
 		want, err := os.ReadFile(entry.SBOM)
 		require.NoError(t, err)
 		require.NoError(t, appcontainer.SignLedgerImages(t.Context(), signer, signerSyft,
-			fakeLedgerResolver{entry.CandidateTag: entry.Digest}, io.Discard, io.Discard, appcontainer.SignLedgerImagesInput{
+			resolver, io.Discard, io.Discard, appcontainer.SignLedgerImagesInput{
 				Entries: []imageledger.Entry{entry}, ReleaseTag: fixture.in.ReleaseTag,
 				PredicatePath: writeBasePredicate(t), Method: domainrelease.SignMethodKMS, KeyRef: "inert-key-reference",
 				ExpectedImageRepository: strings.Split(entry.Ref, "@")[0],
@@ -324,7 +330,7 @@ func TestPublishReleaseImagesPinsOriginalInventoriesAndIndexBOM(t *testing.T) {
 
 		rejected := &recordingImageSigner{}
 		err = appcontainer.SignLedgerImages(t.Context(), rejected, signerSyft,
-			fakeLedgerResolver{entry.CandidateTag: entry.Digest}, io.Discard, io.Discard, appcontainer.SignLedgerImagesInput{
+			resolver, io.Discard, io.Discard, appcontainer.SignLedgerImagesInput{
 				Entries: []imageledger.Entry{entry}, ReleaseTag: fixture.in.ReleaseTag,
 				PredicatePath: writeBasePredicate(t), Method: domainrelease.SignMethodKMS, KeyRef: "inert-key-reference",
 				ExpectedImageRepository: strings.Split(entry.Ref, "@")[0],
