@@ -115,37 +115,8 @@ func CheckJobGraph(workflowYAML []byte, forgejo bool) ([]JobGraphViolation, erro
 			continue // only reusable-call consumers can mask
 		}
 
-		refs := producersIn(shape.If, true)
-		always := strings.Contains(shape.If, "always()")
-
-		var parsed []string
-
-		pending := []*yaml.Node{&shape.With}
-		seen := map[*yaml.Node]bool{}
-
-		for len(pending) > 0 {
-			node := resolveAlias(pending[len(pending)-1])
-			pending = pending[:len(pending)-1]
-
-			if node == nil || seen[node] {
-				continue
-			}
-
-			seen[node] = true
-			if node.Kind == yaml.ScalarNode {
-				if always {
-					refs = append(refs, producersIn(node.Value, false)...)
-				}
-
-				if forgejo {
-					parsed = append(parsed, unguardedFromJSONProducers(node.Value)...)
-				}
-			}
-
-			for _, v := range slices.Backward(node.Content) {
-				pending = append(pending, v)
-			}
-		}
+		read, parsed := withProducers(&shape.With, strings.Contains(shape.If, "always()"), forgejo)
+		refs := append(producersIn(shape.If, true), read...)
 
 		// An override that records no reason is reported in its own right,
 		// rather than being dropped so the job falls back to the generic
@@ -164,6 +135,42 @@ func CheckJobGraph(workflowYAML []byte, forgejo bool) ([]JobGraphViolation, erro
 	}
 
 	return violations, nil
+}
+
+// withProducers walks a reusable call's `with:` and returns the producers
+// whose outputs it reads (only when the call's `if:` has always(), as a
+// masking edge) and, on Forgejo, those it passes to fromJSON unguarded.
+func withProducers(with *yaml.Node, always, forgejo bool) ([]string, []string) {
+	var read, parsed []string
+
+	pending := []*yaml.Node{with}
+	seen := map[*yaml.Node]bool{}
+
+	for len(pending) > 0 {
+		node := resolveAlias(pending[len(pending)-1])
+		pending = pending[:len(pending)-1]
+
+		if node == nil || seen[node] {
+			continue
+		}
+
+		seen[node] = true
+		if node.Kind == yaml.ScalarNode {
+			if always {
+				read = append(read, producersIn(node.Value, false)...)
+			}
+
+			if forgejo {
+				parsed = append(parsed, unguardedFromJSONProducers(node.Value)...)
+			}
+		}
+
+		for _, v := range slices.Backward(node.Content) {
+			pending = append(pending, v)
+		}
+	}
+
+	return read, parsed
 }
 
 // appendMaskingViolations appends one violation per skippable producer that job
