@@ -293,7 +293,7 @@ func DispatchConsumerWorkflow(tb TB, target Target, repo, workflow, ref string) 
 	ctx, cancel := context.WithTimeout(Context(tb), timeoutLayerPush)
 	defer cancel()
 
-	if !regexp.MustCompile(`^[A-Za-z0-9_.-]+$`).MatchString(repo) || !regexp.MustCompile(`^[A-Za-z0-9_-]+\.yml$`).MatchString(workflow) {
+	if !regexp.MustCompile(`^[A-Za-z0-9_.-]+$`).MatchString(repo) || !trialWorkflow.MatchString(workflow) {
 		tb.Fatalf("invalid scratch repository or workflow")
 	}
 
