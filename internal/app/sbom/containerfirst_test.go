@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -114,5 +115,72 @@ func TestContainerFirstBuildSBOMsRefusesAnIncompleteCall(t *testing.T) {
 		if _, err := appsbom.ContainerFirstBuildSBOMs(context.Background(), &fakeGit{}, &lockfileGenerator{}, io.Discard, io.Discard, in); err == nil {
 			t.Errorf("%s: no refusal", name)
 		}
+	}
+}
+
+// workspaceGenerator writes a bom.json beside every member, wherever it
+// runs, as `cargo cyclonedx --all` does in a Cargo workspace, and fails when
+// asked to.
+type workspaceGenerator struct {
+	members []string
+	fail    error
+}
+
+func (g *workspaceGenerator) GenerateBuildSBOM(_ context.Context, _ projecttype.Type, _, _ string, _ io.Writer) error {
+	for _, member := range g.members {
+		if err := os.WriteFile(filepath.Join(member, "bom.json"), []byte(`{"bomFormat":"CycloneDX"}`), 0o600); err != nil {
+			return err
+		}
+	}
+
+	return g.fail
+}
+
+// The members of one Cargo workspace each get their SBOM though one run
+// writes all their BOMs; a BOM in dist/, which no harvest reads, is no
+// stand-in; and the generator's files go even when the call fails.
+func TestContainerFirstBuildSBOMsInACargoWorkspace(t *testing.T) {
+	members := []string{"svc", "worker"}
+	in := appsbom.ContainerFirstBuildSBOMsInput{
+		Artifacts: []pipeline.PlannedArtifact{
+			{Name: "svc", ProjectType: projecttype.Cargo, WorkingDirectory: "svc"},
+			{Name: "worker", ProjectType: projecttype.Cargo, WorkingDirectory: "worker"},
+		},
+		ProjectType: projecttype.Cargo, Version: "1.2.3", OutputDir: "dist/sboms",
+	}
+
+	for name, fail := range map[string]error{"written": nil, "failed": errs.ErrValidation} {
+		t.Run(name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+
+			for _, dir := range append(slices.Clone(members), "dist") {
+				if err := os.Mkdir(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if err := os.WriteFile("dist/bom.json", []byte(`{}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			written, err := appsbom.ContainerFirstBuildSBOMs(context.Background(), &fakeGit{sha: "abc1234"}, &workspaceGenerator{members: members, fail: fail}, io.Discard, io.Discard, in)
+			if fail == nil && (err != nil || len(written) != 2) {
+				t.Fatalf("wrote %q, %v; want both members' SBOMs", written, err)
+			}
+
+			if fail != nil && !errors.Is(err, fail) {
+				t.Fatalf("err %v, want the generator's", err)
+			}
+
+			for _, member := range members {
+				if _, err := os.Stat(filepath.Join(member, "bom.json")); !errors.Is(err, fs.ErrNotExist) {
+					t.Errorf("%s/bom.json stayed: %v", member, err)
+				}
+			}
+
+			if _, err := os.Stat("dist/bom.json"); err != nil {
+				t.Errorf("the dist/ BOM, which was there before, went: %v", err)
+			}
+		})
 	}
 }

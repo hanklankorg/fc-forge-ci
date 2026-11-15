@@ -39,7 +39,7 @@ type ContainerFirstBuildSBOMsInput struct {
 // build layer has on every forge: <artifact>-<version>[-<sha>]-build-sbom.
 // cyclonedx.json, the version without its v. An artifact of the type is never skipped: the declaration
 // plans its SBOM, and the release refuses a bundle without it.
-func ContainerFirstBuildSBOMs(ctx context.Context, gitRepo GitOps, gen BuildSBOMGenerator, out, stderr io.Writer, in ContainerFirstBuildSBOMsInput) ([]string, error) {
+func ContainerFirstBuildSBOMs(ctx context.Context, gitRepo GitOps, gen BuildSBOMGenerator, out, stderr io.Writer, in ContainerFirstBuildSBOMsInput) (_ []string, err error) {
 	if in.ProjectType != projecttype.Go && in.ProjectType != projecttype.Cargo {
 		return nil, fmt.Errorf("container-first build SBOMs are written for go or cargo, not %q: %w", in.ProjectType, errs.ErrUsage)
 	}
@@ -52,30 +52,43 @@ func ContainerFirstBuildSBOMs(ctx context.Context, gitRepo GitOps, gen BuildSBOM
 		return nil, fmt.Errorf("create %s: %w", in.OutputDir, err)
 	}
 
-	var written []string
+	// The SBOMs come from the lockfile alone: a bom.json already under an
+	// artifact's directory, committed or left by a build step, would be
+	// harvested in its place. The generator's own, and the ones it writes
+	// beside every member of a Cargo workspace, go once all are written.
+	before, err := buildBOMs(".")
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		if cleanErr := removeNewBuildBOMs(before); cleanErr != nil && err == nil {
+			err = fmt.Errorf("remove the generated BOMs: %w", cleanErr)
+		}
+	}()
+
+	written := []string{}
 
 	for _, artifact := range in.Artifacts {
 		if artifact.ProjectType != in.ProjectType {
 			continue
 		}
 
-		outputs, sources := map[string]bool{}, map[string]bool{}
+		dir := dirOrDot(artifact.WorkingDirectory)
+		if bom := harvestableBOM(before, dir); bom != "" {
+			return nil, fmt.Errorf("%s would stand in for the build SBOM of %s, which forge-ci writes from the lockfile; remove it, or skip the build step's own build SBOM: %w", bom, artifact.Name, errs.ErrValidation)
+		}
+
+		outputs := map[string]bool{}
 		if err := Generate(ctx, nil, nil, gitRepo, gen, out, stderr, GenerateInput{
 			ProjectType:      string(artifact.ProjectType),
 			Layers:           "build",
 			Version:          version.StripVPrefix(strings.TrimSpace(in.Version)),
 			Name:             artifact.Name,
-			WorkingDir:       dirOrDot(artifact.WorkingDirectory),
+			WorkingDir:       dir,
 			generatedOutputs: outputs,
-			generatedSources: sources,
 		}); err != nil {
 			return nil, fmt.Errorf("build SBOM of %s: %w", artifact.Name, err)
-		}
-
-		// The generator's own files go, so the checkout stays as it was and
-		// the next artifact's BOM is its own.
-		if err := removeGenerated(slices.Sorted(maps.Keys(sources)), dirOrDot(artifact.WorkingDirectory)); err != nil {
-			return nil, fmt.Errorf("remove the generated BOM of %s: %w", artifact.Name, err)
 		}
 
 		for _, path := range slices.Sorted(maps.Keys(outputs)) {
@@ -89,6 +102,76 @@ func ContainerFirstBuildSBOMs(ctx context.Context, gitRepo GitOps, gen BuildSBOM
 	}
 
 	return written, nil
+}
+
+// checkoutState are the bom.json files and the directories under the
+// checkout, outside .git and the directories no harvest reads, dist/ and
+// Cargo's target/.
+type checkoutState struct{ boms, dirs map[string]bool }
+
+func buildBOMs(root string) (checkoutState, error) {
+	found := checkoutState{boms: map[string]bool{}, dirs: map[string]bool{}}
+
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if entry.IsDir() && path != root && slices.Contains([]string{".git", "dist", "target"}, entry.Name()) {
+			return filepath.SkipDir
+		}
+
+		switch {
+		case entry.IsDir():
+			found.dirs[filepath.Clean(path)] = true
+		case entry.Name() == "bom.json":
+			found.boms[filepath.Clean(path)] = true
+		}
+
+		return nil
+	})
+
+	return found, err
+}
+
+// harvestableBOM is a bom.json of found under dir, empty when none is.
+func harvestableBOM(found checkoutState, dir string) string {
+	prefix := filepath.Clean(dir) + string(filepath.Separator)
+
+	for _, path := range slices.Sorted(maps.Keys(found.boms)) {
+		if dir == "." || strings.HasPrefix(path, prefix) {
+			return path
+		}
+	}
+
+	return ""
+}
+
+// removeNewBuildBOMs removes the bom.json files that were not there before,
+// and the directories made for them, so the checkout is left as it was.
+func removeNewBuildBOMs(before checkoutState) error {
+	after, err := buildBOMs(".")
+	if err != nil {
+		return err
+	}
+
+	for _, path := range slices.Sorted(maps.Keys(after.boms)) {
+		if before.boms[path] {
+			continue
+		}
+
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+
+		for dir := filepath.Dir(path); dir != "." && !before.dirs[dir]; dir = filepath.Dir(dir) {
+			if os.Remove(dir) != nil {
+				break // not empty
+			}
+		}
+	}
+
+	return nil
 }
 
 // moveAcrossDevices moves src to dst, which must not exist. It copies: on a
@@ -120,34 +203,6 @@ func moveAcrossDevices(src, dst string) error {
 	}
 
 	return os.Remove(src)
-}
-
-// removeGenerated removes the generator's files and the directories it left
-// empty, up to the working directory.
-func removeGenerated(files []string, workingDir string) error {
-	stop, err := filepath.Abs(workingDir)
-	if err != nil {
-		return err
-	}
-
-	for _, file := range files {
-		abs, err := filepath.Abs(file)
-		if err != nil {
-			return err
-		}
-
-		if err := os.Remove(abs); err != nil {
-			return err
-		}
-
-		for dir := filepath.Dir(abs); strings.HasPrefix(dir, stop+string(filepath.Separator)); dir = filepath.Dir(dir) {
-			if os.Remove(dir) != nil {
-				break // not empty
-			}
-		}
-	}
-
-	return nil
 }
 
 func dirOrDot(dir string) string {

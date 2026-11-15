@@ -187,9 +187,11 @@ Forgejo before anything is signed.
 The SBOM always comes from the lockfile. A `bom.json` already under the
 artifact's directory, committed or left by a build step, is refused rather
 than taken in its place: on Forgejo, a `build-go` or `build-cargo` step of the
-same job sets `enable-build-sbom: 'false'`. The generator's own `bom.json`
-is removed once its SBOM is in the output directory, so the checkout is left
-as it was.
+same job sets `enable-build-sbom: 'false'`. A `bom.json` in `dist/` or Cargo's
+`target/`, which no harvest reads, is left alone. Once every SBOM is in the
+output directory, the generator's `bom.json` files are removed, those `cargo
+cyclonedx` writes beside every member of a Cargo workspace included, even
+when the call fails, so the checkout is left as it was.
 
 Workspace-level `cargo test` lives in a caller-owned workflow either way, since
 workspace features can't be expressed per-artifact; forge-ci's artifact-first
