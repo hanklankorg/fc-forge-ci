@@ -34,7 +34,11 @@ builds:
 archives:
   - id: default
     formats: [tar.gz]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # <name>-<version>-<os>-<arch>, arch as uname -m spells it, with the
+    # same name as the archive's top directory.
+    name_template: >-
+      {{- .ProjectName }}-{{- .Version }}-{{- .Os }}-{{- if eq .Arch "amd64" }}x86_64{{- else if eq .Arch "arm64" }}aarch64{{- else }}{{ .Arch }}{{- end }}
+    wrap_in_directory: true
 
 # One package of each format per architecture. A package is built for its
 # architecture: the Alpine registry files a noarch package under

@@ -744,9 +744,11 @@ With `snapshot: "true"` the same action is a dry run of that release for a
 snapshot workflow: it packages the checked-out commit with the same skips,
 under forge-ci's snapshot version, `<base>-snapshot-<branch>-<short commit>`
 as `forge-ci version generate-snapshot` prints it, the version a snapshot's
-files and packages carry on every forge. GoReleaser takes it as the tag, so
-every file name and the SBOM bundle carry it, and the manifest is imported
-under it; the configuration needs no `snapshot` block. Packaging and the
+files and packages carry on every forge. The action tags the commit with it
+locally, never pushed, and GoReleaser takes that tag: it validates the tree
+and finds the previous tag as in the release, every file name and the SBOM
+bundle carry the version, and the manifest is imported under it; the
+configuration needs no `snapshot` block. A dirty tree, packaging and the
 hand-off layout then fail on the branch instead of at the release. It takes
 no `release-tag`, `release-sha` or `release-notes`, and refuses them. The
 action's `version` output is the version the files carry. Check out as the

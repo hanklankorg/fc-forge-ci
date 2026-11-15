@@ -89,7 +89,7 @@ func TestGoReleaserSnapshotBuildsTheCheckoutUnderTheSnapshotVersion(t *testing.T
 		want                            int
 		argv                            []string
 	}{
-		{"snapshot", "true", "", "", "", 0, []string{"release", "--clean", "--skip=publish,sign,announce,validate", "--config", "config with spaces.yml"}},
+		{"snapshot", "true", "", "", "", 0, []string{"release", "--clean", "--skip=publish,sign,announce", "--config", "config with spaces.yml"}},
 		{"snapshot given a tag", "true", "v1.2.3", "", "", 1, nil},
 		{"snapshot given a commit", "true", "", "0123456789abcdef0123456789abcdef01234567", "", 1, nil},
 		{"snapshot given release notes", "true", "", "", "notes.md", 1, nil},
@@ -100,16 +100,19 @@ func TestGoReleaserSnapshotBuildsTheCheckoutUnderTheSnapshotVersion(t *testing.T
 
 			box := newSandbox(t, "build-goreleaser")
 			box.write(".engine/bin/forge-ci", "#!/bin/sh\nset -eu\ntest \"$FORGE_CI_PROVIDER $*\" = 'forgejo version generate-snapshot'\necho 0.9.1-snapshot-feat-x-abc1234\n", 0o700)
+			box.write("tools/git", "#!/bin/sh\nset -eu\ntest \"$*\" = 'tag --no-sign v0.9.1-snapshot-feat-x-abc1234 HEAD'\ntouch \"$FAKE_TAGGED\"\n", 0o700)
 			box.write("tools/goreleaser", `#!/bin/sh
 set -eu
 test "$GORELEASER_CURRENT_TAG" = v0.9.1-snapshot-feat-x-abc1234
+test -e "$FAKE_TAGGED"
 printf '%s\0' "$@" >"$FAKE_ARGV_LOG"
 `, 0o700)
 
 			got := box.run(action.Runs.Steps[0].Run,
 				"PATH="+filepath.Join(box.root, "tools")+":"+os.Getenv("PATH"),
 				"SNAPSHOT="+test.snapshot, "RELEASE_SHA="+test.sha, "GORELEASER_CURRENT_TAG="+test.tag,
-				"GORELEASER_CONFIG=config with spaces.yml", "RELEASE_NOTES="+test.notes, "FORGE_CI_PROVIDER=")
+				"GORELEASER_CONFIG=config with spaces.yml", "RELEASE_NOTES="+test.notes, "FORGE_CI_PROVIDER=",
+				"FAKE_TAGGED="+filepath.Join(box.root, "tagged"))
 			if got.status != test.want {
 				t.Fatalf("status %d, expected %d: %s", got.status, test.want, got.stderr)
 			}

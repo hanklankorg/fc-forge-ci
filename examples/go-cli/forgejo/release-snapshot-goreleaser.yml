@@ -25,6 +25,7 @@ jobs:
       - name: Checkout pushed commit
         env:
           CHECKOUT_REF: ${{ forgejo.sha }}
+          FORGEJO_TOKEN: ${{ forgejo.token }}
         run: forge-ci platform checkout --fetch-all-refs
       - uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/setup-toolchain@PIN_FORGE_CI_SHA
         with:

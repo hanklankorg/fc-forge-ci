@@ -54,13 +54,15 @@ runs:
               exit 1
             fi
             # forge-ci's snapshot version, as its snapshot files and packages
-            # spell it, given to GoReleaser as the tag. No such tag exists,
-            # so its tag checks are skipped with validate.
+            # spell it, is the tag. Tagged locally at HEAD, never pushed (the
+            # checkout keeps no credential), it lets GoReleaser validate the
+            # tree and find the previous tag as in the release.
             # shellcheck source=.engine/bin/lib-forge-ci.sh
             source "${GITHUB_ACTION_PATH}/../../../.engine/bin/lib-forge-ci.sh"
             snapshot_version=$(FORGE_CI_PROVIDER=forgejo run_forge_ci version generate-snapshot)
             export GORELEASER_CURRENT_TAG="v${snapshot_version:?}"
-            goreleaser release --clean --skip=publish,sign,announce,validate \
+            git tag --no-sign "${GORELEASER_CURRENT_TAG}" HEAD
+            goreleaser release --clean --skip=publish,sign,announce \
               --config "${GORELEASER_CONFIG:?}"
             ;;
           false)
