@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sentence for a Forgejo without the link API and for a token Forgejo
   refuses. The plain `mvn deploy` form is not linked. GitHub and GitLab are
   unchanged: their packages belong to the repository already. See
-||||||| parent of d04e51ff (feat(forgejo): hand a Maven library build to the package publish)
+  `docs/forgejo.md#maven-npm-and-gradle-packages-in-the-owners-registry`.
 - The Forgejo `build-maven` action uploads the hand-off of a library build
   (`build-type: lib`), as GitHub's `build-maven` workflow does: every
   `pom.xml` and built JAR, as the run artifact `maven-build-artifacts`, or
@@ -397,7 +397,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `release.yml` passes the path. `forge-ci doctor` reads a placeholder left
   in a Forgejo `release-snapshot-workflow.yml` as a warning, as it does for
   the other `release*` files.
-||||||| parent of 082fa8f6 (test: delete a GitHub demo's packages with its repositories)
 - `just demo-delete github` deletes the container, npm and Maven packages
   GitHub binds to a demo's repositories before it deletes the repositories,
   and lists them first. GitHub keeps and unbinds the packages of a deleted
@@ -406,7 +405,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `just demo-delete forgejo` deletes the package versions Forgejo links to
   a demo's repositories before it deletes the repositories, and lists them
   first. A package linked to no repository is never deleted.
-||||||| parent of e2672336 (fix(release): publish image SBOMs only inside the SBOM bundle)
 - **BREAKING**: The SBOMs of a release's images are published in the
   release's SBOM bundle, `<project>-<version>-sboms.tar.gz`, on every forge,
   beside the SBOMs of the build. A GitLab release with `release-images`
