@@ -33,7 +33,12 @@ const (
 	flagPath                     = "path"
 	flagEvidenceFile             = "evidence-file"
 	flagProjectName              = "project-name"
+	flagArtifactsConfig          = "artifacts-config"
 )
+
+// defaultArtifactsConfig is the release's declaration when none is named; it
+// may be absent.
+const defaultArtifactsConfig = ".forge-ci/artifacts.yml"
 
 // Shared flag defaults and credential labels, declared once for the same
 // goconst/rename-in-one-place reasons as the flag names above.

@@ -16,6 +16,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
 	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
+	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 )
 
 const valuesBase = "catalog.example/components"
@@ -32,13 +33,15 @@ func multiItemBuildPlan() pipeline.ReleaseBuildStagePlan {
 
 	return pipeline.ReleaseBuildStagePlan{Version: 1, Stage: "build", Targets: pipeline.ReleaseBuildTargets{
 		Maven: runningTarget(
-			pipeline.PlannedArtifact{Name: "core-lib", ProjectType: projecttype.Maven, WorkingDirectory: "core", BuildType: config.BuildTypeLibrary, EffectiveSBOMs: build},
+			pipeline.PlannedArtifact{Name: "core-lib", ProjectType: projecttype.Maven, WorkingDirectory: "core", BuildType: config.BuildTypeLibrary, EffectiveSBOMs: build,
+				BuildSBOMArtifactName: domainrelease.ResolveArtifactNames(projecttype.Maven, "core-lib").SBOMArtifact},
 			pipeline.PlannedArtifact{Name: "svc", ProjectType: projecttype.Maven, WorkingDirectory: "svc", BuildType: config.BuildTypeApplication, Maven: &config.MavenConfig{MavenProfile: "ignored-for-apps", JavaVersion: "21"}},
 			pipeline.PlannedArtifact{Name: "api-lib", ProjectType: projecttype.Maven, WorkingDirectory: "api", BuildType: config.BuildTypeLibrary, Maven: &config.MavenConfig{MavenProfile: "ossrh", JavaVersion: "17"}},
 		),
 		NPM: runningTarget(
 			pipeline.PlannedArtifact{Name: "web", ProjectType: projecttype.NPM, WorkingDirectory: "ui", NPM: &config.NPMConfig{NodeVersion: "22"}},
-			pipeline.PlannedArtifact{Name: "docs", ProjectType: projecttype.NPM, EffectiveSBOMs: build},
+			pipeline.PlannedArtifact{Name: "docs", ProjectType: projecttype.NPM, EffectiveSBOMs: build,
+				BuildSBOMArtifactName: domainrelease.ResolveArtifactNames(projecttype.NPM, "docs").SBOMArtifact},
 		),
 		Gradle: runningTarget(
 			pipeline.PlannedArtifact{Name: "jvm", ProjectType: projecttype.Gradle, WorkingDirectory: "jvm", Gradle: &config.GradleConfig{GradleTasks: "build publish", JavaVersion: "21"}},
@@ -52,7 +55,8 @@ func multiItemBuildPlan() pipeline.ReleaseBuildStagePlan {
 		),
 		Go: runningTarget(
 			pipeline.PlannedArtifact{Name: "cli", ProjectType: projecttype.Go, Go: &config.GoConfig{MainPackage: "./cmd/cli", Platforms: "linux/riscv64", SkipTests: false}},
-			pipeline.PlannedArtifact{Name: "agent", ProjectType: projecttype.Go, WorkingDirectory: "agent", Go: &config.GoConfig{SkipTests: true}, EffectiveSBOMs: build},
+			pipeline.PlannedArtifact{Name: "agent", ProjectType: projecttype.Go, WorkingDirectory: "agent", Go: &config.GoConfig{SkipTests: true}, EffectiveSBOMs: build,
+				BuildSBOMArtifactName: domainrelease.ResolveArtifactNames(projecttype.Go, "agent").SBOMArtifact},
 		),
 		Cargo: runningTarget(
 			pipeline.PlannedArtifact{Name: "rs", ProjectType: projecttype.Cargo, WorkingDirectory: "rs", Cargo: &config.CargoConfig{Platforms: "linux/arm64", SkipTests: true}},

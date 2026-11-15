@@ -15,6 +15,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
 	"github.com/diggsweden/forge-ci/internal/domain/projecttype"
+	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 )
 
 // testRuntimeImages gives every build family an image, as a caller must.
@@ -43,6 +44,7 @@ func TestBuildStagePipeline_FansOutRunningTargets(t *testing.T) {
 			Go: runningTarget(pipeline.PlannedArtifact{
 				Name: "cli", ProjectType: projecttype.Go, WorkingDirectory: ".",
 				Go: &config.GoConfig{SkipTests: true}, EffectiveSBOMs: []config.SBOMLayer{config.SBOMLayerBuild},
+				BuildSBOMArtifactName: domainrelease.ResolveArtifactNames(projecttype.Go, "cli").SBOMArtifact,
 			}),
 			Cargo: runningTarget(pipeline.PlannedArtifact{Name: "rustcli", ProjectType: projecttype.Cargo, WorkingDirectory: "rs"}),
 		},

@@ -317,7 +317,7 @@ func TestSigningSignsTheReleaseFilesTheWayTheDeclarationSays(t *testing.T) {
 				`rc_read_handoff() { mkdir dist; export DIST_DIR=dist RELEASE_FILES_MANIFEST=dist/release-files.json; }; ` +
 				`rc_sign_release_files() { echo "files signed with $1"; exit 0; }; rc_sign_release false`
 
-			output, err := runReleaseFunction(t, t.TempDir(), body, "CI_PROJECT_DIR=/project", "RC_SIGN_DISTRO_PACKAGES=false",
+			output, err := runReleaseFunction(t, t.TempDir(), body, "CI_PROJECT_DIR=/project", "RC_ARTIFACTS_CONFIG=", "RC_SIGN_DISTRO_PACKAGES=false",
 				"RELEASE_TAG=v1.2.3", "RELEASE_SHA=0123456789abcdef0123456789abcdef01234567")
 			if err != nil || !strings.Contains(output, "files signed with "+signing+"\n") {
 				t.Fatalf("the release files were not signed with %s: %v\n%s", signing, err, output)
@@ -350,7 +350,7 @@ func TestSigningLeavesTheProvenanceStatementToTheFileSigner(t *testing.T) {
 				`eval "real_$(declare -f rc_sign_release_files)"; ` +
 				`rc_sign_release_files() { real_rc_sign_release_files "$@"; exit; }; rc_sign_release false`
 
-			output, err := runReleaseFunction(t, work, body, "CI_PROJECT_DIR=/project", "RC_SIGN_DISTRO_PACKAGES=false",
+			output, err := runReleaseFunction(t, work, body, "CI_PROJECT_DIR=/project", "RC_ARTIFACTS_CONFIG=", "RC_SIGN_DISTRO_PACKAGES=false",
 				"RELEASE_TAG=v1.2.3", "RELEASE_SHA="+release,
 				"RELEASE_COSIGN_PRIVATE_KEY=cosign-key", "RELEASE_COSIGN_PASSPHRASE=cosign-passphrase",
 				"RELEASE_GPG_PRIVATE_KEY=gpg-key", "RELEASE_GPG_PASSPHRASE=gpg-passphrase", "RELEASE_GPG_FINGERPRINT=fingerprint")

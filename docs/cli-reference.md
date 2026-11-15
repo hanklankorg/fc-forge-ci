@@ -4412,6 +4412,14 @@ a dist that already holds the provenance statement or a <file>.bundle or
 <file>.sig of a declared file. Signing writes those files and "release files
 manifest" publishes the ones it finds, so one that exists before signing would
 be published as the signer's.
+
+The release's artifacts.yml (--artifacts-config, by default
+.forge-ci/artifacts.yml, which may be absent) names the artifacts whose release
+build hands over a build SBOM: a Maven, npm, Gradle or Android artifact, or an
+artifact-first Go or Cargo one, whose sboms keep the build layer. A manifest
+that then declares no SBOM is refused. An Xcode, Python or meta artifact, a
+docs or script project, writes none and needs none; a container-first Go or
+Cargo artifact is built inside its image and hands over none.
 ```
 
 | Flag | Description | Type | Default | Env vars |
@@ -4419,6 +4427,7 @@ be published as the signer's.
 | `--dist-dir` | dist directory containing GoReleaser artifacts.json and release files; use a workspace-relative path for manifest/asset operations | string | `"dist"` | n/a |
 | `--manifest` | release file manifest path; a manifest named here must exist | string | `"dist/release-files.json"` | `$RELEASE_FILES_MANIFEST` |
 | `--unsigned` | require the unsigned hand-off state: no declared provenance or signature, and no provenance statement or signature of a declared file in the dist | bool | `false` | n/a |
+| `--artifacts-config` | artifacts.yml of the release, whose artifacts with a build SBOM need one in the manifest (default: .forge-ci/artifacts.yml, which may be absent) | string | `""` | n/a |
 
 #### `forge-ci release files validate-checksums`
 

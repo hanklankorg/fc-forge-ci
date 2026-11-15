@@ -121,7 +121,7 @@ func BuildStagePipeline(plan pipeline.ReleaseBuildStagePlan, opts BuildPipelineO
 		err := addTargetIncludes(&out, include.component, include.target, opts, artifactName, include.binaries, include.binaries, func(artifact pipeline.PlannedArtifact) map[string]any {
 			return include.inputs(artifact, map[string]any{
 				"working-directory": dirOrDot(artifact.WorkingDirectory),
-				"enable-build-sbom": hasBuildSBOM(artifact),
+				"enable-build-sbom": artifact.ProducesBuildSBOM(),
 				"runtime-image":     include.image,
 			})
 		})
@@ -501,10 +501,6 @@ func validateCargoTargetRepresentable(target pipeline.TargetPlan[pipeline.Planne
 
 func unsupportedTarget(stage, target, component string) error {
 	return fmt.Errorf("GitLab %s target %q cannot be generated: Catalog component %q is unavailable: %w", stage, target, component, errs.ErrUnsupported)
-}
-
-func hasBuildSBOM(a pipeline.PlannedArtifact) bool {
-	return slices.Contains(a.EffectiveSBOMs, config.SBOMLayerBuild)
 }
 
 // mavenBuildType maps the config enum (application/library) to the maven

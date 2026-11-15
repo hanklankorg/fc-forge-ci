@@ -344,3 +344,37 @@ func names(artifacts []pipeline.PlannedArtifact) []string {
 
 	return out
 }
+
+// The artifacts whose release build hands over a build SBOM are the ones of a
+// type that writes one, whose SBOM layers keep the build layer, built outside
+// an image: a docs or script project, an Xcode app, an artifact without the
+// build layer and a container-first service hand over none.
+func TestArtifactSets_BuildSBOMArtifacts(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Artifacts: []config.Artifact{
+			{Name: "app", ProjectType: projecttype.Maven},
+			{Name: "docs", ProjectType: projecttype.Meta},
+			{Name: "ios", ProjectType: projecttype.XcodeIOS},
+			{Name: "docs-asking", ProjectType: projecttype.Meta, SBOMs: string(config.SBOMLayerBuild)},
+			{Name: "unscanned", ProjectType: projecttype.NPM, SBOMs: "none"},
+			{Name: "analyzed-only", ProjectType: projecttype.Gradle, SBOMs: string(config.SBOMLayerAnalyzedArtifact)},
+			{Name: "service", ProjectType: projecttype.Cargo, Cargo: &config.CargoConfig{BuildMode: config.CargoBuildModeContainerFirst}},
+			{Name: "go-service", ProjectType: projecttype.Go, Go: &config.GoConfig{BuildMode: config.GoBuildModeContainerFirst}},
+			{Name: "tool", ProjectType: projecttype.Cargo, Cargo: &config.CargoConfig{BuildMode: config.CargoBuildModeArtifactFirst}},
+			{Name: "cli", ProjectType: projecttype.Go},
+		},
+	}
+	if err := config.Derive(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := pipeline.NewConfigPlan(cfg).Artifacts.BuildSBOMArtifacts(), []string{"app", "tool", "cli"}; !slices.Equal(got, want) {
+		t.Errorf("build SBOM artifacts = %q, want %q", got, want)
+	}
+
+	if got := pipeline.NewConfigPlan(&config.Config{}).Artifacts.BuildSBOMArtifacts(); got != nil {
+		t.Errorf("without artifacts: %q, want none", got)
+	}
+}

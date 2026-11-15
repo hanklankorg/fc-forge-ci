@@ -476,6 +476,8 @@ jobs:
             --expected-digest "${EXPECTED_DIGEST:?}"
 
       - name: Verify unsigned release file hand-off
+        env:
+          ARTIFACTS_CONFIG: ${{ needs.coordinates.outputs.artifacts_config }}
         run: |
           set -euo pipefail
           cd "${CONSUMER_WORKSPACE:?}"
@@ -484,8 +486,12 @@ jobs:
           # First contact with the producer's files: a signature, a bundle or a
           # provenance statement that is already in the dist would be published
           # as this signer's, so the engine refuses one before anything is signed.
+          # The declaration names the artifacts whose builds hand over a build
+          # SBOM; a hand-off without one is refused, as on every forge.
+          config=()
+          if [ -n "${ARTIFACTS_CONFIG:-}" ]; then config=(--artifacts-config "${ARTIFACTS_CONFIG}"); fi
           run_forge_ci release files validate \
-            --unsigned \
+            --unsigned "${config[@]}" \
             --manifest "${RELEASE_FILES_MANIFEST:?}" \
             --dist-dir "${DIST_DIR:?}"
 

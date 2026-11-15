@@ -345,7 +345,7 @@ func TestReleaseBuildHandoffRefusesAConsumerLedger(t *testing.T) {
 				}
 			}
 
-			output, err := runReleaseFunction(t, work, `rc_planned_packages() { : >"$1"; }; rc_build_handoff`, "RC_WORK="+work, "CI_PROJECT_DIR="+filepath.Join(work, "project"))
+			output, err := runReleaseFunction(t, work, `rc_planned_packages() { : >"$1"; }; rc_build_handoff`, "RC_WORK="+work, "RC_ARTIFACTS_CONFIG=", "CI_PROJECT_DIR="+filepath.Join(work, "project"))
 			if tc.planted {
 				if err == nil || !strings.Contains(output, "reserved for this job") {
 					t.Fatalf("a planted hand-off was merged into: %v\n%s", err, output)
@@ -456,7 +456,7 @@ func TestReleaseSigningReadsTheHandoffThePolicyNames(t *testing.T) {
 				`rc_read_handoff() { echo "read: $1"; mkdir dist; ` + ledger + `export DIST_DIR=dist RELEASE_FILES_MANIFEST=dist/release-files.json; }; ` +
 				`rc_engine() { echo "engine: $*"; exit 0; }; rc_sign_release ` + tc.images
 
-			output, err := runReleaseFunction(t, work, body, "CI_PROJECT_DIR=/project", "RC_SIGN_DISTRO_PACKAGES=false")
+			output, err := runReleaseFunction(t, work, body, "CI_PROJECT_DIR=/project", "RC_ARTIFACTS_CONFIG=", "RC_SIGN_DISTRO_PACKAGES=false")
 			if (err == nil) != tc.signed {
 				t.Fatalf("signed=%t, want %t:\n%s", err == nil, tc.signed, output)
 			}

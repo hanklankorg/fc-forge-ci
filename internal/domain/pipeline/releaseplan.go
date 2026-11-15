@@ -600,7 +600,7 @@ func newReleaseArtifactTransferPlan(configPlan ConfigPlan, policy ReleasePolicy)
 			})
 		}
 
-		if policyIncludesSBOMLayer(policy.SBOMs, config.SBOMLayerBuild) && artifact.BuildSBOMArtifactName != "" && artifactIncludesSBOMLayer(artifact, config.SBOMLayerBuild) {
+		if policyIncludesSBOMLayer(policy.SBOMs, config.SBOMLayerBuild) && artifact.ProducesBuildSBOM() {
 			items = append(items, ArtifactTransfer{
 				Kind:     ArtifactTransferBuildSBOM,
 				Name:     artifact.BuildSBOMArtifactName,
@@ -671,10 +671,6 @@ func policyIncludesSBOMLayer(value string, layer config.SBOMLayer) bool {
 	}
 
 	return slices.Contains(layers, layer)
-}
-
-func artifactIncludesSBOMLayer(artifact PlannedArtifact, layer config.SBOMLayer) bool {
-	return slices.Contains(artifact.EffectiveSBOMs, layer)
 }
 
 // selectReleasePlatforms narrows every container to the platforms a run selects,

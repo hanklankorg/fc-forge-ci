@@ -239,7 +239,7 @@ func newSnapshotReleaseArtifactTransferPlan(configPlan ConfigPlan, policy Snapsh
 			})
 		}
 
-		if includeBuild && artifact.BuildSBOMArtifactName != "" && artifactIncludesSBOMLayer(artifact, config.SBOMLayerBuild) {
+		if includeBuild && artifact.ProducesBuildSBOM() {
 			items = append(items, ArtifactTransfer{
 				Kind:     ArtifactTransferBuildSBOM,
 				Name:     artifact.BuildSBOMArtifactName,

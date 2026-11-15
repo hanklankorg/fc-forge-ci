@@ -407,6 +407,9 @@ type ReleaseStagePlans struct {
 	// Sign is the declaration's sign block as written, empty without one:
 	// each forge's plan says how its release signs in its place.
 	Sign config.SignConfig
+	// BuildSBOMArtifacts are the artifacts whose builds hand over a build
+	// SBOM, nil without a declaration or without one.
+	BuildSBOMArtifacts []string
 }
 
 // LoadReleaseStagePlans plans the version bump and the builds of the
@@ -436,5 +439,5 @@ func LoadReleaseStagePlans(in EmitConfigPlanInput, annot output.Annotator, absen
 		return ReleaseStagePlans{}, err
 	}
 
-	return ReleaseStagePlans{Prepare: prepare, Build: build, DistroPackages: plan.DistroPackages, Sign: cfg.Sign}, nil
+	return ReleaseStagePlans{Prepare: prepare, Build: build, DistroPackages: plan.DistroPackages, Sign: cfg.Sign, BuildSBOMArtifacts: plan.Artifacts.BuildSBOMArtifacts()}, nil
 }

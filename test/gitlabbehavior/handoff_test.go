@@ -291,7 +291,7 @@ func TestReleasePublishesExactlyThePlannedPackages(t *testing.T) {
 						`rc_planned_packages() { printf '`+scenario.planned+`' >"$1"; }; `+function,
 					"packages", script)
 				command.Dir = dir
-				command.Env = []string{"PATH=/usr/bin:/bin", "CI_PROJECT_DIR=" + t.TempDir(), "RC_WORK=" + t.TempDir(), "RELEASE_VERSION=1.2.3", "OWNER_CLI_BINARY=" + os.Args[0]}
+				command.Env = []string{"PATH=/usr/bin:/bin", "CI_PROJECT_DIR=" + t.TempDir(), "RC_WORK=" + t.TempDir(), "RC_ARTIFACTS_CONFIG=", "RELEASE_VERSION=1.2.3", "OWNER_CLI_BINARY=" + os.Args[0]}
 
 				if !scenario.noToken {
 					command.Env = append(command.Env, "RELEASE_PACKAGE_TOKEN=inert-canary-value")

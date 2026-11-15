@@ -13,8 +13,10 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	appconfig "github.com/diggsweden/forge-ci/internal/app/config"
 	apprelease "github.com/diggsweden/forge-ci/internal/app/release"
 	"github.com/diggsweden/forge-ci/internal/cli/cienv"
+	"github.com/diggsweden/forge-ci/internal/cli/deps"
 	"github.com/diggsweden/forge-ci/internal/cliio"
 	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 )
@@ -273,14 +275,34 @@ verb: it also refuses a manifest that declares provenance or a signature, and
 a dist that already holds the provenance statement or a <file>.bundle or
 <file>.sig of a declared file. Signing writes those files and "release files
 manifest" publishes the ones it finds, so one that exists before signing would
-be published as the signer's.`,
+be published as the signer's.
+
+The release's artifacts.yml (--artifacts-config, by default
+.forge-ci/artifacts.yml, which may be absent) names the artifacts whose release
+build hands over a build SBOM: a Maven, npm, Gradle or Android artifact, or an
+artifact-first Go or Cargo one, whose sboms keep the build layer. A manifest
+that then declares no SBOM is refused. An Xcode, Python or meta artifact, a
+docs or script project, writes none and needs none; a container-first Go or
+Cargo artifact is built inside its image and hands over none.`,
 		Flags: append(releaseFilesFlags(),
 			&cli.BoolFlag{Name: "unsigned", Usage: "require the unsigned hand-off state: no declared provenance or signature, and no provenance statement or signature of a declared file in the dist"},
+			&cli.StringFlag{Name: flagArtifactsConfig, Usage: "artifacts.yml of the release, whose artifacts with a build SBOM need one in the manifest (default: .forge-ci/artifacts.yml, which may be absent)"},
 		),
 		Action: func(_ context.Context, cmd *cli.Command) error {
+			path := cmd.String(flagArtifactsConfig)
+			if path == "" {
+				path = defaultArtifactsConfig
+			}
+
+			plans, err := appconfig.LoadReleaseStagePlans(appconfig.EmitConfigPlanInput{Path: path}, deps.Annotator(cmd), cmd.String(flagArtifactsConfig) == "")
+			if err != nil {
+				return err
+			}
+
 			if err := apprelease.ValidateReleaseFileManifest(apprelease.ValidateReleaseFileManifestInput{
-				FilesInput: releaseFilesInput(cmd),
-				Unsigned:   cmd.Bool("unsigned"),
+				FilesInput:         releaseFilesInput(cmd),
+				Unsigned:           cmd.Bool("unsigned"),
+				BuildSBOMArtifacts: plans.BuildSBOMArtifacts,
 			}); err != nil {
 				return err
 			}

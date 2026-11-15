@@ -154,6 +154,36 @@ type PlannedArtifact struct {
 	Python        *config.PythonConfig        `json:"python,omitempty"`
 }
 
+// ProducesBuildSBOM reports whether the artifact's build hands over a build
+// SBOM on every forge: its type writes one and its effective SBOM layers keep
+// the build layer. An Xcode, Python or meta artifact writes none, whatever
+// its layers say.
+func (a PlannedArtifact) ProducesBuildSBOM() bool {
+	return a.BuildSBOMArtifactName != "" && slices.Contains(a.EffectiveSBOMs, config.SBOMLayerBuild)
+}
+
+// BuildSBOMArtifacts are the names of the artifacts whose release build hands
+// over a build SBOM, in declaration order; nil when none does. A
+// container-first Go or Cargo artifact is built inside its image and has no
+// release build of its own: only GitHub writes its build SBOM, in a job apart
+// (sbom-go.yml, sbom-cargo.yml), which its release plan requires.
+func (a ArtifactSets) BuildSBOMArtifacts() []string {
+	var names []string
+
+	for _, artifact := range a.All {
+		if artifact.ProducesBuildSBOM() && !artifact.containerFirst() {
+			names = append(names, artifact.Name)
+		}
+	}
+
+	return names
+}
+
+func (a PlannedArtifact) containerFirst() bool {
+	return (a.ProjectType == projecttype.Go && a.GoBuildMode == config.GoBuildModeContainerFirst) ||
+		(a.ProjectType == projecttype.Cargo && a.CargoBuildMode == config.CargoBuildModeContainerFirst)
+}
+
 // ContainerSets groups planned containers and carries the common has-containers
 // gate currently computed in workflow shell.
 type ContainerSets struct {

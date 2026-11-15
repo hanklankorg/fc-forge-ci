@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	apprelease "github.com/diggsweden/forge-ci/internal/app/release"
+	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
 	"github.com/stretchr/testify/require"
 )
@@ -107,6 +108,39 @@ func TestUnsignedManifestEvidenceRefusalsPreserveOriginal(t *testing.T) {
 			_, err = apprelease.WriteReleaseFileManifest(in)
 			require.Error(t, err)
 			require.Equal(t, before, readFile(t, "dist/release-files.json"))
+		})
+	}
+}
+
+// A hand-off whose declaration plans a build SBOM declares at least one;
+// one that plans none needs none.
+func TestValidateReleaseFileManifestHoldsPlannedBuildSBOMs(t *testing.T) {
+	for name, test := range map[string]struct {
+		sboms   []string
+		planned []string
+		want    string
+	}{
+		"planned and declared": {sboms: []string{"dist/app.cdx.json"}, planned: []string{"app"}},
+		"planned, none":        {planned: []string{"app", "lib"}, want: "plans a build SBOM for app, lib"},
+		"nothing planned":      {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			writeReleaseFilesTestFile(t, "dist/app.tar.gz", "archive")
+			writeReleaseFilesTestFile(t, "dist/app.cdx.json", `{"bomFormat":"CycloneDX","specVersion":"1.6"}`)
+
+			_, err := apprelease.DeclareReleaseFiles(apprelease.DeclareReleaseFilesInput{SBOMBundleNaming: testSBOMBundleNaming, Assets: []string{"dist/app.tar.gz"}, SBOMs: test.sboms})
+			require.NoError(t, err)
+
+			err = apprelease.ValidateReleaseFileManifest(apprelease.ValidateReleaseFileManifestInput{Unsigned: true, BuildSBOMArtifacts: test.planned})
+			if test.want == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, errs.ErrValidation)
+			require.ErrorContains(t, err, test.want)
 		})
 	}
 }

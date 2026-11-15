@@ -413,7 +413,9 @@ rc_build_handoff() {
   # Before anything is signed: the package job would refuse the same dist
   # only after the release is published.
   rc_packages dist || return
-  rc_engine release files validate --unsigned --manifest dist/release-files.json --dist-dir dist
+  local -a artifacts_config=()
+  if [ -n "${RC_ARTIFACTS_CONFIG?}" ]; then artifacts_config=(--artifacts-config "${RC_ARTIFACTS_CONFIG}"); fi
+  rc_engine release files validate --unsigned "${artifacts_config[@]}" --manifest dist/release-files.json --dist-dir dist
   rc_engine release prepare-dist --path dist --prune-dirs false
   local handoff="${CI_PROJECT_DIR}/_release-build"
   rc_new_handoff "${handoff}" || return
@@ -810,7 +812,9 @@ rc_sign_release() {
     return 1
     ;;
   esac
-  rc_engine release files validate --unsigned --manifest "${RELEASE_FILES_MANIFEST}" --dist-dir "${DIST_DIR}"
+  local -a artifacts_config=()
+  if [ -n "${RC_ARTIFACTS_CONFIG?}" ]; then artifacts_config=(--artifacts-config "${RC_ARTIFACTS_CONFIG}"); fi
+  rc_engine release files validate --unsigned "${artifacts_config[@]}" --manifest "${RELEASE_FILES_MANIFEST}" --dist-dir "${DIST_DIR}"
   # Only this trusted job may create the publication ledger. A producer must
   # not bypass import by pre-seeding that reserved path without a source ledger.
   rc_require_absent "${DIST_DIR}/release-images-publication.json"
