@@ -386,7 +386,7 @@ func assertVersionImageLookup(t *testing.T, expression string) {
 
 	const (
 		prefix = "${{ format('{0}', needs.coordinates.outputs[fromJSON('"
-		suffix = "')[matrix.version.family]]) }}"
+		suffix = "')[matrix.family]]) }}"
 	)
 
 	if !strings.HasPrefix(expression, prefix) || !strings.HasSuffix(expression, suffix) {

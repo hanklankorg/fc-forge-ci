@@ -897,6 +897,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- On Forgejo, a release whose plan bumps no version shows its version job
+  as `Prepare: version none`, where it was `Prepare: version none
+  (map[])`, and a family's job as, for example, `Prepare: version java
+  (java, maven)`, where the row's values were shown as a Go map. Forgejo
+  appends a row's values to the name of a job whose matrix needs another
+  job's output, so the rows are now plain include entries.
+
 - On Forgejo, a release links every package it publishes to the repository
   it runs from, as GitHub does. The plain `mvn deploy` form of
   `forge-ci publish forge-packages deploy` now links each reactor project

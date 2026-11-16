@@ -134,15 +134,15 @@ func TestPrepareReleaseGoesOnWithoutAVersionBump(t *testing.T) {
 
 	version := parsed.jobs["version"]
 
-	matrix := scalarString(mappingValue(mappingValue(mappingValue(version.node, "strategy"), "matrix"), "version"))
+	matrix := scalarString(mappingValue(mappingValue(mappingValue(version.node, "strategy"), "matrix"), "include"))
 	if want := "${{ fromJSON(needs.plan.outputs.versions != '[]' && needs.plan.outputs.versions || '[{}]') }}"; matrix != want {
 		t.Errorf("the version matrix is %q, want %q", matrix, want)
 	}
 
-	const stepCondition = "${{ matrix.version.family != '' }}"
+	const stepCondition = "${{ matrix.family != '' }}"
 
 	steps := version.steps()
-	if len(steps) < 2 || scalarString(mappingValue(steps[0], "if")) != "${{ !matrix.version.family }}" {
+	if len(steps) < 2 || scalarString(mappingValue(steps[0], "if")) != "${{ !matrix.family }}" {
 		t.Fatal("the version job's first step must be the empty row's note")
 	}
 
