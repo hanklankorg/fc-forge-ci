@@ -927,16 +927,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `forge-ci container base-images cleanup` sweeps stale staging tags only
-  of the flavors it is given in `BASE_IMAGES_JSON`,
-  `SHARED_CORE_IMAGES_JSON` and `BASE_INPUTS_JSON`. Before, it swept every
-  promoted staging tag in the package, so when a base graph's flavors ran
-  as parallel stages into one package, one stage's cleanup deleted another
-  flavor's candidate, and that stage's own cleanup then failed with
-  `MANIFEST_UNKNOWN`. A stage now leaves the root's and the other flavors'
-  candidates to their own cleanup, and still removes its own flavor's
-  promoted candidates from older inputs. The log names the flavors swept:
-  `Checking for stale staging base tags of <flavors>.` A cleanup given no
-  flavor sweeps nothing.
+  of the flavors of the images it is given in `BASE_IMAGES_JSON` and
+  `SHARED_CORE_IMAGES_JSON`; `BASE_INPUTS_JSON` may cover the whole graph
+  and does not widen it. Before, it swept every promoted staging tag in the
+  package, so when a base graph's flavors ran as parallel stages into one
+  package, one stage's cleanup deleted another flavor's candidate, and that
+  stage's own cleanup then failed with `MANIFEST_UNKNOWN`. A stage now
+  leaves the root's and the other flavors' candidates to their own cleanup,
+  and still removes its own flavor's promoted candidates from older inputs.
+  A candidate that is already gone while its final tag verifies is reported
+  as `Staging base tag already removed: <tag>` instead of failing the job,
+  and an entry whose candidate or final tag names another flavor is
+  refused. The log names the flavors swept, `Checking for stale staging
+  base tags of <flavors>.`, or says `No flavors given; skipping the stale
+  staging sweep.`
 - On Forgejo, `forge-ci container base-images promote` links the base
   images' package, such as `<repository>-base`, to the repository the job
   runs in once their final tags exist, as release-images cleanup links the

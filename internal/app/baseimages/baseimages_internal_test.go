@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -251,8 +252,13 @@ func TestCleanupStagingBaseImages_DeletesPromotedAndStaleTags(t *testing.T) {
 	// stage, possibly in parallel. Every manifest candidate here is promoted:
 	// its final exists with the same digest, which is all the sweep needs to
 	// delete it. go and rust-slim are other stages' in-flight candidates, and
-	// rust-slim shares rust's name as a prefix.
-	digests := map[string]string{}
+	// rust-slim shares rust's name as a prefix. rust-arm64 ends in an
+	// architecture, and its promoted amd64 candidate must not pass for rust's.
+	digests := map[string]string{
+		repo + ":" + baseID + "-rust-arm64":                  "sha256:" + strings.Repeat("d", 64),
+		repo + ":staging-" + contentID + "-rust-arm64-amd64": "sha256:" + strings.Repeat("e", 64),
+		repo + ":staging-" + contentID + "-go-" + "amd64":    "sha256:" + strings.Repeat("e", 64),
+	}
 
 	for idx, version := range []string{baseID + "-core", baseID + "-rust", baseID + "-go", baseID + "-rust-slim", olderID + "-core", olderID + "-rust"} {
 		digest := fmt.Sprintf("sha256:%064x", idx+1)
@@ -280,9 +286,15 @@ func TestCleanupStagingBaseImages_DeletesPromotedAndStaleTags(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		flavors []string
+		// inputs, when set, is the base inputs' flavors; otherwise they are
+		// the images' own.
+		inputs []string
+		// gone means the images' candidates are already removed.
+		gone bool
 		// The order is the pass order: the promoted candidates first, then
 		// the given flavors' stale versions in sorted listing order.
 		wantDeleted []string
+		wantLog     string
 	}{
 		{
 			name:        "flavor stage keeps the root's and other flavors' candidates",
@@ -303,16 +315,42 @@ func TestCleanupStagingBaseImages_DeletesPromotedAndStaleTags(t *testing.T) {
 				staging(olderID + "-core"), staging(olderID + "-rust"),
 			},
 		},
+		{
+			name:        "graph-wide base inputs do not widen the sweep",
+			flavors:     []string{"rust"},
+			inputs:      []string{"core", "go", "rust", "rust-arm64", "rust-slim"},
+			wantDeleted: []string{staging(baseID + "-rust"), staging(contentID + "-rust-amd64"), staging(olderID + "-rust")},
+		},
+		{
+			name:        "own candidate already removed",
+			flavors:     []string{"rust"},
+			gone:        true,
+			wantDeleted: []string{staging(contentID + "-rust-amd64"), staging(olderID + "-rust")},
+			wantLog:     "Staging base tag already removed: " + staging(baseID+"-rust"),
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			in := BaseImageCleanupStagingInput{ExpectedRepository: repo}
+			registry := &fakeBaseImageRegistry{digests: maps.Clone(digests)}
 			own := map[string]bool{}
 
 			for _, flavor := range tc.flavors {
 				own[image(flavor).CandidateTag] = true
 				in.Images = append(in.Images, image(flavor))
+
+				if tc.gone {
+					delete(registry.digests, image(flavor).CandidateTag)
+				}
+			}
+
+			inputs := tc.inputs
+			if inputs == nil {
+				inputs = tc.flavors
+			}
+
+			for _, flavor := range inputs {
 				in.BaseInputs = append(in.BaseInputs, BaseInput{Flavor: flavor, ContentID: contentID, BaseInputID: baseID})
 			}
 
@@ -325,8 +363,6 @@ func TestCleanupStagingBaseImages_DeletesPromotedAndStaleTags(t *testing.T) {
 					cleaner.versions = append(cleaner.versions, version)
 				}
 			}
-
-			registry := &fakeBaseImageRegistry{digests: digests}
 
 			var log bytes.Buffer
 
@@ -359,6 +395,10 @@ func TestCleanupStagingBaseImages_DeletesPromotedAndStaleTags(t *testing.T) {
 				!strings.Contains(log.String(), "Preserving base signature artifacts") {
 				t.Fatalf("log missing sweep scope or signature preservation message: %s", log.String())
 			}
+
+			if !strings.Contains(log.String(), tc.wantLog) {
+				t.Fatalf("log missing %q: %s", tc.wantLog, log.String())
+			}
 		})
 	}
 }
@@ -373,7 +413,9 @@ func TestCleanupStagingBaseImages_PreservesReusableArchUntilFinalExists(t *testi
 
 	var log bytes.Buffer
 
+	// The image has no candidate of its own; it gives the sweep its flavor.
 	err := CleanupStagingBaseImages(context.Background(), &fakeBaseImageRegistry{digests: map[string]string{}}, cleaner, &log, BaseImageCleanupStagingInput{
+		Images:             []BaseImageMetadata{{Flavor: "go", Tag: repo + ":" + baseID + "-go", Ref: repo + "@sha256:" + strings.Repeat("6", 64), BaseInputID: baseID}},
 		BaseInputs:         []BaseInput{{Flavor: "go", ContentID: contentID, BaseInputID: baseID}},
 		ExpectedRepository: repo,
 	})
@@ -394,27 +436,52 @@ func TestCleanupStagingBaseImages_RejectsUnexpectedStagingVersion(t *testing.T) 
 	t.Parallel()
 
 	repo := "forge.example/examplescope/myapp-base"
-	cleaner := &fakeBaseImagePackageAPI{versions: []string{"staging-not-a-content-id-rust"}}
+	baseID := strings.Repeat("4", 64)
+	digest := "sha256:" + strings.Repeat("6", 64)
 
-	// The name claims another flavor than the one given; a version outside
-	// the staging policy is refused whichever flavor it names.
-	err := CleanupStagingBaseImages(context.Background(), &fakeBaseImageRegistry{digests: map[string]string{}}, cleaner, io.Discard, BaseImageCleanupStagingInput{
-		BaseInputs:         []BaseInput{{Flavor: "go", ContentID: strings.Repeat("4", 64), BaseInputID: strings.Repeat("4", 64)}},
-		ExpectedRepository: repo,
-	})
-	if !errors.Is(err, errs.ErrValidation) {
-		t.Fatalf("err = %v, want ErrValidation", err)
-	}
+	for _, tc := range []struct {
+		name    string
+		image   BaseImageMetadata
+		version string
+		wantErr string
+	}{
+		{
+			// The version list comes back from the forge API, so a name that
+			// is not a staging version is either a real release or something
+			// this command has no business removing, whichever flavor it names.
+			name:    "listed version outside the staging policy",
+			image:   BaseImageMetadata{Flavor: "go", Tag: repo + ":" + baseID + "-go", Ref: repo + "@" + digest, BaseInputID: baseID},
+			version: "staging-not-a-content-id-rust",
+			wantErr: "refusing to delete unexpected staging version",
+		},
+		{
+			name: "entry carrying another flavor's candidate",
+			image: BaseImageMetadata{
+				Flavor: "rust", Tag: repo + ":" + baseID + "-rust", Ref: repo + "@" + digest,
+				CandidateTag: repo + ":staging-" + baseID + "-go", CandidateRef: repo + "@" + digest, BaseInputID: baseID,
+			},
+			version: "staging-" + baseID + "-go",
+			wantErr: "refusing to delete unexpected staging tag",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	if !strings.Contains(err.Error(), "refusing to delete unexpected staging version") {
-		t.Fatalf("err = %v, want unexpected staging version", err)
-	}
+			registry := &fakeBaseImageRegistry{digests: map[string]string{repo + ":" + baseID + "-rust": digest, repo + ":" + baseID + "-go": digest, repo + ":" + tc.version: digest}}
+			cleaner := &fakeBaseImagePackageAPI{versions: []string{tc.version}}
 
-	// The version list comes back from the forge API, so a name that is
-	// not a staging version is either a real release or something this
-	// command has no business removing.
-	if len(cleaner.deleted) != 0 {
-		t.Fatalf("deleted an unexpected staging version: %v", cleaner.deleted)
+			err := CleanupStagingBaseImages(context.Background(), registry, cleaner, io.Discard, BaseImageCleanupStagingInput{
+				Images:             []BaseImageMetadata{tc.image},
+				ExpectedRepository: repo,
+			})
+			if !errors.Is(err, errs.ErrValidation) || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err = %v, want ErrValidation with %q", err, tc.wantErr)
+			}
+
+			if len(cleaner.deleted) != 0 {
+				t.Fatalf("deleted = %v, want nothing", cleaner.deleted)
+			}
+		})
 	}
 }
 

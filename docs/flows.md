@@ -133,9 +133,12 @@ How the three delivery layers compare is in
 
 `container base-images cleanup` removes staging tags whose final tag is
 confirmed; it never removes promoted finals and has no age cutoff. A tag it
-may not delete is logged and kept. It sweeps only the flavors it is given,
-so stages that build a graph's flavors in parallel into one package leave
-each other's candidates, and the root's, alone.
+may not delete is logged and kept. It sweeps only the flavors of the images
+it is given, so stages that build a graph's flavors in parallel into one
+package leave each other's candidates, and the root's, alone. Run a
+consumer's base-building workflows one at a time through a concurrency
+group: cleanup is idempotent, but parallel releases of the same flavor
+still race for the same tags.
 
 `container base-images prune` keeps every base image that the signed
 provenance of the releases you pass with `--release-images` names, and

@@ -23,8 +23,9 @@ func baseImagesCleanupCmd() *cli.Command {
 package/registry API, never by manifest digest — staging and final tags share one
 manifest, so a digest delete would destroy the promoted image. Final tags are
 resolved before and after each promoted candidate deletion; stale staging versions
-are swept only for the flavors given, and only after their version names pass the
-base-image staging policy, so parallel stages leave each other's candidates alone.
+are swept only for the flavors of the images given (base inputs do not widen the
+sweep), and only after their version names pass the base-image staging policy, so
+parallel stages leave each other's candidates alone.
 
 Requires a forge implementing both container tag listing and tag deletion
 (see the capability matrix in docs/providers.md); others refuse with an

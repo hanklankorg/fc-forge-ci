@@ -36,13 +36,12 @@ func CleanupStagingBaseImages(ctx context.Context, registry imageDigestResolver,
 	if err != nil {
 		return err
 	}
-	// The sweep is scoped to the flavors this cleanup was given: another
-	// flavor's candidate belongs to that flavor's own stage, which may run in
-	// parallel and still need it.
-	flavors := make([]string, 0, len(in.BaseInputs)+len(in.Images))
-	for _, input := range in.BaseInputs {
-		flavors = append(flavors, input.Flavor)
-	}
+
+	// The sweep is scoped to the flavors of the images this cleanup was
+	// given: another flavor's candidate belongs to that flavor's own stage,
+	// which may run in parallel and still need it. Base inputs only map
+	// flavors to IDs and may cover the whole graph, so they do not widen it.
+	flavors := make([]string, 0, len(in.Images))
 
 	// Validate the whole supplied set before any tag is removed or reported.
 	for idx, image := range in.Images {
@@ -139,11 +138,11 @@ func normalizeCleanupStagingImage(image BaseImageMetadata, expectedRepository st
 		return item, "", false, fmt.Errorf("base images cleanup: candidate ref lacks a valid digest for %s: %w", item.Flavor, errs.ErrValidation)
 	}
 
-	if !strings.HasPrefix(item.CandidateTag, expectedRepository+":staging-"+item.BaseInputID+"-") {
+	if item.CandidateTag != expectedRepository+":staging-"+item.BaseInputID+"-"+item.Flavor {
 		return item, "", false, fmt.Errorf("base images cleanup: refusing to delete unexpected staging tag: %s: %w", item.CandidateTag, errs.ErrValidation)
 	}
 
-	if !strings.HasPrefix(item.Tag, expectedRepository+":"+item.BaseInputID+"-") {
+	if item.Tag != expectedRepository+":"+item.BaseInputID+"-"+item.Flavor {
 		return item, "", false, fmt.Errorf("base images cleanup: refusing cleanup with unexpected final tag: %s: %w", item.Tag, errs.ErrValidation)
 	}
 
@@ -199,6 +198,8 @@ func cleanupOnePromotedStagingImage(ctx context.Context, registry imageDigestRes
 // policy is still refused whichever flavor it claims.
 func sweepStaleStagingVersions(ctx context.Context, registry imageDigestResolver, cleaner baseImagePackageAPI, out io.Writer, expectedRepository string, flavors []string, archFinalTags map[string]string) error {
 	if len(flavors) == 0 {
+		_, _ = fmt.Fprintln(out, "No flavors given; skipping the stale staging sweep.")
+
 		return nil
 	}
 
@@ -221,7 +222,7 @@ func sweepStaleStagingVersions(ctx context.Context, registry imageDigestResolver
 			continue
 		}
 
-		if validBaseStagingVersion(version) && !slices.Contains(flavors, stagingVersionFlavor(version)) {
+		if validBaseStagingVersion(version) && !isStagingVersionOfFlavors(version, flavors) {
 			continue
 		}
 
@@ -276,6 +277,12 @@ func deleteStagingBaseVersion(ctx context.Context, registry imageDigestResolver,
 		}
 
 		candidateDigest, err := registry.ResolveDigest(ctx, expectedRepository+":"+stagingVersion)
+		if errors.Is(err, errs.ErrMissingInput) {
+			_, _ = fmt.Fprintf(out, "Staging base tag already removed: %s\n", stagingLabel)
+
+			return nil
+		}
+
 		if err != nil {
 			return fmt.Errorf("resolve candidate before staging cleanup: %w", err)
 		}
@@ -365,12 +372,14 @@ func validBaseStagingVersion(version string) bool {
 	return len(parts) == 2 && domaincontainer.ValidSHA256Hex(parts[0]) && baseImageFlavorRE.MatchString(parts[1])
 }
 
-// stagingVersionFlavor returns the flavor of a valid staging version,
-// staging-<id>-<flavor> or staging-<id>-<flavor>-<arch>.
-func stagingVersionFlavor(version string) string {
-	_, flavor, _ := strings.Cut(strings.TrimPrefix(version, "staging-"), "-")
+// isStagingVersionOfFlavors reports whether a valid staging version,
+// staging-<id>-<flavor> or staging-<id>-<flavor>-<arch>, names one of flavors.
+func isStagingVersionOfFlavors(version string, flavors []string) bool {
+	_, rest, _ := strings.Cut(strings.TrimPrefix(version, "staging-"), "-")
 
-	return strings.TrimSuffix(strings.TrimSuffix(flavor, "-"+domaincontainer.ArchAMD64), "-"+domaincontainer.ArchARM64)
+	return slices.ContainsFunc(flavors, func(flavor string) bool {
+		return rest == flavor || rest == flavor+"-"+domaincontainer.ArchAMD64 || rest == flavor+"-"+domaincontainer.ArchARM64
+	})
 }
 
 func isBaseArchStagingVersion(version string) bool {

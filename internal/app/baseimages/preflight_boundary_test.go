@@ -166,7 +166,10 @@ func TestCleanupBoundary_UncertainSweepPreservesCandidates(t *testing.T) {
 			registry := &fakeBaseImageRegistry{digests: map[string]string{pruneRepo + ":" + version: promoteDigest}, resolveErr: map[string]error{}}
 			// The cleanup is for rust at a newer input, so the version is its
 			// own flavor's stale candidate and the sweep has to decide on it.
-			in := BaseImageCleanupStagingInput{ExpectedRepository: pruneRepo, BaseInputs: []BaseInput{{Flavor: "rust", ContentID: pruneIDOther, BaseInputID: pruneIDOther}}}
+			in := BaseImageCleanupStagingInput{
+				ExpectedRepository: pruneRepo,
+				Images:             []BaseImageMetadata{{Flavor: "rust", Tag: pruneRepo + ":" + pruneIDOther + "-rust", Ref: pruneRepo + "@" + promoteDigest, BaseInputID: pruneIDOther}},
+			}
 
 			switch kind {
 			case "unavailable":
