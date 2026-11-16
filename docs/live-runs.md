@@ -944,6 +944,7 @@ One recipe runs a set of them:
 ```bash
 export FORGE_CI_LIVE_GITHUB_RELEASE_TOKEN_FILE=<file>
 just test-live-github-cells <dir> <org-id> set=medium \
+  kaniko-job-image=<digest reference> \
   nanolinter-image=java:<digest reference> nanolinter-image=go:<digest reference> ...
 ```
 
@@ -980,7 +981,8 @@ go to every cell but a variant, whose fixture root has workflows of its own
 that take none. Each cell runs with its own visibility, whatever
 `FORGE_CI_LIVE_CONSUMER_VISIBILITY` the caller has set; the fork pull
 request runs public in every set. Before anything runs it refuses a setting
-a cell does not take, and a set with a release or lifecycle when
+a cell does not take, a set with the kaniko cell and no `kaniko-job-image=`,
+and a set with a release or lifecycle when
 `FORGE_CI_LIVE_GITHUB_RELEASE_TOKEN_FILE` is unset. It reads no credential
 itself and runs no cell twice.
 
@@ -1023,7 +1025,7 @@ same commit are together the full set's cells. A delta run alone accepts
 nothing.
 
 ```bash
-just test-live-github-cells <dir> <org-id> set=medium after=small nanolinter-image=java:<digest reference> ...
+just test-live-github-cells <dir> <org-id> set=medium after=small kaniko-job-image=<digest reference> nanolinter-image=java:<digest reference> ...
 ```
 
 The run directory is one of the live runs' root
@@ -2562,6 +2564,12 @@ that list as
 runners in its runtime images. Every platform builds natively on GitHub's runner
 of that architecture (`ubuntu-26.04` or `ubuntu-26.04-arm`). When the trial
 ends, the engine repository is set back to `linux/amd64`.
+
+`CI_IMAGE_BUILDER=kaniko` with `CI_IMAGE_BUILDER_JOB_IMAGE=<digest reference>`
+builds the consumer's images with kaniko, in the job image
+`just test-live-image kaniko-job github` publishes ([Hosted GitHub
+cells](#hosted-github-cells)); the trial sets both as the consumer's
+variables. Buildah, the default, takes no job image.
 
 `dev-release` dispatches `release-snapshot-workflow.yml` (or `workflow=<file>`) once on `main`,
 without creating stable-release signing secrets. Its workflow must succeed and

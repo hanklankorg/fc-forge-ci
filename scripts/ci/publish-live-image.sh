@@ -107,7 +107,7 @@ engine_arch=$(podman info --format '{{.Host.Arch}}') || {
   exit 2
 }
 if [[ "$engine_arch" != "$runner_arch" ]]; then
-  printf 'live: the lab runners are linux/%s and the %s build runs the image; use a podman engine on a native %s host (this engine is %s)\n' "$runner_arch" "$kind" "$runner_arch" "$engine_arch" >&2
+  printf 'live: the target runners are linux/%s and the %s build runs the image; use a podman engine on a native %s host (this engine is %s)\n' "$runner_arch" "$kind" "$runner_arch" "$engine_arch" >&2
   exit 2
 fi
 

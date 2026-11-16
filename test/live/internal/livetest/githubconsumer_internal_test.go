@@ -699,6 +699,8 @@ func TestParseGitHubTrialSettings_ImageBuilder(t *testing.T) {
 		"buildah with a job image": {"CI_IMAGE_BUILDER=buildah", "CI_IMAGE_BUILDER_JOB_IMAGE=" + image},
 		"another builder":          {"CI_IMAGE_BUILDER=docker"},
 		"a job image by tag":       {"CI_IMAGE_BUILDER=kaniko", "CI_IMAGE_BUILDER_JOB_IMAGE=ghcr.io/o/forge-ci-live-kaniko-job:latest"},
+		"the builder twice":        {"CI_IMAGE_BUILDER=buildah", "CI_IMAGE_BUILDER=kaniko", "CI_IMAGE_BUILDER_JOB_IMAGE=" + image},
+		"the job image twice":      {"CI_IMAGE_BUILDER=kaniko", "CI_IMAGE_BUILDER_JOB_IMAGE=" + image, "CI_IMAGE_BUILDER_JOB_IMAGE=" + image},
 	} {
 		if _, err := ParseGitHubTrialSettings(TrialRelease, words); !errors.Is(err, errs.ErrValidation) {
 			t.Errorf("%s: gave %v", name, err)

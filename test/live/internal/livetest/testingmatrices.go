@@ -761,13 +761,11 @@ func (data matrices) laneValueCell(provider, setting, value string) string {
 			consider(data.axisState(provider, demo, setting, value), demo.name)
 		}
 
-		for _, cell := range GitHubCells {
-			if provider != matrixGitHub || setting != settingImageBuilder {
-				break
-			}
-
-			if state, name, stands := data.githubBuilderState(demo, cell, value); stands {
-				consider(state, name)
+		if provider == matrixGitHub && setting == settingImageBuilder {
+			for _, cell := range GitHubCells {
+				if state, name, stands := data.githubBuilderState(demo, cell, value); stands {
+					consider(state, name)
+				}
 			}
 		}
 

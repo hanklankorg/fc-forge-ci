@@ -467,18 +467,21 @@ func (settings *GitHubTrialSettings) setPlatforms(key, value string) bool {
 }
 
 // setBuilder takes CI_IMAGE_BUILDER and CI_IMAGE_BUILDER_JOB_IMAGE and
-// reports whether it was one of them with a valid value; any other key is
-// left to set.
+// reports whether it was one of them, given once with a valid value; any
+// other key is left to set.
 func (settings *GitHubTrialSettings) setBuilder(key, value string) bool {
+	// A second value of either is refused: the trial would set the last.
 	switch key {
 	case imageBuilderVariable:
+		once := settings.Builder == ""
 		settings.Builder = value
 
-		return value == ImageBuilderBuildah || value == ImageBuilderKaniko
+		return once && (value == ImageBuilderBuildah || value == ImageBuilderKaniko)
 	case imageBuilderJobImageVariable:
+		once := settings.BuilderJobImage == ""
 		settings.BuilderJobImage = value
 
-		return pinnedImage.MatchString(value)
+		return once && pinnedImage.MatchString(value)
 	default:
 		return false
 	}

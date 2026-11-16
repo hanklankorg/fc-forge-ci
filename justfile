@@ -1033,7 +1033,8 @@ test-live-image kind forge_lab budget="" cpus="" memory_mib="" compiler_jobs="":
 # settings: workflow=<file> (not lifecycle), fixtures=<dir>, version=X.Y.Z and
 # image=<name> (release and lifecycle), history=<commits> (release), RELEASE_PLATFORMS=<linux/amd64 and/or
 # linux/arm64> (default linux/amd64), nanolinter-image= and
-# megalinter-image=<reference>. The lifecycle runs the consumer's
+# megalinter-image=<reference>, and CI_IMAGE_BUILDER=buildah|kaniko with,
+# for kaniko, CI_IMAGE_BUILDER_JOB_IMAGE=<digest reference>. The lifecycle runs the consumer's
 # pullrequest-workflow.yml, release-snapshot-workflow.yml and release-workflow.yml fixtures in one repository.
 # docs/live-runs.md, Trying a consumer on GitHub, has the prerequisites.
 [arg('repo', help='Absolute path to a clean consumer checkout, for example /absolute/myapp')]
@@ -1535,7 +1536,8 @@ test-live-affected base forge set="set=full":
 # (FORGE_CI_LIVE_ENGINE_MODE=prepare), then each cell is one `just
 # test-live-consumer github` call that reuses it, with the cell's settings,
 # the settings given here (one lint image a flavor the cells pin, as
-# nanolinter-image=<flavor>:<digest reference>) and, in a
+# nanolinter-image=<flavor>:<digest reference>, and the kaniko cell's job
+# image, kaniko-job-image=<digest reference>) and, in a
 # set below the full one, the cell's one visibility. A cell with both runs
 # them side by side, unless its release publishes an organization package
 # (npm, Maven or an image-name), which the two would share. after=small or
@@ -1543,19 +1545,20 @@ test-live-affected base forge set="set=full":
 # set that the set after did not. Run it inside Forge
 # Lab's hosted session, as a single trial: it starts no session. Before
 # anything runs it refuses a setting a cell does not take, a lint flavor
-# with no image, and a set with a
+# with no image, a set with the kaniko cell and no kaniko-job-image=, and a
+# set with a
 # release or a lifecycle when FORGE_CI_LIVE_GITHUB_RELEASE_TOKEN_FILE is
 # unset. The run directory, under the live runs' root, gets a log of the
 # engine and of each cell, and cells.txt: the run set and, of a delta run,
 # the set after, then a line a cell: passed, failed or not-covered. No cell
 # is run again, and any that did not pass fails the recipe. docs/live-runs.md, Hosted GitHub cells.
 #
-#   just test-live-github-cells ~/prepared/k3s <org-id> set=medium nanolinter-image=java:<digest reference> nanolinter-image=go:<digest reference> ...
-#   just test-live-github-cells ~/prepared/k3s <org-id> set=full after=medium nanolinter-image=java:<digest reference> ...
+#   just test-live-github-cells ~/prepared/k3s <org-id> set=medium kaniko-job-image=<digest reference> nanolinter-image=java:<digest reference> nanolinter-image=go:<digest reference> ...
+#   just test-live-github-cells ~/prepared/k3s <org-id> set=full after=medium kaniko-job-image=<digest reference> nanolinter-image=java:<digest reference> ...
 [arg('dir', help='Absolute prepared directory from just test-live-prepare')]
 [arg('org', help='Numeric ID of the organization the hosted session authorizes')]
 [arg('set', help='set=small, set=medium or set=full: the run set whose cells run')]
-[arg('settings', help='after=small or after=medium first for a delta run, then nanolinter-image=<flavor>:<digest reference> for each lint flavor the cells pin, and key=value settings for every cell: megalinter-image=, RELEASE_PLATFORMS=')]
+[arg('settings', help='after=small or after=medium first for a delta run, then nanolinter-image=<flavor>:<digest reference> for each lint flavor the cells pin, kaniko-job-image=<digest reference> for the kaniko cell (medium and full), and key=value settings for every cell: megalinter-image=, RELEASE_PLATFORMS=')]
 [doc('Live; run the hosted GitHub cells of a run set in the hosted session')]
 [group('live')]
 test-live-github-cells dir org set="set=full" *settings:

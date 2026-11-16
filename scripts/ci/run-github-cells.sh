@@ -20,7 +20,8 @@
 #
 # Go owns the cells and their settings (livetest.GitHubCells) and refuses,
 # before anything runs, a setting a cell does not take, a lint flavor with no
-# nanolinter-image=<flavor>:<reference>, and a release with no
+# nanolinter-image=<flavor>:<reference>, a kaniko cell with no
+# kaniko-job-image=<reference>, and a release with no
 # FORGE_CI_LIVE_GITHUB_RELEASE_TOKEN_FILE. This script reads no credential.
 # It starts no hosted session: run it inside Forge Lab's guarded one, as a
 # single trial is. A cell is not run again.
