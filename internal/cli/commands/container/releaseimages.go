@@ -608,18 +608,26 @@ func fileExistsAt(path string) bool {
 // the detected forge's own token variables. Another forge's token is not read:
 // it would be sent to a server it was not issued for.
 func releaseImagesProviderToken(cmd *cli.Command) (string, error) {
-	const neutralEnv = "FORGE_CI_PACKAGE_API_TOKEN"
-
-	token, err := regflags.FileOrEnv(cmd.String(flagProviderTokenFile), append([]string{neutralEnv}, deps.ProviderTokenEnv()...)...)
+	token, err := packageAPIToken(cmd.String(flagProviderTokenFile))
 	if err != nil {
 		return "", err
 	}
 
 	if token == "" {
-		return "", errs.CredentialRequired(errs.Credential{What: "provider tag-deletion token", Flag: flagProviderTokenFile, Env: neutralEnv})
+		return "", errs.CredentialRequired(errs.Credential{What: "provider tag-deletion token", Flag: flagProviderTokenFile, Env: packageAPITokenEnv})
 	}
 
 	return token, nil
+}
+
+// packageAPITokenEnv is the forge-neutral variable of the package-API token.
+const packageAPITokenEnv = "FORGE_CI_PACKAGE_API_TOKEN"
+
+// packageAPIToken reads the package-API token from file, else
+// $FORGE_CI_PACKAGE_API_TOKEN, else the detected forge's own token
+// variables; empty when none is set. Another forge's token is not read.
+func packageAPIToken(file string) (string, error) {
+	return regflags.FileOrEnv(file, append([]string{packageAPITokenEnv}, deps.ProviderTokenEnv()...)...)
 }
 
 // releaseImagesTagDeleter returns the deleter for the registry the images are

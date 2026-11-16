@@ -919,7 +919,7 @@ Admits a nonempty base-only ledger and its content-addressed tags before login. 
 
 #### `forge-ci container base-images promote`
 
-verify base-image evidence and promote candidate refs to immutable final tags
+verify base-image evidence and promote candidate refs to immutable final tags; on Forgejo, link the promoted images to the repository
 
 ```
 Verifies each image's signature, CycloneDX SBOM attestation and SLSA lineage
@@ -941,9 +941,10 @@ Independently verifying the parent (including cross-repository parents)
 remains the caller's duty.
 
 On a forge that keeps packages under their owner (Forgejo), the promoted
-images' package is then linked to --repository, with the package-API token
-in $FORGE_CI_PACKAGE_API_TOKEN or the forge's own token variable. A refused
-link is a warning: the images are promoted without it.
+images' package is then linked to the repository (--repository), with the
+package-API token from $FORGE_CI_PACKAGE_API_TOKEN, else the forge's own
+token variable ($FORGEJO_TOKEN or $GITEA_TOKEN); another forge's token is
+never used. A refused link is a warning; the images stay promoted.
 ```
 
 | Flag | Description | Type | Default | Env vars |

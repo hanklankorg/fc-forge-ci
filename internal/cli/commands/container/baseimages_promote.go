@@ -22,12 +22,13 @@ import (
 	"github.com/diggsweden/forge-ci/internal/cliio"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
+	"github.com/diggsweden/forge-ci/internal/domain/provider"
 )
 
 func baseImagesPromoteCmd() *cli.Command {
 	return &cli.Command{
 		Name:  subCmdPromote,
-		Usage: "verify base-image evidence and promote candidate refs to immutable final tags",
+		Usage: "verify base-image evidence and promote candidate refs to immutable final tags; on Forgejo, link the promoted images to the repository",
 		Description: `Verifies each image's signature, CycloneDX SBOM attestation and SLSA lineage
 with the trusted key, then makes its candidate the immutable final tag.
 
@@ -47,9 +48,10 @@ Independently verifying the parent (including cross-repository parents)
 remains the caller's duty.
 
 On a forge that keeps packages under their owner (Forgejo), the promoted
-images' package is then linked to --repository, with the package-API token
-in $FORGE_CI_PACKAGE_API_TOKEN or the forge's own token variable. A refused
-link is a warning: the images are promoted without it.`,
+images' package is then linked to the repository (--repository), with the
+package-API token from $FORGE_CI_PACKAGE_API_TOKEN, else the forge's own
+token variable ($FORGEJO_TOKEN or $GITEA_TOKEN); another forge's token is
+never used. A refused link is a warning; the images stay promoted.`,
 		Flags: append(baseImagesCommonFlags(),
 			&cli.StringFlag{Name: flagLedger, Usage: "publication base-image ledger to admit and project; exclusive with --all-images-json"},
 			&cli.StringFlag{Name: "all-images-json", Sources: cli.EnvVars("ALL_IMAGES_JSON"), Usage: "JSON array of base image metadata to verify/promote"},
@@ -121,18 +123,36 @@ link is a warning: the images are promoted without it.`,
 
 // baseImagesPackageForge returns the detected forge, configured with the
 // package-API token and the --server-url and --repository of this
-// invocation, as release-images cleanup configures its own.
+// invocation, as release-images cleanup configures its own. On a forge that
+// links packages but with no such token, the link is refused rather than
+// sent with another token the adapter would find, such as $CI_TOKEN.
 func baseImagesPackageForge(common baseImagesCommon) (any, error) {
-	token, err := regflags.FileOrEnv("", "FORGE_CI_PACKAGE_API_TOKEN")
+	token, err := packageAPIToken("")
 	if err != nil {
 		return nil, err
 	}
 
-	return deps.ProviderWith(deps.ProviderConfig{
+	forge, err := deps.ProviderWith(deps.ProviderConfig{
 		Token:      token,
 		ServerURL:  common.ServerURL,
 		Repository: common.Repository,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	if _, links := forge.(provider.ForgePackageLinker); links && token == "" {
+		return noPackageAPIToken{}, nil
+	}
+
+	return forge, nil
+}
+
+// noPackageAPIToken refuses every link as one without a package-API token.
+type noPackageAPIToken struct{}
+
+func (noPackageAPIToken) LinkForgePackage(context.Context, string, string) error {
+	return errs.CredentialRequired(errs.Credential{What: "package-API token", Env: packageAPITokenEnv})
 }
 
 // linkBaseImagePackages links the package of the promoted base images to the
