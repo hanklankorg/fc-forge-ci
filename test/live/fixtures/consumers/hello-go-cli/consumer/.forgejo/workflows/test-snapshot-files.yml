@@ -7,7 +7,7 @@
 # release's .forge-ci/artifacts.yml and needs no registry and no secret.
 # It runs when dispatched on the branch to snapshot; to snapshot every branch
 # as it is pushed, add under `on:` a `push:` with `branches-ignore: [main]`.
-name: Snapshot files
+name: Test Snapshot Files
 on:
   workflow_dispatch:
 concurrency:

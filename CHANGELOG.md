@@ -198,7 +198,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The GoReleaser alternative of the `go-cli` example builds distro
   packages. `examples/go-cli/.goreleaser.yml` packages the command as
   `.deb`, `.rpm` and `.apk` with `nfpms`, the Forgejo workflow
-  `forgejo/release-goreleaser.yml` now passes `sign-distro-packages: 'true'`,
+  `forgejo/goreleaser/release-workflow.yml` now passes `sign-distro-packages: 'true'`,
   and with `artifacts-forgejo-packages.yml` as the declaration the release
   publishes them to the owner's registries. The live suite has a Forgejo
   row for it, `distro-packages/hello-go-cli`, which also verifies the GPG
@@ -376,6 +376,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Example callers are named as the projects that copy them name them. The
+  Android GitHub example's development build is `test-build.yml`, where it
+  was `build-workflow.yml`: a project that runs `forge-ci init` again
+  deletes its `build-workflow.yml`, or both run on a push to main. The
+  GoReleaser alternatives of the `go-cli` example moved to
+  `examples/go-cli/forgejo/goreleaser/`, as `release-workflow.yml` and
+  `release-snapshot-workflow.yml`, where they were
+  `forgejo/release-goreleaser.yml` and
+  `forgejo/release-snapshot-goreleaser.yml`. The Forgejo snapshot of files
+  is `test-snapshot-files.yml`, where it was `snapshot-files.yml`; the
+  download recipe in `docs/workflows.md#snapshot-files` takes the new name
+  in `WORKFLOW=`.
 - `forge-ci validate job-graph` also rejects, in a `.forgejo/` workflow, a
   reusable call whose `with:` passes a skippable producer's output to
   `fromJSON` with no `||` fallback. Forgejo evaluates `with:` before `if:`,
