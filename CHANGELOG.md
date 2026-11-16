@@ -872,8 +872,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - forge-ci's Trivy scans fetch the vulnerability and Java databases
   from `ghcr.io/aquasecurity` first, with `mirror.gcr.io/aquasec` as the
-  fallback for rate limits and server errors only, so the runner must
-  reach `ghcr.io`. Trivy tries the mirror first by default, and when that
+  fallback only on a registry timeout, rate limit or server error, or a
+  `BLOB_UNKNOWN` error, so the runner must reach `ghcr.io`. Trivy tries the mirror first by default, and when that
   pull-through cache answered a database layer with 404, Trivy failed
   the scan instead of trying GitHub, so a release stopped at its base
   candidate.
