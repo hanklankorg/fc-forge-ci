@@ -26,6 +26,7 @@ var githubKanikoEntrypoint []byte
 
 // GitHubKanikoAction contains already-resolved native tools and a validated
 // build plan. No registry credentials are written into the generated image.
+// Scanner is empty for a plan that defers its scan to the layout scan job.
 type GitHubKanikoAction struct {
 	Workspace, JobImage, Engine, Scanner string
 	Plan                                 []byte
