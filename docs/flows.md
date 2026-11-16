@@ -135,10 +135,11 @@ How the three delivery layers compare is in
 confirmed; it never removes promoted finals and has no age cutoff. A tag it
 may not delete is logged and kept. It sweeps only the flavors of the images
 it is given, so stages that build a graph's flavors in parallel into one
-package leave each other's candidates, and the root's, alone. Run a
-consumer's base-building workflows one at a time through a concurrency
-group: cleanup is idempotent, but parallel releases of the same flavor
-still race for the same tags.
+package leave each other's candidates, and the root's, alone. Cleanup is
+idempotent, but two runs of the same flavor at the same input share one
+staging tag, and one run's cleanup can remove it before the other promotes;
+run base-building workflows one at a time (a `concurrency` group on Forgejo
+and GitHub, a `resource_group` on GitLab).
 
 `container base-images prune` keeps every base image that the signed
 provenance of the releases you pass with `--release-images` names, and

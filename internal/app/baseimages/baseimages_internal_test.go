@@ -463,6 +463,15 @@ func TestCleanupStagingBaseImages_RejectsUnexpectedStagingVersion(t *testing.T) 
 			version: "staging-" + baseID + "-go",
 			wantErr: "refusing to delete unexpected staging tag",
 		},
+		{
+			name: "entry naming another flavor's final tag",
+			image: BaseImageMetadata{
+				Flavor: "rust", Tag: repo + ":" + baseID + "-go", Ref: repo + "@" + digest,
+				CandidateTag: repo + ":staging-" + baseID + "-rust", CandidateRef: repo + "@" + digest, BaseInputID: baseID,
+			},
+			version: "staging-" + baseID + "-rust",
+			wantErr: "refusing cleanup with unexpected final tag",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

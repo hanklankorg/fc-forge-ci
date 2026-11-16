@@ -157,7 +157,7 @@ func TestPromotionBoundary_AllEntriesBeforeCopy(t *testing.T) {
 func TestCleanupBoundary_UncertainSweepPreservesCandidates(t *testing.T) {
 	t.Parallel()
 
-	for _, kind := range []string{"missing", "unavailable", "mismatch", "architecture unknown", "architecture unavailable"} {
+	for _, kind := range []string{"missing", "unavailable", "candidate unavailable", "mismatch", "architecture unknown", "architecture unavailable"} {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
 
@@ -174,6 +174,10 @@ func TestCleanupBoundary_UncertainSweepPreservesCandidates(t *testing.T) {
 			switch kind {
 			case "unavailable":
 				registry.resolveErr[final] = errs.ErrDependencyUnavailable
+			case "candidate unavailable":
+				// Only a missing candidate counts as already removed.
+				registry.digests[final] = promoteDigest
+				registry.resolveErr[pruneRepo+":"+version] = errs.ErrDependencyUnavailable
 			case "mismatch":
 				registry.digests[final] = "sha256:" + strings.Repeat("b", 64)
 			case "architecture unknown":
@@ -186,9 +190,11 @@ func TestCleanupBoundary_UncertainSweepPreservesCandidates(t *testing.T) {
 
 			cleaner := &fakeBaseImagePackageAPI{versions: []string{version}}
 
-			err := CleanupStagingBaseImages(t.Context(), registry, cleaner, io.Discard, in)
-			if len(cleaner.deleted) != 0 {
-				t.Fatalf("deleted=%v", cleaner.deleted)
+			var out bytes.Buffer
+
+			err := CleanupStagingBaseImages(t.Context(), registry, cleaner, &out, in)
+			if len(cleaner.deleted) != 0 || strings.Contains(out.String(), "already removed") {
+				t.Fatalf("deleted=%v output=%s", cleaner.deleted, &out)
 			}
 
 			if strings.Contains(kind, "unavailable") && !errors.Is(err, errs.ErrDependencyUnavailable) {
