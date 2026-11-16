@@ -78,6 +78,7 @@ case "$*" in
 *image-build-settings*) printf '%s\n' required 3 2048 1 --cpu-period 100000 --cpu-quota 300000 --memory 2147483648 --memory-swap 2147483648 --jobs 1 --retry 0 ;;
 *runner-arch*) echo amd64 ;;
 *consumer-trial-layer*) echo https://fixture.invalid/source ;;
+*github-kaniko-job-target*) printf '%s\t%s\t%s\n' https://github.com/Example-Org/fci-forge-ci ghcr.io/example-org/forge-ci-live-kaniko-job amd64 ;;
 *) exit 89 ;;
 esac
 `
@@ -323,6 +324,78 @@ esac
 				}
 			})
 		}
+	}
+}
+
+// With github as its target, the kaniko job image is labelled with the
+// hosted session's engine repository and pushed to the organization's GHCR
+// package, never to the lab: the token reaches podman on standard input
+// alone, and standard output is the one digest-pinned reference.
+func TestImagePreparationPublishesTheKanikoJobImageToGitHub(t *testing.T) {
+	const (
+		commit = "0123456789abcdef0123456789abcdef01234567"
+		digest = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+		token  = "fixture-packages-token"
+	)
+
+	root, bin := t.TempDir(), t.TempDir()
+	for _, name := range []string{"scripts/ci/image-build-settings.sh", "scripts/ci/publish-live-image.sh"} {
+		copyImageFixture(t, root, name)
+	}
+
+	tokenFile := filepath.Join(root, "packages.token")
+	if err := os.WriteFile(tokenFile, []byte(token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	writeExecutable(t, filepath.Join(bin, "go"), fakeImageSettingsGo)
+	writeExecutable(t, filepath.Join(bin, "just"), "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>\"$RECEIPT.forbidden\"\nexit 88\n")
+	writeExecutable(t, filepath.Join(bin, "git"), "#!/usr/bin/env bash\ncase \"$*\" in *status*) exit 0 ;; *rev-parse*) echo \"$COMMIT\" ;; *) echo fixture ;; esac\n")
+	writeExecutable(t, filepath.Join(bin, "podman"), `#!/usr/bin/env bash
+case "$*" in
+info*) echo amd64 ;;
+"image exists"*) exit 1 ;;
+build*) printf '%s\0' "$@" >"$RECEIPT.build" ;;
+login*) printf '%s\0' "$@" >"$RECEIPT.login"; cat >"$RECEIPT.stdin" ;;
+push*) printf '%s\0' "$@" >"$RECEIPT.push"; while [[ $# -gt 0 ]]; do [[ $1 == --digestfile ]] && printf '%s' "$DIGEST" >"$2"; shift; done ;;
+*) printf '%s\n' "$*" >>"$RECEIPT.forbidden"; exit 88 ;;
+esac
+`)
+
+	cmd := exec.CommandContext(t.Context(), testBash(t), filepath.Join(root, "scripts/ci/publish-live-image.sh"), "kaniko-job", "github")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "GO="+filepath.Join(bin, "go"), "RECEIPT="+filepath.Join(root, "receipt"),
+		"COMMIT="+commit, "DIGEST="+digest, "FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE="+tokenFile, "FORGE_CI_LIVE_EXTERNAL_REGISTRY_USER=fixture-user")
+
+	stdout, err := cmd.Output()
+	if want := "ghcr.io/example-org/forge-ci-live-kaniko-job@" + digest + "\n"; err != nil || string(stdout) != want {
+		t.Fatalf("published %q, want %q: %v", stdout, want, err)
+	}
+
+	read := func(name string) string {
+		body, err := os.ReadFile(filepath.Join(root, "receipt."+name))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return string(body)
+	}
+
+	if build := read("build"); !strings.Contains(build, "\x00org.opencontainers.image.source=https://github.com/Example-Org/fci-forge-ci\x00") ||
+		!strings.Contains(build, "\x00--platform\x00linux/amd64\x00") {
+		t.Errorf("built %q, want the session's engine repository as source, natively for amd64", build)
+	}
+
+	if login := read("login"); strings.Contains(login, token) || !strings.Contains(login, "\x00--password-stdin\x00ghcr.io\x00") || read("stdin") != token+"\n" {
+		t.Errorf("login %q, want the token on standard input alone", login)
+	}
+
+	if push := read("push"); !strings.Contains(push, "\x00localhost/forge-ci-live-kaniko-job:"+commit+"\x00docker://ghcr.io/example-org/forge-ci-live-kaniko-job:"+commit+"\x00") {
+		t.Errorf("pushed %q", push)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "receipt.forbidden")); !os.IsNotExist(err) {
+		t.Errorf("published to the lab too: %s", read("forbidden"))
 	}
 }
 

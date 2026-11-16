@@ -14,11 +14,19 @@
 #                admits it only when its source label names the repository
 #                the layer runs from, so it is labelled with the contract
 #                account's Forgejo consumer trial scratch layer. A prepared
-#                case pushes its own from the saved archive instead.
+#                case pushes its own from the saved archive instead. With
+#                github in place of the Forge Lab checkout, it is labelled
+#                with the hosted session's engine repository and pushed to
+#                the organization's GHCR package for the hosted GitHub
+#                cells: run it inside `just github run`, with
+#                FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE naming the file
+#                of a token that can write the organization's packages and
+#                FORGE_CI_LIVE_EXTERNAL_REGISTRY_USER its user.
 #   buildah-job  containers/buildah-job/Containerfile, the GitLab release
 #                policy's builder-job-image with image-builder: buildah.
 #
 #   publish-live-image.sh <signer|kaniko-job|buildah-job> <forge-lab checkout> [<archive>]
+#   publish-live-image.sh kaniko-job github [<archive>]
 #
 # With an archive path, the image published is also saved there as a
 # docker-archive, for a GitLab trial that takes the image by archive.
@@ -31,9 +39,15 @@ repo_root=$(CDPATH='' cd -- "$script_dir/../.." && pwd -P)
 kind=${1:-}
 forge_lab=${2:-}
 archive=${3:-}
-if [[ $# -lt 2 || $# -gt 3 || ! "$kind" =~ ^(signer|kaniko-job|buildah-job)$ || "$forge_lab" != /* || ! -f "$forge_lab/justfile" ||
+# The target: the lab registry through a Forge Lab checkout, or, for the
+# kaniko job image alone, the hosted GitHub organization's GHCR.
+github=false
+[[ "$kind" != kaniko-job || "$forge_lab" != github ]] || github=true
+if [[ $# -lt 2 || $# -gt 3 || ! "$kind" =~ ^(signer|kaniko-job|buildah-job)$ ||
+  ($github == false && ("$forge_lab" != /* || ! -f "$forge_lab/justfile")) ||
   ($# -eq 3 && "$archive" != /*) ]]; then
   printf 'usage: %s <signer|kaniko-job|buildah-job> <absolute path of a Forge Lab checkout> [<absolute archive path>]\n' "$0" >&2
+  printf '       %s kaniko-job github [<absolute archive path>]\n' "$0" >&2
   exit 2
 fi
 
@@ -64,7 +78,14 @@ signer)
 kaniko-job)
   context=$repo_root/containers/kaniko-job
   image_inputs=(containers/kaniko-job)
-  source_url=$(cd -- "$repo_root" && "${GO:-go}" run ./test/live/internal/livetest/preflight consumer-trial-layer) || exit 2
+  if [[ $github == true ]]; then
+    # The source label publish-container.yml admits it by, the GHCR
+    # repository and the hosted runners' architecture, from the session.
+    target=$(cd -- "$repo_root" && "${GO:-go}" run ./test/live/internal/livetest/preflight github-kaniko-job-target) || exit 2
+    IFS=$'\t' read -r source_url github_repository github_arch <<<"$target"
+  else
+    source_url=$(cd -- "$repo_root" && "${GO:-go}" run ./test/live/internal/livetest/preflight consumer-trial-layer) || exit 2
+  fi
   ;;
 buildah-job)
   context=$repo_root/containers/buildah-job
@@ -73,10 +94,14 @@ buildah-job)
 esac
 
 # The image is for the lab's runners, whose architecture the contract states,
-# and the build executes the image's own steps. Ask the engine that builds it
-# (on macOS a VM, not this controller) for its architecture, so the build is
-# native rather than emulated.
-runner_arch=$(cd -- "$repo_root" && "${GO:-go}" run ./test/live/internal/livetest/preflight runner-arch) || exit 2
+# or GitHub's hosted runners, and the build executes the image's own steps.
+# Ask the engine that builds it (on macOS a VM, not this controller) for its
+# architecture, so the build is native rather than emulated.
+if [[ $github == true ]]; then
+  runner_arch=$github_arch
+else
+  runner_arch=$(cd -- "$repo_root" && "${GO:-go}" run ./test/live/internal/livetest/preflight runner-arch) || exit 2
+fi
 engine_arch=$(podman info --format '{{.Host.Arch}}') || {
   printf 'live: cannot ask podman for its host architecture\n' >&2
   exit 2
@@ -110,12 +135,26 @@ else
     --tag "$image" "$context" >&2
 fi
 
-# Forge Lab publishes under the account's own owner, on the road and registry
-# of the account's contract (LAB_TARGETS_FILE when set), and prints the digest
-# reference as its one line of standard output. The package name is outside
-# the fci- prefix, so a prefix reset on the lab does not delete the image.
-just --justfile "$forge_lab/justfile" --working-directory "$forge_lab" \
-  publish-image --account forgeci "forge-ci-live-$kind" "$image"
+if [[ $github == true ]]; then
+  # The token reaches podman on standard input alone, and its login lives in
+  # a private auth file removed on exit. The package is created private: make
+  # it public once in its settings, so the hosted runners can pull it.
+  auth_dir=$(mktemp -d)
+  trap 'rm -rf -- "$auth_dir"' EXIT
+  podman login --authfile "$auth_dir/auth.json" --username "$FORGE_CI_LIVE_EXTERNAL_REGISTRY_USER" \
+    --password-stdin "${github_repository%%/*}" <"$FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE" >&2
+  podman push --authfile "$auth_dir/auth.json" --digestfile "$auth_dir/digest" \
+    "$image" "docker://$github_repository:$commit" >&2
+  printf '%s@%s\n' "$github_repository" "$(<"$auth_dir/digest")"
+else
+  # Forge Lab publishes under the account's own owner, on the road and
+  # registry of the account's contract (LAB_TARGETS_FILE when set), and prints
+  # the digest reference as its one line of standard output. The package name
+  # is outside the fci- prefix, so a prefix reset on the lab does not delete
+  # the image.
+  just --justfile "$forge_lab/justfile" --working-directory "$forge_lab" \
+    publish-image --account forgeci "forge-ci-live-$kind" "$image"
+fi
 if [[ -n "$archive" ]]; then
   rm -f -- "$archive"
   podman save --quiet --format docker-archive --output "$archive" "$image"

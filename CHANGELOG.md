@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The hosted GitHub cells build an image with kaniko: the medium set runs
+  hello-cargo-container's release, public, with `CI_IMAGE_BUILDER=kaniko`,
+  the code path of a self-hosted pool without user namespaces. A GitHub
+  trial takes `CI_IMAGE_BUILDER` and `CI_IMAGE_BUILDER_JOB_IMAGE` as
+  settings and sets them as the consumer's variables. The run names the
+  job image as `kaniko-job-image=<digest reference>`, and
+  `just test-live-image kaniko-job github` publishes it to the test
+  organization's GHCR, labelled with the session's engine repository. The
+  testing matrices show the GitHub image-builder rows as lines not yet run.
+  See `docs/live-runs.md#hosted-github-cells`.
 - kaniko can build a child base, and an image on a private parent, from the
   verified parent the fetch job retained, as Buildah does. The build job
   still holds no registry credential and pulls nothing: the engine copies

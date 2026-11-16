@@ -33,7 +33,10 @@ admission's reason. `TestTestingMatricesInSync` in
 No prepared lane runs on hosted GitHub. There a
 line is the fixture workflow a demo ships under `test/live/github/workflows`
 for the event the hosted trial settings name, and the lifecycle has one when
-the demo ships all three and the hosted settings accept the lifecycle.
+the demo ships all three and the hosted settings accept the lifecycle. Its
+image-builder rows are the hosted cells' (`livetest.GitHubCells`): a
+lifecycle builds with Buildah, the default, and a cell that names kaniko
+stands for it with its own event, such as a release.
 
 Legend: ✅ live-proven · ◐ partial · ⏳ running or queued · ❌ failed, root fix
 committed · ⛔ refused by planner admission (reason pinned) · 📝 line exists,
@@ -105,8 +108,8 @@ Outside the live harness's scope, the trial's acceptance and not a product rule:
 |  | default | ✅ hello-cargo-container (2026-11-14) | ✅ hello-cargo-container (2026-11-14) | ✅ hello-cargo-container (2026-11-10, release run 42919737094) |
 |  | gpg | ⛔ hello-android-library | — hello-android-library | ⛔ hello-android-library |
 |  | sigstore | ✅ hello-gradle-service (2026-11-14) | ✅ hello-gradle-service (2026-11-14) | ✅ hello-gradle-service (2026-11-12, release run 43135845817) |
-| image builder | buildah | ✅ lifecycle-forgejo (2026-11-14) | ✅ lifecycle-gitlab (2026-11-14) | ⬚ no lane |
-|  | kaniko | ✅ lifecycle-forgejo (2026-11-13) | ✅ lifecycle-gitlab (2026-11-13) | ⬚ no lane |
+| image builder | buildah | ✅ lifecycle-forgejo (2026-11-14) | ✅ lifecycle-gitlab (2026-11-14) | 📝 hello-cargo-container |
+|  | kaniko | ✅ lifecycle-forgejo (2026-11-13) | ✅ lifecycle-gitlab (2026-11-13) | 📝 hello-cargo-container release |
 | visibility | public | ✅ lifecycle-forgejo (2026-11-14) | ✅ lifecycle-gitlab (2026-11-13) | ✅ hello-cargo-container (2026-11-10, release run 42919737094) |
 |  | private | ✅ lifecycle-forgejo (2026-11-14) | ✅ lifecycle-gitlab (2026-11-14) | ✅ hello-cargo-container (2026-11-12, release run 43165254088; its release stalled once on an asset upload (run 43161570088)) |
 | enforcement | admin lint | 📝 lifecycle-forgejo | 📝 lifecycle-gitlab | ⬚ no lane |

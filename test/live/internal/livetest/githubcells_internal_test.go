@@ -75,7 +75,7 @@ func TestGitHubCellsAreTheDemosHostedFixtures(t *testing.T) {
 
 		seen[name] = true
 
-		settings, err := ParseGitHubTrialSettings(cell.Event, cell.Settings)
+		settings, err := ParseGitHubTrialSettings(cell.Event, githubTestCellSettings(cell))
 		if err != nil {
 			t.Errorf("%s: %v", name, err)
 
@@ -187,7 +187,7 @@ func TestGitHubCellRunsRefuseWhatACellWouldFailOn(t *testing.T) {
 	}
 
 	root := reporoot.Path(t)
-	lint := githubTestLintImages()
+	lint := githubTestRunWords()
 
 	if _, err := GitHubCellRuns(root, SetSmall, lint, unset); !errors.Is(err, errs.ErrUsage) || !strings.Contains(err.Error(), GitHubReleaseTokenFileEnv) {
 		t.Errorf("a set with a release and no credential named gave %v", err)
@@ -248,6 +248,98 @@ func TestGitHubCellRunsLintEachDemoWithItsFlavor(t *testing.T) {
 		}
 	}
 }
+
+// A cell that builds with kaniko gets the run's kaniko job image as its
+// consumer's CI_IMAGE_BUILDER_JOB_IMAGE, and no other cell does; a run of a
+// set with such a cell is refused before it starts when it names no kaniko
+// job image, or one not pinned by digest or named twice.
+func TestGitHubCellRunsGiveAKanikoCellTheRunsJobImage(t *testing.T) {
+	t.Parallel()
+
+	root := reporoot.Path(t)
+	release := func(name string) string {
+		if name == GitHubReleaseTokenFileEnv {
+			return "/a/file"
+		}
+
+		return ""
+	}
+
+	runs, err := GitHubCellRuns(root, SetMedium, githubTestRunWords(), release)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	jobImage := imageBuilderJobImageVariable + "=" + githubTestKanikoJobImage
+	if want := "public\thello-cargo-container\trelease\tversion=0.2.0 CI_IMAGE_BUILDER=kaniko nanolinter-image=" + githubTestLintImage("rust") + " " + jobImage; !slices.Contains(runs, want) {
+		t.Errorf("no kaniko cell %q in %q", want, runs)
+	}
+
+	if given := slices.DeleteFunc(slices.Clone(runs), func(run string) bool { return !strings.Contains(run, jobImage) }); len(given) != 1 {
+		t.Errorf("the kaniko job image went to %q, want the kaniko cell alone", given)
+	}
+
+	for name, extra := range map[string][]string{
+		"no kaniko job image":   githubTestLintImages(),
+		"a kaniko image by tag": append(githubTestLintImages(), "kaniko-job-image=ghcr.io/o/forge-ci-live-kaniko-job:latest"),
+		"a kaniko image twice":  append(githubTestLintImages(), "kaniko-job-image="+githubTestKanikoJobImage, "kaniko-job-image="+githubTestKanikoJobImage),
+	} {
+		if _, err := GitHubCellRuns(root, SetMedium, extra, release); !errors.Is(err, errs.ErrUsage) || !strings.Contains(err.Error(), "kaniko-job-image=") {
+			t.Errorf("%s: gave %v", name, err)
+		}
+	}
+}
+
+// The cells' kaniko job image is published as the organization's GHCR
+// package, labelled with the session's engine repository, which
+// publish-container.yml admits it by, for the hosted runners' architecture.
+// It is refused before any build without the session's context or the
+// registry credential, whose token is never printed.
+func TestGitHubKanikoJobTarget(t *testing.T) {
+	t.Parallel()
+
+	if got, want := githubKanikoJobTarget("Example-Org", "fci-"), "https://github.com/Example-Org/fci-forge-ci\tghcr.io/example-org/forge-ci-live-kaniko-job\tamd64"; got != want {
+		t.Errorf("target %q, want %q", got, want)
+	}
+
+	token := filepath.Join(t.TempDir(), "packages.token")
+	if err := os.WriteFile(token, []byte("fixture-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, test := range map[string]struct {
+		env  map[string]string
+		want string
+	}{
+		"no session":    {map[string]string{}, GitHubContextEnv},
+		"no token file": {map[string]string{GitHubContextEnv: "/no/context"}, externalRegistryTokenFileEnv},
+		"no user":       {map[string]string{GitHubContextEnv: "/no/context", externalRegistryTokenFileEnv: token}, externalRegistryUserEnv},
+	} {
+		_, err := GitHubKanikoJobTarget(func(key string) string { return test.env[key] })
+		if !errors.Is(err, errs.ErrUsage) || !strings.Contains(err.Error(), test.want) || strings.Contains(err.Error(), "fixture-token") {
+			t.Errorf("%s: gave %v", name, err)
+		}
+	}
+}
+
+// githubTestCellSettings are the cell's settings with the kaniko job image a
+// run gives a kaniko cell (GitHubCellRuns).
+func githubTestCellSettings(cell GitHubCell) []string {
+	if !slices.Contains(cell.Settings, githubKaniko) {
+		return cell.Settings
+	}
+
+	return append(slices.Clone(cell.Settings), imageBuilderJobImageVariable+"="+githubTestKanikoJobImage)
+}
+
+// githubTestRunWords are the images a run of every cell names: a lint image
+// of each flavor and the kaniko job image.
+func githubTestRunWords() []string {
+	return append(githubTestLintImages(), "kaniko-job-image="+githubTestKanikoJobImage)
+}
+
+// githubTestKanikoJobImage is a pullable-shaped kaniko job image.
+var githubTestKanikoJobImage = "ghcr.io/o/forge-ci-live-kaniko-job@sha256:" + strings.Repeat("c", 64)
 
 // githubTestLintImage is a pullable-shaped lint image of a flavor.
 func githubTestLintImage(flavor string) string {

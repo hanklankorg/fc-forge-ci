@@ -677,6 +677,35 @@ func TestParseGitHubTrialSettings_DevelopmentRelease(t *testing.T) {
 	}
 }
 
+// A trial selects its consumer's image builder: kaniko with the digest-pinned
+// job image GitHub's runners pull, Buildah with none, and nothing else.
+func TestParseGitHubTrialSettings_ImageBuilder(t *testing.T) {
+	t.Parallel()
+
+	image := "ghcr.io/o/forge-ci-live-kaniko-job@sha256:" + strings.Repeat("b", 64)
+
+	kaniko, err := ParseGitHubTrialSettings(TrialRelease, []string{"CI_IMAGE_BUILDER=kaniko", "CI_IMAGE_BUILDER_JOB_IMAGE=" + image})
+	if err != nil || kaniko.Builder != ImageBuilderKaniko || kaniko.BuilderJobImage != image {
+		t.Fatalf("kaniko settings = %+v, %v", kaniko, err)
+	}
+
+	if buildah, err := ParseGitHubTrialSettings(TrialLifecycle, []string{"CI_IMAGE_BUILDER=buildah"}); err != nil || buildah.Builder != ImageBuilderBuildah || buildah.BuilderJobImage != "" {
+		t.Errorf("buildah settings = %+v, %v", buildah, err)
+	}
+
+	for name, words := range map[string][]string{
+		"kaniko with no job image": {"CI_IMAGE_BUILDER=kaniko"},
+		"a job image alone":        {"CI_IMAGE_BUILDER_JOB_IMAGE=" + image},
+		"buildah with a job image": {"CI_IMAGE_BUILDER=buildah", "CI_IMAGE_BUILDER_JOB_IMAGE=" + image},
+		"another builder":          {"CI_IMAGE_BUILDER=docker"},
+		"a job image by tag":       {"CI_IMAGE_BUILDER=kaniko", "CI_IMAGE_BUILDER_JOB_IMAGE=ghcr.io/o/forge-ci-live-kaniko-job:latest"},
+	} {
+		if _, err := ParseGitHubTrialSettings(TrialRelease, words); !errors.Is(err, errs.ErrValidation) {
+			t.Errorf("%s: gave %v", name, err)
+		}
+	}
+}
+
 // A lifecycle takes the release's version and images; its workflows are the
 // fixed fixture names, so workflow= is refused.
 func TestParseGitHubTrialSettings_Lifecycle(t *testing.T) {

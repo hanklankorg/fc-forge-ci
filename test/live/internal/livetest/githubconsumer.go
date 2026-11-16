@@ -305,6 +305,10 @@ type GitHubTrialSettings struct {
 	Fork            bool              // head=fork: the pull request comes from a fork of the consumer
 	History         int               // history=<commits>: that many commits under the consumer's, as a project has
 	Overrides       map[string]string // input: value lines set in the rendered fixtures
+	// Builder and BuilderJobImage are the consumer's CI_IMAGE_BUILDER and
+	// CI_IMAGE_BUILDER_JOB_IMAGE variables; empty, the layer's default,
+	// Buildah on the runner itself.
+	Builder, BuilderJobImage string
 }
 
 // settingHistory gives a release trial a history: commits under the
@@ -425,6 +429,13 @@ func ParseGitHubTrialSettings(event string, words []string) (GitHubTrialSettings
 		}
 	}
 
+	// GitHub's runners pull the kaniko job image themselves, so kaniko needs
+	// one, and Buildah, which builds on the runner, takes none.
+	if (settings.Builder == ImageBuilderKaniko) != (settings.BuilderJobImage != "") {
+		return GitHubTrialSettings{}, fmt.Errorf("%s=%s needs %s=<repository>@sha256:<digest>, a kaniko job image GitHub's runners can pull, and only kaniko takes one: %w",
+			imageBuilderVariable, ImageBuilderKaniko, imageBuilderJobImageVariable, errs.ErrValidation)
+	}
+
 	return settings, nil
 }
 
@@ -434,9 +445,10 @@ func (settings *GitHubTrialSettings) parseWord(word string) error {
 		return fmt.Errorf("image must be supplied once as image=<name[,name...]>; repeated settings would omit earlier verification targets: %w", errs.ErrValidation)
 	}
 
-	if !found || value == "" || (!settings.setPlatforms(key, value) && !settings.set(key, value)) {
+	if !found || value == "" || (!settings.setPlatforms(key, value) && !settings.setBuilder(key, value) && !settings.set(key, value)) {
 		return fmt.Errorf("setting %q: want workflow=<file> (not lifecycle), pull-request-workflow=<file> (release, for a demo), fixtures=<dir>, version=X.Y.Z or image=<name[,name...]> (release or lifecycle), "+
-			"head=fork (pull-request), history=<commits> (release), RELEASE_PLATFORMS=linux/amd64[,linux/arm64], or nanolinter-image=/megalinter-image=<reference>: %w", word, errs.ErrValidation)
+			"head=fork (pull-request), history=<commits> (release), RELEASE_PLATFORMS=linux/amd64[,linux/arm64], "+
+			"CI_IMAGE_BUILDER=buildah|kaniko, CI_IMAGE_BUILDER_JOB_IMAGE=<reference> (kaniko), or nanolinter-image=/megalinter-image=<reference>: %w", word, errs.ErrValidation)
 	}
 
 	return nil
@@ -452,6 +464,24 @@ func (settings *GitHubTrialSettings) setPlatforms(key, value string) bool {
 	settings.Platforms = value
 
 	return githubPlatforms(value)
+}
+
+// setBuilder takes CI_IMAGE_BUILDER and CI_IMAGE_BUILDER_JOB_IMAGE and
+// reports whether it was one of them with a valid value; any other key is
+// left to set.
+func (settings *GitHubTrialSettings) setBuilder(key, value string) bool {
+	switch key {
+	case imageBuilderVariable:
+		settings.Builder = value
+
+		return value == ImageBuilderBuildah || value == ImageBuilderKaniko
+	case imageBuilderJobImageVariable:
+		settings.BuilderJobImage = value
+
+		return pinnedImage.MatchString(value)
+	default:
+		return false
+	}
 }
 
 func (settings *GitHubTrialSettings) set(key, value string) bool {

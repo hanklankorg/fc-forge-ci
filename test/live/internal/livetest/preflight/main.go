@@ -53,7 +53,10 @@ func main() {
 	// execute, which the run script builds the runner binaries for.
 	// `preflight consumer-trial-layer` prints only the URL a Forgejo consumer
 	// trial serves the layer under test from, which the lab's kaniko job image
-	// names as its source. `preflight host-tools` refuses when a pinned host
+	// names as its source. `preflight github-kaniko-job-target` prints only
+	// where the hosted GitHub cells' kaniko job image is published, its
+	// source label, its repository and its architecture, tab-separated.
+	// `preflight host-tools` refuses when a pinned host
 	// tool the scenarios run does not resolve to a real executable.
 	if len(os.Args) == 2 {
 		fact, err := preflightFact(os.Args[1])
@@ -438,6 +441,8 @@ func preflightFact(mode string) (string, error) {
 		return livetest.LabProviderAccount()
 	case "consumer-trial-layer":
 		return livetest.ConsumerTrialLayerURL()
+	case "github-kaniko-job-target":
+		return livetest.GitHubKanikoJobTarget(os.Getenv)
 	case "host-tools":
 		return "host tools resolved: " + strings.Join(livetest.LauncherHostTools, " "), livetest.CheckHostTools(context.Background(), livetest.LauncherHostTools)
 	default:
@@ -460,6 +465,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       preflight gitlab-consumer-scenario | gitlab-lifecycle-settings (validates FORGE_CI_LIVE_CONSUMER_SETTINGS)")
 	fmt.Fprintln(os.Stderr, "       preflight prepared-runtime-targets <repository> <forgejo|gitlab|lane>... [flavor=<flavor>...]")
 	fmt.Fprintln(os.Stderr, "       preflight testing-matrices <repository> | testing-evidence <live-runs>")
+	fmt.Fprintln(os.Stderr, "       preflight github-kaniko-job-target (inside `just github run`; checks FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE and _USER)")
 	fmt.Fprintln(os.Stderr, "usage: preflight [signing-inputs | runner-arch | provider-account | consumer-trial-layer | host-tools] (signing-inputs checks only FORGE_CI_LIVE_SIGNING_KEY_DIR; host-tools checks only this host; other modes read the forgeci lab contract)")
 	os.Exit(2)
 }

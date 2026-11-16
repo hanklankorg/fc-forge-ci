@@ -91,6 +91,7 @@ func runLifecycle(t *testing.T, trial *livetest.GitHubTrial, engine livetest.Git
 	tree := trial.PushConsumer(repo, root, fixtures, engine, signing.overrides)
 	trial.SetVariable(repo, "FORGE_CI_REPOSITORY", engine.Owner+"/"+engine.Repository)
 	trial.SetVariable(repo, "RELEASE_PLATFORMS", settings.Platforms)
+	trial.SetImageBuilder(repo, settings)
 
 	base := tree.Main
 

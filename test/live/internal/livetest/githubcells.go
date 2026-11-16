@@ -37,6 +37,10 @@ type GitHubCell struct {
 // in such a demo and so proves no version bump.
 const githubBump = "version=0.2.0"
 
+// githubKaniko builds a cell's images with kaniko, in the job image the run
+// names (kaniko-job-image=), as a runner pool without user namespaces does.
+const githubKaniko = imageBuilderVariable + "=" + ImageBuilderKaniko
+
 // GitHubCells are the hosted GitHub cells, kept by hand: each demo's fixture
 // workflows under test/live/github/workflows by event, the lifecycle of each
 // demo that ships all three, and the variants, each a fixture root of its
@@ -46,9 +50,9 @@ const githubBump = "version=0.2.0"
 // bumps, the Maven service's, and one development build alone. The medium set has each service
 // demo as one lifecycle, which runs its pull request, development build and
 // release, with one visibility; every other demo's pull request and
-// release; and the variants. Each set covers the demos' events the lab
-// forges' sets do (PreparedCase.Set), but for the named exceptions a test
-// keeps.
+// release; the container demo's release with kaniko; and the variants.
+// Each set covers the demos' events the lab forges' sets do
+// (PreparedCase.Set), but for the named exceptions a test keeps.
 var GitHubCells = []GitHubCell{
 	{Demo: "hello-maven-service", Event: TrialLifecycle, Settings: []string{githubBump}, Set: SetMedium, Half: visibilityPrivate},
 	{Demo: "hello-cargo-container", Event: TrialLifecycle, Settings: []string{githubBump}, Set: SetMedium, Half: visibilityPrivate},
@@ -95,6 +99,12 @@ var GitHubCells = []GitHubCell{
 	{Demo: "hello-meta", Event: TrialRelease, Settings: []string{"fixtures=test/live/github-draft", "workflow=release-draft.yml"}, Set: SetMedium},
 	{Demo: "hello-npm-package", Event: TrialPullRequest, Settings: []string{"fixtures=test/live/github-fork", "head=fork"}, Set: SetMedium, Only: visibilityPublic},
 
+	// The second builder: the container demo's release with kaniko, as the
+	// lab forges' kaniko rows build. GitHub's hosted runners permit user
+	// namespaces, so Buildah is every other cell's builder; kaniko is for a
+	// self-hosted pool without them, and this cell runs its code path.
+	{Demo: "hello-cargo-container", Event: TrialRelease, Settings: []string{githubBump, githubKaniko}, Set: SetMedium, Half: visibilityPublic},
+
 	// The small set's development build, the one below the full set.
 	{Demo: "hello-go-service", Event: TrialDevRelease, Set: SetSmall},
 
@@ -132,6 +142,18 @@ func (cell GitHubCell) Visibilities(set, after string) []string {
 	}, set, after)
 }
 
+// builder is the image builder the cell's consumer builds with, and whether
+// its settings name it: Buildah, the layer's default, unless they do.
+func (cell GitHubCell) builder() (string, bool) {
+	for _, setting := range cell.Settings {
+		if builder, named := strings.CutPrefix(setting, imageBuilderVariable+"="); named {
+			return builder, true
+		}
+	}
+
+	return ImageBuilderBuildah, false
+}
+
 // variant reports whether the cell runs a fixture root of its own.
 func (cell GitHubCell) variant() bool {
 	return slices.ContainsFunc(cell.Settings, func(setting string) bool { return strings.HasPrefix(setting, "fixtures=") })
@@ -144,16 +166,17 @@ func (cell GitHubCell) variant() bool {
 // names its lint images per flavor, nanolinter-image=<flavor>:<reference> as
 // the prepare's job-image= does, and a cell gets the image of the flavor its
 // demo's pull-request fixture pins (githubFixtureLintFlavor). A variant takes
-// its own settings alone. A delta run
+// its own settings alone. A cell that builds with kaniko gets the run's
+// kaniko-job-image=<reference> as its CI_IMAGE_BUILDER_JOB_IMAGE. A delta run
 // (FORGE_CI_LIVE_AFTER) has what set runs and its set after did not
 // (GitHubCell.Visibilities): the cells outside the set after, and of a cell
 // the set after ran with one visibility, the other one.
 //
 // Everything a cell would be refused for later is refused here, before
 // anything runs: a setting its event does not take, a lint flavor the run
-// names no image for, and a release or a lifecycle with no release
-// credential named. The credential's file is the
-// trial's to read; only its variable is looked at.
+// names no image for, a kaniko cell with no kaniko job image named, and a
+// release or a lifecycle with no release credential named. The credential's
+// file is the trial's to read; only its variable is looked at.
 func GitHubCellRuns(root, set string, extra []string, getenv func(string) string) ([]string, error) {
 	set, err := ParseLiveSet(set)
 	if err != nil {
@@ -161,6 +184,11 @@ func GitHubCellRuns(root, set string, extra []string, getenv func(string) string
 	}
 
 	lintImages, extra, err := githubCellLintImages(extra)
+	if err != nil {
+		return nil, err
+	}
+
+	kanikoJobImage, extra, err := githubCellKanikoJobImage(extra)
 	if err != nil {
 		return nil, err
 	}
@@ -188,6 +216,11 @@ func GitHubCellRuns(root, set string, extra []string, getenv func(string) string
 			}
 
 			words = append(append(words, extra...), lint...)
+		}
+
+		words, err = githubCellKanikoWords(cell, words, kanikoJobImage)
+		if err != nil {
+			return nil, err
 		}
 
 		if _, err := ParseGitHubTrialSettings(cell.Event, words); err != nil {
@@ -245,6 +278,49 @@ func githubCellLintImages(extra []string) (map[string]string, []string, error) {
 	}
 
 	return images, rest, nil
+}
+
+// githubCellKanikoJobImage takes the run's one kaniko-job-image=<reference>
+// word out of extra and returns the reference, empty for none, with the other
+// words.
+func githubCellKanikoJobImage(extra []string) (string, []string, error) {
+	var (
+		image string
+		rest  []string
+	)
+
+	for _, word := range extra {
+		value, named := strings.CutPrefix(word, "kaniko-job-image=")
+		if !named {
+			rest = append(rest, word)
+
+			continue
+		}
+
+		if image != "" || !pinnedImage.MatchString(value) {
+			return "", nil, fmt.Errorf("setting %q: want one kaniko-job-image=<repository>@sha256:<digest>: %w", word, errs.ErrUsage)
+		}
+
+		image = value
+	}
+
+	return image, rest, nil
+}
+
+// githubCellKanikoWords are a cell's words with the run's kaniko job image
+// as its CI_IMAGE_BUILDER_JOB_IMAGE when the cell builds with kaniko, which
+// it cannot without one.
+func githubCellKanikoWords(cell GitHubCell, words []string, image string) ([]string, error) {
+	if !slices.Contains(cell.Settings, githubKaniko) {
+		return words, nil
+	}
+
+	if image == "" {
+		return nil, fmt.Errorf("%s %s builds with kaniko: pass kaniko-job-image=<repository>@sha256:<digest> of a kaniko job image GitHub's runners can pull, "+
+			"as `just test-live-image kaniko-job github` prints it: %w", cell.Demo, cell.Event, errs.ErrUsage)
+	}
+
+	return append(words, imageBuilderJobImageVariable+"="+image), nil
 }
 
 // githubCellLintImage is the nanolinter-image= setting of a demo's cell: the

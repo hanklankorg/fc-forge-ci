@@ -225,7 +225,7 @@ func TestGitHubReleaseSharesPackagesOfTheCells(t *testing.T) {
 		}
 
 		t.Run(strings.Join(append([]string{cell.Demo, cell.Event}, cell.Settings...), " "), func(t *testing.T) {
-			settings, err := ParseGitHubTrialSettings(cell.Event, cell.Settings)
+			settings, err := ParseGitHubTrialSettings(cell.Event, githubTestCellSettings(cell))
 			require.NoError(t, err)
 
 			fixtures := settings.Fixtures

@@ -184,6 +184,42 @@ func TestLaneValueCellShowsAMarkOnTheValuesItsRunHad(t *testing.T) {
 	}
 }
 
+// On hosted GitHub the builder is the cell's: a lifecycle cell stands for
+// Buildah, the default, as the demo's lifecycle, and the cell that names
+// kaniko for kaniko as its own event, with a mark only of a run that had it.
+func TestLaneValueCellShowsTheBuilderOfGitHubCells(t *testing.T) {
+	t.Parallel()
+
+	const demo = "hello-cargo-container"
+
+	lifecycle := map[string]string{settingVisibility: visibilityPublic}
+	kaniko := map[string]string{settingVisibility: visibilityPublic, settingImageBuilder: ImageBuilderKaniko}
+
+	for name, test := range map[string]struct {
+		evidence    matrixEvidence
+		value, want string
+	}{
+		"buildah, a lifecycle line":   {matrixEvidence{"github/" + demo + "/lifecycle": {{mark: "✅", note: "root", axes: lifecycle}}}, ImageBuilderBuildah, "📝 " + demo},
+		"kaniko, the release line":    {nil, ImageBuilderKaniko, "📝 " + demo + " release"},
+		"kaniko, a run that had it":   {matrixEvidence{"github/" + demo + "/release": {{mark: "✅", note: "root", axes: kaniko}}}, ImageBuilderKaniko, "✅ " + demo + " release (root)"},
+		"kaniko, a run that had none": {matrixEvidence{"github/" + demo + "/release": {{mark: "✅", note: "root", axes: lifecycle}}}, ImageBuilderKaniko, "📝 " + demo + " release"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			data := matrices{demos: []matrixDemo{{name: demo, admission: map[string]error{}}}, evidence: test.evidence}
+			if got := data.laneValueCell(matrixGitHub, settingImageBuilder, test.value); got != test.want {
+				t.Fatalf("cell %q, want %q", got, test.want)
+			}
+		})
+	}
+
+	none := matrices{demos: []matrixDemo{{name: "hello-go-cli", admission: map[string]error{}}}}
+	if got := none.laneValueCell(matrixGitHub, settingImageBuilder, ImageBuilderKaniko); got != "⬚ no lane" {
+		t.Errorf("a demo with no kaniko cell gave %q", got)
+	}
+}
+
 // The axis words lead the note; a flow is marked once per set of them, and
 // a qualifier outside its values is refused.
 func TestReadMatrixEvidenceReadsAxisQualifiers(t *testing.T) {

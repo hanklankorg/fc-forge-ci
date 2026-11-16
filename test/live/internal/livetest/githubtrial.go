@@ -132,6 +132,53 @@ func OpenGitHubTrial(tb TB, organizationID int64) *GitHubTrial {
 		session: document.Session[:8], actor: document.Actor.Login, token: document.Token}
 }
 
+// githubEngineRepository is the name of a hosted session's engine
+// repository, <prefix>forge-ci, in the session's organization.
+func githubEngineRepository(prefix string) string { return prefix + "forge-ci" }
+
+// GitHubKanikoJobTarget is where `publish-live-image.sh kaniko-job github`
+// publishes the kaniko job image of the hosted GitHub cells, as
+// <source>\t<repository>\t<architecture>. The source is the URL of the
+// hosted session's engine repository, which publish-container.yml requires
+// as the image's source label; the repository is the organization's GHCR
+// package forge-ci-live-kaniko-job; the architecture is that of the hosted
+// runners the cells build on. It needs the session's context and the
+// external registry's credential, a token that can write the organization's
+// packages: the token file is checked, never printed.
+func GitHubKanikoJobTarget(getenv func(string) string) (string, error) {
+	path := getenv(GitHubContextEnv)
+	if path == "" {
+		return "", fmt.Errorf("no hosted GitHub context: run inside `just github run` of Forge Lab, which sets %s: %w", GitHubContextEnv, errs.ErrUsage)
+	}
+
+	tokenFile := getenv(externalRegistryTokenFileEnv)
+	if tokenFile == "" {
+		return "", fmt.Errorf("set %s to the file of a token that can write the organization's packages on GHCR, and %s to its user: %w",
+			externalRegistryTokenFileEnv, externalRegistryUserEnv, errs.ErrUsage)
+	}
+
+	if _, err := readExternalRegistry(tokenFile, getenv(externalRegistryUserEnv)); err != nil {
+		return "", fmt.Errorf("%s: %w", externalRegistryTokenFileEnv, err)
+	}
+
+	document, err := githubcontext.Load(path)
+	if err != nil {
+		return "", fmt.Errorf("hosted GitHub context %s: %w", GitHubContextEnv, err)
+	}
+
+	return githubKanikoJobTarget(document.Organization.Login, document.Prefix), nil
+}
+
+// githubKanikoJobTarget is GitHubKanikoJobTarget of a session's organization
+// and prefix.
+func githubKanikoJobTarget(organization, prefix string) string {
+	return strings.Join([]string{
+		"https://github.com/" + organization + "/" + githubEngineRepository(prefix),
+		"ghcr.io/" + strings.ToLower(organization) + "/forge-ci-live-kaniko-job",
+		strings.TrimPrefix(githubDefaultPlatforms, "linux/"),
+	}, "\t")
+}
+
 // EnsureEngine puts this checkout's HEAD on main of <prefix>forge-ci, waits
 // for Self Runtime Container to build its images and move the rolling
 // pre-release to it, and returns the engine the consumer is rendered against.
@@ -153,7 +200,7 @@ func (trial *GitHubTrial) EnsureEngine(root, platforms string) GitHubEngine {
 	}
 
 	ctx := trial.tb.Context()
-	name := trial.prefix + "forge-ci"
+	name := githubEngineRepository(trial.prefix)
 
 	_, response, lookupErr := trial.api.Repositories.Get(ctx, trial.org, name)
 	missing := response != nil && response.StatusCode == http.StatusNotFound
@@ -224,7 +271,7 @@ func (trial *GitHubTrial) ReuseEngine(root string) GitHubEngine {
 		trial.tb.Fatalf("livetest: administrator inputs: %v", err)
 	}
 
-	name := trial.prefix + "forge-ci"
+	name := githubEngineRepository(trial.prefix)
 
 	ref, _, err := trial.api.Git.GetRef(trial.tb.Context(), trial.org, name, "heads/main")
 	if err != nil || ref.GetObject().GetSHA() != commit {
@@ -718,6 +765,20 @@ func (trial *GitHubTrial) SetVariable(repo, name, value string) {
 
 	if err := trial.setVariable(trial.tb.Context(), repo, name, value); err != nil {
 		trial.tb.Fatalf("livetest: set variable %s on %s: %v", name, repo, err)
+	}
+}
+
+// SetImageBuilder sets the consumer variables that select its image builder
+// (GitHubTrialSettings.Builder), and none for the layer's default.
+func (trial *GitHubTrial) SetImageBuilder(repo string, settings GitHubTrialSettings) {
+	trial.tb.Helper()
+
+	if settings.Builder != "" {
+		trial.SetVariable(repo, imageBuilderVariable, settings.Builder)
+	}
+
+	if settings.BuilderJobImage != "" {
+		trial.SetVariable(repo, imageBuilderJobImageVariable, settings.BuilderJobImage)
 	}
 }
 

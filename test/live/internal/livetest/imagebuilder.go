@@ -50,6 +50,13 @@ const (
 	ImageBuilderKaniko  = "kaniko"
 )
 
+// The consumer variables that select the image builder and the kaniko job
+// image on Forgejo and GitHub.
+const (
+	imageBuilderVariable         = "CI_IMAGE_BUILDER"
+	imageBuilderJobImageVariable = "CI_IMAGE_BUILDER_JOB_IMAGE"
+)
+
 // GitLabKaniko reports whether GitLabImageBuilderEnv selects kaniko. Any value
 // but buildah, kaniko or none fails the test.
 func GitLabKaniko(tb TB) bool {

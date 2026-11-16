@@ -894,9 +894,17 @@ test-live-signing-inputs:
 # A demo trial uses other layer repositories, which this image does not name.
 # A GitLab trial takes a saved archive of the local build and labels it
 # itself: FORGE_CI_LIVE_GITLAB_IMAGE_BUILDER=kaniko in docs/live-runs.md.
+#
+# kaniko-job github: inside Forge Lab's hosted session, the image of the
+# hosted GitHub cells, labelled with the session's engine repository and
+# pushed to the organization's GHCR with the external registry's token
+# (FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE and _USER). Pass what it prints
+# to the cells as kaniko-job-image=<reference>:
+#
+#   just test-live-image kaniko-job github
 [arg('kind', help='signer or kaniko-job')]
-[arg('forge_lab', help='Absolute path to the Forge Lab checkout used to publish the image')]
-[doc('Live; publish a lab signer or kaniko-job image')]
+[arg('forge_lab', help='Absolute path to the Forge Lab checkout used to publish the image, or github for the kaniko job image of the hosted GitHub cells')]
+[doc('Live; publish a lab signer or kaniko-job image, or the kaniko-job image of the GitHub cells')]
 [group('live')]
 test-live-image kind forge_lab budget="" cpus="" memory_mib="" compiler_jobs="":
     #!/usr/bin/env bash

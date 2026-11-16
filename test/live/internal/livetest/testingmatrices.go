@@ -744,25 +744,36 @@ func (data matrices) axisState(provider string, demo matrixDemo, setting, value 
 // laneValueCell is the best lifecycle state among the provider's lifecycle
 // lines that run with the setting at value (caseRuns): the overlay's
 // mark of a run that had that value, or else the line. On hosted GitHub the
-// lifecycle's visibility is the run's selector, as on the lab forges; it has
-// no lane for the other settings.
+// lifecycle's visibility is the run's selector, as on the lab forges, and
+// the builder is the cell's (githubBuilderState); it has no lane for the
+// other settings.
 func (data matrices) laneValueCell(provider, setting, value string) string {
 	best, subject := matrixMark{}, ""
 
-	consider := func(demo matrixDemo, name string) {
-		if state := data.axisState(provider, demo, setting, value); markRank(state.mark) < markRank(best.mark) {
+	consider := func(state matrixMark, name string) {
+		if markRank(state.mark) < markRank(best.mark) {
 			best, subject = state, name
 		}
 	}
 
 	for _, demo := range data.demos {
 		if provider == matrixGitHub && setting == settingVisibility && demo.hosted[TrialLifecycle] {
-			consider(demo, demo.name)
+			consider(data.axisState(provider, demo, setting, value), demo.name)
+		}
+
+		for _, cell := range GitHubCells {
+			if provider != matrixGitHub || setting != settingImageBuilder {
+				break
+			}
+
+			if state, name, stands := data.githubBuilderState(demo, cell, value); stands {
+				consider(state, name)
+			}
 		}
 
 		for _, lane := range data.lanes {
 			if lane.provider == provider && slices.ContainsFunc(lane.lines(demo.name, TrialLifecycle), func(c PreparedCase) bool { return caseRuns(setting, value, c) }) {
-				consider(demo, lane.name)
+				consider(data.axisState(provider, demo, setting, value), lane.name)
 			}
 		}
 	}
@@ -772,6 +783,32 @@ func (data matrices) laneValueCell(provider, setting, value string) string {
 	}
 
 	return best.cell(subject)
+}
+
+// githubBuilderState is the state of a hosted GitHub cell of the demo that
+// builds with builder, and its subject: a lifecycle cell, which builds with
+// its consumer's builder, as the demo's lifecycle, and a cell of another
+// event that names its builder as that event of the demo, with the overlay's
+// mark of a run that had the builder, or else the line. Any other cell
+// stands for none.
+func (data matrices) githubBuilderState(demo matrixDemo, cell GitHubCell, builder string) (matrixMark, string, bool) {
+	cellBuilder, named := cell.builder()
+
+	switch {
+	case cell.Demo != demo.name || cellBuilder != builder:
+		return matrixMark{}, "", false
+	case cell.Event == TrialLifecycle:
+		return data.axisState(matrixGitHub, demo, settingImageBuilder, builder), demo.name, true
+	case !named:
+		return matrixMark{}, "", false
+	}
+
+	state, found := data.axisMark(matrixGitHub, demo.name, cell.Event, settingImageBuilder, builder)
+	if !found {
+		state = matrixMark{mark: markLine}
+	}
+
+	return state, demo.name + " " + cell.Event, true
 }
 
 type matrixRow struct {

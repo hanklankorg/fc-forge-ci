@@ -987,8 +987,34 @@ itself and runs no cell twice.
 | Set | Cells |
 |---|---|
 | `small` | One pull request of each ecosystem, one release that bumps and one development build, as on the lab forges |
-| `medium` | One lifecycle of each service demo with one visibility, every other demo's pull request and release, the four release variants, the fork pull request and the small set's development build |
+| `medium` | One lifecycle of each service demo with one visibility, every other demo's pull request and release, hello-cargo-container's release with kaniko, public, the four release variants, the fork pull request and the small set's development build |
 | `full` | Every cell with both visibilities, the service demos' events alone included |
+
+Every cell builds its images with Buildah on the hosted runner, the
+layer's default, but one: hello-cargo-container's release with kaniko
+(`CI_IMAGE_BUILDER=kaniko`), for a self-hosted pool without user
+namespaces. GitHub's runners pull the kaniko job image themselves, and
+`publish-container.yml` admits it only when its source label names the
+engine repository the layer runs from, the session's `<prefix>forge-ci`.
+So the run names one, `kaniko-job-image=<digest reference>`, which goes to
+that cell alone as its consumer's `CI_IMAGE_BUILDER_JOB_IMAGE`; a medium or
+full set without it runs nothing. Publish it inside the hosted session,
+with a token that can write the organization's packages:
+
+```bash
+export FORGE_CI_LIVE_EXTERNAL_REGISTRY_TOKEN_FILE=<file>  # mode 0600
+export FORGE_CI_LIVE_EXTERNAL_REGISTRY_USER=<its user>
+just test-live-image kaniko-job github
+```
+
+It builds `containers/kaniko-job` of this commit natively for the hosted
+runners' amd64, labels it with the session's engine repository, pushes it
+to `ghcr.io/<organization>/forge-ci-live-kaniko-job:<commit>` and prints the
+digest reference, and only that. The token reaches podman on standard input
+alone, never as an argument or in the log. The package starts private, as
+any a token creates: make it public once in its settings, then pass the
+reference as `kaniko-job-image=`. A session with another prefix needs its
+own image, since the source label names that session's engine.
 
 As with the tables, `after=small` or `after=medium` right after the set
 makes a delta run, of the cells and visibilities the set after did not run,
