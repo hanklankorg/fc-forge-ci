@@ -390,8 +390,11 @@ engine copies it into kaniko's base-image cache (`--cache-dir`, the format
 `localhost/forge-ci-input@<digest>`. kaniko finds a `FROM` pinned to a
 digest there before it would ask a registry, so it pulls nothing, and the
 child keeps the parent's layers byte for byte
-(`FF_KANIKO_REPRODUCIBLE_PRESERVE_BASE_LAYERS`). A kaniko-only pool builds a
-cold base graph without a borrowed runner.
+(`FF_KANIKO_REPRODUCIBLE_PRESERVE_BASE_LAYERS`). Its layer cache stays off
+(`--cache-run-layers=false --cache-copy-layers=false`), so the parent is the
+one thing it looks up there. A parent it does not find fails the build as a
+missing prerequisite, not as a registry that may answer next time. A
+kaniko-only pool can so build a base graph without a borrowed runner.
 
 Kaniko itself reads only `.dockerignore` names. The engine gives it the same
 ignore file Buildah builds with: the Containerfile's own

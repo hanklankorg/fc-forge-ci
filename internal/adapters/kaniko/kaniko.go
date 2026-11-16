@@ -215,31 +215,61 @@ func (a *Adapter) ExportLocalImageToLayout(ctx context.Context, imageRef, layout
 // holding the one image, the format `kaniko warmer` writes. The layout is
 // copied there, so the build reads this process's own copy, and the returned
 // reference names it; no registry is contacted and no credential is read.
-func (a *Adapter) LoadRegistryInput(_ context.Context, directory, digest string, _ io.Writer) (string, error) {
+// A parent that cannot be loaded fails its build, and the parents loaded for
+// it are discarded.
+func (a *Adapter) LoadRegistryInput(_ context.Context, directory, digest string, _ io.Writer) (_ string, err error) {
 	if !container.ValidDigest(digest) {
 		return "", fmt.Errorf("registry input digest %q is not a sha256 digest: %w", digest, errs.ErrValidation)
 	}
 
+	defer func() {
+		if err != nil {
+			a.DiscardRegistryInputs()
+		}
+	}()
+
 	if a.baseCache == "" {
 		// Under TMPDIR, which the kaniko job image keeps under /kaniko.
-		dir, err := os.MkdirTemp("", "forge-ci-kaniko-base-*")
-		if err != nil {
+		var dir string
+		if dir, err = os.MkdirTemp("", "forge-ci-kaniko-base-*"); err != nil {
 			return "", fmt.Errorf("create the kaniko base-image cache: %w", err)
 		}
 
+		a.baseCache = dir
 		if a.baseCache, err = filepath.Abs(dir); err != nil {
+			_ = os.RemoveAll(dir)
+
 			return "", fmt.Errorf("resolve the kaniko base-image cache: %w", err)
 		}
 	}
 
+	// The cache is this process's own: an entry is the copy of a parent with
+	// that digest, loaded already.
 	entry := filepath.Join(a.baseCache, digest)
-	if _, err := os.Lstat(entry); errors.Is(err, fs.ErrNotExist) {
-		if err := copyLayout(directory, entry); err != nil {
+
+	_, err = os.Lstat(entry)
+
+	switch {
+	case err == nil:
+	case errors.Is(err, fs.ErrNotExist):
+		if err = copyLayout(directory, entry); err != nil {
 			return "", fmt.Errorf("copy the verified parent into the kaniko base-image cache: %w", err)
 		}
+	default:
+		return "", fmt.Errorf("inspect the kaniko base-image cache: %w", err)
 	}
 
 	return container.RegistryInputRepository + "@" + digest, nil
+}
+
+// DiscardRegistryInputs removes the parents loaded for the next build. A
+// build discards its own when it ends; a caller discards those of a build
+// that never ran.
+func (a *Adapter) DiscardRegistryInputs() {
+	if a.baseCache != "" {
+		_ = os.RemoveAll(a.baseCache)
+		a.baseCache = ""
+	}
 }
 
 // exportFilesystem builds the target into a private layout, which the build
@@ -315,11 +345,10 @@ func (a *Adapter) preflight() error {
 }
 
 func (a *Adapter) run(ctx context.Context, spec build, layoutDir string, out io.Writer) error {
-	// The loaded parents are this build's: the next starts without them.
-	spec.BaseCache, a.baseCache = a.baseCache, ""
-	if spec.BaseCache != "" {
-		defer func() { _ = os.RemoveAll(spec.BaseCache) }()
-	}
+	// The loaded parents are this build's: the next starts without them,
+	// whether this one fails or not.
+	spec.BaseCache = a.baseCache
+	defer a.DiscardRegistryInputs()
 
 	if err := a.preflight(); err != nil {
 		return err
@@ -357,7 +386,15 @@ func (a *Adapter) run(ctx context.Context, spec build, layoutDir string, out io.
 	}
 
 	if _, ok := errors.AsType[*exec.ExitError](err); ok {
-		return safeexec.ExitFailure(err, "kaniko", "build", errs.KanikoReport(said.String()))
+		report := errs.KanikoReport(said.String())
+		if spec.BaseCache != "" && asksForRegistryInput(report) {
+			// No registry serves the loaded parent: asking again finds the
+			// same cache without it.
+			return fmt.Errorf("kaniko build: %w: the verified parent was not found in the base-image cache %s, and kaniko asked a registry for it: %s: %w",
+				err, spec.BaseCache, strings.TrimSpace(report), errs.ErrPrerequisite)
+		}
+
+		return safeexec.ExitFailure(err, "kaniko", "build", report)
 	}
 
 	return safeexec.WrapError(err, "kaniko", "build")
@@ -399,7 +436,7 @@ func (a *Adapter) arguments(spec build, layoutDir string) ([]string, func(), []s
 	var env []string
 
 	if spec.BaseCache != "" {
-		args = append(args, baseCacheArguments(spec)...)
+		args = append(args, baseCacheArguments(spec.BaseCache)...)
 		// --reproducible would rewrite the parent's layers as well; the child
 		// carries the verified parent's layers byte for byte, as with Buildah.
 		env = append(env, "FF_KANIKO_REPRODUCIBLE_PRESERVE_BASE_LAYERS=1")
@@ -420,16 +457,22 @@ func (a *Adapter) arguments(spec build, layoutDir string) ([]string, func(), []s
 	return args, cleanup, append(env, "DOCKER_CONFIG="+configDir), nil
 }
 
-// baseCacheArguments point kaniko at the verified parents. It reads its
-// base-image cache only with --cache=true, which without a cache repository
-// needs --no-push-cache; its layer cache then has no repository to look in.
-func baseCacheArguments(spec build) []string {
-	args := []string{"--cache-dir", spec.BaseCache, flagIgnorePath, spec.BaseCache}
-	if spec.CacheRepo == "" {
-		args = append(args, "--cache=true", "--no-push-cache")
-	}
+// baseCacheArguments point kaniko at the verified parents in dir. Kaniko
+// looks a FROM up in its base-image cache only with --cache=true, which
+// without a cache repository needs --no-push-cache. Its layer cache stays
+// off: no RUN, WORKDIR, COPY or ADD layer is looked up or stored.
+func baseCacheArguments(dir string) []string {
+	return []string{"--cache-dir", dir, flagIgnorePath, dir, "--cache=true", "--no-push-cache", "--cache-run-layers=false", "--cache-copy-layers=false"}
+}
 
-	return args
+// asksForRegistryInput reports whether kaniko's report names the registry
+// of container.RegistryInputRepository, which serves nothing: kaniko asks it
+// for a loaded parent it did not find in its base-image cache, and reports
+// the address it could not reach, as "https://localhost/v2/".
+func asksForRegistryInput(report string) bool {
+	host, _, _ := strings.Cut(container.RegistryInputRepository, "/")
+
+	return strings.Contains(report, "//"+host+"/")
 }
 
 // copyLayout copies the directories and regular files of the layout in

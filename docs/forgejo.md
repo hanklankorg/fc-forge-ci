@@ -1015,7 +1015,7 @@ the pinned digest, in the job that runs your Containerfile without a
 registry credential. Buildah imports the layout into its store; kaniko reads
 it from its base-image cache, where a `FROM` pinned to that digest finds it
 before any registry, and the child keeps the parent's layers byte for byte.
-A kaniko-only pool builds the whole graph; see
+A kaniko-only pool can build the whole graph; see
 [Building on the pool with kaniko](runners.md#building-on-the-pool-with-kaniko).
 
 Siblings share a stage. A plan that lists several images, with the builds of

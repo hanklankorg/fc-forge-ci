@@ -953,9 +953,10 @@ See the [base-images example](../examples/base-images/README.md).
 
 A release with `base-stages` needs `base-plan` and `builder-job-image`;
 `Check: release plan` refuses the release otherwise, before anything runs.
-Either image builder builds a child stage: its build job holds no registry
-credential and starts from the parent `Base: parent` verified, which
-Buildah imports into its store and kaniko reads from its base-image cache.
+Either image builder can build a child stage: its build job holds no
+registry credential and starts from the parent `Base: parent` verified,
+which Buildah imports into its store and kaniko reads from its base-image
+cache.
 
 Each stage is these jobs, named after it, in the `build` stage:
 

@@ -159,7 +159,7 @@ spec:
       default: ''
     base-stages:
       description: >-
-        The project's graph of base images, built, signed and promoted before the release files: stages separated by spaces, each a flavor for a root, or flavor:parent for a child of a parent that an earlier stage builds and flavor+flavor:parent for its siblings; a root and two siblings on it are three names in two stages. The images live in the bases repository of the publication project. Either image builder builds a child stage. Requires base-plan and builder-job-image. Empty, the default, has no base stage.
+        The project's graph of base images, built, signed and promoted before the release files: stages separated by spaces, each a flavor for a root, or flavor:parent for a child of a parent that an earlier stage builds and flavor+flavor:parent for its siblings; a root and two siblings on it are three names in two stages. The images live in the bases repository of the publication project. Either image builder can build a child stage. Requires base-plan and builder-job-image. Empty, the default, has no base stage.
       regex: '^$|^[a-z][a-z0-9+:-]*( [a-z][a-z0-9+:-]*)*$'
       default: ''
     base-plan:

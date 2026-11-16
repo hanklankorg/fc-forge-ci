@@ -273,3 +273,28 @@ func TestReleaseImageBuildsOf_IsTheArchitecturesShareOfThePlan(t *testing.T) {
 	plan.Builds = plan.Builds[:1]
 	require.Empty(t, releaseImageBuildsOf(plan, "arm64"))
 }
+
+// Kaniko keeps the parents it loads for its next build; the prepared build
+// discards them through this method.
+var _ interface{ DiscardRegistryInputs() } = (*kaniko.Adapter)(nil)
+
+// loadedBuilder holds parents loaded for a build and records their discard.
+type loadedBuilder struct {
+	imageBuilder
+
+	discarded bool
+}
+
+func (b *loadedBuilder) DiscardRegistryInputs() { b.discarded = true }
+
+// The parents a builder loaded for a prepared build are discarded when that
+// build fails before it runs, as when its inputs cannot be read.
+func TestStagePreparedReleaseImageBuild_DiscardsTheParentsOfAFailedBuild(t *testing.T) {
+	t.Parallel()
+
+	builder := &loadedBuilder{}
+
+	err := stagePreparedReleaseImageBuild(t.Context(), &cli.Command{}, builder, pipeline.ReleaseImageBuild{Name: "app", Arch: "amd64"}, t.TempDir())
+	require.Error(t, err)
+	require.True(t, builder.discarded, "the failed build's parents outlive it")
+}

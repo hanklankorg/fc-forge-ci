@@ -626,7 +626,7 @@ if [ -n "$cache" ]; then cp -R "$cache/${from#*@}/." "$out" || exit 97; fi`)
 
 	for _, want := range []string{
 		"--build-arg PARENT=localhost/forge-ci-input@" + image.Digest,
-		"--cache-dir " + cache + " --ignore-path " + cache + " --cache=true --no-push-cache",
+		"--cache-dir " + cache + " --ignore-path " + cache + " --cache=true --no-push-cache --cache-run-layers=false --cache-copy-layers=false",
 		"ENV DOCKER_CONFIG=<unset> FF=1",
 	} {
 		if !strings.Contains(logs[0].String(), want) {
@@ -645,6 +645,129 @@ if [ -n "$cache" ]; then cp -R "$cache/${from#*@}/." "$out" || exit 97; fi`)
 	for _, absent := range []string{"--cache-dir", "--cache=true", "FF=1"} {
 		if strings.Contains(logs[1].String(), absent) {
 			t.Errorf("the next build inherits the parent's %q:\n%s", absent, logs[1].String())
+		}
+	}
+}
+
+// loadedParent is an adapter with one verified parent loaded for its next
+// build, and the base-image cache that holds it.
+func loadedParent(t *testing.T, adapter *Adapter) string {
+	t.Helper()
+
+	parent := layoutFixture(t, layerOf(t, tar.Header{Name: "parent", Typeflag: tar.TypeReg, Mode: 0o644}))
+
+	image, err := ociregistry.NewAnonymous().InspectLayout(t.Context(), parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := adapter.LoadRegistryInput(t.Context(), parent, image.Digest, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	return adapter.baseCache
+}
+
+// The parents loaded for a build go with it on every path: a parent that
+// cannot be loaded, a build that never runs, one refused before kaniko
+// starts and one kaniko fails. The next build starts without them.
+func TestRegistryInputs_AreDiscardedWhenTheirBuildFails(t *testing.T) {
+	t.Parallel()
+
+	other := "sha256:" + strings.Repeat("b", 64)
+
+	for name, fail := range map[string]func(t *testing.T, adapter *Adapter) error{
+		"a parent that cannot be copied": func(t *testing.T, adapter *Adapter) error {
+			_, err := adapter.LoadRegistryInput(t.Context(), filepath.Join(t.TempDir(), "absent"), other, io.Discard)
+
+			return err
+		},
+		"a cache entry that cannot be inspected": func(t *testing.T, adapter *Adapter) error {
+			// A file where the cache was: its entries cannot be inspected.
+			if err := os.RemoveAll(adapter.baseCache); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := os.WriteFile(adapter.baseCache, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err := adapter.LoadRegistryInput(t.Context(), t.TempDir(), other, io.Discard)
+
+			return err
+		},
+		"a build that never runs": func(_ *testing.T, adapter *Adapter) error {
+			adapter.DiscardRegistryInputs()
+
+			return errors.New("discarded")
+		},
+		"a build refused before kaniko starts": func(t *testing.T, adapter *Adapter) error {
+			adapter.euid = func() int { return 1000 }
+
+			return adapter.BuildToLayout(t.Context(), container.BuildRequest{Context: ".", Mode: container.BuildModeOCI, OutputDir: t.TempDir()}, t.TempDir(), io.Discard)
+		},
+		"a build kaniko fails": func(t *testing.T, adapter *Adapter) error {
+			bins := mockbinary.New(t)
+			bins.Add("executor", `echo 'error building image: error building stage: exit status 1'; exit 1`)
+			adapter.Executor = bins.Path("executor")
+
+			return adapter.BuildToLayout(t.Context(), container.BuildRequest{Context: ".", Mode: container.BuildModeOCI, OutputDir: t.TempDir()}, t.TempDir(), io.Discard)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			adapter := fakeExecutor(t)
+			cache := loadedParent(t, adapter)
+
+			if err := fail(t, adapter); err == nil {
+				t.Fatal("the build did not fail")
+			}
+
+			if _, err := os.Stat(cache); !errors.Is(err, os.ErrNotExist) || adapter.baseCache != "" {
+				t.Errorf("the base-image cache outlives its failed build: %v, %q", err, adapter.baseCache)
+			}
+
+			adapter.euid = func() int { return 0 }
+			adapter.Executor = fakeExecutor(t).Executor
+
+			var log strings.Builder
+			if err := adapter.BuildToLayout(t.Context(), container.BuildRequest{Context: ".", Mode: container.BuildModeOCI, OutputDir: t.TempDir()}, t.TempDir(), &log); err != nil || strings.Contains(log.String(), "--cache-dir") {
+				t.Errorf("the next build inherits the parents: %v\n%s", err, log.String())
+			}
+		})
+	}
+}
+
+// A loaded parent kaniko did not find in its base-image cache sends it to
+// the registry of the local name, which serves nothing. That fails the same
+// way however often it is asked, so it is not a dependency unavailable; the
+// same report from a build without loaded parents still is.
+func TestBuildToLayout_AParentMissingFromTheBaseImageCacheIsNotTransient(t *testing.T) {
+	t.Parallel()
+
+	for _, said := range []string{
+		`error building image: unable to complete operation after 0 attempts, last error: Get "https://localhost/v2/": dial tcp [::1]:443: connect: connection refused; Get "http://localhost/v2/": dial tcp [::1]:80: connect: connection refused`,
+		`error building image: GET https://localhost/v2/forge-ci-input/manifests/sha256:` + strings.Repeat("a", 64) + `: dial tcp [::1]:443: connect: connection refused`,
+	} {
+		for _, loaded := range []bool{true, false} {
+			bins := mockbinary.New(t)
+			bins.Add("executor", `printf '%s\n' '`+said+`'; exit 1`)
+			adapter := &Adapter{Executor: bins.Path("executor"), euid: func() int { return 0 }}
+
+			if loaded {
+				loadedParent(t, adapter)
+			}
+
+			err := adapter.BuildToLayout(t.Context(), container.BuildRequest{Context: ".", Mode: container.BuildModeOCI, OutputDir: t.TempDir()}, t.TempDir(), io.Discard)
+
+			switch {
+			case !loaded && !errors.Is(err, errs.ErrDependencyUnavailable):
+				t.Errorf("without a loaded parent: err = %v, want a dependency unavailable", err)
+			case loaded && (!errors.Is(err, errs.ErrPrerequisite) || errors.Is(err, errs.ErrDependencyUnavailable) ||
+				!strings.Contains(err.Error(), "the verified parent was not found in the base-image cache")):
+				t.Errorf("with a loaded parent: err = %v, want a prerequisite naming the base-image cache", err)
+			}
 		}
 	}
 }

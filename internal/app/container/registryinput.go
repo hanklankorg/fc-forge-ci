@@ -39,7 +39,19 @@ func ImportRegistryInput(ctx context.Context, inspector LayoutInspector, loader 
 		return "", err
 	}
 
-	return loader.LoadRegistryInput(ctx, directory, image.Digest, out)
+	local, err := loader.LoadRegistryInput(ctx, directory, image.Digest, out)
+	if err != nil {
+		return "", err
+	}
+
+	// The FROM a build argument names must be the local copy of these bytes,
+	// tagged or pinned by their digest, never a name a registry could serve.
+	tag := strings.TrimPrefix(image.Digest, "sha256:")
+	if local != domaincontainer.RegistryInputRepository+"@"+image.Digest && local != domaincontainer.RegistryInputRepository+":"+tag {
+		return "", fmt.Errorf("the builder loaded the verified parent as %q, not under %s by its digest: %w", local, domaincontainer.RegistryInputRepository, errs.ErrValidation)
+	}
+
+	return local, nil
 }
 
 // RegistryInputReader fetches pinned inputs only. It cannot build or publish.
