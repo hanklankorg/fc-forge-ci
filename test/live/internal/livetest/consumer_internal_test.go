@@ -5,6 +5,8 @@
 package livetest
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"maps"
 	"os"
@@ -676,6 +678,95 @@ func TestGenericGoConsumerPreservesApplicationAndOriginalSource(t *testing.T) {
 		if before != after {
 			t.Fatalf("renderer modified original source at %s", path)
 		}
+	}
+}
+
+// A consumer that pins its key's digest may track the key as well, and check
+// the one against the other. The trial swaps both, or the consumer would hold
+// the trial's digest beside its own key.
+func TestConsumer_SwapsTheTrustRootKeyWithItsDigest(t *testing.T) {
+	t.Parallel()
+
+	const consumerKey = "-----BEGIN PUBLIC KEY-----\nORGANIZATION\n-----END PUBLIC KEY-----\n"
+
+	digestOf := func(content string) string {
+		sum := sha256.Sum256([]byte(content))
+
+		return hex.EncodeToString(sum[:])
+	}
+	oldDigest, newDigest := digestOf(consumerKey), digestOf(labPublicKey)
+
+	git, _ := newLayerCheckout(t)
+	root := t.TempDir()
+
+	for path, content := range map[string]string{
+		consumerWorkflows + "/release.yml": "jobs:\n  sign:\n    uses: owner/forge-ci/.forgejo/workflows/sign-and-publish-release.yml@" + consumerPinned +
+			"\n    with:\n      cosign-public-key-sha256: " + oldDigest + "\n",
+		"keys/release.pub":    consumerKey,
+		"keys/bundle.pem":     consumerKey + "-----BEGIN PUBLIC KEY-----\nOTHER\n-----END PUBLIC KEY-----\n",
+		"tests/trust_root.rs": "const TRUST_ROOT_DIGEST: &str = \"" + oldDigest + "\";\n",
+	} {
+		writeLayerFile(t, root, path, content)
+	}
+
+	for _, args := range [][]string{
+		{"init", "--quiet", "--initial-branch=main"}, {"add", "--all"}, {"commit", "--quiet", "--message", "seed"},
+	} {
+		mustLayerGit(t, git, root, args...)
+	}
+
+	consumer, err := openConsumer(t.Context(), git, root, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workflows, err := consumer.workflows(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	render := func(digest string) (string, error) {
+		plan, planErr := sampleLayer().PlanConsumer(workflows, ConsumerFacts{Inputs: map[string]string{
+			"cosign-public-key": labPublicKey, "cosign-public-key-sha256": digest,
+		}})
+		if planErr != nil {
+			t.Fatal(planErr)
+		}
+
+		return consumer.commitRendered(t.Context(), plan)
+	}
+
+	commit, err := render(newDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	read := func(path string) string {
+		content, readErr := git.output(t.Context(), consumer.stage, nil, "cat-file", "blob", commit+":"+path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+
+		return string(content)
+	}
+
+	if got := read("keys/release.pub"); got != labPublicKey {
+		t.Errorf("the consumer's key renders to %q, want the trial's", got)
+	}
+
+	if got := read("tests/trust_root.rs"); !strings.Contains(got, newDigest) || strings.Contains(got, oldDigest) {
+		t.Errorf("the consumer's policy renders to %q, want the trial key's digest", got)
+	}
+
+	// A file that holds the key among other bytes is not the key.
+	if got := read("keys/bundle.pem"); !strings.HasPrefix(got, consumerKey) || strings.Contains(got, labPublicKey) {
+		t.Errorf("a file holding the key with more renders to %q, want it unchanged", got)
+	}
+
+	// A trial key that is not the one its digest names is refused, and the
+	// refusal does not repeat the key.
+	if _, err := render(strings.Repeat("c", 64)); !errors.Is(err, errs.ErrValidation) || strings.Contains(err.Error(), "BEGIN PUBLIC KEY") {
+		t.Errorf("a trial key of another digest renders: %v; want a validation refusal without the key", err)
 	}
 }
 

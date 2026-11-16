@@ -5,14 +5,20 @@
 package livetest
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -655,10 +661,17 @@ type ConsumerFacts struct {
 // the signer image as a job's container, the key digest in the step that
 // stages the key, both in its own policy tests. Their literal is replaced
 // wherever it stands. Every other literal is replaced as `input: literal`.
+// The key a replaced digest names is replaced by the lab's key wherever a
+// tracked file is that key.
 const (
 	inputSignerImage = "signer-image"
+	inputKey         = "cosign-public-key"
 	inputKeyDigest   = "cosign-public-key-sha256"
 )
+
+// trustRootFileLimit bounds the tracked files read to find a consumer's key:
+// a public key is a few hundred bytes.
+const trustRootFileLimit = 64 << 10
 
 // ConsumerPlan is what a trial does to a consumer: text to replace in its
 // tracked files, and the repository variables and secrets its workflows read
@@ -671,6 +684,11 @@ type ConsumerPlan struct {
 	Secrets        map[string]string
 	workflowInputs map[string]string
 	repository     string
+	// trustRoot is the lab's key digest by the consumer's it replaces, and
+	// publicKey the lab's key: a tracked file whose sha256 is a replaced
+	// digest is the consumer's key and becomes the lab's.
+	trustRoot map[string]string
+	publicKey string
 }
 
 // MergeConsumerVariables binds the trial's runtime values without overwriting
@@ -739,6 +757,8 @@ func (layer Layer) PlanConsumer(workflows map[string]string, facts ConsumerFacts
 	plan := ConsumerPlan{Pin: pin, Replace: layer.inPlaceOf(pin), Variables: map[string]string{}, Secrets: map[string]string{}}
 	plan.workflowInputs = map[string]string{}
 	plan.repository = layer.Repository
+	plan.trustRoot = map[string]string{}
+	plan.publicKey = facts.Inputs[inputKey]
 
 	for _, name := range sortedKeys(workflows) {
 		migrated, migrationErr := migratePublicationRepository(workflows[name])
@@ -922,7 +942,10 @@ func (plan *ConsumerPlan) bindInput(file, text, input, value string) error {
 		case strings.ContainsAny(literal, " \t$|>#") || strings.Contains(value, "\n"):
 			return fmt.Errorf("%s passes `%s%s`, which a trial cannot give the lab's value; write a literal or ${{ vars.NAME }}, "+
 				"and ${{ vars.NAME }} for a value of several lines: %w", file, key, written, errs.ErrValidation)
-		case input == inputSignerImage || input == inputKeyDigest:
+		case input == inputKeyDigest:
+			plan.replace(literal, value)
+			plan.trustRoot[literal] = value
+		case input == inputSignerImage:
 			plan.replace(literal, value)
 		default:
 			plan.replace(key+written, key+value)
@@ -1349,7 +1372,128 @@ func (consumer Consumer) commitRendered(ctx context.Context, plan ConsumerPlan) 
 		}
 	}
 
+	if err = consumer.stageTrustRoot(ctx, plan, pristineGo); err != nil {
+		return "", err
+	}
+
 	return consumer.commit(ctx, consumerBaseMessage)
+}
+
+// stageTrustRoot replaces every tracked file that is the consumer's key, by
+// the digest the plan replaces, with the lab's key, so that the trial hands
+// the consumer a key and a digest that agree. The lab's key must have the
+// digest that replaces the consumer's.
+func (consumer Consumer) stageTrustRoot(ctx context.Context, plan ConsumerPlan, pristineGo bool) error {
+	if len(plan.trustRoot) == 0 {
+		return nil
+	}
+
+	files, err := consumer.keySizedFiles(ctx, pristineGo)
+	if err != nil || len(files) == 0 {
+		return err
+	}
+
+	ids := make([]string, 0, len(files))
+	for _, file := range files {
+		ids = append(ids, file.id)
+	}
+
+	batch, err := consumer.git.output(ctx, consumer.stage, []byte(strings.Join(ids, "\n")+"\n"), "cat-file", "--batch")
+	if err != nil {
+		return err
+	}
+
+	reader := bufio.NewReader(bytes.NewReader(batch))
+
+	for _, file := range files {
+		content, readErr := readBatchBlob(reader)
+		if readErr != nil {
+			return fmt.Errorf("read %s: %w", file.path, readErr)
+		}
+
+		digest, found := plan.trustRoot[sha256Hex(content)]
+		if !found {
+			continue
+		}
+
+		if sha256Hex([]byte(plan.publicKey)) != digest {
+			return fmt.Errorf("%s is the consumer's key, and the lab's key does not have the digest %s that replaces its digest: %w", file.path, digest, errs.ErrValidation)
+		}
+
+		if err = consumer.stageFile(ctx, file.mode, file.path, plan.publicKey); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// trackedFile is a regular file of the consumer's tree.
+type trackedFile struct{ mode, path, id string }
+
+// keySizedFiles lists the consumer's regular files small enough to be a key.
+// The generic Go adapter's tree is left as it is, as commitRendered does.
+func (consumer Consumer) keySizedFiles(ctx context.Context, pristineGo bool) ([]trackedFile, error) {
+	listed, err := consumer.git.output(ctx, consumer.stage, nil, "ls-tree", "-r", "-z", "-l", consumer.Commit)
+	if err != nil {
+		return nil, err
+	}
+
+	var files []trackedFile
+
+	// `<mode> blob <id> <size>\t<path>`
+	for entry := range strings.SplitSeq(strings.TrimSuffix(string(listed), "\x00"), "\x00") {
+		header, path, _ := strings.Cut(entry, "\t")
+
+		fields := strings.Fields(header)
+		if len(fields) != 4 || (fields[0] != "100644" && fields[0] != "100755") {
+			continue
+		}
+
+		if size, sizeErr := strconv.Atoi(fields[3]); sizeErr != nil || size > trustRootFileLimit {
+			continue
+		}
+
+		if pristineGo && !strings.HasPrefix(path, consumerWorkflows+"/") {
+			continue
+		}
+
+		files = append(files, trackedFile{mode: fields[0], path: path, id: fields[2]})
+	}
+
+	return files, nil
+}
+
+func sha256Hex(content []byte) string {
+	sum := sha256.Sum256(content)
+
+	return hex.EncodeToString(sum[:])
+}
+
+// readBatchBlob reads one object of `git cat-file --batch`: a header line
+// `<id> <type> <size>`, the content, and a newline.
+func readBatchBlob(reader *bufio.Reader) ([]byte, error) {
+	header, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+
+	fields := strings.Fields(header)
+	if len(fields) != 3 {
+		return nil, fmt.Errorf("unexpected object header %q: %w", strings.TrimSpace(header), errs.ErrValidation)
+	}
+
+	size, err := strconv.Atoi(fields[2])
+	if err != nil {
+		return nil, err
+	}
+
+	content := make([]byte, size+1)
+	if _, err = io.ReadFull(reader, content); err != nil {
+		return nil, err
+	}
+
+	return content[:size], nil
 }
 
 // commitChange adds the canary to the staged tree and commits it on base,
