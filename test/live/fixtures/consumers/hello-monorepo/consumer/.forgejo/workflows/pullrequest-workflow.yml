@@ -21,7 +21,7 @@
 #
 #   lint            the repository's nanolinter plan, with a floor of checks
 #                   its nanolinter.toml cannot switch off
-#   trust-boundary  the release-isolation gate: it statically verifies
+#   release-gate    the release-isolation gate: it statically verifies
 #                   release-workflow.yml's secret boundaries on every PR (the hand-off
 #                   job holds no signing keys, the signer call site enumerates
 #                   its secrets, and every forge-ci ref carries one identical
@@ -69,7 +69,7 @@ jobs:
       - name: Lint
         uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/lint-nanolinter@2f4e845cee96973d1082bf00a5a18689c1482148
 
-  trust-boundary:
+  release-gate:
     name: "Check: release isolation"
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 10
@@ -131,7 +131,7 @@ jobs:
   summary:
     name: Summary
     if: ${{ always() }}
-    needs: [lint, trust-boundary, check-backend, check-frontend]
+    needs: [lint, release-gate, check-backend, check-frontend]
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 5
     steps:
@@ -144,7 +144,7 @@ jobs:
           PROJECT_TYPE: monorepo
           CI_BRANCH: ${{ forgejo.head_ref }}
           LINT_RESULT: ${{ needs.lint.result }}
-          ISOLATION_RESULT: ${{ needs.trust-boundary.result }}
+          ISOLATION_RESULT: ${{ needs.release-gate.result }}
           BACKEND_RESULT: ${{ needs.check-backend.result }}
           FRONTEND_RESULT: ${{ needs.check-frontend.result }}
         run: |

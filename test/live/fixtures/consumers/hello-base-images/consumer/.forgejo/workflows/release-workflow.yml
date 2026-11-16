@@ -60,7 +60,7 @@ env:
   FORGEJO_REPO: ${{ forgejo.repository }}
 jobs:
   prepare:
-    name: Prepare
+    name: "Prepare: release"
     if: success() && startsWith(forgejo.ref, 'refs/tags/')
     uses: itiquette/forge-ci/.forgejo/workflows/prepare-release.yml@2f4e845cee96973d1082bf00a5a18689c1482148
     with:
@@ -317,7 +317,7 @@ jobs:
   # the complete, enumerated signing hand-off (never `secrets: inherit`).
   # ===========================================================================
   sign-and-publish:
-    name: Sign and publish
+    name: "Sign and publish: release"
     needs: [prepare, inventory]
     uses: itiquette/forge-ci/.forgejo/workflows/sign-and-publish-release.yml@2f4e845cee96973d1082bf00a5a18689c1482148
     with:

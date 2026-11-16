@@ -245,10 +245,10 @@ func checkConsumerPRTemplate(t *testing.T, kit consumerKit) {
 		image   string
 		matches func(ast.Node) bool
 	}{
-		"lint":           {"lint-nanolinter", jobImage, usesAction("lint-nanolinter")},
-		"trust-boundary": {"check-l3-isolation", "", usesAction("check-l3-isolation")},
-		"build":          {buildName, jobImage, build},
-		"summary":        {"setup-forge-ci", "", usesAction("setup-forge-ci")},
+		"lint":         {"lint-nanolinter", jobImage, usesAction("lint-nanolinter")},
+		"release-gate": {"check-l3-isolation", "", usesAction("check-l3-isolation")},
+		"build":        {buildName, jobImage, build},
+		"summary":      {"setup-forge-ci", "", usesAction("setup-forge-ci")},
 	} {
 		entry, ok := parsed.jobs[name]
 		if !ok {

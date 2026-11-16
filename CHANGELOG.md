@@ -376,6 +376,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The examples snapshot as the projects that copy them do: a GitHub
+  snapshot caller is run by hand, and the container snapshot no longer runs
+  on pushes to `develop` and `feature/**`; a Forgejo one runs on every
+  pushed branch except `main`, and by hand, where the Go service and Maven
+  application callers snapshotted `main` alone. Either trigger can be
+  changed to suit the project. The Forgejo pull-request examples call the
+  release-isolation job `release-gate`, where it was `trust-boundary`, and
+  the release examples show their prepare and signer jobs as `Prepare:
+  release` and `Sign and publish: release`. The isolation job is still
+  shown as `Check: release isolation`, so a required check that names it
+  still matches; one that names a release job follows.
 - Example callers are named as the projects that copy them name them. The
   Android GitHub example's development build is `test-build.yml`, where it
   was `build-workflow.yml`: a project that runs `forge-ci init` again

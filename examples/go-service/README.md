@@ -19,7 +19,7 @@ versioned binaries first and assembles images from them in separate native jobs.
   image from [`forgejo/Containerfile.example`](forgejo/Containerfile.example)
   using the prebuilt binaries and `release-images.yml`.
   [`forgejo/release-snapshot-workflow.yml`](forgejo/release-snapshot-workflow.yml) builds a container-only
-  snapshot on every push to `main`, or when run by hand. Commit `mise.lock`
+  snapshot of every pushed branch except `main`, or when run by hand. Commit `mise.lock`
   for the runner platforms to use the locked toolchain setup. Images default
   to linux/amd64; arm64 requires a native runner and
   `RELEASE_PLATFORMS=linux/amd64,linux/arm64`. See the

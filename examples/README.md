@@ -25,6 +25,10 @@ that builds it: `github/` with the caller workflows,
 without a directory cannot build that ecosystem; [Delivery layers side by side](../docs/providers.md#delivery-layers-side-by-side)
 has the capability table.
 
+A GitHub snapshot caller is run by hand; a Forgejo one runs on every pushed
+branch except `main` and can be run by hand too. Either trigger can be
+changed to suit the project.
+
 | Ecosystem | GitHub | GitLab | Forgejo |
 |---|---|---|---|
 | [Go CLI](go-cli/): standalone binaries, cross-compiled per platform | [workflows](go-cli/github/) | [pipeline](go-cli/gitlab/.gitlab-ci.yml) | [workflows](go-cli/forgejo/) |

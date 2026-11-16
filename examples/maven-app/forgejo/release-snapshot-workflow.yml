@@ -8,9 +8,9 @@
 # SNAPSHOT_ARTIFACT_JOB_IMAGE_JAVA instead.
 name: Release Snapshot Workflow
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+  push:
+    branches-ignore: [main]
 # Configure a read-default repository token in Forgejo settings; Forgejo does
 # not enforce GitHub's workflow permissions block.
 concurrency:
@@ -18,10 +18,9 @@ concurrency:
   cancel-in-progress: false
 jobs:
   snapshot:
-    if: forgejo.ref == 'refs/heads/main'
     uses: OWNER/forge-ci/.forgejo/workflows/snapshot-images.yml@PIN_FORGE_CI_SHA
     with:
-      branch: main
+      branch: ${{ forgejo.ref_name }}
       forge-ci-repository: OWNER/forge-ci
       forge-ci-sha: PIN_FORGE_CI_SHA
       runs-on: ${{ vars.CI_RUNNER_LABEL }}

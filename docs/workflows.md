@@ -267,7 +267,7 @@ and is selected with `sboms`; image SBOMs follow container policy independently.
 
 ```mermaid
 graph TD
-    A[Push: develop or feature/*] --> B[release-snapshot-orchestrator.yml]
+    A[Caller run by hand] --> B[release-snapshot-orchestrator.yml]
     B --> C[setup-snapshot]
     C --> D[release-snapshot-build-stage.yml]
     D --> E[release-snapshot-publish-stage.yml]
