@@ -308,6 +308,6 @@ jobs:
           PUBLISH_RESULT: ${{ needs.sign-and-publish.result }}
         run: |
           forge-ci report release \
-            --job "Prepare=${PREPARE_RESULT}" \
+            --job "Prepare: release=${PREPARE_RESULT}" \
             --job "Build: release files=${BUILD_RESULT}" \
-            --job "Sign and publish=${PUBLISH_RESULT}"
+            --job "Sign and publish: release=${PUBLISH_RESULT}"

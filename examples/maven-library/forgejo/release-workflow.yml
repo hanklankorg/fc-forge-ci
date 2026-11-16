@@ -342,7 +342,7 @@ jobs:
           PACKAGE_RESULT: ${{ needs.publish-package.result }}
         run: |
           forge-ci report release \
-            --job "Prepare=${PREPARE_RESULT}" \
+            --job "Prepare: release=${PREPARE_RESULT}" \
             --job "Build: release files=${BUILD_RESULT}" \
-            --job "Sign and publish=${PUBLISH_RESULT}" \
+            --job "Sign and publish: release=${PUBLISH_RESULT}" \
             --job "Publish: package=${PACKAGE_RESULT}"

@@ -24,6 +24,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   prepare:
+    name: "Prepare: release"
     uses: OWNER/forge-ci/.forgejo/workflows/prepare-release.yml@PIN_FORGE_CI_SHA
     with:
       runs-on: ${{ vars.CI_RUNNER_LABEL }}
@@ -85,6 +86,7 @@ jobs:
         with:
           prune-dirs: "true"
   sign-and-publish:
+    name: "Sign and publish: release"
     needs: [prepare, build]
     # job-graph-guard: allow reason="reads needs.prepare.outputs but is gated on needs.build.result=='success'; build needs prepare, so build can only succeed if prepare succeeded, making prepare.outputs always present"
     if: ${{ always() && needs.build.result == 'success' }}

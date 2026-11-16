@@ -24,7 +24,7 @@ const publicationCaller = `jobs:
       release-tag: ${{ needs.prepare.outputs.release-tag }}
       release-sha: ${{ needs.prepare.outputs.release-sha }}
       release-request-sha: ${{ forgejo.sha }}
-      dist-digest: ${{ needs.dist.outputs['dist_digest'] }}
+      dist-digest: ${{ needs.dist.outputs.dist-digest }}
       artifact-name: build-dist
       artifact-path: dist/
       release-images-path: dist/release-images.json

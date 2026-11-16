@@ -14,8 +14,8 @@ The default image repository is `ghcr.io/<owner>/<repository>`.
 
 **Container snapshot** is run by hand, with any developer branch in
 `source-branch`, for example `feature/login`. An empty input uses the
-workflow's selected branch. The `container-images-json`
-output lists each image's source, platforms and digest.
+workflow's selected branch. The `container-images-json` output lists each
+image's source, platforms and digest.
 
 Set `publish-containers: false` under `with:` to turn publishing off. For
 another registry, set `container-image-repository` (for example

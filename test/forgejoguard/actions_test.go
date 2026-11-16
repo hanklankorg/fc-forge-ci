@@ -394,7 +394,7 @@ func TestServiceReleaseFanInUsesTheExistingAssembler(t *testing.T) {
 		t.Errorf("handoff artifact set = %q, want release files and image evidence", got)
 	}
 
-	if got := scalarString(mappingValue(mappingValue(handoff.node, "outputs"), "dist_digest")); got != "${{ steps.dist.outputs.digest }}" {
+	if got := scalarString(mappingValue(mappingValue(handoff.node, "outputs"), "dist-digest")); got != "${{ steps.dist.outputs.digest }}" {
 		t.Errorf("handoff digest output = %q, want the assembler digest", got)
 	}
 

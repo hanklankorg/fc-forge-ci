@@ -91,7 +91,6 @@ jobs:
           # The hand-off joins both projects' release files and the image
           # ledger; its upload-dist digest is the signer's only artifact input.
           build-job: handoff
-          dist-digest-output: dist_digest
 
   check-backend:
     name: "Check: backend"

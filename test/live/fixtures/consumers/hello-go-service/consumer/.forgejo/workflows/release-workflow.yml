@@ -256,7 +256,7 @@ jobs:
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 15
     outputs:
-      dist_digest: ${{ steps.dist.outputs.digest }}
+      dist-digest: ${{ steps.dist.outputs.digest }}
     steps:
       - name: Assemble the unsigned hand-off
         id: dist
@@ -285,7 +285,7 @@ jobs:
       # binds the release commit to it, so do not route this through a job
       # output: a value that travels with the release is not evidence about it.
       release-request-sha: ${{ forgejo.sha }}
-      dist-digest: ${{ needs.handoff.outputs['dist_digest'] }}
+      dist-digest: ${{ needs.handoff.outputs.dist-digest }}
       artifact-name: build-dist
       artifact-path: dist/
       release-images-path: dist/release-images.json
@@ -342,8 +342,8 @@ jobs:
           PUBLISH_RESULT: ${{ needs.sign-and-publish.result }}
         run: |
           forge-ci report release \
-            --job "Prepare=${PREPARE_RESULT}" \
+            --job "Prepare: release=${PREPARE_RESULT}" \
             --job "Build: release files=${BUILD_RESULT}" \
             --job "Release images=${IMAGES_RESULT}" \
             --job "Hand-off=${HANDOFF_RESULT}" \
-            --job "Sign and publish=${PUBLISH_RESULT}"
+            --job "Sign and publish: release=${PUBLISH_RESULT}"

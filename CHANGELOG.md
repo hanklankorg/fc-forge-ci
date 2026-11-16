@@ -384,9 +384,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   changed to suit the project. The Forgejo pull-request examples call the
   release-isolation job `release-gate`, where it was `trust-boundary`, and
   the release examples show their prepare and signer jobs as `Prepare:
-  release` and `Sign and publish: release`. The isolation job is still
-  shown as `Check: release isolation`, so a required check that names it
-  still matches; one that names a release job follows.
+  release` and `Sign and publish: release`, and their summaries list them
+  by those names. The isolation job is still shown as `Check: release
+  isolation`, so a required check that names it still matches; one that
+  names a release job follows. The Forgejo Go service and monorepo
+  examples hand the signer the hand-off's `dist-digest` output, where it
+  was `dist_digest`, as the other examples do, so their pull-request gates
+  no longer set `dist-digest-output`.
 - Example callers are named as the projects that copy them name them. The
   Android GitHub example's development build is `test-build.yml`, where it
   was `build-workflow.yml`: a project that runs `forge-ci init` again
