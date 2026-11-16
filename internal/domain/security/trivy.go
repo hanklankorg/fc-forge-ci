@@ -34,9 +34,10 @@ const (
 // only on a registry error that is temporary (HTTP 408, 429, 500, 502,
 // 503 or 504, or error codes that are all TOOMANYREQUESTS, UNAVAILABLE,
 // UNKNOWN or BLOB_UPLOAD_INVALID) or that names BLOB_UNKNOWN. Any other
-// 404, a denied or unauthorised pull, a DNS failure or a refused
-// connection stops the scan. So the mirror covers timeouts, rate limits,
-// server errors and BLOB_UNKNOWN only, and the runner must reach ghcr.io.
+// 404, a denied or unauthorised pull, a DNS failure, a refused
+// connection or a dial or I/O timeout stops the scan. So the mirror
+// covers registry (HTTP 408/504) timeouts, rate limits, server errors
+// and BLOB_UNKNOWN only, and the runner must reach ghcr.io.
 // The pull sends the job's registry login for ghcr.io, if it has one
 // (DOCKER_CONFIG and REGISTRY_AUTH_FILE are kept), so a stale or
 // under-scoped one fails it.
