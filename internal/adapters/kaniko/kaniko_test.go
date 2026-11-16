@@ -678,11 +678,15 @@ func TestRegistryInputs_AreDiscardedWhenTheirBuildFails(t *testing.T) {
 
 	for name, fail := range map[string]func(t *testing.T, adapter *Adapter) error{
 		"a parent that cannot be copied": func(t *testing.T, adapter *Adapter) error {
+			t.Helper()
+
 			_, err := adapter.LoadRegistryInput(t.Context(), filepath.Join(t.TempDir(), "absent"), other, io.Discard)
 
 			return err
 		},
 		"a cache entry that cannot be inspected": func(t *testing.T, adapter *Adapter) error {
+			t.Helper()
+
 			// A file where the cache was: its entries cannot be inspected.
 			if err := os.RemoveAll(adapter.baseCache); err != nil {
 				t.Fatal(err)
@@ -697,11 +701,15 @@ func TestRegistryInputs_AreDiscardedWhenTheirBuildFails(t *testing.T) {
 			return err
 		},
 		"a build refused before kaniko starts": func(t *testing.T, adapter *Adapter) error {
+			t.Helper()
+
 			adapter.euid = func() int { return 1000 }
 
 			return adapter.BuildToLayout(t.Context(), container.BuildRequest{Context: ".", Mode: container.BuildModeOCI, OutputDir: t.TempDir()}, t.TempDir(), io.Discard)
 		},
 		"a build kaniko fails": func(t *testing.T, adapter *Adapter) error {
+			t.Helper()
+
 			bins := mockbinary.New(t)
 			bins.Add("executor", `echo 'error building image: error building stage: exit status 1'; exit 1`)
 			adapter.Executor = bins.Path("executor")

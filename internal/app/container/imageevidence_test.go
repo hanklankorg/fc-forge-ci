@@ -196,8 +196,10 @@ func TestImageEvidence_OCILayoutScansAndWritesOptionalSBOM(t *testing.T) {
 	stagedTrivy := trivyArg(t, trivy.args, "--output")
 	assertPrivateEvidenceOutput(t, stagedTrivy, trivyOut)
 
-	wantArgs := []string{"image", "--input", layout, "--scanners", "vuln", "--skip-version-check", "--timeout", "7m", "--format", "json", "--output", stagedTrivy}
-	wantArgs = append(wantArgs, security.TrivyDBSourceArgs()...)
+	wantArgs := slices.Concat(
+		[]string{"image", "--input", layout, "--scanners", "vuln", "--skip-version-check", "--timeout", "7m", "--format", "json", "--output", stagedTrivy},
+		security.TrivyDBSourceArgs(),
+	)
 
 	if !slices.Equal(trivy.args, wantArgs) {
 		t.Fatalf("trivy args = %#v, want %#v", trivy.args, wantArgs)

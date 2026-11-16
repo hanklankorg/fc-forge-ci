@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -148,7 +149,7 @@ func runRawContainerTrivy(ctx context.Context, trivy TrivyOps, out, stderr io.Wr
 		return fmt.Errorf("resolve %s: %w", in.Output, err)
 	}
 
-	args := []string{
+	args := slices.Concat([]string{
 		"image",
 		"--timeout", in.Timeout,
 		"--platform", in.Platform,
@@ -156,9 +157,7 @@ func runRawContainerTrivy(ctx context.Context, trivy TrivyOps, out, stderr io.Wr
 		"--skip-version-check",
 		"--format", "json",
 		"--output", output,
-	}
-	args = append(args, security.TrivyDBSourceArgs()...)
-	args = append(args, in.ImageRef)
+	}, security.TrivyDBSourceArgs(), []string{in.ImageRef})
 
 	var said bytes.Buffer
 
