@@ -17,7 +17,8 @@ Simple Maven application with container build.
   is added to the build job as in the
   [Go service example](../go-service/forgejo/release-workflow.yml).
   [`forgejo/release-snapshot-workflow.yml`](forgejo/release-snapshot-workflow.yml) publishes a development
-  image of `main` through the shared snapshot workflow, the jar built first
+  image of every pushed branch except `main`, or of a branch run by hand,
+  through the shared snapshot workflow, the jar built first
   in a digest-pinned Java toolchain image. See the
   [Forgejo guide](../../docs/forgejo.md#getting-started).
 

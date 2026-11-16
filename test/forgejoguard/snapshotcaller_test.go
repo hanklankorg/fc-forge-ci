@@ -59,10 +59,10 @@ func TestSnapshotCallerDelegatesWithoutReleaseAuthority(t *testing.T) {
 			require.Equal(t, "OWNER/forge-ci/.forgejo/workflows/snapshot-images.yml@PIN_FORGE_CI_SHA", scalarString(mappingValue(caller.node, "uses")))
 			require.Nil(t, mappingValue(caller.node, "runs-on"), "same-instance workflow expansion chooses the native runners")
 			require.Empty(t, caller.steps(), "the caller must not copy snapshot operations")
-			require.Equal(t, "forgejo.ref == 'refs/heads/main'", scalarString(mappingValue(caller.node, "if")))
+			require.Nil(t, mappingValue(caller.node, "if"), "the trigger chooses the branches")
 			inputs := mappingValue(caller.node, "with")
 			require.Equal(t, "PIN_FORGE_CI_SHA", scalarString(mappingValue(inputs, "forge-ci-sha")))
-			require.Equal(t, "main", scalarString(mappingValue(inputs, "branch")))
+			require.Equal(t, "${{ forgejo.ref_name }}", scalarString(mappingValue(inputs, "branch")))
 			require.Contains(t, scalarString(mappingValue(inputs, producerImage)), "@sha256:", "the producer toolchain image is pinned by digest")
 			secrets := mappingEntries(mappingValue(caller.node, "secrets"))
 			require.Len(t, secrets, 1)
@@ -81,7 +81,7 @@ func TestSnapshotCallerDelegatesWithoutReleaseAuthority(t *testing.T) {
 func TestSnapshotFilesCallerHoldsNoCredential(t *testing.T) {
 	t.Parallel()
 
-	workflow := loadWorkflow(t, "examples/go-cli/forgejo/snapshot-files.yml")
+	workflow := loadWorkflow(t, "examples/go-cli/forgejo/test-snapshot-files.yml")
 	require.Len(t, workflow.jobs, 1)
 
 	caller := workflow.jobs["snapshot"]

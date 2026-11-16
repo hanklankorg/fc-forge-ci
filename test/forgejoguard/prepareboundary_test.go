@@ -91,7 +91,7 @@ func TestPrepareReleaseIsolatesTheVersionBumpFromTheSigningJob(t *testing.T) {
 
 	version := parsed.jobs["version"]
 	if !mentions(version.node, "version bump-plan") || !mentions(version.node, "--project-type") ||
-		!mentions(version.node, "artifact upload") || !mentions(version.node, "fromJSON(needs.plan.outputs.versions") {
+		!mentions(version.node, "artifact upload") || !mentions(version.node, "needs.plan.outputs.version-matrix") {
 		t.Error("the version jobs must run the engine's bump of their planned family and upload its patch")
 	}
 
@@ -134,15 +134,15 @@ func TestPrepareReleaseGoesOnWithoutAVersionBump(t *testing.T) {
 
 	version := parsed.jobs["version"]
 
-	matrix := scalarString(mappingValue(mappingValue(mappingValue(version.node, "strategy"), "matrix"), "version"))
-	if want := "${{ fromJSON(needs.plan.outputs.versions != '[]' && needs.plan.outputs.versions || '[{}]') }}"; matrix != want {
+	matrix := scalarString(mappingValue(mappingValue(version.node, "strategy"), "matrix"))
+	if want := `${{ fromJSON(needs.plan.outputs.bumps == 'true' && needs.plan.outputs.version-matrix || '{"include":[{}]}') }}`; matrix != want {
 		t.Errorf("the version matrix is %q, want %q", matrix, want)
 	}
 
-	const stepCondition = "${{ matrix.version.family != '' }}"
+	const stepCondition = "${{ matrix.family != '' }}"
 
 	steps := version.steps()
-	if len(steps) < 2 || scalarString(mappingValue(steps[0], "if")) != "${{ !matrix.version.family }}" {
+	if len(steps) < 2 || scalarString(mappingValue(steps[0], "if")) != "${{ !matrix.family }}" {
 		t.Fatal("the version job's first step must be the empty row's note")
 	}
 

@@ -226,8 +226,10 @@ jobs:
     runs-on: ${{ fromJSON(inputs['runs-on']) }}
     timeout-minutes: 10
     outputs:
-      builds: ${{ steps.plan.outputs.builds }}
-      images: ${{ steps.plan.outputs.images }}
+      build-matrix: ${{ steps.plan.outputs.build-matrix }}
+      builds-by-name: ${{ steps.plan.outputs.builds-by-name }}
+      image-matrix: ${{ steps.plan.outputs.image-matrix }}
+      images-by-name: ${{ steps.plan.outputs.images-by-name }}
       image-names: ${{ steps.plan.outputs['image-names'] }}
       registry-user: ${{ steps.plan.outputs['registry-user'] }}
     env:
@@ -327,11 +329,15 @@ jobs:
             --server-url "${FORGEJO_SERVER:?}" \
             --repository "${FORGEJO_REPO:?}"
 
+  # The matrix jobs' rows hold only an image's name and, for a build, its
+  # architecture: Forgejo appends a row's values to the job's name, so
+  # "Build: image" reads "Build: image (amd64, <image>)". Each reads the rest
+  # of its row from builds-by-name or images-by-name.
   fetch-inputs:
-    name: "Fetch registry inputs: ${{ matrix.build.name }} (${{ matrix.build.arch }})"
+    name: "Fetch: registry inputs"
     needs: [coordinates, plan]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' }}
-    runs-on: ${{ fromJSON(inputs[format('build-runs-on-linux-{0}', matrix.build.arch)]) }}
+    runs-on: ${{ fromJSON(inputs[format('build-runs-on-linux-{0}', matrix.arch)]) }}
     timeout-minutes: 45
     strategy:
       fail-fast: true
@@ -339,8 +345,7 @@ jobs:
       # Concurrent finalizers can delete a chunk while another walks it (500).
       # Serialize credential-only input uploads, not the subsequent builds.
       max-parallel: 1
-      matrix:
-        build: ${{ fromJSON(needs.plan.outputs.builds) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.build-matrix) }}
     defaults:
       run:
         shell: bash
@@ -369,8 +374,8 @@ jobs:
           fetch_forge_ci
       - name: Fetch admitted cache and parent layouts
         env:
-          BUILD_JSON: ${{ toJSON(matrix.build) }}
-          IMAGE_REPOSITORY: ${{ matrix.build['image-repository'] }}
+          BUILD_JSON: ${{ toJSON(fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]) }}
+          IMAGE_REPOSITORY: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]['image-repository'] }}
           RELEASE_SHA: ${{ inputs['release-sha'] }}
           REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
           REGISTRY_USER: ${{ needs.plan.outputs['registry-user'] }}
@@ -394,8 +399,8 @@ jobs:
       - name: Upload registry input layouts
         env:
           IMAGE_ARTIFACT_NAMESPACE: ${{ inputs['artifact-name'] }}
-          IMAGE_NAME: ${{ matrix.build.name }}
-          IMAGE_ARCH: ${{ matrix.build.arch }}
+          IMAGE_NAME: ${{ matrix.name }}
+          IMAGE_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           # shellcheck source=.engine/bin/lib-forge-ci.sh
@@ -407,20 +412,19 @@ jobs:
             --retention-days 1 --if-no-files error --include-hidden
 
   build:
-    name: "Build: ${{ matrix.build.name }} (${{ matrix.build.arch }})"
+    name: "Build: image"
     needs: [coordinates, plan, fetch-inputs]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.fetch-inputs.result == 'success' }}
     # Each architecture builds on a runner of its own architecture: a build
     # runs the Containerfile's steps, and none may rely on CPU emulation.
-    runs-on: ${{ fromJSON(inputs[format('build-runs-on-linux-{0}', matrix.build.arch)]) }}
+    runs-on: ${{ fromJSON(inputs[format('build-runs-on-linux-{0}', matrix.arch)]) }}
     # kaniko's job image, validated above; empty for Buildah, which runs in
     # the runner's own environment.
     container: ${{ needs.coordinates.outputs.builder_job_image }}
     timeout-minutes: 90
     strategy:
       fail-fast: true
-      matrix:
-        build: ${{ fromJSON(needs.plan.outputs.builds) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.build-matrix) }}
     defaults:
       run:
         shell: bash
@@ -501,24 +505,24 @@ jobs:
       - name: Prepare the image builder
         uses: ./forge-ci-layer/.forgejo/actions/setup-image-builder
 
-      - name: Build ${{ matrix.build.arch }} layout
-        if: ${{ matrix.build['cache-tag'] == '' && !matrix.build['registry-inputs'] }}
+      - name: Build ${{ matrix.arch }} layout
+        if: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]['cache-tag'] == '' && !fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]['registry-inputs'] }}
         env:
-          IMAGE_NAME: ${{ matrix.build.name }}
-          IMAGE_ARCH: ${{ matrix.build.arch }}
-          IMAGE_REPOSITORY: ${{ matrix.build['image-repository'] }}
-          CANDIDATE_TAG: ${{ matrix.build['candidate-tag'] }}
-          FINAL_TAG_NAME: ${{ matrix.build['final-tag-name'] }}
-          CONTAINER_FILE: ${{ matrix.build['container-file'] }}
-          BUILD_CONTEXT: ${{ matrix.build.context }}
-          BUILD_TARGET: ${{ matrix.build.target }}
-          BUILD_ARGS: ${{ matrix.build['build-args'] }}
-          PLANNED_IMAGE_LABELS: ${{ matrix.build.labels }}
-          EXPECTED_BUILDER_MATERIAL_ID: ${{ matrix.build['builder-material-id'] }}
-          CACHE_TAG: ${{ matrix.build['cache-tag'] }}
-          REQUIRED_IMAGE_LABELS: ${{ matrix.build['required-labels'] }}
+          IMAGE_NAME: ${{ matrix.name }}
+          IMAGE_ARCH: ${{ matrix.arch }}
+          IMAGE_REPOSITORY: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]['image-repository'] }}
+          CANDIDATE_TAG: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]['candidate-tag'] }}
+          FINAL_TAG_NAME: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]['final-tag-name'] }}
+          CONTAINER_FILE: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]['container-file'] }}
+          BUILD_CONTEXT: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch].context }}
+          BUILD_TARGET: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch].target }}
+          BUILD_ARGS: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]['build-args'] }}
+          PLANNED_IMAGE_LABELS: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch].labels }}
+          EXPECTED_BUILDER_MATERIAL_ID: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]['builder-material-id'] }}
+          CACHE_TAG: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]['cache-tag'] }}
+          REQUIRED_IMAGE_LABELS: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]['required-labels'] }}
           RELEASE_TAG: ${{ inputs['release-tag'] }}
-          RELEASE_SHA: ${{ matrix.build.revision || inputs['release-sha'] }}
+          RELEASE_SHA: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch].revision || inputs['release-sha'] }}
         run: |
           set -euo pipefail
           # shellcheck source=.engine/bin/lib-forge-ci.sh
@@ -577,11 +581,11 @@ jobs:
             "${args[@]}"
 
       - name: Download prepared registry inputs
-        if: ${{ matrix.build['cache-tag'] != '' || matrix.build['registry-inputs'] }}
+        if: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]['cache-tag'] != '' || fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]['registry-inputs'] }}
         env:
           IMAGE_ARTIFACT_NAMESPACE: ${{ inputs['artifact-name'] }}
-          IMAGE_NAME: ${{ matrix.build.name }}
-          IMAGE_ARCH: ${{ matrix.build.arch }}
+          IMAGE_NAME: ${{ matrix.name }}
+          IMAGE_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           # shellcheck source=.engine/bin/lib-forge-ci.sh
@@ -591,12 +595,12 @@ jobs:
             --dir "${GITHUB_WORKSPACE:?}/registry-inputs" \
             --blob-store "${IMAGE_ARTIFACT_NAMESPACE}-input-blob"
       - name: Build with secret-free prepared inputs
-        if: ${{ matrix.build['cache-tag'] != '' || matrix.build['registry-inputs'] }}
+        if: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]['cache-tag'] != '' || fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]['registry-inputs'] }}
         env:
-          BUILD_JSON: ${{ toJSON(matrix.build) }}
+          BUILD_JSON: ${{ toJSON(fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]) }}
           RELEASE_TAG: ${{ inputs['release-tag'] }}
           RELEASE_SHA: ${{ inputs['release-sha'] }}
-          EXPECTED_BUILDER_MATERIAL_ID: ${{ matrix.build['builder-material-id'] }}
+          EXPECTED_BUILDER_MATERIAL_ID: ${{ fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]['builder-material-id'] }}
         run: |
           set -euo pipefail
           # shellcheck source=.engine/bin/lib-forge-ci.sh
@@ -615,11 +619,11 @@ jobs:
             --created "${created}" --source-dir source --metadata-dir staged \
             --server-url "${FORGEJO_SERVER:?}" --repository "${FORGEJO_REPO:?}"
 
-      - name: Upload ${{ matrix.build.arch }} layout
+      - name: Upload ${{ matrix.arch }} layout
         env:
           IMAGE_ARTIFACT_NAMESPACE: ${{ inputs['artifact-name'] }}
-          IMAGE_NAME: ${{ matrix.build.name }}
-          IMAGE_ARCH: ${{ matrix.build.arch }}
+          IMAGE_NAME: ${{ matrix.name }}
+          IMAGE_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           # shellcheck source=.engine/bin/lib-forge-ci.sh
@@ -636,15 +640,14 @@ jobs:
             --include-hidden
 
   publish:
-    name: "Publish: ${{ matrix.image.name }}"
+    name: "Publish: image candidate"
     needs: [coordinates, plan, build]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.build.result == 'success' }}
     runs-on: ${{ fromJSON(inputs['runs-on']) }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      matrix:
-        image: ${{ fromJSON(needs.plan.outputs.images) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.image-matrix) }}
     defaults:
       run:
         shell: bash
@@ -715,8 +718,8 @@ jobs:
       - name: Download the staged layouts
         env:
           IMAGE_ARTIFACT_NAMESPACE: ${{ inputs['artifact-name'] }}
-          IMAGE_NAME: ${{ matrix.image.name }}
-          IMAGE_ARCHS: ${{ matrix.image.archs }}
+          IMAGE_NAME: ${{ matrix.name }}
+          IMAGE_ARCHS: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name].archs }}
         run: |
           set -euo pipefail
           # shellcheck source=.engine/bin/lib-forge-ci.sh
@@ -754,20 +757,20 @@ jobs:
       # The only step that holds the registry token. It runs nothing of the
       # caller's: the layouts are data, verified against their records and
       # required labels before the first upload.
-      - name: Scan and publish ${{ matrix.image.name }}
+      - name: Scan and publish ${{ matrix.name }}
         id: assemble
         env:
           IMAGE_ARTIFACT_NAMESPACE: ${{ inputs['artifact-name'] }}
-          IMAGE_NAME: ${{ matrix.image.name }}
-          IMAGE_ARCHS: ${{ matrix.image.archs }}
-          IMAGE_REPOSITORY: ${{ matrix.image['image-repository'] }}
-          CANDIDATE_TAG: ${{ matrix.image['candidate-tag'] }}
-          IMAGE_KIND: ${{ matrix.image['image-kind'] }}
-          IMAGE_ROLE: ${{ matrix.image.role }}
-          IMAGE_FLAVOR: ${{ matrix.image.flavor }}
-          REQUIRED_IMAGE_LABELS: ${{ matrix.image['required-labels'] }}
-          CACHE_TAG_PREFIX: ${{ matrix.image['cache-tag-prefix'] }}
-          RELEASE_SHA: ${{ matrix.image.revision || inputs['release-sha'] }}
+          IMAGE_NAME: ${{ matrix.name }}
+          IMAGE_ARCHS: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name].archs }}
+          IMAGE_REPOSITORY: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name]['image-repository'] }}
+          CANDIDATE_TAG: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name]['candidate-tag'] }}
+          IMAGE_KIND: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name]['image-kind'] }}
+          IMAGE_ROLE: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name].role }}
+          IMAGE_FLAVOR: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name].flavor }}
+          REQUIRED_IMAGE_LABELS: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name]['required-labels'] }}
+          CACHE_TAG_PREFIX: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name]['cache-tag-prefix'] }}
+          RELEASE_SHA: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name].revision || inputs['release-sha'] }}
           RELEASE_TAG: ${{ inputs['release-tag'] }}
           RELEASE_IMAGES_ADMIN_VULNERABILITIES: ${{ inputs['enforce-vulnerabilities'] }}
           REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
@@ -828,23 +831,23 @@ jobs:
             --manifest-output "${ledger_dir}/index-${IMAGE_NAME}.json" \
             "${required[@]}" "${scan[@]}"
 
-      - name: Record ${{ matrix.image.name }} in the ledger
+      - name: Record ${{ matrix.name }} in the ledger
         env:
           IMAGE_ARTIFACT_NAMESPACE: ${{ inputs['artifact-name'] }}
-          IMAGE_NAME: ${{ matrix.image.name }}
-          IMAGE_ARCHS: ${{ matrix.image.archs }}
-          IMAGE_REPOSITORY: ${{ matrix.image['image-repository'] }}
+          IMAGE_NAME: ${{ matrix.name }}
+          IMAGE_ARCHS: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name].archs }}
+          IMAGE_REPOSITORY: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name]['image-repository'] }}
           IMAGE_DIGEST: ${{ steps.assemble.outputs.image-digest }}
           IMAGE_SBOM: ${{ steps.assemble.outputs.image-sbom }}
           IMAGE_SBOM_SHA256: ${{ steps.assemble.outputs.image-sbom-sha256 }}
-          FINAL_TAG_NAME: ${{ matrix.image['final-tag-name'] }}
-          IMAGE_KIND: ${{ matrix.image['image-kind'] }}
-          IMAGE_ROLE: ${{ matrix.image.role }}
-          IMAGE_FLAVOR: ${{ matrix.image.flavor }}
-          BASE_REF: ${{ matrix.image['base-ref'] }}
-          BASE_INPUT_ID: ${{ matrix.image['base-input-id'] }}
-          MOVING_TAG_NAME: ${{ matrix.image['moving-tag-name'] }}
-          IMAGE_PROVENANCE_JSON: ${{ matrix.image['provenance-json'] }}
+          FINAL_TAG_NAME: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name]['final-tag-name'] }}
+          IMAGE_KIND: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name]['image-kind'] }}
+          IMAGE_ROLE: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name].role }}
+          IMAGE_FLAVOR: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name].flavor }}
+          BASE_REF: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name]['base-ref'] }}
+          BASE_INPUT_ID: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name]['base-input-id'] }}
+          MOVING_TAG_NAME: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name]['moving-tag-name'] }}
+          IMAGE_PROVENANCE_JSON: ${{ fromJSON(needs.plan.outputs.images-by-name)[matrix.name]['provenance-json'] }}
           RELEASE_TAG: ${{ inputs['release-tag'] }}
         run: |
           set -euo pipefail
@@ -882,10 +885,10 @@ jobs:
             --default-sbom \
             --tag "${RELEASE_TAG:?}" "${policy[@]}"
 
-      - name: Upload the ${{ matrix.image.name }} ledger
+      - name: Upload the ${{ matrix.name }} ledger
         env:
           IMAGE_ARTIFACT_NAMESPACE: ${{ inputs['artifact-name'] }}
-          IMAGE_NAME: ${{ matrix.image.name }}
+          IMAGE_NAME: ${{ matrix.name }}
         run: |
           set -euo pipefail
           # shellcheck source=.engine/bin/lib-forge-ci.sh

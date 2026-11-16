@@ -22,7 +22,7 @@ publish stage.
   [Forgejo guide](../../docs/forgejo.md#getting-started).
   [`forgejo/release-snapshot-workflow.yml`](forgejo/release-snapshot-workflow.yml) builds and tests every
   pushed branch except `main`, without signing or publishing anything.
-  [`forgejo/snapshot-files.yml`](forgejo/snapshot-files.yml), run by hand on
+  [`forgejo/test-snapshot-files.yml`](forgejo/test-snapshot-files.yml), run by hand on
   a branch, also keeps its binaries as an unsigned run artifact for 7 days
   ([snapshot files](../../docs/workflows.md#snapshot-files)).
 
@@ -30,12 +30,12 @@ A Forgejo release can also publish `.deb`, `.rpm` and `.apk` packages to the
 owner's package registries:
 [`artifacts-forgejo-packages.yml`](artifacts-forgejo-packages.yml) declares
 it, [`.goreleaser.yml`](.goreleaser.yml) builds the packages with `nfpms`, and
-[`forgejo/release-goreleaser.yml`](forgejo/release-goreleaser.yml), copied as
-`release-workflow.yml`, signs each with the release's OpenPGP key. That workflow
+[`forgejo/goreleaser/release-workflow.yml`](forgejo/goreleaser/release-workflow.yml), copied in
+place of `release-workflow.yml`, signs each with the release's OpenPGP key. That workflow
 installs `go`, GoReleaser and syft from the project's own mise config and
 `mise.lock`. Beside it,
-[`forgejo/release-snapshot-goreleaser.yml`](forgejo/release-snapshot-goreleaser.yml),
-copied as `release-snapshot-workflow.yml`, is a dry run of that release on
+[`forgejo/goreleaser/release-snapshot-workflow.yml`](forgejo/goreleaser/release-snapshot-workflow.yml),
+copied in place of `release-snapshot-workflow.yml`, is a dry run of that release on
 each pushed branch. See
 [Distro packages in the owner's registries](../../docs/forgejo.md#distro-packages-in-the-owners-registries).
 

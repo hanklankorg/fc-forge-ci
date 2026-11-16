@@ -32,8 +32,7 @@ func TestRegistryInputFetchSerializesArtifactFinalization(t *testing.T) {
 			t.Errorf("%s: registry input uploads must avoid concurrent Forgejo chunk finalization", tc.file)
 		}
 
-		matrix := mappingValue(strategy, "matrix")
-		if scalarString(mappingValue(matrix, "build")) != "${{ fromJSON(needs.plan.outputs.builds) }}" {
+		if scalarString(mappingValue(strategy, "matrix")) != "${{ fromJSON(needs.plan.outputs.build-matrix) }}" {
 			t.Errorf("%s: serialized fetch must still cover every planned image and architecture", tc.file)
 		}
 

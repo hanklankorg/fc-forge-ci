@@ -280,8 +280,7 @@ config:
    Every target on this page is released this way. The example release
    workflows trigger on `release-request/v*`.
    Snapshot builds use the snapshot orchestrator instead: its example callers
-   run on pushes to `develop` and `feature/**` and on `workflow_dispatch`,
-   and use no release-request tag.
+   are run by hand (`workflow_dispatch`) and use no release-request tag.
 
 2. **Build and deployment:**
    - Runs the library lifecycle/profile; the project POM attaches sources and javadoc

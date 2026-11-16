@@ -58,7 +58,7 @@
 # before signing, as examples/go-service/forgejo/ does. Set
 # publish-container-images and provide native runner capacity
 # (https://codefloe.com/itiquette/forge-ci/src/commit/2f4e845cee96973d1082bf00a5a18689c1482148/docs/runners.md).
-name: Release
+name: Release Workflow
 
 on:
   push:
@@ -73,7 +73,7 @@ jobs:
   # changelog + final tag. Everything here is forge-ci's pinned code.
   # ===========================================================================
   prepare:
-    name: Prepare
+    name: "Prepare: release"
     if: success() && startsWith(forgejo.ref, 'refs/tags/')
     uses: itiquette/forge-ci/.forgejo/workflows/prepare-release.yml@2f4e845cee96973d1082bf00a5a18689c1482148
     with:
@@ -215,7 +215,7 @@ jobs:
   # the complete, enumerated signing hand-off (never `secrets: inherit`).
   # ===========================================================================
   sign-and-publish:
-    name: Sign and publish
+    name: "Sign and publish: release"
     needs: [prepare, build]
     # job-graph-guard: allow reason="reads needs.prepare.outputs but is gated on needs.build.result=='success'; build needs prepare, so build can only succeed if prepare succeeded, making prepare.outputs always present"
     if: ${{ always() && needs.build.result == 'success' }}
@@ -286,6 +286,6 @@ jobs:
           PUBLISH_RESULT: ${{ needs.sign-and-publish.result }}
         run: |
           forge-ci report release \
-            --job "Prepare=${PREPARE_RESULT}" \
+            --job "Prepare: release=${PREPARE_RESULT}" \
             --job "Build: release files=${BUILD_RESULT}" \
-            --job "Sign and publish=${PUBLISH_RESULT}"
+            --job "Sign and publish: release=${PUBLISH_RESULT}"

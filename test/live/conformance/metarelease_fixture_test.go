@@ -21,11 +21,12 @@ var layerMetaDeclaration string
 
 const (
 	// releaseCommitJob is the job that verifies the planned bump and signs
-	// the release commit; the version jobs before it are named by family.
-	releaseCommitJob     = "Prepare: release commit and tag"
-	releaseVersionJobs   = "Prepare: version "
-	releaseVersionPlan   = releaseVersionJobs + "plan"
-	releaseVersionNoBump = releaseVersionJobs + "none"
+	// the release commit. The version job before it has one row a family,
+	// to whose name Forgejo appends the row's family and project type, and
+	// keeps the bare name for the bump's empty row.
+	releaseCommitJob   = "Prepare: release commit and tag"
+	releaseVersionJob  = "Prepare: version"
+	releaseVersionPlan = releaseVersionJob + " plan"
 
 	// metaBumpLine is what the engine's bump prints for a meta project: the
 	// version is recorded for the changelog, and no file is its to change.
@@ -58,7 +59,7 @@ func metaReleaseFindings(declaration string, jobs, changed []string, commitLog s
 	}
 
 	for _, job := range jobs {
-		if strings.HasPrefix(job, releaseVersionJobs) && job != releaseVersionPlan && job != releaseVersionNoBump && !strings.HasPrefix(job, releaseVersionNoBump+" (") {
+		if strings.HasPrefix(job, releaseVersionJob+" (") {
 			findings = append(findings, fmt.Sprintf("job %q bumps a version, and a meta release has none to bump", job))
 		}
 	}
@@ -77,7 +78,7 @@ func metaReleaseFindings(declaration string, jobs, changed []string, commitLog s
 func TestMetaReleaseFindings(t *testing.T) {
 	t.Parallel()
 
-	jobs := []string{"Prepare: changelog", releaseVersionPlan, releaseVersionNoBump + " ()", releaseCommitJob, "Publish: release"}
+	jobs := []string{"Prepare: changelog", releaseVersionPlan, releaseVersionJob, releaseCommitJob, "Publish: release"}
 	log := "Bumping version to 0.0.1 for meta project in .\n" + metaBumpLine + "\n"
 
 	changelog := []string{releaseChangelog}
@@ -96,7 +97,7 @@ func TestMetaReleaseFindings(t *testing.T) {
 			want: "want meta projects alone",
 		},
 		"not a declaration": {declaration: "artifacts: {", jobs: jobs, changed: changelog, log: log, want: "meta declaration:"},
-		"a version job":     {declaration: layerMetaDeclaration, jobs: append([]string{"Prepare: version rust"}, jobs...), changed: changelog, log: log, want: "bumps a version"},
+		"a version job":     {declaration: layerMetaDeclaration, jobs: append([]string{"Prepare: version (rust, cargo)"}, jobs...), changed: changelog, log: log, want: "bumps a version"},
 		"a bumped manifest": {
 			declaration: layerMetaDeclaration, jobs: jobs, changed: []string{releaseChangelog, "package.json"}, log: log,
 			want: "changes CHANGELOG.md alone",

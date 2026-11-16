@@ -82,7 +82,8 @@ func TestRuntimeCollectBindsCandidateMetadataBeforeSchedulingSmoke(t *testing.T)
 				require.Empty(t, sink.Keys())
 			} else {
 				require.NoError(t, err)
-				require.JSONEq(t, `{"include":[{"target":"go","arch":"amd64","ref":"registry.example/acme/runtime-go@sha256:`+strings.Repeat("b", 64)+`","checksum":"`+strings.Repeat("d", 64)+`"}]}`, sink.Single("smoke-matrix"))
+				require.JSONEq(t, `{"include":[{"target":"go","arch":"amd64"}]}`, sink.Single("smoke-matrix"))
+				require.JSONEq(t, `{"go":{"amd64":{"target":"go","arch":"amd64","ref":"registry.example/acme/runtime-go@sha256:`+strings.Repeat("b", 64)+`","checksum":"`+strings.Repeat("d", 64)+`"}}}`, sink.Single("smoke-legs"))
 			}
 
 			leftovers, err := filepath.Glob(filepath.Join(workspace, ".runtime-metadata-*"))

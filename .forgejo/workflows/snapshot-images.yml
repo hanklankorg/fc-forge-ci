@@ -177,11 +177,11 @@ jobs:
       FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
     outputs:
       source-sha: ${{ steps.plan.outputs.source-sha }}
-      builds: ${{ steps.plan.outputs.builds }}
-      images: ${{ steps.plan.outputs.images }}
-      artifacts: ${{ steps.plan.outputs.artifacts }}
+      build-matrix: ${{ steps.plan.outputs.build-matrix }}
+      image-matrix: ${{ steps.plan.outputs.image-matrix }}
+      artifact-matrix: ${{ steps.plan.outputs.artifact-matrix }}
       has-artifacts: ${{ steps.plan.outputs.has-artifacts }}
-      files: ${{ steps.plan.outputs.files }}
+      file-matrix: ${{ steps.plan.outputs.file-matrix }}
       has-files: ${{ steps.plan.outputs.has-files }}
       enabled: ${{ steps.plan.outputs.enabled }}
     steps:
@@ -244,28 +244,32 @@ jobs:
           fi
           snapshot_require_publisher
           run_forge_ci artifact upload --name "${SNAPSHOT_NAMESPACE}-plan" --file snapshot-plan.json --if-no-files error
+  # The matrix jobs' rows hold only short values: a name, and an artifact's
+  # project type or a build's architecture. Forgejo appends a row's values to
+  # the job's name, so "Build: image" reads "Build: image (amd64, <image>)";
+  # a job reads anything else from the frozen plan. A no-op row has no
+  # values and keeps the bare name.
   produce:
-    name: "Build: ${{ matrix.artifact.name }}"
+    name: "Build: artifact"
     needs: [coordinates, plan]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.enabled == 'true' && inputs['context-artifact'] == '' }}
     runs-on: ${{ fromJSON(inputs['runs-on']) }}
     # Select a validated coordinate by key, never a logical expression's value.
     # format preserves an empty container (the runner default) for the no-op row.
-    container: ${{ format('{0}', needs.coordinates.outputs[fromJSON('{"go":"artifact_job_image_go","maven":"artifact_job_image_java","gradle":"artifact_job_image_java","npm":"artifact_job_image_node","cargo":"artifact_job_image_rust"}')[matrix.artifact.project_type]]) }}
+    container: ${{ format('{0}', needs.coordinates.outputs[fromJSON('{"go":"artifact_job_image_go","maven":"artifact_job_image_java","gradle":"artifact_job_image_java","npm":"artifact_job_image_node","cargo":"artifact_job_image_rust"}')[matrix.project_type]]) }}
     env:
       FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
     strategy:
       fail-fast: false
-      matrix:
-        # Complete a no-op job when there are no producers. An empty matrix
-        # blocks downstream jobs on Forgejo (forgejo/forgejo#12191).
-        artifact: ${{ fromJSON(needs.plan.outputs.has-artifacts == 'true' && needs.plan.outputs.artifacts || '[{}]') }}
+      # Complete a no-op job when there are no producers. An empty matrix
+      # blocks downstream jobs on Forgejo (forgejo/forgejo#12191).
+      matrix: ${{ fromJSON(needs.plan.outputs.has-artifacts == 'true' && needs.plan.outputs.artifact-matrix || '{"include":[{}]}') }}
     steps:
       - name: No artifact producer required
-        if: ${{ !matrix.artifact.name }}
+        if: ${{ !matrix.name }}
         run: echo 'Container-first snapshot has no artifact producer'
       - name: Bootstrap pinned native snapshot layer
-        if: ${{ matrix.artifact.name != '' }}
+        if: ${{ matrix.name != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -282,7 +286,7 @@ jobs:
           fetch_forge_ci
           printf 'SNAPSHOT_HELPERS=%s\n' "${helpers}" >> "${FORGEJO_ENV:?}"
       - name: Fetch exact artifact source and frozen settings
-        if: ${{ matrix.artifact.name != '' }}
+        if: ${{ matrix.name != '' }}
         shell: bash
         env:
           # The settings snapshot_engine passes to every engine call.
@@ -297,14 +301,14 @@ jobs:
           run_forge_ci artifact download --name "${SNAPSHOT_NAMESPACE}-plan" --dir .
           snapshot_checkout "${SOURCE_SHA}"
       - name: Build required artifact using the shared ecosystem runner
-        if: ${{ matrix.artifact.name != '' }}
+        if: ${{ matrix.name != '' }}
         shell: bash
         env:
           # The settings snapshot_engine passes to every engine call.
           SNAPSHOT_ADMIN_APPLICATION_TESTS: ${{ inputs['enforce-application-tests'] }}
           SNAPSHOT_ADMIN_VULNERABILITIES: ${{ inputs['enforce-vulnerabilities'] }}
-          ARTIFACT_NAME: ${{ matrix.artifact.name }}
-          ARTIFACT_PROJECT_TYPE: ${{ matrix.artifact.project_type }}
+          ARTIFACT_NAME: ${{ matrix.name }}
+          ARTIFACT_PROJECT_TYPE: ${{ matrix.project_type }}
         run: |
           set -euo pipefail
           source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
@@ -317,10 +321,10 @@ jobs:
           snapshot_build_sbom_tool "${ARTIFACT_NAME}" "${ARTIFACT_PROJECT_TYPE}"
           snapshot_build_artifact "${ARTIFACT_NAME}"
       - name: Retain bound artifact producer output
-        if: ${{ matrix.artifact.name != '' }}
+        if: ${{ matrix.name != '' }}
         shell: bash
         env:
-          ARTIFACT_NAME: ${{ matrix.artifact.name }}
+          ARTIFACT_NAME: ${{ matrix.name }}
         run: |
           set -euo pipefail
           source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
@@ -331,25 +335,29 @@ jobs:
   # store, and no registry, release or signing secret; the build itself gets
   # none of them. Nothing is published outside the run.
   files:
-    name: "Build: ${{ matrix.file.name }} files"
+    name: "Build: files"
     needs: [coordinates, plan]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.has-files == 'true' }}
     runs-on: ${{ fromJSON(inputs['runs-on']) }}
     # Select a validated coordinate by key, never a logical expression's value.
-    container: ${{ format('{0}', needs.coordinates.outputs[fromJSON('{"go":"artifact_job_image_go","maven":"artifact_job_image_java","gradle":"artifact_job_image_java","npm":"artifact_job_image_node","cargo":"artifact_job_image_rust"}')[matrix.file.project_type]]) }}
+    container: ${{ format('{0}', needs.coordinates.outputs[fromJSON('{"go":"artifact_job_image_go","maven":"artifact_job_image_java","gradle":"artifact_job_image_java","npm":"artifact_job_image_node","cargo":"artifact_job_image_rust"}')[matrix.project_type]]) }}
     env:
       FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
     strategy:
       fail-fast: false
-      matrix:
-        file: ${{ fromJSON(needs.plan.outputs.has-files == 'true' && needs.plan.outputs.files || '[{}]') }}
+      matrix: ${{ fromJSON(needs.plan.outputs.has-files == 'true' && needs.plan.outputs.file-matrix || '{"include":[{}]}') }}
     steps:
+      # The layer and its engine binary sit under the runner's temporary
+      # directory, as in runtime-images.yml, and not in the workspace the
+      # consumer's build checks out and writes to. The build runs as the
+      # job's own user, so this keeps them out of its working tree, not out
+      # of its reach.
       - name: Bootstrap pinned native snapshot layer
         shell: bash
         run: |
           set -euo pipefail
           [[ "${SNAPSHOT_ENGINE_SHA}" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
-          helpers="${GITHUB_WORKSPACE:?}/snapshot-engine"
+          helpers="${RUNNER_TEMP:?}/snapshot-engine"
           git init --quiet "${helpers}"
           git -C "${helpers}" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
           if ! GIT_TERMINAL_PROMPT=0 git -C "${helpers}" fetch --quiet --depth=1 --no-tags origin "${SNAPSHOT_ENGINE_SHA}"; then
@@ -374,14 +382,28 @@ jobs:
           source "${SNAPSHOT_HELPERS}/.forgejo/bin/snapshot-images.sh"
           run_forge_ci artifact download --name "${SNAPSHOT_NAMESPACE}-plan" --dir .
           snapshot_checkout "${SOURCE_SHA}"
+      # Read before the consumer's build runs, which could change the plan
+      # file in the workspace; a step output it cannot.
+      - name: Name the file output's run artifact
+        id: files-artifact
+        shell: bash
+        env:
+          FILE_NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
+          artifact_name=$(run_forge_ci container snapshot-images read-plan --plan snapshot-plan.json --name "${FILE_NAME}" --field files-artifact-name)
+          # The plan's name carries the snapshot version: <artifact>-<version>-snapshot-<branch>-<commit>.
+          [[ "${artifact_name}" == "${FILE_NAME}"-*-snapshot-* ]]
+          printf 'name=%s\n' "${artifact_name}" >> "${FORGEJO_OUTPUT:?}"
       - name: Build the file output without publication credentials
         shell: bash
         env:
           # The settings snapshot_engine passes to every engine call.
           SNAPSHOT_ADMIN_APPLICATION_TESTS: ${{ inputs['enforce-application-tests'] }}
           SNAPSHOT_ADMIN_VULNERABILITIES: ${{ inputs['enforce-vulnerabilities'] }}
-          FILE_NAME: ${{ matrix.file.name }}
-          FILE_PROJECT_TYPE: ${{ matrix.file.project_type }}
+          FILE_NAME: ${{ matrix.name }}
+          FILE_PROJECT_TYPE: ${{ matrix.project_type }}
         run: |
           set -euo pipefail
           source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
@@ -396,15 +418,13 @@ jobs:
       - name: Keep the unsigned file output as a run artifact
         shell: bash
         env:
-          FILE_NAME: ${{ matrix.file.name }}
-          FILES_ARTIFACT_NAME: ${{ matrix.file.artifact_name }}
+          FILE_NAME: ${{ matrix.name }}
+          FILES_ARTIFACT_NAME: ${{ steps.files-artifact.outputs.name }}
         run: |
           set -euo pipefail
           source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
-          # The plan's name carries the snapshot version: <artifact>-<version>-snapshot-<branch>-<commit>.
-          [[ "${FILES_ARTIFACT_NAME}" == "${FILE_NAME}"-*-snapshot-* ]]
           # Under the run's namespace, as every artifact of this workflow is.
-          run_forge_ci artifact upload --name "${SNAPSHOT_NAMESPACE}-files-${FILES_ARTIFACT_NAME}" \
+          run_forge_ci artifact upload --name "${SNAPSHOT_NAMESPACE}-files-${FILES_ARTIFACT_NAME:?}" \
             --dir "snapshot-source/snapshot-files/${FILE_NAME}" --include-hidden --if-no-files error --retention-days 7
   context:
     name: "Prepare: image inputs"
@@ -454,23 +474,22 @@ jobs:
           run_forge_ci artifact upload --name "${SNAPSHOT_NAMESPACE}-context" \
             --dir snapshot-source/snapshot-context --include-hidden --if-no-files error --retention-days 1
   build:
-    name: "Build: ${{ matrix.build.name }} (${{ matrix.build.arch }})"
+    name: "Build: image"
     needs: [coordinates, plan, context]
     if: ${{ !cancelled() && needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.enabled == 'true' && (needs.context.result == 'success' || (needs.context.result == 'skipped' && inputs['context-artifact'] != '')) }}
     # The build input of the row's own architecture, selected by key. The
     # no-op row of a plan without an image has no architecture and never
     # runs; it names the plain runner input so its labels still evaluate.
-    runs-on: ${{ fromJSON(inputs[matrix.build.arch && format('build-runs-on-linux-{0}', matrix.build.arch) || 'runs-on']) }}
+    runs-on: ${{ fromJSON(inputs[matrix.arch && format('build-runs-on-linux-{0}', matrix.arch) || 'runs-on']) }}
     container: ${{ needs.coordinates.outputs.builder_job_image }}
     env:
       FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
     strategy:
       fail-fast: false
-      matrix:
-        # A plan without an image (files alone, or publish-containers false)
-        # has no build. One no-op row, skipped by the job's condition, lets
-        # Forgejo settle the jobs that need this one (forgejo/forgejo#12191).
-        build: ${{ fromJSON(needs.plan.outputs.enabled == 'true' && needs.plan.outputs.builds || '[{}]') }}
+      # A plan without an image (files alone, or publish-containers false)
+      # has no build. One no-op row, skipped by the job's condition, lets
+      # Forgejo settle the jobs that need this one (forgejo/forgejo#12191).
+      matrix: ${{ fromJSON(needs.plan.outputs.enabled == 'true' && needs.plan.outputs.build-matrix || '{"include":[{}]}') }}
     steps:
       - name: Bootstrap pinned native snapshot layer
         shell: bash
@@ -516,8 +535,8 @@ jobs:
           # The settings snapshot_engine passes to every engine call.
           SNAPSHOT_ADMIN_APPLICATION_TESTS: ${{ inputs['enforce-application-tests'] }}
           SNAPSHOT_ADMIN_VULNERABILITIES: ${{ inputs['enforce-vulnerabilities'] }}
-          IMAGE_NAME: ${{ matrix.build.name }}
-          IMAGE_ARCH: ${{ matrix.build.arch }}
+          IMAGE_NAME: ${{ matrix.name }}
+          IMAGE_ARCH: ${{ matrix.arch }}
           CI_IMAGE_BUILDER: ${{ needs.coordinates.outputs.builder }}
           CI_IMAGE_BUILDER_JOB_IMAGE: ${{ needs.coordinates.outputs.builder_job_image }}
         run: |
@@ -528,8 +547,8 @@ jobs:
       - name: Transfer staged architecture
         shell: bash
         env:
-          IMAGE_NAME: ${{ matrix.build.name }}
-          IMAGE_ARCH: ${{ matrix.build.arch }}
+          IMAGE_NAME: ${{ matrix.name }}
+          IMAGE_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
@@ -538,7 +557,7 @@ jobs:
             --dir "snapshot-source/snapshot-layouts/${IMAGE_NAME}-arch-${IMAGE_ARCH}" --blob-store "${SNAPSHOT_NAMESPACE}-blob" \
             --include-hidden --if-no-files error --retention-days 1
   publish:
-    name: "Publish: ${{ matrix.image.name }}"
+    name: "Publish: image"
     needs: [coordinates, plan, build]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.enabled == 'true' && needs.build.result == 'success' }}
     runs-on: ${{ fromJSON(inputs['runs-on']) }}
@@ -546,9 +565,8 @@ jobs:
       FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
     strategy:
       fail-fast: false
-      matrix:
-        # As for the build matrix: one skipped no-op row without an image.
-        image: ${{ fromJSON(needs.plan.outputs.enabled == 'true' && needs.plan.outputs.images || '[{}]') }}
+      # As for the build matrix: one skipped no-op row without an image.
+      matrix: ${{ fromJSON(needs.plan.outputs.enabled == 'true' && needs.plan.outputs.image-matrix || '{"include":[{}]}') }}
     steps:
       - name: Bootstrap pinned native snapshot layer
         shell: bash
@@ -574,7 +592,7 @@ jobs:
           SNAPSHOT_ADMIN_VULNERABILITIES: ${{ inputs['enforce-vulnerabilities'] }}
           FORGEJO_TOKEN: ${{ forgejo.token }}
           SOURCE_SHA: ${{ needs.plan.outputs.source-sha }}
-          IMAGE_NAME: ${{ matrix.image.name }}
+          IMAGE_NAME: ${{ matrix.name }}
         run: |
           set -euo pipefail
           source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
@@ -598,7 +616,7 @@ jobs:
           # The settings snapshot_engine passes to every engine call.
           SNAPSHOT_ADMIN_APPLICATION_TESTS: ${{ inputs['enforce-application-tests'] }}
           SNAPSHOT_ADMIN_VULNERABILITIES: ${{ inputs['enforce-vulnerabilities'] }}
-          IMAGE_NAME: ${{ matrix.image.name }}
+          IMAGE_NAME: ${{ matrix.name }}
           SNAPSHOT_REGISTRY_USER: ${{ inputs['registry-user'] }}
           SNAPSHOT_REGISTRY_PASSWORD: ${{ secrets.SNAPSHOT_REGISTRY_PASSWORD }}
         run: |
@@ -609,7 +627,7 @@ jobs:
       - name: Retain receipt and evidence
         shell: bash
         env:
-          IMAGE_NAME: ${{ matrix.image.name }}
+          IMAGE_NAME: ${{ matrix.name }}
         run: |
           set -euo pipefail
           source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"

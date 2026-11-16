@@ -16,6 +16,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
 	domaincontainer "github.com/diggsweden/forge-ci/internal/domain/container"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
 )
 
 // RuntimePublicationInput binds a product roster file to source and CI coordinates.
@@ -31,16 +32,44 @@ func PlanRuntimePublication(ctx context.Context, sink ci.OutputSink, in RuntimeP
 		return err
 	}
 
-	builds, err := json.Marshal(struct {
-		Include []domaincontainer.RuntimeBuildLeg `json:"include"`
-	}{Include: plan.Builds})
+	// A build's row holds its target and architecture alone, all its job
+	// reads: Forgejo appends a row's values to its job's name.
+	type buildRow struct {
+		Target string `json:"target"`
+		Arch   string `json:"arch"`
+	}
+
+	buildRows := make([]buildRow, 0, len(plan.Builds))
+	for _, build := range plan.Builds {
+		buildRows = append(buildRows, buildRow{Target: build.Target, Arch: build.Arch})
+	}
+
+	builds, err := json.Marshal(pipeline.Matrix[buildRow]{Include: buildRows})
 	if err != nil {
 		return err
 	}
 
-	imagesJSON, err := json.Marshal(struct {
-		Include []domaincontainer.RuntimeImage `json:"include"`
-	}{Include: plan.Images})
+	// An image's row holds its target alone, which names the image's job
+	// once: the name would repeat it and the architectures, a list, would
+	// read as a Go slice. The job reads both from images-by-target.
+	type imageRow struct {
+		Target string `json:"target"`
+	}
+
+	rows := make([]imageRow, 0, len(plan.Images))
+	byTarget := make(map[string]domaincontainer.RuntimeImage, len(plan.Images))
+
+	for _, image := range plan.Images {
+		rows = append(rows, imageRow{Target: image.Target})
+		byTarget[image.Target] = image
+	}
+
+	imagesJSON, err := json.Marshal(pipeline.Matrix[imageRow]{Include: rows})
+	if err != nil {
+		return err
+	}
+
+	imagesByTarget, err := json.Marshal(byTarget)
 	if err != nil {
 		return err
 	}
@@ -50,7 +79,7 @@ func PlanRuntimePublication(ctx context.Context, sink ci.OutputSink, in RuntimeP
 	}
 
 	for _, output := range []struct{ key, value string }{
-		{"build-matrix", string(builds)}, {"image-matrix", string(imagesJSON)}, {"candidate-tag", plan.CandidateTag},
+		{"build-matrix", string(builds)}, {"image-matrix", string(imagesJSON)}, {"images-by-target", string(imagesByTarget)}, {"candidate-tag", plan.CandidateTag},
 	} {
 		if err := sink.Set(ctx, output.key, output.value); err != nil {
 			return err

@@ -1302,7 +1302,7 @@ the repository, on GitLab the project has no package and no container
 repository. The `hello-npm-package` rows, in the medium set, are the
 development build of an npm package, held to its commit by the receipt.
 
-On Forgejo a consumer that ships its own `snapshot-files.yml` is snapshotted
+On Forgejo a consumer that ships its own `test-snapshot-files.yml` is snapshotted
 through it: for a snapshot of files from the default declaration that
 caller is the workflow planned, in place of the harness's, and it is
 dispatched on `development`, the branch it passes on as its `branch`
@@ -3156,7 +3156,7 @@ just test-live '^TestForgejoLayer_GoModuleReleaseReachesAFreshConsumer$'
 
 `TestForgejoLayer_CargoBinaryRelease` runs the same release with a
 dependency-free Cargo crate built artifact-first with `build-cargo`, and
-requires the `Prepare: version rust` job, a release commit that changes exactly
+requires the `Prepare: version (rust, cargo)` job, a release commit that changes exactly
 `CHANGELOG.md`, `Cargo.toml` and `Cargo.lock`, and the version in the published
 binary. It needs the signer image and `FORGE_CI_LIVE_CARGO_RELEASE_IMAGE`, a
 digest-pinned Rust job image, and skips without it.

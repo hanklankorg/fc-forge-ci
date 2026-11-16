@@ -55,7 +55,7 @@ func TestReleaseImageLabelsReachThePlanBeforeAnyBuild(t *testing.T) {
 		t.Fatal("workflow labels must enter the plan step")
 	}
 
-	if _, late := workflowStep(t, "release-images.yml", "build", "Build ${{ matrix.build.arch }} layout").Env["IMAGE_LABELS"]; late {
+	if _, late := workflowStep(t, "release-images.yml", "build", "Build ${{ matrix.arch }} layout").Env["IMAGE_LABELS"]; late {
 		t.Fatal("build step must consume admitted plan labels rather than the raw workflow input")
 	}
 }
@@ -137,7 +137,7 @@ func TestReleaseImages_StagedPathsAreRelativeAndMeet(t *testing.T) {
 		return argv[at+1]
 	}
 
-	cwd, build := engine("release-images.yml", "build", "Build ${{ matrix.build.arch }} layout")
+	cwd, build := engine("release-images.yml", "build", "Build ${{ matrix.arch }} layout")
 	staged := flag(build, "--metadata-dir")
 
 	if !filepath.IsLocal(staged) || strings.HasPrefix(staged, "source/") {
@@ -162,7 +162,7 @@ func TestReleaseImages_StagedPathsAreRelativeAndMeet(t *testing.T) {
 		}
 	}
 
-	_, upload := engine("release-images.yml", "build", "Upload ${{ matrix.build.arch }} layout")
+	_, upload := engine("release-images.yml", "build", "Upload ${{ matrix.arch }} layout")
 	if name := flag(upload, "--name"); name != "base-images-layout-app-amd64" {
 		t.Errorf("layout artifact %q escaped its invocation namespace", name)
 	}
@@ -171,7 +171,7 @@ func TestReleaseImages_StagedPathsAreRelativeAndMeet(t *testing.T) {
 		t.Errorf("upload --dir %q, want the staged %q", uploaded, filepath.Join(cwd, staged))
 	}
 
-	_, assemble := engine("release-images.yml", "publish", "Scan and publish ${{ matrix.image.name }}")
+	_, assemble := engine("release-images.yml", "publish", "Scan and publish ${{ matrix.name }}")
 	if !slices.Contains(assemble, "--enforce-vulnerabilities=false") {
 		t.Errorf("publication dropped the administrator's vulnerability setting: %q", assemble)
 	}
@@ -184,7 +184,7 @@ func TestReleaseImages_StagedPathsAreRelativeAndMeet(t *testing.T) {
 		t.Errorf("publish --metadata-dir %q: want a relative directory apart from the downloaded layouts", index)
 	}
 
-	_, record := engine("release-images.yml", "publish", "Record ${{ matrix.image.name }} in the ledger")
+	_, record := engine("release-images.yml", "publish", "Record ${{ matrix.name }} in the ledger")
 	if flag(record, "--image-kind") != "base" || flag(record, "--role") != "base" || flag(record, "--flavor") != "core" || flag(record, "--base-input-id") != strings.Repeat("b", 64) || flag(record, "--provenance-json") != `{"build_inputs":"approved"}` {
 		t.Errorf("publication lost the consumer's base lineage: %q", record)
 	}
@@ -222,7 +222,7 @@ printf '%s\n' '`+strings.Repeat("a", 64)+`'
 `, 0o700)
 	marker := filepath.Join(box.root, "must-not-build")
 
-	got := box.run(workflowStep(t, "release-images.yml", "build", "Build ${{ matrix.build.arch }} layout").Run,
+	got := box.run(workflowStep(t, "release-images.yml", "build", "Build ${{ matrix.arch }} layout").Run,
 		"HELPERS_DIR="+box.root, "EXPECTED_BUILDER_MATERIAL_ID="+strings.Repeat("b", 64),
 		"FORBIDDEN_BUILD_MARKER="+marker)
 	if got.status == 0 || !strings.Contains(got.stderr, "planned native identity") {
@@ -301,8 +301,8 @@ func TestReleaseImages_AlwaysScansWhatItPublishes(t *testing.T) {
 		"IMAGE_SBOM_SHA256=" + strings.Repeat("c", 64), "RELEASE_IMAGES_ADMIN_VULNERABILITIES=true",
 	}
 	for step, required := range map[string][]string{
-		"Scan and publish ${{ matrix.image.name }}":     {"--scan-output-template", "--sbom-output-template", "--index-sbom-output"},
-		"Record ${{ matrix.image.name }} in the ledger": {"--sbom", "--sbom-sha256"},
+		"Scan and publish ${{ matrix.name }}":     {"--scan-output-template", "--sbom-output-template", "--index-sbom-output"},
+		"Record ${{ matrix.name }} in the ledger": {"--sbom", "--sbom-sha256"},
 	} {
 		got := box.run(workflowStep(t, "release-images.yml", "publish", step).Run, env...)
 		if got.status != 0 {
@@ -353,7 +353,7 @@ func TestReleaseImages_RetainsPinnedIndexEvidenceForEveryReleaseVariant(t *testi
 				"IMAGE_SBOM=" + indexSBOM, "IMAGE_SBOM_SHA256=" + strings.Repeat("c", 64), "RELEASE_IMAGES_ADMIN_VULNERABILITIES=true",
 			}
 
-			got := box.run(workflowStep(t, "release-images.yml", "publish", "Scan and publish ${{ matrix.image.name }}").Run, env...)
+			got := box.run(workflowStep(t, "release-images.yml", "publish", "Scan and publish ${{ matrix.name }}").Run, env...)
 			if got.status != 0 {
 				t.Fatalf("assemble: %s", got.stderr)
 			}
@@ -381,13 +381,13 @@ func TestReleaseImages_RetainsPinnedIndexEvidenceForEveryReleaseVariant(t *testi
 				t.Fatalf("the index SBOM must not be given a release download address: %q", argv)
 			}
 
-			got = box.run(workflowStep(t, "release-images.yml", "publish", "Record ${{ matrix.image.name }} in the ledger").Run, env...)
+			got = box.run(workflowStep(t, "release-images.yml", "publish", "Record ${{ matrix.name }} in the ledger").Run, env...)
 			if record := box.argv(); got.status != 0 || !slices.Contains(record, strings.Repeat("c", 64)) || !strings.Contains(strings.Join(record, " "), "--sbom "+indexSBOM+" ") {
 				t.Fatalf("record lost the exact index BOM or its pin: status %d: %s: %q", got.status, got.stderr, record)
 			}
 
 			for _, missing := range []string{"IMAGE_SBOM=", "IMAGE_SBOM_SHA256="} {
-				got = box.run(workflowStep(t, "release-images.yml", "publish", "Record ${{ matrix.image.name }} in the ledger").Run, append(slices.Clone(env), missing)...)
+				got = box.run(workflowStep(t, "release-images.yml", "publish", "Record ${{ matrix.name }} in the ledger").Run, append(slices.Clone(env), missing)...)
 				if got.status == 0 {
 					t.Fatalf("scanned release image accepted with %s", missing)
 				}

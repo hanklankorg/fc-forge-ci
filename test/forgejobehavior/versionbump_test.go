@@ -133,7 +133,7 @@ func TestVersionPlanNamesOneJobPerFamilyItsDeclarationNeeds(t *testing.T) {
 	planned := versionBumpCheckout(t, true)
 	got := planned.run(script, append(env, java, node)...)
 	require.Equal(t, 0, got.status, got.stderr)
-	require.Equal(t, `versions=[{"family":"java","project-type":"maven"},{"family":"node","project-type":"npm"}]`+"\n", planned.output())
+	require.Equal(t, "bumps=true\n"+`version-matrix={"include":[{"family":"java","project-type":"maven"},{"family":"node","project-type":"npm"}]}`+"\n", planned.output())
 
 	got = planned.run(script, append(env, java)...)
 	require.NotEqual(t, 0, got.status)
@@ -143,7 +143,7 @@ func TestVersionPlanNamesOneJobPerFamilyItsDeclarationNeeds(t *testing.T) {
 	undeclared := versionBumpCheckout(t, false)
 	got = undeclared.run(script, env...)
 	require.Equal(t, 0, got.status, got.stderr)
-	require.Equal(t, "versions=[]\n", undeclared.output())
+	require.Equal(t, "bumps=false\n"+`version-matrix={"include":[]}`+"\n", undeclared.output())
 }
 
 // uploadVersionPatch runs a family's version job on a fresh checkout: the
@@ -283,7 +283,7 @@ func TestVersionBumpSigningJobRefusesAPatchItsJobDidNotReport(t *testing.T) {
 		},
 		"a planned family without a digest": {
 			env:     []string{"PATCH_DIGEST_JAVA=" + javaDigest},
-			refusal: `the plan bumps the node family, but "Prepare: version node" reported no patch digest`,
+			refusal: `the plan bumps the node family, but its "Prepare: version" job reported no patch digest`,
 		},
 		"a linked patch": {
 			env:     []string{"ARTIFACT_STORE=" + linked, "PATCH_DIGEST_JAVA=" + javaDigest, "PATCH_DIGEST_NODE=" + nodeDigest},

@@ -69,7 +69,7 @@ func Plan(forge provider.ForgeAPI, example string, forgeEntries []string) []File
 		plan = append(plan, changelogCopies()...)
 	case provider.ForgeForgejo:
 		// The directory also holds optional variants (release-snapshot-workflow.yml, an
-		// alternative release-goreleaser.yml) and files the README asks to
+		// alternative release in goreleaser/) and files the README asks to
 		// copy elsewhere. Init writes only the workflows it owns: two release
 		// workflows would both run on one release-request tag.
 		for _, name := range forgeEntries {

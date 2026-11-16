@@ -1,19 +1,20 @@
 # SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
 # SPDX-License-Identifier: CC0-1.0
-# Alternative to release-workflow.yml: copy this file AS .forgejo/workflows/release-workflow.yml.
-# Use pullrequest-workflow.yml beside it unchanged. Replace the same reviewed pin, signer
+# Alternative to ../release-workflow.yml: copy this file to
+# .forgejo/workflows/release-workflow.yml in its place. Use
+# ../pullrequest-workflow.yml beside it unchanged. Replace the same reviewed pin, signer
 # and key placeholders as the ordinary Go CLI example, after publication.
 # The product owns .goreleaser.yml and its locked mise tools: go, GoReleaser and
 # syft in the mise config, with a committed mise.lock. Keep any generation hooks
 # there, without signing/publishing hooks; they must leave the tree clean.
-# ../.goreleaser.yml builds .deb, .rpm and .apk packages, so both calls below
+# ../../.goreleaser.yml builds .deb, .rpm and .apk packages, so both calls below
 # set sign-distro-packages: "true": each package gets the release's OpenPGP
 # .sig file, signed with the three RELEASE_GPG_* secrets. Copy
-# ../artifacts-forgejo-packages.yml as .forge-ci/artifacts.yml to publish the
+# ../../artifacts-forgejo-packages.yml as .forge-ci/artifacts.yml to publish the
 # packages to the owner's package registries too; that needs
 # RELEASE_REGISTRY_TOKEN. A configuration without nfpms sets "false" in both.
 # Image signing stays off.
-name: Release
+name: Release Workflow
 on:
   push:
     tags: ["release-request/v[0-9]*.[0-9]*.[0-9]*"]
@@ -23,6 +24,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   prepare:
+    name: "Prepare: release"
     uses: itiquette/forge-ci/.forgejo/workflows/prepare-release.yml@2f4e845cee96973d1082bf00a5a18689c1482148
     with:
       runs-on: ${{ vars.CI_RUNNER_LABEL }}
@@ -84,6 +86,7 @@ jobs:
         with:
           prune-dirs: "true"
   sign-and-publish:
+    name: "Sign and publish: release"
     needs: [prepare, build]
     # job-graph-guard: allow reason="reads needs.prepare.outputs but is gated on needs.build.result=='success'; build needs prepare, so build can only succeed if prepare succeeded, making prepare.outputs always present"
     if: ${{ always() && needs.build.result == 'success' }}

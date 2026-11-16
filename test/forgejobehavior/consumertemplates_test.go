@@ -94,7 +94,7 @@ func TestConsumerPRIsolationInputsMatchReleaseHandoff(t *testing.T) {
 // consumer replaces: the forge host, the owner and the forge-ci pin.
 func consumerTemplates() []string {
 	templates := consumerReleaseTemplates()
-	templates = append(templates, "examples/go-cli/forgejo/release-goreleaser.yml", "examples/go-cli/forgejo/release-snapshot-goreleaser.yml",
+	templates = append(templates, "examples/go-cli/forgejo/goreleaser/release-workflow.yml", "examples/go-cli/forgejo/goreleaser/release-snapshot-workflow.yml",
 		"examples/go-cli/forgejo/release-snapshot-workflow.yml")
 
 	for _, release := range consumerReleaseTemplates() {
@@ -110,7 +110,7 @@ func TestGoReleaserCallerSharesTheGoCLIIsolationContract(t *testing.T) {
 	body := strings.NewReplacer("PIN_FORGE_CI_SHA", strings.Repeat("a", 40),
 		"PIN_SIGNER_IMAGE_DIGEST", strings.Repeat("b", 64),
 		"PIN_COSIGN_PUBLIC_KEY_SHA256", strings.Repeat("c", 64),
-		"FORGE_HOST", "forge.example", "OWNER", "owner").Replace(string(reporoot.ReadFile(t, "examples/go-cli/forgejo/release-goreleaser.yml")))
+		"FORGE_HOST", "forge.example", "OWNER", "owner").Replace(string(reporoot.ReadFile(t, "examples/go-cli/forgejo/goreleaser/release-workflow.yml")))
 
 	violations, err := validate.CheckIsolation([]byte(body), validate.IsolationConfig{
 		BuildJob: "build", SignJob: "sign-and-publish", PrepareJob: "prepare", DistDigestOutput: "dist-digest",

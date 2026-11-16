@@ -245,10 +245,10 @@ func checkConsumerPRTemplate(t *testing.T, kit consumerKit) {
 		image   string
 		matches func(ast.Node) bool
 	}{
-		"lint":           {"lint-nanolinter", jobImage, usesAction("lint-nanolinter")},
-		"trust-boundary": {"check-l3-isolation", "", usesAction("check-l3-isolation")},
-		"build":          {buildName, jobImage, build},
-		"summary":        {"setup-forge-ci", "", usesAction("setup-forge-ci")},
+		"lint":         {"lint-nanolinter", jobImage, usesAction("lint-nanolinter")},
+		"release-gate": {"check-l3-isolation", "", usesAction("check-l3-isolation")},
+		"build":        {buildName, jobImage, build},
+		"summary":      {"setup-forge-ci", "", usesAction("setup-forge-ci")},
 	} {
 		entry, ok := parsed.jobs[name]
 		if !ok {
@@ -287,7 +287,7 @@ func TestConsumerReleaseTemplateBuildsWithTheBuildAction(t *testing.T) {
 func TestGoReleaserCallerDelegatesPackagingAndUnsignedHandoff(t *testing.T) {
 	t.Parallel()
 
-	workflow := loadWorkflow(t, "examples/go-cli/forgejo/release-goreleaser.yml")
+	workflow := loadWorkflow(t, "examples/go-cli/forgejo/goreleaser/release-workflow.yml")
 	if len(workflow.jobs) != 3 {
 		t.Fatalf("GoReleaser starter has %d jobs, want prepare, build and sign/publish", len(workflow.jobs))
 	}
@@ -340,7 +340,7 @@ func TestGoReleaserCallerDelegatesPackagingAndUnsignedHandoff(t *testing.T) {
 func TestGoReleaserExampleBuildsSignsAndDeclaresDistroPackages(t *testing.T) {
 	t.Parallel()
 
-	workflow := loadWorkflow(t, "examples/go-cli/forgejo/release-goreleaser.yml")
+	workflow := loadWorkflow(t, "examples/go-cli/forgejo/goreleaser/release-workflow.yml")
 
 	for _, name := range []string{"prepare", "sign-and-publish"} {
 		if got := scalarString(mappingValue(mappingValue(workflow.jobs[name].node, "with"), "sign-distro-packages")); got != "true" {
@@ -394,7 +394,7 @@ func TestServiceReleaseFanInUsesTheExistingAssembler(t *testing.T) {
 		t.Errorf("handoff artifact set = %q, want release files and image evidence", got)
 	}
 
-	if got := scalarString(mappingValue(mappingValue(handoff.node, "outputs"), "dist_digest")); got != "${{ steps.dist.outputs.digest }}" {
+	if got := scalarString(mappingValue(mappingValue(handoff.node, "outputs"), "dist-digest")); got != "${{ steps.dist.outputs.digest }}" {
 		t.Errorf("handoff digest output = %q, want the assembler digest", got)
 	}
 

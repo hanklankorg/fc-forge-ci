@@ -160,9 +160,14 @@ jobs:
     env:
       SIGNER_STRICT: '1'
       FORGE_CI_COSIGN_TRANSPARENCY: ${{ needs.coordinates.outputs.transparency_log }}
+    # The matrix rows hold only short scalar values, which Forgejo appends to
+    # each job's name. An image's architectures and a smoke leg's ref and
+    # checksum are read by the row's keys from images-by-target and
+    # smoke-legs.
     outputs:
       build-matrix: ${{ steps.plan.outputs.build-matrix }}
       image-matrix: ${{ steps.plan.outputs.image-matrix }}
+      images-by-target: ${{ steps.plan.outputs.images-by-target }}
       candidate-tag: ${{ steps.plan.outputs.candidate-tag }}
       run-id: ${{ steps.plan.outputs.run-id }}
       platform-matrix: ${{ steps.platforms.outputs.matrix-json }}
@@ -328,6 +333,7 @@ jobs:
             printf '%s' "$lender_token" | forge-ci platform request-runner --arch "$arch" --token-file -
           done <<<"$requests"
   build:
+    name: "Build: runtime candidate"
     needs: [coordinates, plan, build-cli, request-runner]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.build-cli.result == 'success' && needs.request-runner.result == 'success' }}
     runs-on: ${{ fromJSON(inputs[format('build-runs-on-linux-{0}', matrix.arch)]) }}
@@ -397,6 +403,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       smoke-matrix: ${{ steps.collect.outputs.smoke-matrix }}
+      smoke-legs: ${{ steps.collect.outputs.smoke-legs }}
     env:
       SIGNER_STRICT: '1'
       FORGE_CI_COSIGN_TRANSPARENCY: ${{ needs.coordinates.outputs.transparency_log }}
@@ -487,6 +494,7 @@ jobs:
             done <<<"$requests"
           fi
   smoke:
+    name: "Check: runtime smoke"
     needs: [coordinates, collect, request-smoke-runner]
     if: ${{ needs.coordinates.result == 'success' && needs.collect.result == 'success' && needs.request-smoke-runner.result == 'success' }}
     runs-on: ${{ fromJSON(inputs[matrix.arch == 'arm64' && 'runs-on-linux-arm64' || 'runs-on']) }}
@@ -494,7 +502,7 @@ jobs:
     # Podman/user namespaces are needed. Credentials are consumed
     # by the runner for the pull, not exported to the smoke-test process.
     container:
-      image: ${{ matrix.ref }}
+      image: ${{ fromJSON(needs.collect.outputs.smoke-legs)[matrix.target][matrix.arch].ref }}
       credentials:
         username: ${{ inputs['registry-user'] }}
         password: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
@@ -506,7 +514,7 @@ jobs:
     steps:
       - name: Check the installed CLI for smoke-test diagnostics
         env:
-          EXPECTED_SHA256: ${{ matrix.checksum }}
+          EXPECTED_SHA256: ${{ fromJSON(needs.collect.outputs.smoke-legs)[matrix.target][matrix.arch].checksum }}
         run: |
           set -euo pipefail
           printf '%s  /usr/local/bin/forge-ci\n' "$EXPECTED_SHA256" | sha256sum --check --strict
@@ -524,7 +532,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           ARCH: ${{ matrix.arch }}
-          TESTED_REF: ${{ matrix.ref }}
+          TESTED_REF: ${{ fromJSON(needs.collect.outputs.smoke-legs)[matrix.target][matrix.arch].ref }}
         run: |
           set -euo pipefail
           mkdir -p smoke-receipt
@@ -534,6 +542,7 @@ jobs:
           forge-ci artifact upload --name "runtime-smoke-$TARGET-$ARCH" \
             --dir smoke-receipt --retention-days 30 --if-no-files error
   assemble:
+    name: "Build: runtime image"
     needs: [coordinates, plan, smoke]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.smoke.result == 'success' }}
     runs-on: ${{ fromJSON(inputs['runs-on']) }}
@@ -599,6 +608,7 @@ jobs:
         if: always()
         run: test -z "${REGISTRY_AUTH_FILE:-}" || rm -f -- "$REGISTRY_AUTH_FILE"
   sign:
+    name: "Sign: runtime image"
     needs: [coordinates, plan, assemble]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.assemble.result == 'success' }}
     runs-on: ${{ fromJSON(inputs['signer-runs-on']) }}
@@ -611,8 +621,8 @@ jobs:
     env:
       SIGNER_STRICT: '1'
       TARGET: ${{ matrix.target }}
-      IMAGE_REPOSITORY: ${{ inputs['image-namespace'] }}/${{ matrix.name }}
-      ARCHS_JSON: ${{ toJSON(matrix.archs) }}
+      IMAGE_REPOSITORY: ${{ inputs['image-namespace'] }}/${{ fromJSON(needs.plan.outputs.images-by-target)[matrix.target].name }}
+      ARCHS_JSON: ${{ toJSON(fromJSON(needs.plan.outputs.images-by-target)[matrix.target].archs) }}
       CANDIDATE_TAG: ${{ needs.plan.outputs.candidate-tag }}
       FORGE_CI_COSIGN_TRANSPARENCY: ${{ needs.coordinates.outputs.transparency_log }}
     # Only the caller-pinned layer is fetched here, never product source.
@@ -685,6 +695,7 @@ jobs:
         if: always()
         run: test -z "${REGISTRY_AUTH_FILE:-}" || rm -f -- "$REGISTRY_AUTH_FILE"
   publish:
+    name: "Publish: runtime image"
     needs: [coordinates, plan, sign]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.sign.result == 'success' }}
     runs-on: ${{ fromJSON(inputs['runs-on']) }}
@@ -698,8 +709,8 @@ jobs:
       SIGNER_STRICT: '1'
       FORGE_CI_COSIGN_TRANSPARENCY: ${{ needs.coordinates.outputs.transparency_log }}
       TARGET: ${{ matrix.target }}
-      IMAGE_REPOSITORY: ${{ inputs['image-namespace'] }}/${{ matrix.name }}
-      ARCHS_JSON: ${{ toJSON(matrix.archs) }}
+      IMAGE_REPOSITORY: ${{ inputs['image-namespace'] }}/${{ fromJSON(needs.plan.outputs.images-by-target)[matrix.target].name }}
+      ARCHS_JSON: ${{ toJSON(fromJSON(needs.plan.outputs.images-by-target)[matrix.target].archs) }}
       CANDIDATE_TAG: ${{ needs.plan.outputs.candidate-tag }}
     steps:
       - name: Checkout layer helpers

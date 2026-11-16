@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
 # SPDX-License-Identifier: CC0-1.0
-name: Container snapshot
+name: Release Snapshot Workflow
 on:
   workflow_dispatch:
     inputs:
@@ -9,8 +9,6 @@ on:
         required: false
         default: ""
         type: string
-  push:
-    branches: ["develop", "feature/**"]
 permissions:
   contents: read
 jobs:

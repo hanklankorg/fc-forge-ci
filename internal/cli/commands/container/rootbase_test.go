@@ -187,6 +187,8 @@ fi`, captured, captured+".sbom", captured))
 	// The layer schedules its native build jobs from the builds output.
 	planned := run(append([]string{"container", "base-images", stage, "plan", "--plan", "consumer-plan.json", "--output", "plan.json", "--runner-input", amd64Runner}, job...)...)
 	require.Contains(t, planned, "builds")
+	require.Contains(t, planned, `"build-matrix": "{\"include\":[{\"name\":\"root\",\"arch\":\"amd64\"}]}"`)
+	require.Contains(t, planned, `"builds-by-name": "{\"root\":{\"amd64\":{`)
 	// A job collects the layouts by the names the plan printed, and a build
 	// job of a stage with several images builds the one it is given.
 	require.Contains(t, planned, "root-amd64")

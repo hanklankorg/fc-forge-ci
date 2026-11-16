@@ -102,7 +102,7 @@ jobs:
           fi
           test "$(cat consumer-pr-canary.txt)" = consumer-pr-feature
 
-  trust-boundary:
+  release-gate:
     name: Verify consumer release isolation
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 10

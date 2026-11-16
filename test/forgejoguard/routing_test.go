@@ -39,8 +39,7 @@ const (
 // input by key and names the plain one only for the no-op row of a plan
 // without an image, which has no architecture and never runs.
 var buildRunners = []string{
-	"${{ fromJSON(inputs[matrix.build.arch && format('build-runs-on-linux-{0}', matrix.build.arch) || 'runs-on']) }}",
-	"${{ fromJSON(inputs[format('build-runs-on-linux-{0}', matrix.build.arch)]) }}",
+	"${{ fromJSON(inputs[matrix.arch && format('build-runs-on-linux-{0}', matrix.arch) || 'runs-on']) }}",
 	"${{ fromJSON(inputs[format('build-runs-on-linux-{0}', matrix.arch)]) }}",
 }
 

@@ -208,7 +208,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The GoReleaser alternative of the `go-cli` example builds distro
   packages. `examples/go-cli/.goreleaser.yml` packages the command as
   `.deb`, `.rpm` and `.apk` with `nfpms`, the Forgejo workflow
-  `forgejo/release-goreleaser.yml` now passes `sign-distro-packages: 'true'`,
+  `forgejo/goreleaser/release-workflow.yml` now passes `sign-distro-packages: 'true'`,
   and with `artifacts-forgejo-packages.yml` as the declaration the release
   publishes them to the owner's registries. The live suite has a Forgejo
   row for it, `distro-packages/hello-go-cli`, which also verifies the GPG
@@ -386,6 +386,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The examples snapshot as the projects that copy them do: a GitHub
+  snapshot caller is run by hand, and the container snapshot no longer runs
+  on pushes to `develop` and `feature/**`; a Forgejo one runs on every
+  pushed branch except `main`, and by hand, where the Go service and Maven
+  application callers snapshotted `main` alone. Either trigger can be
+  changed to suit the project. The Forgejo pull-request examples call the
+  release-isolation job `release-gate`, where it was `trust-boundary`, and
+  the release examples show their prepare and signer jobs as `Prepare:
+  release` and `Sign and publish: release`, and their summaries list them
+  by those names. The isolation job is still shown as `Check: release
+  isolation`, so a required check that names it still matches; one that
+  names a release job follows. The Forgejo Go service and monorepo
+  examples hand the signer the hand-off's `dist-digest` output, where it
+  was `dist_digest`, as the other examples do, so their pull-request gates
+  no longer set `dist-digest-output`.
+- Example callers are named as the projects that copy them name them. The
+  Android GitHub example's development build is `test-build.yml`, where it
+  was `build-workflow.yml`: a project that runs `forge-ci init` again
+  deletes its `build-workflow.yml`, or both run on a push to main. The
+  GoReleaser alternatives of the `go-cli` example moved to
+  `examples/go-cli/forgejo/goreleaser/`, as `release-workflow.yml` and
+  `release-snapshot-workflow.yml`, where they were
+  `forgejo/release-goreleaser.yml` and
+  `forgejo/release-snapshot-goreleaser.yml`. The Forgejo snapshot of files
+  is `test-snapshot-files.yml`, where it was `snapshot-files.yml`; the
+  download recipe in `docs/workflows.md#snapshot-files` takes the new name
+  in `WORKFLOW=`.
 - `forge-ci validate job-graph` also rejects, in a `.forgejo/` workflow, a
   reusable call whose `with:` passes a skippable producer's output to
   `fromJSON` with no `||` fallback. Forgejo evaluates `with:` before `if:`,
@@ -883,6 +910,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the mirror first by default, and when that pull-through cache
   answered a database layer with 404, Trivy failed the scan instead of
   trying GitHub, so a release stopped at its base candidate.
+- On Forgejo, the matrix jobs of `base-images.yml`, `release-images.yml`,
+  `snapshot-images.yml` and `runtime-images.yml` no longer show their whole
+  plan row in the job name, such as `Build: runtime-core-base (amd64)
+  (map[arch:amd64 build-args:...])`. Forgejo appends a row's values to the
+  name of a job whose matrix comes from another job's output, so each row now
+  holds only short scalar values and the job reads the rest by them: the jobs
+  read, for example, `Build: base (amd64, runtime-core-base)`, `Fetch:
+  registry inputs (amd64, app)`, `Publish: image candidate (app)`, `Build:
+  files (cli, go)` and `Check: runtime smoke (arm64, go)`. The planners emit
+  the rows as `build-matrix`, `image-matrix`, `artifact-matrix` and
+  `file-matrix` and the rest as `builds-by-name`, `images-by-name`,
+  `images-by-target` and `smoke-legs`; `snapshot-images read-plan` reads a
+  file output's run artifact as `files-artifact-name`. The runtime
+  workflow's own `build-matrix`, `image-matrix` and `smoke-matrix` rows,
+  which only that workflow reads, now hold the target alone, and for a
+  build or a smoke leg its architecture, so the jobs read, for example,
+  `Publish: runtime image (go)`. The other existing outputs, and GitHub, are
+  unchanged. A plan whose image names or architectures differ only by case
+  is refused, as Forgejo reads row keys regardless of case.
+- On Forgejo, a release whose plan bumps no version shows its version job
+  as `Prepare: version`, where it was `Prepare: version none (map[])`, and
+  a family's job as, for example, `Prepare: version (java, maven)`, where
+  the row's values were shown as a Go map. Forgejo appends a row's values
+  to the name of a job whose matrix needs another job's output, so the rows
+  are now plain include entries and the name holds no family of its own.
+  The plan job hands them on as `version-matrix` and `bumps`, in place of
+  `versions`, and the empty row is `{"include":[{}]}`, as in the image
+  workflows.
+- The Forgejo release examples name their image and hand-off jobs `Build:
+  release images` and `Build: release hand-off`, and their release summary
+  labels each job by exactly its name, where it read `Release images` and
+  `Hand-off` beside jobs named otherwise.
 - On Forgejo, a release links every package it publishes to the repository
   it runs from, as GitHub does. The plain `mvn deploy` form of
   `forge-ci publish forge-packages deploy` now links each reactor project

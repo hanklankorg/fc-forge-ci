@@ -267,7 +267,7 @@ and is selected with `sboms`; image SBOMs follow container policy independently.
 
 ```mermaid
 graph TD
-    A[Push: develop or feature/*] --> B[release-snapshot-orchestrator.yml]
+    A[Caller run by hand] --> B[release-snapshot-orchestrator.yml]
     B --> C[setup-snapshot]
     C --> D[release-snapshot-build-stage.yml]
     D --> E[release-snapshot-publish-stage.yml]
@@ -369,7 +369,7 @@ repository's Actions; a public repository on an instance that serves its API
 to anonymous readers needs none, so leave the header out there.
 
 ```bash
-FORGE=https://forgejo.example.com REPO=owner/project WORKFLOW=snapshot-files.yml
+FORGE=https://forgejo.example.com REPO=owner/project WORKFLOW=test-snapshot-files.yml
 SHA=$(git rev-parse origin/feat/login) # the commit the caller ran on
 auth="Authorization: token $FORGEJO_TOKEN"
 # The newest run of the caller's workflow file on that commit. A caller that

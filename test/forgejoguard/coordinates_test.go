@@ -326,8 +326,8 @@ func assertCoordinateConsumerJob(t *testing.T, relative string, contract coordin
 	// A builder job runs the job image the coordinates job validated, and
 	// holds no secret: it runs the caller's Containerfile.
 	if contract.builder {
-		if axis := snapshotToolchainAxis(relative, name); axis != "" {
-			assertSnapshotProducerImageLookup(t, target.containerImage(), axis)
+		if snapshotToolchainJob(relative, name) {
+			assertSnapshotProducerImageLookup(t, target.containerImage())
 		} else if image := target.containerImage(); image != builderJobImage {
 			t.Errorf("%s: job %s runs container %q, want the validated %q", relative, name, image, builderJobImage)
 		}
@@ -349,7 +349,7 @@ func assertCoordinateConsumerJob(t *testing.T, relative string, contract coordin
 		}
 
 		if name == "smoke" {
-			want = "${{ matrix.ref }}"
+			want = "${{ fromJSON(needs.collect.outputs.smoke-legs)[matrix.target][matrix.arch].ref }}"
 		}
 
 		if image := target.containerImage(); image != want {
@@ -386,7 +386,7 @@ func assertVersionImageLookup(t *testing.T, expression string) {
 
 	const (
 		prefix = "${{ format('{0}', needs.coordinates.outputs[fromJSON('"
-		suffix = "')[matrix.version.family]]) }}"
+		suffix = "')[matrix.family]]) }}"
 	)
 
 	if !strings.HasPrefix(expression, prefix) || !strings.HasSuffix(expression, suffix) {
@@ -404,25 +404,22 @@ func assertVersionImageLookup(t *testing.T, expression string) {
 	}
 }
 
-// snapshotToolchainAxis names the matrix axis of a snapshot job that runs the
+// snapshotToolchainJob reports whether job is a snapshot job that runs the
 // consumer's build in its toolchain image: the image producers and the file
 // outputs. Any other builder job runs the image builder's job image.
-func snapshotToolchainAxis(relative, job string) string {
-	if relative != ".forgejo/workflows/snapshot-images.yml" {
-		return ""
-	}
-
-	return map[string]string{"produce": "artifact", "files": "file"}[job]
+func snapshotToolchainJob(relative, job string) bool {
+	return relative == ".forgejo/workflows/snapshot-images.yml" && (job == "produce" || job == "files")
 }
 
 // This is a structural scheduling contract, not a Forgejo interpreter test.
 // Runtime expression compatibility must also be checked against the runner.
-func assertSnapshotProducerImageLookup(t *testing.T, expression, axis string) {
+func assertSnapshotProducerImageLookup(t *testing.T, expression string) {
 	t.Helper()
 
-	const prefix = "${{ format('{0}', needs.coordinates.outputs[fromJSON('"
-
-	suffix := "')[matrix." + axis + ".project_type]]) }}"
+	const (
+		prefix = "${{ format('{0}', needs.coordinates.outputs[fromJSON('"
+		suffix = "')[matrix.project_type]]) }}"
+	)
 
 	if !strings.HasPrefix(expression, prefix) || !strings.HasSuffix(expression, suffix) {
 		t.Fatalf("producer image must directly look up a validated coordinate and format its string value: %s", expression)

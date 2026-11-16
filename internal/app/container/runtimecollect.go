@@ -16,6 +16,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/cliio"
 	"github.com/diggsweden/forge-ci/internal/domain/ci"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
 	"github.com/diggsweden/forge-ci/internal/domain/provenance"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"
 )
@@ -79,18 +80,46 @@ func CollectRuntimePublication(ctx context.Context, downloader provider.RunArtif
 		rows = append(rows, RuntimeSmokeLeg{Target: leg.Target, Arch: leg.Arch, Ref: ref, Checksum: checksums[leg.Arch]})
 	}
 
-	body, err := json.Marshal(struct {
-		Include []RuntimeSmokeLeg `json:"include"`
-	}{Include: rows})
-	if err != nil {
-		return err
+	// A smoke leg's row holds its target and architecture alone: Forgejo
+	// appends a row's values to its job's name, where the digest-pinned ref
+	// and checksum would only be noise. The job reads them from smoke-legs.
+	type smokeRow struct {
+		Target string `json:"target"`
+		Arch   string `json:"arch"`
+	}
+
+	matrix := pipeline.Matrix[smokeRow]{Include: make([]smokeRow, 0, len(rows))}
+	legs := map[string]map[string]RuntimeSmokeLeg{}
+
+	for _, leg := range rows {
+		matrix.Include = append(matrix.Include, smokeRow{Target: leg.Target, Arch: leg.Arch})
+
+		if legs[leg.Target] == nil {
+			legs[leg.Target] = map[string]RuntimeSmokeLeg{}
+		}
+
+		legs[leg.Target][leg.Arch] = leg
 	}
 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	return sink.Set(ctx, "smoke-matrix", string(body))
+	for _, output := range []struct {
+		key   string
+		value any
+	}{{"smoke-matrix", matrix}, {"smoke-legs", legs}} {
+		body, err := json.Marshal(output.value)
+		if err != nil {
+			return err
+		}
+
+		if err := sink.Set(ctx, output.key, string(body)); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func runtimeCLIChecksum(workspace, arch string) (string, error) {

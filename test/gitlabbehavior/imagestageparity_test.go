@@ -62,7 +62,7 @@ func TestReleaseImageStageMatchesTheForgejoWorkflow(t *testing.T) {
 		}
 	}
 
-	if forgejo.matrix != "${{ fromJSON(needs.plan.outputs.builds) }}" {
+	if forgejo.matrix != "${{ fromJSON(needs.plan.outputs.build-matrix) }}" {
 		t.Fatalf("Forgejo builds are not one per planned build: %s", forgejo.matrix)
 	}
 
@@ -337,7 +337,7 @@ func forgejoReleaseImagesJobs(t *testing.T) forgejoImageJobs {
 		Jobs map[string]struct {
 			Needs    any `yaml:"needs"`
 			Strategy struct {
-				Matrix map[string]string `yaml:"matrix"`
+				Matrix string `yaml:"matrix"`
 			} `yaml:"strategy"`
 		} `yaml:"jobs"`
 	}
@@ -345,7 +345,7 @@ func forgejoReleaseImagesJobs(t *testing.T) forgejoImageJobs {
 		t.Fatal(err)
 	}
 
-	jobs := forgejoImageJobs{needs: map[string][]string{}, matrix: workflow.Jobs["build"].Strategy.Matrix["build"]}
+	jobs := forgejoImageJobs{needs: map[string][]string{}, matrix: workflow.Jobs["build"].Strategy.Matrix}
 
 	for name, job := range workflow.Jobs {
 		switch needs := job.Needs.(type) {

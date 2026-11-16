@@ -49,7 +49,7 @@
 # runner pool the image builds move to. A pool without user namespaces can
 # select kaniko. See
 # https://FORGE_HOST/OWNER/forge-ci/src/commit/PIN_FORGE_CI_SHA/docs/runners.md.
-name: Release
+name: Release Workflow
 on:
   push:
     tags:
@@ -60,7 +60,7 @@ env:
   FORGEJO_REPO: ${{ forgejo.repository }}
 jobs:
   prepare:
-    name: Prepare
+    name: "Prepare: release"
     if: success() && startsWith(forgejo.ref, 'refs/tags/')
     uses: OWNER/forge-ci/.forgejo/workflows/prepare-release.yml@PIN_FORGE_CI_SHA
     with:
@@ -317,7 +317,7 @@ jobs:
   # the complete, enumerated signing hand-off (never `secrets: inherit`).
   # ===========================================================================
   sign-and-publish:
-    name: Sign and publish
+    name: "Sign and publish: release"
     needs: [prepare, inventory]
     uses: OWNER/forge-ci/.forgejo/workflows/sign-and-publish-release.yml@PIN_FORGE_CI_SHA
     with:

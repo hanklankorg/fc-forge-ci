@@ -9,7 +9,7 @@
 # hands it over with its Build SBOM in dist/; signing keys never enter it.
 # sign-and-publish signs and publishes the Forgejo release, the tarball one
 # of its files. The Forgejo layer publishes to no package registry.
-name: Release
+name: Release Workflow
 
 on:
   push:
@@ -23,7 +23,7 @@ env:
 
 jobs:
   prepare:
-    name: Prepare
+    name: "Prepare: release"
     if: success() && startsWith(forgejo.ref, 'refs/tags/')
     uses: itiquette/forge-ci/.forgejo/workflows/prepare-release.yml@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
     with:
@@ -119,7 +119,7 @@ jobs:
           path: dist/
 
   sign-and-publish:
-    name: Sign and publish
+    name: "Sign and publish: release"
     needs: [prepare, build]
     # job-graph-guard: allow reason="reads needs.prepare.outputs but is gated on needs.build.result=='success'; build needs prepare, so build can only succeed if prepare succeeded, making prepare.outputs always present"
     if: ${{ always() && needs.build.result == 'success' }}
@@ -210,7 +210,7 @@ jobs:
           PACKAGE_RESULT: ${{ needs.publish-package.result }}
         run: |
           forge-ci report release \
-            --job "Prepare=${PREPARE_RESULT}" \
+            --job "Prepare: release=${PREPARE_RESULT}" \
             --job "Build: release files=${BUILD_RESULT}" \
-            --job "Sign and publish=${PUBLISH_RESULT}" \
+            --job "Sign and publish: release=${PUBLISH_RESULT}" \
             --job "Publish: package=${PACKAGE_RESULT}"

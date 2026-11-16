@@ -20,7 +20,7 @@
 #
 #   lint            the repository's nanolinter plan, with a floor of checks
 #                   its nanolinter.toml cannot switch off
-#   trust-boundary  the release-isolation gate: it statically verifies
+#   release-gate    the release-isolation gate: it statically verifies
 #                   release-workflow.yml's secret boundaries on every PR (the build job
 #                   holds no signing keys, the signer call site enumerates its
 #                   secrets, and every forge-ci ref carries one identical
@@ -35,7 +35,7 @@
 # tools of that image: never pass secrets or rate-limit tokens, or execute a
 # shipped-product black-box test here. Add your own static, unit or
 # component-test jobs alongside these.
-name: Pull Request
+name: Pull Request Workflow
 
 on:
   pull_request:
@@ -71,7 +71,7 @@ jobs:
       - name: Lint
         uses: https://FORGE_HOST/OWNER/forge-ci/.forgejo/actions/lint-nanolinter@PIN_FORGE_CI_SHA
 
-  trust-boundary:
+  release-gate:
     name: "Check: release isolation"
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 10
@@ -93,7 +93,6 @@ jobs:
           # The build job hands dist/ (and its digest) to the signer directly
           # via upload-dist's output in this shape.
           build-job: build
-          dist-digest-output: dist-digest
 
   build:
     name: "Check: build and test"
@@ -120,7 +119,7 @@ jobs:
   summary:
     name: Summary
     if: ${{ always() }}
-    needs: [lint, trust-boundary, build]
+    needs: [lint, release-gate, build]
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 5
     steps:
@@ -133,7 +132,7 @@ jobs:
           PROJECT_TYPE: gradle
           CI_BRANCH: ${{ forgejo.head_ref }}
           LINT_RESULT: ${{ needs.lint.result }}
-          ISOLATION_RESULT: ${{ needs.trust-boundary.result }}
+          ISOLATION_RESULT: ${{ needs.release-gate.result }}
           BUILD_RESULT: ${{ needs.build.result }}
         run: |
           forge-ci report pr \

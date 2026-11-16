@@ -68,7 +68,7 @@ func TestRuntimePublicationBarriersAndSigningBoundary(t *testing.T) {
 		}
 	}
 
-	require.Equal(t, "${{ matrix.ref }}", scalarString(mappingValue(mappingValue(runtimeWorkflow.jobs["smoke"].node, "container"), "image")))
+	require.Equal(t, "${{ fromJSON(needs.collect.outputs.smoke-legs)[matrix.target][matrix.arch].ref }}", scalarString(mappingValue(mappingValue(runtimeWorkflow.jobs["smoke"].node, "container"), "image")))
 	require.Contains(t, runtimeWorkflow.jobs["smoke"].node.String(), "sha256sum --check --strict")
 	require.True(t, jobRunsStep(runtimeWorkflow.jobs["plan"], "container platform-plan"))
 	require.True(t, jobRunsStep(runtimeWorkflow.jobs["request-runner"], "platform request-runner"))
@@ -211,7 +211,7 @@ func TestRuntimeSmokeReceiptIsWrittenOnlyAfterSuccessfulChecks(t *testing.T) {
 			require.Nil(t, mappingValue(step, "if"), "default success gating is required")
 			require.Nil(t, mappingValue(step, "continue-on-error"))
 			env := mappingValue(step, "env")
-			require.Equal(t, "${{ matrix.ref }}", scalarString(mappingValue(env, "TESTED_REF")))
+			require.Equal(t, "${{ fromJSON(needs.collect.outputs.smoke-legs)[matrix.target][matrix.arch].ref }}", scalarString(mappingValue(env, "TESTED_REF")))
 			require.Equal(t, "${{ matrix.arch }}", scalarString(mappingValue(env, "ARCH")))
 			require.Equal(t, "${{ matrix.target }}", scalarString(mappingValue(env, "TARGET")))
 		}

@@ -276,7 +276,8 @@ jobs:
     runs-on: ${{ fromJSON(inputs['runs-on']) }}
     timeout-minutes: 5
     outputs:
-      versions: ${{ steps.plan.outputs.versions }}
+      bumps: ${{ steps.plan.outputs.bumps }}
+      version-matrix: ${{ steps.plan.outputs.version-matrix }}
       distro-packages: ${{ steps.packages.outputs.distro-packages }}
       release-file-signing: ${{ steps.file-signing.outputs.release-file-signing }}
     steps:
@@ -351,7 +352,10 @@ jobs:
           run_forge_ci plan release-versions "${file[@]}" --matrix-output "${work}/versions.json" \
             --runtime-image-java "${RUNTIME_IMAGE_JAVA:-}" --runtime-image-node "${RUNTIME_IMAGE_NODE:-}" \
             --runtime-image-rust "${RUNTIME_IMAGE_RUST:-}"
-          printf 'versions=%s\n' "$(cat -- "${work}/versions.json")" >>"${FORGEJO_OUTPUT}"
+          # The version job's whole matrix, as the image workflows read theirs.
+          versions=$(cat -- "${work}/versions.json")
+          bumps=false; if [ "${versions}" != '[]' ]; then bumps=true; fi
+          printf 'bumps=%s\nversion-matrix={"include":%s}\n' "${bumps}" "${versions}" >>"${FORGEJO_OUTPUT}"
           # Warnings and never a failure: a container declared as built from
           # an artifact whose Containerfile runs that artifact's build again,
           # and a Containerfile that names an image without its registry.
@@ -598,19 +602,25 @@ jobs:
   # (Nanolinter fixture, lab runs 65 and 67, 2026-10-16), and an empty matrix
   # blocks its dependants (forgejo/forgejo#12191). So a plan without a family
   # runs one empty row in the label's default image.
+  #
+  # The rows are include entries, so their fields are the matrix's own.
+  # Forgejo appends a row's values to the name of a job whose matrix needs
+  # another job's output, so the name holds none of them: a family's job
+  # reads "Prepare: version (java, maven)", and the empty row, which is no
+  # matrix at all, the bare name. A row held under one key would be appended
+  # as a Go map, "(map[])".
   version:
-    name: "Prepare: version ${{ matrix.version.family || 'none' }}"
+    name: "Prepare: version"
     needs: [coordinates, plan, render]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.render.result == 'success' }}
     runs-on: ${{ fromJSON(inputs['runs-on']) }}
     timeout-minutes: 20
     # Select a validated coordinate by key, never a logical expression's value.
     # format keeps an empty container, the runner default, for the empty row.
-    container: ${{ format('{0}', needs.coordinates.outputs[fromJSON('{"java":"runtime_image_java","node":"runtime_image_node","rust":"runtime_image_rust"}')[matrix.version.family]]) }}
+    container: ${{ format('{0}', needs.coordinates.outputs[fromJSON('{"java":"runtime_image_java","node":"runtime_image_node","rust":"runtime_image_rust"}')[matrix.family]]) }}
     strategy:
       fail-fast: false
-      matrix:
-        version: ${{ fromJSON(needs.plan.outputs.versions != '[]' && needs.plan.outputs.versions || '[{}]') }}
+      matrix: ${{ fromJSON(needs.plan.outputs.bumps == 'true' && needs.plan.outputs.version-matrix || '{"include":[{}]}') }}
     # One output a family: Forgejo merges the rows' outputs, each row setting
     # its own family's.
     outputs:
@@ -619,11 +629,11 @@ jobs:
       patch_digest_rust: ${{ steps.patch.outputs.patch_digest_rust }}
     steps:
       - name: No version job planned
-        if: ${{ !matrix.version.family }}
+        if: ${{ !matrix.family }}
         run: echo 'The release plan bumps no project with a native version tool.'
 
       - name: Checkout layer helpers at the caller's pin
-        if: ${{ matrix.version.family != '' }}
+        if: ${{ matrix.family != '' }}
         env:
           EXPECTED_HELPERS_SHA: ${{ inputs['forge-ci-sha'] }}
           FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
@@ -656,7 +666,7 @@ jobs:
           fi
 
       - name: Fetch engine binary
-        if: ${{ matrix.version.family != '' }}
+        if: ${{ matrix.family != '' }}
         env:
           FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
         run: |
@@ -666,7 +676,7 @@ jobs:
           fetch_forge_ci
 
       - name: Checkout consumer repository at release request tag
-        if: ${{ matrix.version.family != '' }}
+        if: ${{ matrix.family != '' }}
         env:
           CHECKOUT_REF: ${{ forgejo.sha }}
         run: |
@@ -678,7 +688,7 @@ jobs:
       # guard-release-tag's own check, run inline: a container job here runs
       # only the verified helper checkout's engine, never an action.
       - name: Reject non-stable release request
-        if: ${{ matrix.version.family != '' }}
+        if: ${{ matrix.family != '' }}
         id: guard
         env:
           RELEASE_REQUEST: ${{ forgejo.ref_name }}
@@ -692,7 +702,7 @@ jobs:
       # The plan copies the full changelog into each project; the bump reads
       # the rendered one. Only the regular file crosses.
       - name: Download the rendered changelog
-        if: ${{ matrix.version.family != '' }}
+        if: ${{ matrix.family != '' }}
         run: |
           set -euo pipefail
           handoff=$(mktemp -d "${RUNNER_TEMP:?}/release-changelog.XXXXXX")
@@ -711,11 +721,11 @@ jobs:
       # this family's planned projects alone. The engine reports the file
       # pattern of their version files as the step's file-pattern.
       - name: Bump the family's project versions
-        if: ${{ matrix.version.family != '' }}
+        if: ${{ matrix.family != '' }}
         id: bump
         env:
           ARTIFACTS_CONFIG: ${{ needs.coordinates.outputs.artifacts_config }}
-          PROJECT_TYPE: ${{ matrix.version['project-type'] }}
+          PROJECT_TYPE: ${{ matrix['project-type'] }}
           RELEASE_TAG: ${{ steps.guard.outputs.release-tag }}
         run: |
           set -euo pipefail
@@ -736,10 +746,10 @@ jobs:
       # A family whose projects already declare the version hands on an
       # empty patch.
       - name: Upload the version patch
-        if: ${{ matrix.version.family != '' }}
+        if: ${{ matrix.family != '' }}
         id: patch
         env:
-          FAMILY: ${{ matrix.version.family }}
+          FAMILY: ${{ matrix.family }}
           FILE_PATTERN: ${{ steps.bump.outputs.file-pattern }}
         run: |
           set -euo pipefail
@@ -956,7 +966,7 @@ jobs:
               *) echo "ERROR: the plan names a version family this job does not know: ${family}" >&2; exit 1 ;;
             esac
             if [[ ! "${digest}" =~ ^[0-9a-f]{64}$ ]]; then
-              echo "ERROR: the plan bumps the ${family} family, but \"Prepare: version ${family}\" reported no patch digest." >&2
+              echo "ERROR: the plan bumps the ${family} family, but its \"Prepare: version\" job reported no patch digest." >&2
               exit 1
             fi
             handoff="${work}/${family}"

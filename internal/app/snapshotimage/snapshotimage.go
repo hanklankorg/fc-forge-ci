@@ -235,7 +235,10 @@ func EmitPlan(ctx context.Context, sink ci.OutputSink, plan snapshotimage.Plan) 
 	for _, item := range []struct {
 		name  string
 		value any
-	}{{"plan-json", plan}, {"builds", plan.Builds}, {"images", plan.Images}, {"artifacts", plan.Artifacts}, {"artifact-transfer-plan-json", transfers}, {"files", plan.FileOutputs()}} {
+	}{{"plan-json", plan}, {"builds", plan.Builds}, {"images", plan.Images}, {"artifacts", plan.Artifacts}, {"artifact-transfer-plan-json", transfers}, {"files", plan.FileOutputs()},
+		// The same as matrix rows, for a layer whose forge shows a row's
+		// values in its job's name; see pipeline.Matrix.
+		{"artifact-matrix", plan.ArtifactMatrix()}, {"file-matrix", plan.FileMatrix()}, {"build-matrix", plan.BuildMatrix()}, {"image-matrix", plan.ImageMatrix()}} {
 		body, err := json.Marshal(item.value)
 		if err != nil {
 			return err

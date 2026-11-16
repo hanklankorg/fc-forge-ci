@@ -694,7 +694,7 @@ step of `release-workflow.yml` turns a `release-notes.md` that an earlier
 step of the build job rendered into `dist/release-notes.md`; without one,
 the text is a stub naming the tag. A GoReleaser build refuses a checkout with
 an untracked file that is not ignored (`git is in a dirty state`), so
-`release-goreleaser.yml` renders its notes in `$RUNNER_TEMP` and passes that
+the GoReleaser `release-workflow.yml` renders its notes in `$RUNNER_TEMP` and passes that
 path as `release-notes`.
 
 Extract release notes from the prepared, signed changelog with
@@ -737,8 +737,8 @@ release: the import writes `checksums.sha256` and bundles GoReleaser's SBOMs,
 and refuses checksums GoReleaser wrote itself, so the configuration sets
 `checksum.disable: true`. Follow it with `upload-dist` and pass that
 action's digest to `sign-and-publish-release.yml`.
-[`examples/go-cli/forgejo/release-goreleaser.yml`](../examples/go-cli/forgejo/release-goreleaser.yml)
-is the complete caller: copy it as `release-workflow.yml`, beside the example's
+[`examples/go-cli/forgejo/goreleaser/release-workflow.yml`](../examples/go-cli/forgejo/goreleaser/release-workflow.yml)
+is the complete caller: copy it in place of the example's `release-workflow.yml`, beside its
 `pullrequest-workflow.yml`. Evidence that arrives after packaging is added with
 `release files manifest --unsigned --evidence-file <file>`.
 
@@ -757,8 +757,8 @@ action's `version` output is the version the files carry. Check out as the
 release does, with `forge-ci platform checkout --fetch-all-refs`, with
 `FORGEJO_TOKEN: ${{ forgejo.token }}` as every direct checkout in the
 examples has, so a private repository clones too: without the tags the base is `0.0.0` and GoReleaser's changelog has no previous tag.
-[`examples/go-cli/forgejo/release-snapshot-goreleaser.yml`](../examples/go-cli/forgejo/release-snapshot-goreleaser.yml)
-is the caller beside `release-goreleaser.yml`; it keeps the unsigned files as
+[`examples/go-cli/forgejo/goreleaser/release-snapshot-workflow.yml`](../examples/go-cli/forgejo/goreleaser/release-snapshot-workflow.yml)
+is the caller beside that release; it keeps the unsigned files as
 a run artifact for 7 days and signs and publishes nothing.
 
 Other ecosystems keep their own build tools and end their build job with
@@ -1547,11 +1547,11 @@ Callers to copy:
 publishes container-only snapshot images,
 [`examples/maven-app/forgejo/release-snapshot-workflow.yml`](../examples/maven-app/forgejo/release-snapshot-workflow.yml)
 builds the jar first in the Java image named by `artifact-job-image-java`,
-[`examples/go-cli/forgejo/snapshot-files.yml`](../examples/go-cli/forgejo/snapshot-files.yml)
+[`examples/go-cli/forgejo/test-snapshot-files.yml`](../examples/go-cli/forgejo/test-snapshot-files.yml)
 keeps a branch's built files with `publish-files: true`, and
 [`examples/go-cli/forgejo/release-snapshot-workflow.yml`](../examples/go-cli/forgejo/release-snapshot-workflow.yml)
 only builds and tests with `build-go`, publishing nothing, and
-[`examples/go-cli/forgejo/release-snapshot-goreleaser.yml`](../examples/go-cli/forgejo/release-snapshot-goreleaser.yml)
+[`examples/go-cli/forgejo/goreleaser/release-snapshot-workflow.yml`](../examples/go-cli/forgejo/goreleaser/release-snapshot-workflow.yml)
 is a dry run of a GoReleaser release, keeping its unsigned files.
 Build secrets remain unsupported; `extract.binary` is a release's output,
 which a snapshot does not run. Scan severity and image SBOM policy are

@@ -5,14 +5,14 @@
 # secret or installs anything beyond the locked packages:
 #
 #   lint            nanolinter.toml's plan with the secrets floor
-#   trust-boundary  statically verifies release-workflow.yml's secret boundaries
+#   release-gate    statically verifies release-workflow.yml's secret boundaries
 #   build           npm ci, the tests (the packed package installed offline)
 #                   and the build script
 #
 # lint and build run in CI_JOB_IMAGE: a nanolinter image of the
 # javascript-typescript flavour (nanolinter, its check tools, Node and npm),
 # pinned by digest.
-name: Pull Request
+name: Pull Request Workflow
 
 on:
   pull_request:
@@ -42,7 +42,7 @@ jobs:
       - name: Lint
         uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/lint-nanolinter@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
 
-  trust-boundary:
+  release-gate:
     name: "Check: release isolation"
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 10
@@ -59,7 +59,6 @@ jobs:
         uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/check-l3-isolation@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
         with:
           build-job: build
-          dist-digest-output: dist-digest
 
   build:
     name: "Check: build and test"
@@ -88,7 +87,7 @@ jobs:
   summary:
     name: Summary
     if: ${{ always() }}
-    needs: [lint, trust-boundary, build]
+    needs: [lint, release-gate, build]
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 5
     steps:
@@ -101,7 +100,7 @@ jobs:
           PROJECT_TYPE: npm
           CI_BRANCH: ${{ forgejo.head_ref }}
           LINT_RESULT: ${{ needs.lint.result }}
-          ISOLATION_RESULT: ${{ needs.trust-boundary.result }}
+          ISOLATION_RESULT: ${{ needs.release-gate.result }}
           BUILD_RESULT: ${{ needs.build.result }}
         run: |
           forge-ci report pr \

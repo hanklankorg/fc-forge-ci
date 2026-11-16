@@ -10,7 +10,7 @@
 # release commit and creates the final vX.Y.Z tag. The build job runs cargo
 # on the runner and hands dist/ over; signing keys never enter it.
 # sign-and-publish signs and publishes the Forgejo release.
-name: Release
+name: Release Workflow
 on:
   push:
     tags: ['release-request/v[0-9]*.[0-9]*.[0-9]*']
@@ -20,6 +20,7 @@ env:
   FORGEJO_REPO: ${{ forgejo.repository }}
 jobs:
   prepare:
+    name: 'Prepare: release'
     uses: itiquette/forge-ci/.forgejo/workflows/prepare-release.yml@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
     with:
       runs-on: ${{ vars.CI_RUNNER_LABEL }}
@@ -106,6 +107,7 @@ jobs:
           path: dist/
 
   sign-and-publish:
+    name: 'Sign and publish: release'
     needs: [prepare, build]
     uses: itiquette/forge-ci/.forgejo/workflows/sign-and-publish-release.yml@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
     with:
@@ -149,4 +151,4 @@ jobs:
           BUILD_RESULT: ${{ needs.build.result }}
           PUBLISH_RESULT: ${{ needs.sign-and-publish.result }}
         run: |
-          forge-ci report release --job "Prepare=${PREPARE_RESULT}" --job "Build=${BUILD_RESULT}" --job "Publish=${PUBLISH_RESULT}"
+          forge-ci report release --job "Prepare: release=${PREPARE_RESULT}" --job "Build: release files=${BUILD_RESULT}" --job "Sign and publish: release=${PUBLISH_RESULT}"

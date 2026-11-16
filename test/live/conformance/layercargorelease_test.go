@@ -31,11 +31,11 @@ const cargoReleaseImageEnv = "FORGE_CI_LIVE_CARGO_RELEASE_IMAGE"
 // assertion of TestForgejoLayer_MinimalBinaryRelease, with the differences a
 // Cargo consumer has. The canary is a crate without a dependency, with a
 // committed lockfile, declared in .forge-ci/artifacts.yml as one Cargo
-// project. The plan therefore bumps it: the run has a "Prepare: version rust"
-// job in place of the bump's empty row, in the Rust image the run names, and
-// that job hands its patch on. The consumer's job builds with the layer's
-// build-cargo in the same image, and its check of the prepared commit no
-// longer asks for a changelog-only one.
+// project. The plan therefore bumps it: the run has a "Prepare: version
+// (rust, cargo)" job in place of the bump's empty row, in the Rust image the
+// run names, and that job hands its patch on. The consumer's job builds
+// with the layer's build-cargo in the same image, and its check of the
+// prepared commit no longer asks for a changelog-only one.
 //
 // The host then holds the release commit to the bump. It changes exactly
 // CHANGELOG.md, Cargo.toml and Cargo.lock; the changelog gains the version;
