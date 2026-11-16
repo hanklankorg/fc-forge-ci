@@ -128,7 +128,7 @@ func TestPlanReleaseFamilies_RefusesWhatNoJobCanRun(t *testing.T) {
 func TestBaseStages_OrderChildrenAfterTheirParentsPromotion(t *testing.T) {
 	t.Parallel()
 
-	stages, err := gitlabpipeline.ParseBaseStages("base tools+debug:base extra:debug", "buildah")
+	stages, err := gitlabpipeline.ParseBaseStages("base tools+debug:base extra:debug")
 	require.NoError(t, err)
 
 	families := gitlabpipeline.ReleaseFamilies{Bases: stages}
@@ -164,7 +164,7 @@ func TestBaseStages_OrderChildrenAfterTheirParentsPromotion(t *testing.T) {
 		need("Base: sign and promote base", true), need("Base: sign and promote tools+debug", true), need("Base: sign and promote extra", true),
 	}}, jobs["Base: all promoted"])
 
-	none, err := gitlabpipeline.ParseBaseStages("", "kaniko")
+	none, err := gitlabpipeline.ParseBaseStages("")
 	require.NoError(t, err)
 	assert.Empty(t, none)
 
@@ -178,17 +178,10 @@ func TestBaseStages_OrderChildrenAfterTheirParentsPromotion(t *testing.T) {
 		"base tools:":           "no base flavor",
 		"base 'x:base":          "no base flavor",
 	} {
-		_, err := gitlabpipeline.ParseBaseStages(input, "buildah")
+		_, err := gitlabpipeline.ParseBaseStages(input)
 		require.ErrorIs(t, err, errs.ErrUsage, input)
 		require.ErrorContains(t, err, refusal, input)
 	}
-
-	// A root builds with either builder; a child with Buildah alone.
-	_, err = gitlabpipeline.ParseBaseStages("base", "kaniko")
-	require.NoError(t, err)
-	_, err = gitlabpipeline.ParseBaseStages("base tools:base", "kaniko")
-	require.ErrorIs(t, err, errs.ErrUnsupported)
-	require.ErrorContains(t, err, "needs image-builder buildah")
 }
 
 func TestReleaseFamilyArtifacts_ListsTheFamilyPlannedArtifacts(t *testing.T) {

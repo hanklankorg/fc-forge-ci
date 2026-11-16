@@ -18,7 +18,6 @@ import (
 	appbaseimages "github.com/diggsweden/forge-ci/internal/app/baseimages"
 	appcontainer "github.com/diggsweden/forge-ci/internal/app/container"
 	"github.com/diggsweden/forge-ci/internal/cli/regflags"
-	"github.com/diggsweden/forge-ci/internal/docslink"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/pipeline"
 )
@@ -30,11 +29,7 @@ func childBaseGroup() *cli.Command {
 	plan.Usage = "admit one cold child BASE, or several siblings, against one explicit caller-verified parent"
 	build := nativeImagesBuildCmd(readChildBasePlanFile)
 	build.Usage = "build the stage's child BASE images of one architecture using secret-free prepared parent inputs"
-	build.Description = "Requires --inputs-dir from the existing release-images fetch-build-inputs boundary. No registry fetch credentials or parent authentication run in the builder."
-
-	// The plan takes the builder only to refuse kaniko before a parent is
-	// fetched; the build already selects its builder with the same flag.
-	plan.Flags = append(plan.Flags, &cli.StringFlag{Name: flagImageBuilder, Sources: cli.EnvVars(envImageBuilder), Usage: "image builder the build jobs will use; kaniko is refused here, before any parent is fetched"})
+	build.Description = "Requires --inputs-dir from the existing release-images fetch-build-inputs boundary. No registry fetch credentials or parent authentication run in the builder: Buildah imports the verified parent layout into its store, kaniko reads it from its base-image cache."
 
 	for _, command := range []*cli.Command{plan, build} {
 		command.Flags = append(command.Flags, parentBaseFlag())
@@ -75,12 +70,6 @@ func childBaseParent(cmd *cli.Command) (appbaseimages.BaseImageParent, error) {
 }
 
 func readChildBasePlanFile(cmd *cli.Command) (pipeline.ReleaseImagesPlan, error) {
-	// The build job holds no registry credential: the verified parent layout
-	// is imported into Buildah's local store, and kaniko has none.
-	if strings.EqualFold(strings.TrimSpace(cmd.String(flagImageBuilder)), imageBuilderKaniko) {
-		return pipeline.ReleaseImagesPlan{}, fmt.Errorf("a child of an authenticated parent builds with Buildah, not kaniko: the build job holds no registry credential and kaniko has no local store to import the verified parent into. Select buildah (CI_IMAGE_BUILDER) for this repository and build on a runner that permits it; an organisation whose own runners are kaniko-only can borrow one (examples/runner-lender, %s): %w", docslink.URL("runners.md"), errs.ErrUsage)
-	}
-
 	parent, err := childBaseParent(cmd)
 	if err != nil {
 		return pipeline.ReleaseImagesPlan{}, err

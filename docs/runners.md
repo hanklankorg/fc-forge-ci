@@ -381,6 +381,21 @@ around:
   setting `SOURCE_DATE_EPOCH`; a kaniko build matches another kaniko build of
   the same tree, not a Buildah build of it.
 
+A child base, or an image on a private parent, builds with kaniko as with
+Buildah: from the parent the credential-holding fetch job retained, which
+the build job verifies against the pinned digest and builds on without a
+registry credential. Where Buildah imports that layout into its store, the
+engine copies it into kaniko's base-image cache (`--cache-dir`, the format
+`kaniko warmer` writes) and points the build argument at
+`localhost/forge-ci-input@<digest>`. kaniko finds a `FROM` pinned to a
+digest there before it would ask a registry, so it pulls nothing, and the
+child keeps the parent's layers byte for byte
+(`FF_KANIKO_REPRODUCIBLE_PRESERVE_BASE_LAYERS`). Its layer cache stays off
+(`--cache-run-layers=false --cache-copy-layers=false`), so the parent is the
+one thing it looks up there. A parent it does not find fails the build as a
+missing prerequisite, not as a registry that may answer next time. So a
+kaniko-only pool can build a base graph without a borrowed runner.
+
 Kaniko itself reads only `.dockerignore` names. The engine gives it the same
 ignore file Buildah builds with: the Containerfile's own
 `<Containerfile>.containerignore` or `.dockerignore`, else the context's

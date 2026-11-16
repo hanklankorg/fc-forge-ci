@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- kaniko can build a child base, and an image on a private parent, from the
+  verified parent the fetch job retained, as Buildah does. The build job
+  still holds no registry credential and pulls nothing: the engine copies
+  the verified layout into kaniko's base-image cache (`--cache-dir`, layer
+  cache off), where kaniko finds a `FROM` pinned to that digest before any
+  registry, and the child keeps the parent's layers byte for byte. So a
+  kaniko-only pool, such as Codefloe's, can build a base graph without a
+  borrowed runner. `CI_IMAGE_BUILDER=kaniko` and `image-builder: kaniko`
+  now admit a child stage. The lineage is unchanged: the parent's digest
+  and input ID. See `docs/runners.md#building-on-the-pool-with-kaniko`.
 - On Forgejo, `forge-ci publish forge-packages deploy` links the package it
   has published to the repository the job runs in: an npm package, a Maven
   library published with `--from-build` and exported Gradle publications.
@@ -272,7 +282,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parent's promotion. A stage whose final tags an earlier release promoted
   is verified and reused. The build commands read each promoted image from
   `FORGE_CI_BASE_IMAGES_DIR/<flavor>.json`. `plan gitlab-release-pipeline`
-  has the flags `--base-stages` and `--image-builder`, and
+  has the flag `--base-stages`, and
   `container base-images child-base fetch` fetches the parents of a child
   stage in one call. `examples/base-images` gains its GitLab files.
 - Forgejo builds a project's own graph of base images. `base-images.yml`
@@ -1201,11 +1211,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `release files declare --sbom` documents. The default `--keep-files`
   pattern matched `.sbom.json`, `.cyclonedx.json` and `.spdx.json` alone, so
   an older release lost that SBOM while its `.bundle` stayed.
-- A child base selected for kaniko is refused when it is planned, not after
-  its parent was fetched. `container base-images child-base plan` takes
-  `--image-builder` (`CI_IMAGE_BUILDER`), and `base-images.yml` passes it the
-  validated builder: a child of an authenticated parent builds with Buildah,
-  and the message names the runner-lending route for a kaniko-only pool.
 - Snapshot a container that declares `extract.binary`: the snapshot builds
   and publishes its runtime image and extracts nothing, since the binaries
   are release assets. Build secrets and requested provenance stay refused.

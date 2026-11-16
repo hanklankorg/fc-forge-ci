@@ -21,10 +21,13 @@ import (
 
 const registryInputManifest = "forge-ci-source-manifest.json"
 
-// RegistryInputLoader imports verified local bytes into native builder storage.
-// It receives no registry reference or authentication file.
+// RegistryInputLoader hands verified local bytes to the builder: Buildah
+// imports them into its store, kaniko reads them from its base-image cache.
+// It receives no registry reference or authentication file, and returns the
+// local reference a FROM names the image by, under
+// domaincontainer.RegistryInputRepository and derived from digest.
 type RegistryInputLoader interface {
-	LoadRegistryInput(ctx context.Context, directory, local string, out io.Writer) error
+	LoadRegistryInput(ctx context.Context, directory, digest string, out io.Writer) (string, error)
 }
 
 // ImportRegistryInput verifies the downloaded artifact before the builder sees
@@ -36,9 +39,16 @@ func ImportRegistryInput(ctx context.Context, inspector LayoutInspector, loader 
 		return "", err
 	}
 
-	local := "localhost/forge-ci-input:" + strings.TrimPrefix(image.Digest, "sha256:")
-	if err = loader.LoadRegistryInput(ctx, directory, local, out); err != nil {
+	local, err := loader.LoadRegistryInput(ctx, directory, image.Digest, out)
+	if err != nil {
 		return "", err
+	}
+
+	// The FROM a build argument names must be the local copy of these bytes,
+	// tagged or pinned by their digest, never a name a registry could serve.
+	tag := strings.TrimPrefix(image.Digest, "sha256:")
+	if local != domaincontainer.RegistryInputRepository+"@"+image.Digest && local != domaincontainer.RegistryInputRepository+":"+tag {
+		return "", fmt.Errorf("the builder loaded the verified parent as %q, not under %s by its digest: %w", local, domaincontainer.RegistryInputRepository, errs.ErrValidation)
 	}
 
 	return local, nil

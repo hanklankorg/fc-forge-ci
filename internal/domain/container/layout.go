@@ -10,3 +10,10 @@ type LayoutImage struct {
 	Revision string
 	Labels   map[string]string
 }
+
+// RegistryInputRepository names a verified parent inside the builder that
+// built nothing else under it: Buildah tags the imported image
+// <repository>:<digest hex>, kaniko finds it in its base-image cache by
+// <repository>@<digest>. A localhost name never resolves to the registry the
+// parent came from.
+const RegistryInputRepository = "localhost/forge-ci-input"

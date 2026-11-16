@@ -116,7 +116,7 @@ rc_release_plan() {
   local -a file=()
   if [ -n "${RC_ARTIFACTS_CONFIG?}" ]; then file=(--file "${RC_ARTIFACTS_CONFIG}"); fi
   rc_engine plan gitlab-release-pipeline "${file[@]}" \
-    --base-stages "${RC_BASE_STAGES?}" --image-builder "${RC_IMAGE_BUILDER?}" "$@"
+    --base-stages "${RC_BASE_STAGES?}" "$@"
 }
 
 rc_release_checkout() {
@@ -1037,7 +1037,7 @@ rc_base_plan() {
     --runner-input "build-runner-tags-linux-amd64=${RC_BUILD_RUNNER_TAGS_LINUX_AMD64?}")
   if [ -n "${parent}" ]; then
     rc_engine container base-images child-base plan --parent-base-json "${rc_parent_json}" \
-      --image-builder "${RC_IMAGE_BUILDER?}" "${rc_base_args[@]}" "${admitted[@]}"
+      "${rc_base_args[@]}" "${admitted[@]}"
   else
     rc_engine container base-images root-base plan "${rc_base_args[@]}" "${admitted[@]}"
   fi

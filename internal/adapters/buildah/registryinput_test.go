@@ -26,12 +26,14 @@ tag) exit 0 ;;
 *) exit 91 ;;
 esac`, log))
 	adapter := &buildah.Adapter{Bin: m.Path("buildah")}
-	err := adapter.LoadRegistryInput(t.Context(), "/workspace/retained parent", "localhost/forge-ci-input:verified", io.Discard)
+	local, err := adapter.LoadRegistryInput(t.Context(), "/workspace/retained parent", "sha256:"+strings.Repeat("a", 64), io.Discard)
 	require.NoError(t, err)
+	require.Equal(t, "localhost/forge-ci-input:"+strings.Repeat("a", 64), local)
+
 	calls, err := os.ReadFile(log)
 	require.NoError(t, err)
 	require.Equal(t, []string{
 		"pull --quiet oci:/workspace/retained parent:scan",
-		"tag " + strings.Repeat("0", 63) + "1 localhost/forge-ci-input:verified",
+		"tag " + strings.Repeat("0", 63) + "1 localhost/forge-ci-input:" + strings.Repeat("a", 64),
 	}, strings.Split(strings.TrimSpace(string(calls)), "\n"))
 }
