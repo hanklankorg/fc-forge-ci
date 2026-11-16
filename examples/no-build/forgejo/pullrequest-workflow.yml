@@ -88,7 +88,6 @@ jobs:
           # The build job hands dist/ (and its digest) to the signer directly
           # via upload-dist's output in this shape.
           build-job: build
-          dist-digest-output: dist-digest
 
   build:
     name: "Check: scripts"

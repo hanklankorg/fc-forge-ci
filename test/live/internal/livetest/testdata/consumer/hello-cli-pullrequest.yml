@@ -54,7 +54,6 @@ jobs:
         uses: https://forge.example/examplescope/forge-ci/.forgejo/actions/check-l3-isolation@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
         with:
           build-job: build
-          dist-digest-output: dist-digest
 
   build:
     name: "Check: build and test"

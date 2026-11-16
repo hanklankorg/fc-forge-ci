@@ -57,7 +57,6 @@ jobs:
         uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/check-l3-isolation@2f4e845cee96973d1082bf00a5a18689c1482148
         with:
           build-job: build
-          dist-digest-output: dist-digest
 
   build:
     name: "Check: build and test"
