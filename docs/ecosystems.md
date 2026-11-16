@@ -596,7 +596,7 @@ Without either variable, JVM trust is left as it is.
 | Product flavor selection | ✅ | `product-flavor` config field | E.g., `staging`, `production`. |
 | Build-type subset | ✅ | `build-types: debug,release` (default) | Pick which variants to build. |
 | Version-bump (Android `versionName` / `versionCode`) | ✅ | `forge-ci version bump --project-type gradle-android --version 1.2.3` | Bumps `versionName` and increments `versionCode` together. |
-| GitHub Release selection | Application AAB or library AAR | release artifact-transfer plan | Applications require release/AAB selection; libraries use their AAR artifact. APK uploads remain run artifacts. |
+| GitHub Release selection | Application release APK and AAB, or library AAR | release artifact-transfer plan | An application attaches its release APK when `build-types` includes `release`, and the AAB when `include-aab` is true as well; a debug APK is never attached. A library attaches its AAR. |
 | Release prerequisite checks | ✅ | `validate-release-prerequisites.yml` | The JVM reproducibility check; the keystore secrets are not checked there. |
 | Publish: Google Play | ✅ | `publish-google-play.yml` | Track-aware (`internal` / `alpha` / `beta` / `production`); supports staged rollouts. |
 | Whats-new notes | ✅ | `whats-new-directory` config field | Localised release notes. |
