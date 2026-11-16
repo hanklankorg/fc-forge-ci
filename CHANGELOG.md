@@ -911,8 +911,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `images-by-target` and `smoke-legs`; `snapshot-images read-plan` reads a
   file output's run artifact as `files-artifact-name`. The runtime
   workflow's own `build-matrix`, `image-matrix` and `smoke-matrix` rows,
-  which only that workflow reads, now hold the target and the architecture
-  or image name alone. The other existing outputs, and GitHub, are
+  which only that workflow reads, now hold the target alone, and for a
+  build or a smoke leg its architecture, so the jobs read, for example,
+  `Publish: runtime image (go)`. The other existing outputs, and GitHub, are
   unchanged. A plan whose image names or architectures differ only by case
   is refused, as Forgejo reads row keys regardless of case.
 

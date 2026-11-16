@@ -621,7 +621,7 @@ jobs:
     env:
       SIGNER_STRICT: '1'
       TARGET: ${{ matrix.target }}
-      IMAGE_REPOSITORY: ${{ inputs['image-namespace'] }}/${{ matrix.name }}
+      IMAGE_REPOSITORY: ${{ inputs['image-namespace'] }}/${{ fromJSON(needs.plan.outputs.images-by-target)[matrix.target].name }}
       ARCHS_JSON: ${{ toJSON(fromJSON(needs.plan.outputs.images-by-target)[matrix.target].archs) }}
       CANDIDATE_TAG: ${{ needs.plan.outputs.candidate-tag }}
       FORGE_CI_COSIGN_TRANSPARENCY: ${{ needs.coordinates.outputs.transparency_log }}
@@ -709,7 +709,7 @@ jobs:
       SIGNER_STRICT: '1'
       FORGE_CI_COSIGN_TRANSPARENCY: ${{ needs.coordinates.outputs.transparency_log }}
       TARGET: ${{ matrix.target }}
-      IMAGE_REPOSITORY: ${{ inputs['image-namespace'] }}/${{ matrix.name }}
+      IMAGE_REPOSITORY: ${{ inputs['image-namespace'] }}/${{ fromJSON(needs.plan.outputs.images-by-target)[matrix.target].name }}
       ARCHS_JSON: ${{ toJSON(fromJSON(needs.plan.outputs.images-by-target)[matrix.target].archs) }}
       CANDIDATE_TAG: ${{ needs.plan.outputs.candidate-tag }}
     steps:

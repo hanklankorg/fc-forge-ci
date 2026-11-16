@@ -4,6 +4,7 @@
 package forgejoguard
 
 import (
+	"io/fs"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -22,26 +23,32 @@ var rowValueDeref = regexp.MustCompile(`matrix\.[A-Za-z0-9_-]+[.[]|matrix\['[^']
 // the rows of such a matrix hold short scalar values only, and the job reads
 // anything else by them from its planner's outputs. The job's own name holds
 // no row value, which Forgejo would show twice. The rule holds for the layer's
-// workflows, the examples and the live consumer fixtures alike.
+// workflows and every Forgejo workflow of the examples and the live fixtures.
 func TestPlannedMatrixRowsHoldScalarValues(t *testing.T) {
 	t.Parallel()
 
 	planned := 0
 
 	workflows := allWorkflows(t)
-	for _, pattern := range []string{"examples/*/forgejo/*.yml", "test/live/fixtures/consumers/*/consumer/.forgejo/workflows/*.yml"} {
-		matches, err := filepath.Glob(filepath.Join(reporoot.Path(t), pattern))
-		if err != nil || len(matches) == 0 {
-			t.Fatalf("found no workflows at %s: %v", pattern, err)
-		}
+	root := reporoot.Path(t)
 
-		for _, match := range matches {
-			relative, err := filepath.Rel(reporoot.Path(t), match)
-			if err != nil {
-				t.Fatal(err)
+	for _, tree := range []string{"examples", "test/live/fixtures"} {
+		err := filepath.WalkDir(filepath.Join(root, tree), func(path string, entry fs.DirEntry, err error) error {
+			if err != nil || entry.IsDir() || filepath.Ext(path) != ".yml" {
+				return err
 			}
 
-			workflows = append(workflows, filepath.ToSlash(relative))
+			relative, err := filepath.Rel(root, path)
+			relative = filepath.ToSlash(relative)
+
+			if strings.Contains(relative, "/.forgejo/workflows/") || strings.HasPrefix(relative, "examples/") && strings.Contains(relative, "forgejo/") {
+				workflows = append(workflows, relative)
+			}
+
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
 	}
 

@@ -384,8 +384,13 @@ snapshot_build_files cli
 		}
 	}
 
-	if named < 0 || built < 0 || named > built {
-		t.Fatalf("the files job must name its run artifact before the build, step %d, not at step %d", built, named)
+	switch {
+	case named < 0:
+		t.Fatal("the files job has no files-artifact step that names its run artifact from the plan")
+	case built < 0:
+		t.Fatal("the files job has no step that builds the file output")
+	case named > built:
+		t.Fatalf("the files job must name its run artifact before the build: named at step %d, built at step %d", named, built)
 	}
 
 	if !kept {

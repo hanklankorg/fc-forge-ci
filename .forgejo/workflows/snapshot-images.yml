@@ -347,12 +347,17 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.has-files == 'true' && needs.plan.outputs.file-matrix || '{"include":[{}]}') }}
     steps:
+      # The layer and its engine binary sit under the runner's temporary
+      # directory, as in runtime-images.yml, and not in the workspace the
+      # consumer's build checks out and writes to. The build runs as the
+      # job's own user, so this keeps them out of its working tree, not out
+      # of its reach.
       - name: Bootstrap pinned native snapshot layer
         shell: bash
         run: |
           set -euo pipefail
           [[ "${SNAPSHOT_ENGINE_SHA}" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
-          helpers="${GITHUB_WORKSPACE:?}/snapshot-engine"
+          helpers="${RUNNER_TEMP:?}/snapshot-engine"
           git init --quiet "${helpers}"
           git -C "${helpers}" remote add origin "${FORGE_CI_REPOSITORY_URL:?}"
           if ! GIT_TERMINAL_PROMPT=0 git -C "${helpers}" fetch --quiet --depth=1 --no-tags origin "${SNAPSHOT_ENGINE_SHA}"; then

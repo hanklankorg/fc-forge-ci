@@ -49,19 +49,18 @@ func PlanRuntimePublication(ctx context.Context, sink ci.OutputSink, in RuntimeP
 		return err
 	}
 
-	// An image's row holds its target and name alone: the architectures, a
-	// list, would read as a Go slice in the job's name. The job reads them
-	// from images-by-target.
+	// An image's row holds its target alone, which names the image's job
+	// once: the name would repeat it and the architectures, a list, would
+	// read as a Go slice. The job reads both from images-by-target.
 	type imageRow struct {
 		Target string `json:"target"`
-		Name   string `json:"name"`
 	}
 
 	rows := make([]imageRow, 0, len(plan.Images))
 	byTarget := make(map[string]domaincontainer.RuntimeImage, len(plan.Images))
 
 	for _, image := range plan.Images {
-		rows = append(rows, imageRow{Target: image.Target, Name: image.Name})
+		rows = append(rows, imageRow{Target: image.Target})
 		byTarget[image.Target] = image
 	}
 
