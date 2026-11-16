@@ -5,20 +5,18 @@
 package livetest
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -668,10 +666,6 @@ const (
 	inputKey         = "cosign-public-key"
 	inputKeyDigest   = "cosign-public-key-sha256"
 )
-
-// trustRootFileLimit bounds the tracked files read to find a consumer's key:
-// a public key is a few hundred bytes.
-const trustRootFileLimit = 64 << 10
 
 // ConsumerPlan is what a trial does to a consumer: text to replace in its
 // tracked files, and the repository variables and secrets its workflows read
@@ -1323,53 +1317,21 @@ func (consumer Consumer) commitSnapshot(ctx context.Context) (string, error) {
 // commitRendered writes the plan into the staged tree and commits it without
 // a parent, so the forge receives no history.
 func (consumer Consumer) commitRendered(ctx context.Context, plan ConsumerPlan) (string, error) {
-	git, stage := consumer.git, consumer.stage
-
 	pristineGo, err := consumer.gitlabChecksNeedBuildah(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	// Only text files that hold something to replace are read. -I leaves out
-	// what git takes for binary.
-	grep := []string{"grep", "-z", "-l", "-I", "-F"}
+	// Only text files that hold something to replace are read.
+	targets := make([]string, 0, len(plan.Replace)/2)
 	for index := 0; index < len(plan.Replace); index += 2 {
-		grep = append(grep, "-e", plan.Replace[index])
+		targets = append(targets, plan.Replace[index])
 	}
 
-	matched, err := git.output(ctx, stage, nil, append(grep, consumer.Commit)...)
-	if err != nil {
+	if err = consumer.eachFileWith(ctx, pristineGo, targets, func(mode, path string, content []byte) error {
+		return consumer.stageFile(ctx, mode, path, plan.Render(string(content)))
+	}); err != nil {
 		return "", err
-	}
-
-	for path := range strings.SplitSeq(strings.TrimSuffix(string(matched), "\x00"), "\x00") {
-		path = strings.TrimPrefix(path, consumer.Commit+":")
-		// The generic Go adapter has all its bindings in its generated workflow.
-		// Do not rewrite application data, tests or signed source identity merely
-		// because their contents happen to match a pin/trust-digest sentinel.
-		if pristineGo && !strings.HasPrefix(path, consumerWorkflows+"/") {
-			continue
-		}
-
-		entry, entryErr := git.run(ctx, stage, "ls-tree", consumer.Commit, "--", path)
-		if entryErr != nil {
-			return "", entryErr
-		}
-
-		// `<mode> blob <id>\t<path>`: a link is not text to render.
-		mode, rest, _ := strings.Cut(entry, " ")
-		if mode != "100644" && mode != "100755" {
-			continue
-		}
-
-		content, readErr := git.output(ctx, stage, nil, "cat-file", "blob", strings.Fields(rest)[1])
-		if readErr != nil {
-			return "", readErr
-		}
-
-		if err = consumer.stageFile(ctx, mode, path, plan.Render(string(content))); err != nil {
-			return "", err
-		}
 	}
 
 	if err = consumer.stageTrustRoot(ctx, plan, pristineGo); err != nil {
@@ -1378,6 +1340,9 @@ func (consumer Consumer) commitRendered(ctx context.Context, plan ConsumerPlan) 
 
 	return consumer.commit(ctx, consumerBaseMessage)
 }
+
+// pemPublicKey begins the PEM block of a public key, as of a Cosign key.
+const pemPublicKey = "-----BEGIN PUBLIC KEY-----"
 
 // stageTrustRoot replaces every tracked file that is the consumer's key, by
 // the digest the plan replaces, with the lab's key, so that the trial hands
@@ -1388,39 +1353,68 @@ func (consumer Consumer) stageTrustRoot(ctx context.Context, plan ConsumerPlan, 
 		return nil
 	}
 
-	files, err := consumer.keySizedFiles(ctx, pristineGo)
-	if err != nil || len(files) == 0 {
-		return err
+	return consumer.eachFileWith(ctx, pristineGo, []string{pemPublicKey}, func(mode, path string, content []byte) error {
+		digest, found := plan.trustRoot[sha256Hex(content)]
+		if !found {
+			return nil
+		}
+
+		if sha256Hex([]byte(plan.publicKey)) != digest {
+			return fmt.Errorf("%s is the consumer's Cosign public key, but the lab's cosign-public-key does not hash to its cosign-public-key-sha256 %s: %w", path, digest, errs.ErrValidation)
+		}
+
+		return consumer.stageFile(ctx, mode, path, plan.publicKey)
+	})
+}
+
+// eachFileWith hands fn every regular text file of the consumer's tree that
+// holds one of the patterns, with its mode and content; -I leaves out what
+// git takes for binary, and a link is not text. The generic Go adapter has
+// all its bindings in its generated workflow, so with pristineGo only its
+// workflows are handed: application data, tests or signed source identity
+// are not rewritten merely because they happen to match a sentinel.
+func (consumer Consumer) eachFileWith(ctx context.Context, pristineGo bool, patterns []string, fn func(mode, path string, content []byte) error) error {
+	git, stage := consumer.git, consumer.stage
+
+	grep := make([]string, 0, 6+2*len(patterns))
+	grep = append(grep, "grep", "-z", "-l", "-I", "-F")
+
+	for _, pattern := range patterns {
+		grep = append(grep, "-e", pattern)
 	}
 
-	ids := make([]string, 0, len(files))
-	for _, file := range files {
-		ids = append(ids, file.id)
+	matched, err := git.output(ctx, stage, nil, append(grep, consumer.Commit)...)
+	if exit := (*exec.ExitError)(nil); errors.As(err, &exit) && exit.ExitCode() == 1 {
+		return nil // git grep matched no file
 	}
 
-	batch, err := consumer.git.output(ctx, consumer.stage, []byte(strings.Join(ids, "\n")+"\n"), "cat-file", "--batch")
 	if err != nil {
 		return err
 	}
 
-	reader := bufio.NewReader(bytes.NewReader(batch))
-
-	for _, file := range files {
-		content, readErr := readBatchBlob(reader)
-		if readErr != nil {
-			return fmt.Errorf("read %s: %w", file.path, readErr)
-		}
-
-		digest, found := plan.trustRoot[sha256Hex(content)]
-		if !found {
+	for path := range strings.SplitSeq(strings.TrimSuffix(string(matched), "\x00"), "\x00") {
+		path = strings.TrimPrefix(path, consumer.Commit+":")
+		if pristineGo && !strings.HasPrefix(path, consumerWorkflows+"/") {
 			continue
 		}
 
-		if sha256Hex([]byte(plan.publicKey)) != digest {
-			return fmt.Errorf("%s is the consumer's key, and the lab's key does not have the digest %s that replaces its digest: %w", file.path, digest, errs.ErrValidation)
+		entry, entryErr := git.run(ctx, stage, "ls-tree", consumer.Commit, "--", path)
+		if entryErr != nil {
+			return entryErr
 		}
 
-		if err = consumer.stageFile(ctx, file.mode, file.path, plan.publicKey); err != nil {
+		// `<mode> blob <id>\t<path>`
+		mode, rest, _ := strings.Cut(entry, " ")
+		if mode != "100644" && mode != "100755" {
+			continue
+		}
+
+		content, readErr := git.output(ctx, stage, nil, "cat-file", "blob", strings.Fields(rest)[1])
+		if readErr != nil {
+			return readErr
+		}
+
+		if err = fn(mode, path, content); err != nil {
 			return err
 		}
 	}
@@ -1428,72 +1422,10 @@ func (consumer Consumer) stageTrustRoot(ctx context.Context, plan ConsumerPlan, 
 	return nil
 }
 
-// trackedFile is a regular file of the consumer's tree.
-type trackedFile struct{ mode, path, id string }
-
-// keySizedFiles lists the consumer's regular files small enough to be a key.
-// The generic Go adapter's tree is left as it is, as commitRendered does.
-func (consumer Consumer) keySizedFiles(ctx context.Context, pristineGo bool) ([]trackedFile, error) {
-	listed, err := consumer.git.output(ctx, consumer.stage, nil, "ls-tree", "-r", "-z", "-l", consumer.Commit)
-	if err != nil {
-		return nil, err
-	}
-
-	var files []trackedFile
-
-	// `<mode> blob <id> <size>\t<path>`
-	for entry := range strings.SplitSeq(strings.TrimSuffix(string(listed), "\x00"), "\x00") {
-		header, path, _ := strings.Cut(entry, "\t")
-
-		fields := strings.Fields(header)
-		if len(fields) != 4 || (fields[0] != "100644" && fields[0] != "100755") {
-			continue
-		}
-
-		if size, sizeErr := strconv.Atoi(fields[3]); sizeErr != nil || size > trustRootFileLimit {
-			continue
-		}
-
-		if pristineGo && !strings.HasPrefix(path, consumerWorkflows+"/") {
-			continue
-		}
-
-		files = append(files, trackedFile{mode: fields[0], path: path, id: fields[2]})
-	}
-
-	return files, nil
-}
-
 func sha256Hex(content []byte) string {
 	sum := sha256.Sum256(content)
 
 	return hex.EncodeToString(sum[:])
-}
-
-// readBatchBlob reads one object of `git cat-file --batch`: a header line
-// `<id> <type> <size>`, the content, and a newline.
-func readBatchBlob(reader *bufio.Reader) ([]byte, error) {
-	header, err := reader.ReadString('\n')
-	if err != nil {
-		return nil, err
-	}
-
-	fields := strings.Fields(header)
-	if len(fields) != 3 {
-		return nil, fmt.Errorf("unexpected object header %q: %w", strings.TrimSpace(header), errs.ErrValidation)
-	}
-
-	size, err := strconv.Atoi(fields[2])
-	if err != nil {
-		return nil, err
-	}
-
-	content := make([]byte, size+1)
-	if _, err = io.ReadFull(reader, content); err != nil {
-		return nil, err
-	}
-
-	return content[:size], nil
 }
 
 // commitChange adds the canary to the staged tree and commits it on base,

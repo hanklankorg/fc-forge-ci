@@ -770,6 +770,59 @@ func TestConsumer_SwapsTheTrustRootKeyWithItsDigest(t *testing.T) {
 	}
 }
 
+// A consumer that pins its key's digest but tracks no PEM key still renders:
+// there is no key file to swap, and its digest is the trial key's.
+func TestConsumer_RendersTheTrustRootDigestWithoutAKeyFile(t *testing.T) {
+	t.Parallel()
+
+	oldDigest := strings.Repeat("a", 64)
+	sum := sha256.Sum256([]byte(labPublicKey))
+	newDigest := hex.EncodeToString(sum[:])
+
+	git, _ := newLayerCheckout(t)
+	root := t.TempDir()
+
+	writeLayerFile(t, root, consumerWorkflows+"/release.yml", "jobs:\n  sign:\n    uses: owner/forge-ci/.forgejo/workflows/sign-and-publish-release.yml@"+consumerPinned+
+		"\n    with:\n      cosign-public-key-sha256: "+oldDigest+"\n")
+
+	for _, args := range [][]string{
+		{"init", "--quiet", "--initial-branch=main"}, {"add", "--all"}, {"commit", "--quiet", "--message", "seed"},
+	} {
+		mustLayerGit(t, git, root, args...)
+	}
+
+	consumer, err := openConsumer(t.Context(), git, root, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workflows, err := consumer.workflows(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := sampleLayer().PlanConsumer(workflows, ConsumerFacts{Inputs: map[string]string{
+		"cosign-public-key": labPublicKey, "cosign-public-key-sha256": newDigest,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	commit, err := consumer.commitRendered(t.Context(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := git.output(t.Context(), consumer.stage, nil, "cat-file", "blob", commit+":"+consumerWorkflows+"/release.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := string(content); !strings.Contains(got, newDigest) || strings.Contains(got, oldDigest) {
+		t.Errorf("the consumer's workflow renders to %q, want the trial key's digest", got)
+	}
+}
+
 func TestConsumer_StagesTheRenderedTreeWithoutWritingToTheCheckout(t *testing.T) {
 	t.Parallel()
 
