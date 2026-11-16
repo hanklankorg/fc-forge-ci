@@ -8,9 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 
 	"github.com/urfave/cli/v3"
 
@@ -57,12 +55,7 @@ func prepareKanikoActionCmd() *cli.Command {
 
 				in.Plan, err = json.Marshal(plan)
 			} else {
-				var deferScan bool
-
-				in.Plan, deferScan, err = kanikoActionBuildPlan(workspace, cmd.String(flagPlan))
-				if err == nil && !deferScan {
-					in.Scanner, err = kanikoActionScanner()
-				}
+				in.Plan, err = kanikoActionBuildPlan(workspace, cmd.String(flagPlan))
 			}
 
 			if err != nil {
@@ -81,62 +74,45 @@ func prepareKanikoActionCmd() *cli.Command {
 	}
 }
 
-// kanikoActionScanner resolves the runner's trivy for a plan that scans in the
-// action: the entrypoint puts the copy in /kaniko/tools first on PATH, where
-// `container build` finds it. A deferring plan needs none; the layout scan job
-// scans in the full runtime image.
-func kanikoActionScanner() (string, error) {
-	scanner, err := exec.LookPath("trivy")
-	if err != nil {
-		return "", fmt.Errorf("kaniko action plan scans in the action and needs trivy on the runner (defer-scan=true leaves the scan to the layout scan job): %w", errs.ErrPrerequisite)
-	}
-
-	return scanner, nil
-}
-
-// kanikoActionBuildPlan returns the validated plan without host paths, and
-// whether it defers the vulnerability scan.
-func kanikoActionBuildPlan(workspace, path string) ([]byte, bool, error) {
+// kanikoActionBuildPlan returns the validated plan without host paths. The
+// action carries no scanner: the layout scan job scans the exported layout in
+// the full runtime image, so the plan must defer its scan.
+func kanikoActionBuildPlan(workspace, path string) ([]byte, error) {
 	body, err := os.ReadFile(path) //nolint:gosec // frozen workflow plan named by the caller.
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	plan, err := planfile.Decode(body)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	build := plan["container build"]
 	if len(plan) != 1 || build == nil || build["mode"] != "oci" || (build["secrets"] != nil && build["secrets"] != "") {
-		return nil, false, fmt.Errorf("kaniko action requires one OCI container-build plan without build secrets: %w", errs.ErrValidation)
+		return nil, fmt.Errorf("kaniko action requires one OCI container-build plan without build secrets: %w", errs.ErrValidation)
 	}
 
 	if err = validateActionBuildFields(build); err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
-	deferScan := false
-	if value, _ := build["defer-scan"].(string); value != "" {
-		if deferScan, err = strconv.ParseBool(value); err != nil {
-			return nil, false, fmt.Errorf("kaniko action plan field \"defer-scan\" must be true or false: %w", errs.ErrValidation)
-		}
+	if build["defer-scan"] != "true" {
+		return nil, fmt.Errorf("kaniko action exports its layout for the layout scan job and requires defer-scan=true: %w", errs.ErrValidation)
 	}
 
 	contextPath, _ := build["context"].(string)
 
 	file, _ := build["file"].(string)
 	if err = appcontainer.ValidateSourceBuildPaths(filepath.Join(workspace, "source"), contextPath, file); err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	// Host paths and credentials do not travel in the action image. The action
 	// logs in with the workflow's scoped credential and explicitly sets output.
 	delete(build, "auth-file")
 	delete(build, "output-dir")
 
-	body, err = json.Marshal(plan)
-
-	return body, deferScan, err
+	return json.Marshal(plan)
 }
 
 func validateActionBuildFields(build map[string]any) error {

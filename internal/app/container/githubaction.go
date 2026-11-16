@@ -26,16 +26,15 @@ var githubKanikoEntrypoint []byte
 
 // GitHubKanikoAction contains already-resolved native tools and a validated
 // build plan. No registry credentials are written into the generated image.
-// Scanner is empty for a plan that defers its scan to the layout scan job.
 type GitHubKanikoAction struct {
-	Workspace, JobImage, Engine, Scanner string
-	Plan                                 []byte
-	Snapshot                             bool
+	Workspace, JobImage, Engine string
+	Plan                        []byte
+	Snapshot                    bool
 }
 
 // PrepareGitHubKanikoAction packages the existing CLI in a disposable Docker
-// action. GitHub owns container execution; the Go CLI still owns the build and
-// scan. Source, control files and output have separate workspace coordinates.
+// action. GitHub owns container execution; the Go CLI still owns the build.
+// The layout scan job scans the exported layout outside the action. Source, control files and output have separate workspace coordinates.
 func PrepareGitHubKanikoAction(in GitHubKanikoAction) (string, error) {
 	if !domaincontainer.ValidDigestReference(in.JobImage) {
 		return "", fmt.Errorf("kaniko job image must be a fully qualified SHA-256 digest reference: %w", errs.ErrValidation)
@@ -90,28 +89,20 @@ func PrepareGitHubKanikoAction(in GitHubKanikoAction) (string, error) {
 func writeGitHubKanikoAction(action *os.Root, in GitHubKanikoAction) error {
 	dockerfile := "FROM " + in.JobImage + "\nCOPY forge-ci entrypoint.sh plan.json /kaniko/tools/\n"
 
-	payloads := map[string]string{"forge-ci": in.Engine}
-	if in.Scanner != "" {
-		payloads["trivy"] = in.Scanner
-		dockerfile += "COPY trivy /kaniko/tools/trivy\n"
+	engine, err := os.ReadFile(in.Engine)
+	if err != nil {
+		return fmt.Errorf("read native forge-ci: %w", err)
 	}
 
-	for name, path := range payloads {
-		body, readErr := os.ReadFile(path) //nolint:gosec // native executable resolved by the CLI, not consumer source.
-		if readErr != nil {
-			return fmt.Errorf("read native %s: %w", name, readErr)
-		}
-
-		if err := action.WriteFile(name, body, 0o755); err != nil {
-			return err
-		}
+	if err = action.WriteFile("forge-ci", engine, 0o755); err != nil {
+		return err
 	}
 
 	for name, body := range map[string][]byte{
 		"action.yml": []byte(githubKanikoActionMetadata),
 		"Dockerfile": []byte(dockerfile), "plan.json": in.Plan,
 	} {
-		if err := action.WriteFile(name, body, 0o600); err != nil {
+		if err = action.WriteFile(name, body, 0o600); err != nil {
 			return err
 		}
 	}

@@ -927,14 +927,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A GitHub image build with `CI_IMAGE_BUILDER=kaniko` no longer needs trivy
-  on the hosted runner. `forge-ci container prepare-kaniko-action` copies
-  the runner's trivy into the action only for a plan that scans there; a
-  plan with `defer-scan=true`, as the GitHub build legs write it, leaves the
-  scan to the layout scan job in the full runtime image. Before, it looked
-  trivy up for every image plan and failed with exit 70 on a runner without
-  it. A plan that scans in the action and finds no trivy now stops with a
-  prerequisite error that names `defer-scan=true`, and an unparsable
-  `defer-scan` value is refused.
+  on the hosted runner. `forge-ci container prepare-kaniko-action` admits
+  only plans with `defer-scan=true`, whose exported layout the layout scan
+  job scans in the full runtime image.
 - `forge-ci container base-images cleanup` sweeps stale staging tags only
   of the flavors of the images it is given in `BASE_IMAGES_JSON` and
   `SHARED_CORE_IMAGES_JSON`; `BASE_INPUTS_JSON` may cover the whole graph

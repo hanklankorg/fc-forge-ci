@@ -25,11 +25,10 @@ func githubActionFixture(t *testing.T) appcontainer.GitHubKanikoAction {
 	require.NoError(t, os.Mkdir(filepath.Join(workspace, "source"), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(workspace, "source", "original"), []byte("unchanged source"), 0o600))
 	tools := t.TempDir()
-	engine, scanner := filepath.Join(tools, "engine"), filepath.Join(tools, "scanner")
+	engine := filepath.Join(tools, "engine")
 	require.NoError(t, os.WriteFile(engine, []byte("native engine"), 0o700))
-	require.NoError(t, os.WriteFile(scanner, []byte("native scanner"), 0o700))
 
-	return appcontainer.GitHubKanikoAction{Workspace: workspace, JobImage: "registry.invalid/engine/kaniko@sha256:" + strings.Repeat("a", 64), Engine: engine, Scanner: scanner, Plan: []byte(`{"container build":{"context":".","mode":"oci"}}`)}
+	return appcontainer.GitHubKanikoAction{Workspace: workspace, JobImage: "registry.invalid/engine/kaniko@sha256:" + strings.Repeat("a", 64), Engine: engine, Plan: []byte(`{"container build":{"context":".","mode":"oci"}}`)}
 }
 
 func TestGitHubKanikoActionSeparatesSourceToolsAndOutput(t *testing.T) {

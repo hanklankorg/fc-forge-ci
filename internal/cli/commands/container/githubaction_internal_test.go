@@ -18,7 +18,7 @@ import (
 func TestKanikoActionBuildPlanRemovesHostPathsAndRejectsUnsupportedInputs(t *testing.T) {
 	t.Parallel()
 
-	for _, change := range []string{"valid", "secret", "unknown field", "structured value", "load mode", "context escape", "absolute file", "symlink escape", "unparsable defer-scan"} {
+	for _, change := range []string{"valid", "secret", "unknown field", "structured value", "load mode", "context escape", "absolute file", "symlink escape", "scan not deferred", "scan deferral missing", "unparsable defer-scan"} {
 		t.Run(change, func(t *testing.T) {
 			t.Parallel()
 			workspace := t.TempDir()
@@ -44,6 +44,10 @@ func TestKanikoActionBuildPlanRemovesHostPathsAndRejectsUnsupportedInputs(t *tes
 				require.NoError(t, os.Symlink(workspace, filepath.Join(workspace, "source", "escape")))
 
 				build["context"] = "escape"
+			case "scan not deferred":
+				build["defer-scan"] = "false"
+			case "scan deferral missing":
+				delete(build, "defer-scan")
 			case "unparsable defer-scan":
 				build["defer-scan"] = "later"
 			}
@@ -53,7 +57,7 @@ func TestKanikoActionBuildPlanRemovesHostPathsAndRejectsUnsupportedInputs(t *tes
 			planPath := filepath.Join(t.TempDir(), "plan.json")
 			require.NoError(t, os.WriteFile(planPath, body, 0o600))
 
-			got, deferScan, err := kanikoActionBuildPlan(workspace, planPath)
+			got, err := kanikoActionBuildPlan(workspace, planPath)
 			if change != "valid" {
 				require.ErrorIs(t, err, errs.ErrValidation)
 				require.Nil(t, got)
@@ -62,7 +66,6 @@ func TestKanikoActionBuildPlanRemovesHostPathsAndRejectsUnsupportedInputs(t *tes
 			}
 
 			require.NoError(t, err)
-			require.True(t, deferScan)
 			require.NotContains(t, string(got), "/host/")
 			require.Contains(t, string(got), "spaces and commas, preserved")
 			require.Equal(t, "/host/private/config.json", build["auth-file"], "preparation must not mutate the caller's plan")
@@ -70,26 +73,18 @@ func TestKanikoActionBuildPlanRemovesHostPathsAndRejectsUnsupportedInputs(t *tes
 	}
 }
 
-// The scanner travels into the action only for a plan that scans there: a
-// deferring plan, as the GitHub build legs write it, prepares on a hosted
-// runner without trivy.
-func TestPrepareKanikoActionCarriesTrivyOnlyForAnInActionScan(t *testing.T) {
+// The action carries no scanner, so it prepares on a hosted runner without
+// trivy; a plan that would scan inside it is refused before anything is written.
+func TestPrepareKanikoActionNeedsNoTrivyAndAdmitsOnlyDeferringPlans(t *testing.T) {
 	for _, tc := range []struct {
 		name, deferScan string
-		trivy           bool
 		wantErr         error
 	}{
 		{name: "deferred without trivy", deferScan: "true"},
-		{name: "in-action scan with trivy", deferScan: "false", trivy: true},
-		{name: "in-action scan without trivy", wantErr: errs.ErrPrerequisite},
+		{name: "non-deferring plan refused", deferScan: "false", wantErr: errs.ErrValidation},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			tools := t.TempDir()
-			if tc.trivy {
-				require.NoError(t, os.WriteFile(filepath.Join(tools, "trivy"), []byte("#!/bin/sh\n"), 0o700))
-			}
-
-			t.Setenv("PATH", tools)
+			t.Setenv("PATH", t.TempDir())
 			t.Setenv("FORGE_CI_PROVIDER", "local")
 			t.Setenv("FORGE_CI_RUNNER", "github")
 			t.Setenv("GITHUB_OUTPUT", filepath.Join(t.TempDir(), "output"))
@@ -117,17 +112,11 @@ func TestPrepareKanikoActionCarriesTrivyOnlyForAnInActionScan(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+			require.NoFileExists(t, filepath.Join(action, "trivy"))
 
 			dockerfile, err := os.ReadFile(filepath.Join(action, "Dockerfile"))
 			require.NoError(t, err)
-
-			if tc.trivy {
-				require.FileExists(t, filepath.Join(action, "trivy"))
-				require.Contains(t, string(dockerfile), "COPY trivy ")
-			} else {
-				require.NoFileExists(t, filepath.Join(action, "trivy"))
-				require.NotContains(t, string(dockerfile), "trivy")
-			}
+			require.NotContains(t, string(dockerfile), "trivy")
 		})
 	}
 }
