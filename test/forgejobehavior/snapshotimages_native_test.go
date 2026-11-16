@@ -366,8 +366,9 @@ snapshot_build_files cli
 		}
 
 		if strings.Contains(step.Run, "artifact upload") {
-			kept = strings.Contains(step.Run, `--name "${SNAPSHOT_NAMESPACE}-files-${FILES_ARTIFACT_NAME}"`) && strings.Contains(step.Run, "--retention-days 7") &&
-				strings.Contains(step.Run, `[[ "${FILES_ARTIFACT_NAME}" == "${FILE_NAME}"-*-snapshot-* ]]`)
+			kept = strings.Contains(step.Run, `artifact_name=$(run_forge_ci container snapshot-images read-plan --plan snapshot-plan.json --name "${FILE_NAME}" --field files-artifact-name)`) &&
+				strings.Contains(step.Run, `--name "${SNAPSHOT_NAMESPACE}-files-${artifact_name}"`) && strings.Contains(step.Run, "--retention-days 7") &&
+				strings.Contains(step.Run, `[[ "${artifact_name}" == "${FILE_NAME}"-*-snapshot-* ]]`)
 		}
 	}
 
@@ -582,7 +583,7 @@ func TestSnapshotForgejoAutomaticProducerAndGatherOrdering(t *testing.T) {
 			Needs    any    `yaml:"needs"`
 			If       string `yaml:"if"`
 			Strategy struct {
-				Matrix map[string]string `yaml:"matrix"`
+				Matrix string `yaml:"matrix"`
 			} `yaml:"strategy"`
 			Steps []struct {
 				Run string            `yaml:"run"`
@@ -595,7 +596,7 @@ func TestSnapshotForgejoAutomaticProducerAndGatherOrdering(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if workflow.Jobs["produce"].Strategy.Matrix["artifact"] != "${{ fromJSON(needs.plan.outputs.has-artifacts == 'true' && needs.plan.outputs.artifacts || '[{}]') }}" {
+	if workflow.Jobs["produce"].Strategy.Matrix != `${{ fromJSON(needs.plan.outputs.has-artifacts == 'true' && needs.plan.outputs.artifact-matrix || '{"include":[{}]}') }}` {
 		t.Fatal("producers must use the unique artifact projection, with a no-op placeholder when empty so Forgejo can settle downstream dependencies")
 	}
 
@@ -608,7 +609,7 @@ func TestSnapshotForgejoAutomaticProducerAndGatherOrdering(t *testing.T) {
 			strings.Contains(step.Run, "snapshot_checkout") ||
 			strings.Contains(step.Run, "fetch_forge_ci") ||
 			strings.Contains(step.Run, "artifact upload")
-		if artifactStep && step.If != "${{ matrix.artifact.name != '' }}" {
+		if artifactStep && step.If != "${{ matrix.name != '' }}" {
 			t.Fatal("the empty-plan placeholder must not fetch source, build or upload an artifact")
 		}
 	}
@@ -642,8 +643,8 @@ func TestSnapshotForgejoAutomaticProducerAndGatherOrdering(t *testing.T) {
 	}
 }
 
-// A plan without an image (files alone, or publish-containers false) has
-// "[]" for builds and images. Forgejo expands an empty matrix to no job at
+// A plan without an image (files alone, or publish-containers false) has no
+// build or image rows. Forgejo expands an empty matrix to no job at
 // all and never settles the jobs that need it (forgejo/forgejo#12191), so the
 // run stays blocked. Every matrix of the workflow therefore carries one no-op
 // row for the empty plan, the image rows are skipped by their job's
@@ -655,7 +656,7 @@ func TestSnapshotForgejoPlanWithoutImageSettlesEveryJob(t *testing.T) {
 			If       string `yaml:"if"`
 			RunsOn   string `yaml:"runs-on"`
 			Strategy struct {
-				Matrix map[string]string `yaml:"matrix"`
+				Matrix string `yaml:"matrix"`
 			} `yaml:"strategy"`
 		} `yaml:"jobs"`
 	}
@@ -666,12 +667,14 @@ func TestSnapshotForgejoPlanWithoutImageSettlesEveryJob(t *testing.T) {
 	matrices := 0
 
 	for name, job := range workflow.Jobs {
-		for key, matrix := range job.Strategy.Matrix {
-			matrices++
+		if job.Strategy.Matrix == "" {
+			continue
+		}
 
-			if !strings.HasSuffix(matrix, " || '[{}]') }}") {
-				t.Errorf("job %s matrix %s can be empty, which blocks the jobs that need it: %s", name, key, matrix)
-			}
+		matrices++
+
+		if !strings.HasSuffix(job.Strategy.Matrix, ` || '{"include":[{}]}') }}`) {
+			t.Errorf("job %s's matrix can be empty, which blocks the jobs that need it: %s", name, job.Strategy.Matrix)
 		}
 	}
 
@@ -680,11 +683,11 @@ func TestSnapshotForgejoPlanWithoutImageSettlesEveryJob(t *testing.T) {
 	}
 
 	for name, want := range map[string]string{
-		"build":   "${{ fromJSON(needs.plan.outputs.enabled == 'true' && needs.plan.outputs.builds || '[{}]') }}",
-		"publish": "${{ fromJSON(needs.plan.outputs.enabled == 'true' && needs.plan.outputs.images || '[{}]') }}",
+		"build":   `${{ fromJSON(needs.plan.outputs.enabled == 'true' && needs.plan.outputs.build-matrix || '{"include":[{}]}') }}`,
+		"publish": `${{ fromJSON(needs.plan.outputs.enabled == 'true' && needs.plan.outputs.image-matrix || '{"include":[{}]}') }}`,
 	} {
 		job := workflow.Jobs[name]
-		if matrix := job.Strategy.Matrix[map[string]string{"build": "build", "publish": "image"}[name]]; matrix != want {
+		if matrix := job.Strategy.Matrix; matrix != want {
 			t.Errorf("the %s matrix is %q, want %q", name, matrix, want)
 		}
 
@@ -694,7 +697,7 @@ func TestSnapshotForgejoPlanWithoutImageSettlesEveryJob(t *testing.T) {
 	}
 
 	// The no-op row has no architecture; its labels must still evaluate.
-	if want := "${{ fromJSON(inputs[matrix.build.arch && format('build-runs-on-linux-{0}', matrix.build.arch) || 'runs-on']) }}"; workflow.Jobs["build"].RunsOn != want {
+	if want := "${{ fromJSON(inputs[matrix.arch && format('build-runs-on-linux-{0}', matrix.arch) || 'runs-on']) }}"; workflow.Jobs["build"].RunsOn != want {
 		t.Errorf("build runs on %q, want %q", workflow.Jobs["build"].RunsOn, want)
 	}
 

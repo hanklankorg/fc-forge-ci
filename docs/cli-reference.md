@@ -1045,7 +1045,7 @@ Builds a plan admitted by root-base plan using the existing native builder. Pare
 
 ##### `forge-ci container base-images root-base plan`
 
-admit a resolved consumer base stage plan, freeze it for native jobs and emit its builds and layouts outputs
+admit a resolved consumer base stage plan, freeze it for native jobs and emit its builds, build-matrix, builds-by-name and layouts outputs
 
 ```
 The layer passes its runner inputs with --runner-input, as release-images
@@ -2287,11 +2287,14 @@ copy unsigned release-image digests to a separate publication repository and wri
 plan the release images artifacts.yml declares: one build per container and architecture, one publication per container
 
 ```
-Reads the containers: section of artifacts.yml and writes three outputs:
+Reads the containers: section of artifacts.yml and writes these outputs:
 builds, a JSON array with one entry per container and architecture for the
 native build jobs; images, one entry per container for the job that scans,
 assembles and records it; and registry-user, the user the registry token logs
-in as there. Each image is published under staging-<final tag>
+in as there. build-matrix and image-matrix hold the same as matrix include
+rows of the name and architecture alone, which Forgejo shows in a job's name,
+and builds-by-name and images-by-name the rest of each row by those keys.
+Each image is published under staging-<final tag>
 for the signer to promote; the final tag is the release tag followed by the
 container's tag-suffix. A release publishes to one repository, the one its
 signer is bound to: --image-repository, or the forge's own registry when it

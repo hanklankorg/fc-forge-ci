@@ -62,6 +62,10 @@ func TestSourcePinLogicalBranchDefaultOnAndOptOut(t *testing.T) {
 	require.NoError(t, appsnapshot.EmitPlan(t.Context(), sink, plan))
 	require.Contains(t, sink.Single("plan-json"), `"source_branch":"manual-branch"`)
 	require.Contains(t, sink.Single("builds"), `"arch":"amd64"`)
+	require.Contains(t, sink.Single("build-matrix"), `{"name":"app","arch":"amd64"}`)
+	require.JSONEq(t, `{"include":[{"name":"app"}]}`, sink.Single("image-matrix"))
+	require.JSONEq(t, `{"include":[]}`, sink.Single("artifact-matrix"))
+	require.JSONEq(t, `{"include":[]}`, sink.Single("file-matrix"))
 
 	in.Publish = false
 	plan, err = appsnapshot.Plan(t.Context(), git, in)

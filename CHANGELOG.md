@@ -897,6 +897,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- On Forgejo, the matrix jobs of `base-images.yml`, `release-images.yml`,
+  `snapshot-images.yml` and `runtime-images.yml` no longer show their whole
+  plan row in the job name, such as `Build: runtime-core-base (amd64)
+  (map[arch:amd64 build-args:...])`. Forgejo appends a row's values to the
+  name of a job whose matrix comes from another job's output, so each row now
+  holds only short scalar values and the job reads the rest by them: the jobs
+  read, for example, `Build: base (amd64, runtime-core-base)`, `Fetch:
+  registry inputs (amd64, app)`, `Publish: image (app)` and `Build: files
+  (cli, go)`. The planners emit the rows as `build-matrix`, `image-matrix`,
+  `artifact-matrix` and `file-matrix` and the rest as `builds-by-name`,
+  `images-by-name`, `images-by-target` and `smoke-legs`;
+  `snapshot-images read-plan` reads a file output's run artifact as
+  `files-artifact-name`. The existing outputs, and so GitHub, are unchanged.
+
 - On Forgejo, a release whose plan bumps no version shows its version job
   as `Prepare: version none`, where it was `Prepare: version none
   (map[])`, and a family's job as, for example, `Prepare: version java

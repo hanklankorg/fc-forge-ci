@@ -110,7 +110,7 @@ func nativeBasePlanCmd(readPlan func(*cli.Command) (pipeline.ReleaseImagesPlan, 
 
 	return &cli.Command{
 		Name:  subCmdPlan,
-		Usage: "admit a resolved consumer base stage plan, freeze it for native jobs and emit its builds and layouts outputs",
+		Usage: "admit a resolved consumer base stage plan, freeze it for native jobs and emit its builds, build-matrix, builds-by-name and layouts outputs",
 		Description: `The layer passes its runner inputs with --runner-input, as release-images
 plan takes them; a build of a platform whose image build runner input has no
 value is refused here, before the plan is written. A base stage is never
@@ -127,24 +127,9 @@ planned unchecked: without any --runner-input the plan is refused.`,
 				return err
 			}
 
-			// The builds output is the matrix a layer schedules its native
-			// build jobs from, as release-images plan emits it. layouts names
-			// each build's layout as <name>-<arch>, on one line with a space
-			// between them, for the job that collects them. A name is held
-			// to the flavor rule and has no space. One line is what every
-			// forge's output takes: a GitLab dotenv report has no value of
-			// several lines.
-			builds, err := json.Marshal(plan.Builds)
+			outputs, err := baseStagePlanOutputs(plan)
 			if err != nil {
 				return err
-			}
-
-			var layouts []string
-
-			for _, image := range plan.Images {
-				for arch := range strings.FieldsSeq(image.Archs) {
-					layouts = append(layouts, image.Name+"-"+arch)
-				}
 			}
 
 			return deps.FromCmd(ctx, cmd, func(dep *deps.Deps) error {
@@ -165,14 +150,58 @@ planned unchecked: without any --runner-input the plan is refused.`,
 					return err
 				}
 
-				if err := dep.OutputSink.Set(ctx, "builds", string(builds)); err != nil {
-					return err
+				for _, output := range outputs {
+					if err := dep.OutputSink.Set(ctx, output.key, output.value); err != nil {
+						return err
+					}
 				}
 
-				return dep.OutputSink.Set(ctx, "layouts", strings.Join(layouts, " "))
+				return nil
 			})
 		},
 	}
+}
+
+type planOutput struct{ key, value string }
+
+// baseStagePlanOutputs is what a base stage plan emits. The builds output is
+// the matrix a layer schedules its native build jobs from, as release-images
+// plan emits it; build-matrix and builds-by-name are the same builds as
+// matrix rows, whose values Forgejo shows in the job names, and by those
+// values (see pipeline.Matrix). layouts names each build's layout as
+// <name>-<arch>, on one line with a space between them, for the job that
+// collects them. A name is held to the flavor rule and has no space. One
+// line is what every forge's output takes: a GitLab dotenv report has no
+// value of several lines.
+func baseStagePlanOutputs(plan pipeline.ReleaseImagesPlan) ([]planOutput, error) {
+	byName, err := plan.BuildsByName()
+	if err != nil {
+		return nil, err
+	}
+
+	outputs := make([]planOutput, 0, 4)
+
+	for _, output := range []struct {
+		key   string
+		value any
+	}{{"builds", plan.Builds}, {"build-matrix", plan.BuildMatrix()}, {"builds-by-name", byName}} {
+		body, err := json.Marshal(output.value)
+		if err != nil {
+			return nil, err
+		}
+
+		outputs = append(outputs, planOutput{output.key, string(body)})
+	}
+
+	var layouts []string
+
+	for _, image := range plan.Images {
+		for arch := range strings.FieldsSeq(image.Archs) {
+			layouts = append(layouts, image.Name+"-"+arch)
+		}
+	}
+
+	return append(outputs, planOutput{"layouts", strings.Join(layouts, " ")}), nil
 }
 
 func rootBasePublishCmd() *cli.Command {

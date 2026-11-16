@@ -126,7 +126,8 @@ type EmitReleaseImagesPlanInput struct {
 }
 
 // EmitReleaseImagesPlan writes the release-images build and publication
-// matrices of the declared containers as the builds and images outputs.
+// matrices of the declared containers as the builds and images outputs, and
+// the same as matrix rows and by name; see emitImageMatrices.
 func EmitReleaseImagesPlan(ctx context.Context, sink ci.OutputSink, annot output.Annotator, in EmitReleaseImagesPlanInput) (pipeline.ReleaseImagesPlan, error) {
 	images, err := resolveReleaseImagesPlan(in, annot)
 	if err != nil {
@@ -138,6 +139,10 @@ func EmitReleaseImagesPlan(ctx context.Context, sink ci.OutputSink, annot output
 	}
 
 	if err := emitValueOutput(ctx, sink, "images", images.Images); err != nil {
+		return pipeline.ReleaseImagesPlan{}, err
+	}
+
+	if err := emitImageMatrices(ctx, sink, images); err != nil {
 		return pipeline.ReleaseImagesPlan{}, err
 	}
 
@@ -338,6 +343,33 @@ func readArtifactsFile(in EmitConfigPlanInput) ([]byte, error) {
 	}
 
 	return fs.ReadFile(in.FS, path)
+}
+
+// emitImageMatrices writes a release-images plan as a layer's matrix jobs
+// read it: build-matrix and image-matrix hold the rows, whose values Forgejo
+// shows in the job names, and builds-by-name and images-by-name the rest of
+// each row by those values.
+func emitImageMatrices(ctx context.Context, sink ci.OutputSink, plan pipeline.ReleaseImagesPlan) error {
+	builds, err := plan.BuildsByName()
+	if err != nil {
+		return err
+	}
+
+	images, err := plan.ImagesByName()
+	if err != nil {
+		return err
+	}
+
+	for _, output := range []struct {
+		key   string
+		value any
+	}{{"build-matrix", plan.BuildMatrix()}, {"builds-by-name", builds}, {"image-matrix", plan.ImageMatrix()}, {"images-by-name", images}} {
+		if err := emitValueOutput(ctx, sink, output.key, output.value); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func emitValueOutput[T any](ctx context.Context, sink ci.OutputSink, key string, value T) error {

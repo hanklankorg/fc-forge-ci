@@ -206,7 +206,8 @@ jobs:
     runs-on: ${{ fromJSON(inputs['runs-on']) }}
     timeout-minutes: 10
     outputs:
-      builds: ${{ steps.plan.outputs.builds }}
+      build-matrix: ${{ steps.plan.outputs.build-matrix }}
+      builds-by-name: ${{ steps.plan.outputs.builds-by-name }}
       layouts: ${{ steps.plan.outputs.layouts }}
     env:
       FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
@@ -290,19 +291,22 @@ jobs:
               --parent-base-json "${PARENT_BASE_JSON}"
           fi
 
+  # The matrix jobs' rows hold only an image's name and architecture:
+  # Forgejo appends a row's values to the job's name, so "Build: base" reads
+  # "Build: base (amd64, <image>)". Each reads the rest of its build from
+  # builds-by-name.
   fetch-inputs:
-    name: "Fetch parent: ${{ matrix.build.name }} (${{ matrix.build.arch }})"
+    name: "Fetch: parent"
     needs: [coordinates, plan]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && inputs['parent-base-json'] != '' }}
-    runs-on: ${{ fromJSON(inputs[format('build-runs-on-linux-{0}', matrix.build.arch)]) }}
+    runs-on: ${{ fromJSON(inputs[format('build-runs-on-linux-{0}', matrix.arch)]) }}
     timeout-minutes: 45
     strategy:
       fail-fast: true
       # Forgejo v3 artifact finalization walks every temporary chunk in a run.
       # Concurrent finalizers can delete a chunk while another walks it (500).
       max-parallel: 1
-      matrix:
-        build: ${{ fromJSON(needs.plan.outputs.builds) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.build-matrix) }}
     defaults:
       run:
         shell: bash
@@ -355,9 +359,9 @@ jobs:
 
       - name: Fetch the pinned parent layout
         env:
-          BUILD_JSON: ${{ toJSON(matrix.build) }}
-          IMAGE_NAME: ${{ matrix.build.name }}
-          IMAGE_ARCH: ${{ matrix.build.arch }}
+          BUILD_JSON: ${{ toJSON(fromJSON(needs.plan.outputs.builds-by-name)[matrix.name][matrix.arch]) }}
+          IMAGE_NAME: ${{ matrix.name }}
+          IMAGE_ARCH: ${{ matrix.arch }}
           IMAGE_REPOSITORY: ${{ inputs['image-repository'] }}
           RELEASE_SHA: ${{ inputs['release-sha'] }}
           REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
@@ -383,8 +387,8 @@ jobs:
       - name: Upload the parent layout
         env:
           BASE_ARTIFACT_NAMESPACE: ${{ inputs['artifact-name'] }}
-          IMAGE_NAME: ${{ matrix.build.name }}
-          IMAGE_ARCH: ${{ matrix.build.arch }}
+          IMAGE_NAME: ${{ matrix.name }}
+          IMAGE_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           # shellcheck source=.engine/bin/lib-forge-ci.sh
@@ -395,21 +399,20 @@ jobs:
             --retention-days 1 --if-no-files error --include-hidden
 
   build:
-    name: "Build: ${{ matrix.build.name }} (${{ matrix.build.arch }})"
+    name: "Build: base"
     needs: [coordinates, plan, fetch-inputs]
     # A root has no parent to fetch, so its fetch job is skipped.
     if: ${{ always() && needs.coordinates.result == 'success' && needs.plan.result == 'success' && (needs.fetch-inputs.result == 'success' || (needs.fetch-inputs.result == 'skipped' && inputs['parent-base-json'] == '')) }}
     # Each architecture builds on a runner of its own architecture: a build
     # runs the Containerfile's steps, and none may rely on CPU emulation.
-    runs-on: ${{ fromJSON(inputs[format('build-runs-on-linux-{0}', matrix.build.arch)]) }}
+    runs-on: ${{ fromJSON(inputs[format('build-runs-on-linux-{0}', matrix.arch)]) }}
     # kaniko's job image, validated above; empty for Buildah, which runs in
     # the runner's own environment.
     container: ${{ needs.coordinates.outputs.builder_job_image }}
     timeout-minutes: 90
     strategy:
       fail-fast: true
-      matrix:
-        build: ${{ fromJSON(needs.plan.outputs.builds) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.build-matrix) }}
     defaults:
       run:
         shell: bash
@@ -484,8 +487,8 @@ jobs:
         if: ${{ inputs['parent-base-json'] != '' }}
         env:
           BASE_ARTIFACT_NAMESPACE: ${{ inputs['artifact-name'] }}
-          IMAGE_NAME: ${{ matrix.build.name }}
-          IMAGE_ARCH: ${{ matrix.build.arch }}
+          IMAGE_NAME: ${{ matrix.name }}
+          IMAGE_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           # shellcheck source=.engine/bin/lib-forge-ci.sh
@@ -496,14 +499,14 @@ jobs:
 
       # No registry write and no secret: the layout waits for publish, which
       # uploads only after every architecture is built and scanned.
-      - name: Build ${{ matrix.build.arch }} layout
+      - name: Build ${{ matrix.arch }} layout
         env:
-          IMAGE_NAME: ${{ matrix.build.name }}
+          IMAGE_NAME: ${{ matrix.name }}
           IMAGE_PLAN_JSON: ${{ inputs['image-plan-json'] }}
           PARENT_BASE_JSON: ${{ inputs['parent-base-json'] }}
           IMAGE_REPOSITORY: ${{ inputs['image-repository'] }}
           RELEASE_SHA: ${{ inputs['release-sha'] }}
-          IMAGE_ARCH: ${{ matrix.build.arch }}
+          IMAGE_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           # shellcheck source=.engine/bin/lib-forge-ci.sh
@@ -527,11 +530,11 @@ jobs:
               --parent-base-json "${PARENT_BASE_JSON}" --inputs-dir registry-inputs
           fi
 
-      - name: Upload ${{ matrix.build.arch }} layout
+      - name: Upload ${{ matrix.arch }} layout
         env:
           BASE_ARTIFACT_NAMESPACE: ${{ inputs['artifact-name'] }}
-          IMAGE_NAME: ${{ matrix.build.name }}
-          IMAGE_ARCH: ${{ matrix.build.arch }}
+          IMAGE_NAME: ${{ matrix.name }}
+          IMAGE_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           # shellcheck source=.engine/bin/lib-forge-ci.sh

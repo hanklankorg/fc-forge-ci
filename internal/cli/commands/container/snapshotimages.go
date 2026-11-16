@@ -42,6 +42,9 @@ const (
 	// snapshotFieldBuildSBOM: whether the build of the producer or file
 	// output called name writes its Build SBOM.
 	snapshotFieldBuildSBOM = "build-sbom"
+	// snapshotFieldFilesArtifactName: the run artifact the file output
+	// called name is kept as.
+	snapshotFieldFilesArtifactName = "files-artifact-name"
 )
 
 var (
@@ -79,7 +82,7 @@ func snapshotImagesReadPlanCmd() *cli.Command {
 
 // snapshotPlanFieldValues returns the values of one transport field of plan;
 // per-image fields resolve the image called name, build-sbom the producer or
-// file output of that name.
+// file output of that name, files-artifact-name the file output of that name.
 func snapshotPlanFieldValues(plan snapshotimage.Plan, field, name string) ([]string, error) {
 	values := []string{}
 
@@ -110,6 +113,12 @@ func snapshotPlanFieldValues(plan snapshotimage.Plan, field, name string) ([]str
 		}
 
 		values = append(values, strconv.FormatBool(enabled))
+	case snapshotFieldFilesArtifactName:
+		if _, err := plan.File(name); err != nil {
+			return nil, err
+		}
+
+		values = append(values, plan.FilesArtifactName(name))
 	default:
 		return nil, fmt.Errorf("%w %q", errUnknownSnapshotField, field)
 	}

@@ -202,6 +202,18 @@ func TestEmitReleaseImagesPlan_ResolvedPolicyUsesTheSameOutputContract(t *testin
 	require.NotEmpty(t, sink.Single("builds"))
 	require.NotEmpty(t, sink.Single("images"))
 
+	// The matrix rows hold the keys alone, and the keyed outputs the rest.
+	require.JSONEq(t, `{"include":[{"name":"app","arch":"amd64"}]}`, sink.Single("build-matrix"))
+	require.JSONEq(t, `{"include":[{"name":"app"}]}`, sink.Single("image-matrix"))
+
+	build, err := json.Marshal(map[string]map[string]pipeline.ReleaseImageBuild{"app": {"amd64": want.Builds[0]}})
+	require.NoError(t, err)
+	require.JSONEq(t, string(build), sink.Single("builds-by-name"))
+
+	image, err := json.Marshal(map[string]pipeline.ReleaseImage{"app": want.Images[0]})
+	require.NoError(t, err)
+	require.JSONEq(t, string(image), sink.Single("images-by-name"))
+
 	invalid := fakeoutputsink.New(t)
 	_, err = appconfig.EmitReleaseImagesPlan(t.Context(), invalid, output.Annotator{}, appconfig.EmitReleaseImagesPlanInput{
 		Images: in, ResolvedPlan: strings.Replace(string(body), "ghcr.io/acme/app", "ghcr.io/other/app", 1),

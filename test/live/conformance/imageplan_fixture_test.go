@@ -43,13 +43,11 @@ func imagePlanSHA256(body []byte) string {
 }
 
 // imagePlanStageJob reports whether job is the stage's job for the image on
-// the lab's amd64 runners. release-images.yml names a matrix job
-// "<stage>: <name> (<arch>)"; Forgejo may append the matrix values in
-// parentheses.
+// the lab's amd64 runners. release-images.yml names a stage's matrix job, such
+// as "Build: image", and Forgejo appends the row's values, its architecture
+// and image name: "Build: image (amd64, <name>)".
 func imagePlanStageJob(job, stage, name string) bool {
-	suffix, found := strings.CutPrefix(job, stage+": "+name+" (amd64)")
-
-	return found && (suffix == "" || strings.HasPrefix(suffix, " ("))
+	return job == stage+" (amd64, "+name+")"
 }
 
 // imagePlanJobPair is the two jobs that carry an image's cache evidence since
@@ -67,7 +65,7 @@ func imagePlanJobs(jobs []livetest.RunJob, name string) (imagePlanJobPair, error
 	for _, stage := range []struct {
 		prefix string
 		job    *livetest.RunJob
-	}{{"Fetch registry inputs", &pair.fetch}, {"Build", &pair.build}} {
+	}{{"Fetch: registry inputs", &pair.fetch}, {"Build: image", &pair.build}} {
 		matches := 0
 
 		for _, job := range jobs {
@@ -112,11 +110,10 @@ func imagePlanCacheEvidence(fetchLog, buildLog, ref string, hit bool) (string, e
 	return "", fmt.Errorf("cache execution evidence disagrees: want hit=%t, fetch reuse markers=%d, build executor markers=%d, misplaced markers=%d: %w", hit, reused, built, misplaced, errs.ErrValidation)
 }
 
-// Job names as Forgejo 16 served them for runs 524 and 525 of the
-// 2026-11-08 R witness, matrix values appended.
+// Job names as the runner v13.2.0 job parser gives them.
 const (
-	imagePlanFetchSteadyJob = "Fetch registry inputs: steady (amd64) (map[arch:amd64 build-args: builder-material-id:6b7db0658136388289cfe8af4117b53cfe24fa14f21ba028239612e9d22b1c9a cache-tag:cache-arch-steady-amd64 candidate-tag:staging-ecffb014b163e1427ee4d41af2e714f65db78c067ee33f1713534c227e03bfdd-steady])"
-	imagePlanBuildSteadyJob = "Build: steady (amd64) (map[arch:amd64 build-args: builder-material-id:6b7db0658136388289cfe8af4117b53cfe24fa14f21ba028239612e9d22b1c9a cache-tag:cache-arch-steady-amd64 candidate-tag:staging-ecffb014b163e1427ee4d41af2e714f65db78c067ee33f1713534c227e03bfdd-steady])"
+	imagePlanFetchSteadyJob = "Fetch: registry inputs (amd64, steady)"
+	imagePlanBuildSteadyJob = "Build: image (amd64, steady)"
 )
 
 func TestResolvedImagePlanStageJobNames(t *testing.T) {
@@ -124,16 +121,15 @@ func TestResolvedImagePlanStageJobNames(t *testing.T) {
 		job, stage string
 		want       bool
 	}{
-		{"Build: steady (amd64)", "Build", true},
-		{imagePlanBuildSteadyJob, "Build", true},
-		{imagePlanFetchSteadyJob, "Fetch registry inputs", true},
-		{imagePlanFetchSteadyJob, "Build", false},
-		{imagePlanBuildSteadyJob, "Fetch registry inputs", false},
-		{"Build: changing (amd64) (map[arch:amd64])", "Build", false},
-		{"Build: steady (arm64)", "Build", false},
-		{"Build steady (amd64)", "Build", false},
-		{"Publish: steady (map[archs:amd64])", "Publish", false},
-		{"Build: steady (amd64)-other", "Build", false},
+		{imagePlanBuildSteadyJob, "Build: image", true},
+		{imagePlanFetchSteadyJob, "Fetch: registry inputs", true},
+		{imagePlanFetchSteadyJob, "Build: image", false},
+		{imagePlanBuildSteadyJob, "Fetch: registry inputs", false},
+		{"Build: image (amd64, changing)", "Build: image", false},
+		{"Build: image (arm64, steady)", "Build: image", false},
+		{"Build: steady (amd64)", "Build: image", false},
+		{"Build: image (amd64, steady) (map[arch:amd64])", "Build: image", false},
+		{"Publish: image (steady)", "Publish: image", false},
 	} {
 		if imagePlanStageJob(tc.job, tc.stage, "steady") != tc.want {
 			t.Errorf("job %q stage %q: want match=%t", tc.job, tc.stage, tc.want)
@@ -146,8 +142,8 @@ func TestResolvedImagePlanJobsRefuseAmbiguity(t *testing.T) {
 	build := livetest.RunJob{ID: 7220, Name: imagePlanBuildSteadyJob}
 	others := []livetest.RunJob{
 		{ID: 7197, Name: "Check: plan"},
-		{ID: 7217, Name: "Fetch registry inputs: changing (amd64) (map[arch:amd64])"},
-		{ID: 7222, Name: "Publish: steady (map[archs:amd64 cache-tag-prefix:cache-arch-steady])"},
+		{ID: 7217, Name: "Fetch: registry inputs (amd64, changing)"},
+		{ID: 7222, Name: "Publish: image (steady)"},
 	}
 
 	for _, tc := range []struct {
@@ -155,11 +151,11 @@ func TestResolvedImagePlanJobsRefuseAmbiguity(t *testing.T) {
 		jobs  []livetest.RunJob
 		valid bool
 	}{
-		{"run 525 pair", append([]livetest.RunJob{fetch, build}, others...), true},
+		{"the pair", append([]livetest.RunJob{fetch, build}, others...), true},
 		{"missing fetch job", append([]livetest.RunJob{build}, others...), false},
 		{"missing build job", append([]livetest.RunJob{fetch}, others...), false},
-		{"duplicate build job", []livetest.RunJob{fetch, build, {ID: 7221, Name: "Build: steady (amd64)"}}, false},
-		{"pre-stage spelling", []livetest.RunJob{{ID: 1, Name: "Fetch steady (amd64)"}, {ID: 2, Name: "Build steady (amd64)"}}, false},
+		{"duplicate build job", []livetest.RunJob{fetch, build, {ID: 7221, Name: imagePlanBuildSteadyJob}}, false},
+		{"spelling before the matrix rows", []livetest.RunJob{{ID: 1, Name: "Fetch registry inputs: steady (amd64)"}, {ID: 2, Name: "Build: steady (amd64)"}}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pair, err := imagePlanJobs(tc.jobs, "steady")
