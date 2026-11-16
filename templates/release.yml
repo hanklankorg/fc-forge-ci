@@ -327,7 +327,7 @@ spec:
           echo 'ERROR: base-stages needs base-plan, the command that prints the plan of one stage, and builder-job-image, the image its builds run in.' >&2
           exit 1
         fi
-        plan+=(--base-stages '$[[ inputs.base-stages ]]' --image-builder '$[[ inputs.image-builder ]]')
+        plan+=(--base-stages '$[[ inputs.base-stages ]]')
       fi
       mkdir -- "${CI_PROJECT_DIR}/_release-plan"
       (cd -- "${work}/consumer" && "${engine}" "${plan[@]}")

@@ -4,13 +4,16 @@
 package gitlabbehavior
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
+	enginecli "github.com/diggsweden/forge-ci/internal/cli"
 	"github.com/diggsweden/forge-ci/internal/testutil/gitlabrender"
 	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
 )
@@ -385,5 +388,46 @@ func TestBasePromotionSignsOnlyAStageNotYetPromoted(t *testing.T) {
 				t.Errorf("verified under the final tags %d times, want %d\n%s", verified, tc.validated, calls)
 			}
 		})
+	}
+}
+
+// "Check: release plan" calls plan gitlab-release-pipeline with flags that
+// command defines and no other: a flag the engine dropped would fail every
+// release at its first job, whatever the builder.
+func TestReleasePlanPassesOnlyTheFlagsOfItsCommand(t *testing.T) {
+	t.Parallel()
+
+	given := map[string]any{
+		"build-runner-tags-linux-amd64": []any{"build-amd64"},
+		"build-runner-tags-linux-arm64": []any{"build-arm64"},
+		"artifacts-config":              ".forge-ci/artifacts.yml",
+		"base-stages":                   "base tools:base",
+		"base-plan":                     "bash base-plan.sh",
+		"builder-job-image":             "registry.invalid/job@sha256:" + strings.Repeat("e", 64),
+		"image-builder":                 "kaniko",
+	}
+	script := fmt.Sprint(gitlabrender.Jobs(t, "templates/release.yml", given)["Check: release plan"]["script"])
+
+	defined := map[string]bool{}
+
+	command := enginecli.New(enginecli.BuildInfo{}).Command("plan").Command("gitlab-release-pipeline")
+	for _, flag := range command.Flags {
+		for _, name := range flag.Names() {
+			defined["--"+name] = true
+		}
+	}
+
+	arrays := regexp.MustCompile(`plan\+?=\(([^)]*)\)`).FindAllStringSubmatch(script, -1)
+	if len(arrays) < 3 || !strings.Contains(script, "plan+=(--base-stages") {
+		t.Fatalf("found %d plan arguments, want the call, its file and its base stages:\n%s", len(arrays), script)
+	}
+
+	for _, array := range arrays {
+		for field := range strings.FieldsSeq(array[1]) {
+			name, _, _ := strings.Cut(field, "=")
+			if strings.HasPrefix(name, "--") && !defined[name] {
+				t.Errorf("the release plan passes %s, which plan gitlab-release-pipeline does not define", name)
+			}
+		}
 	}
 }
