@@ -419,7 +419,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Forgejo action `render-changelog` is `generate-changelog`, the name of
   GitHub's workflow for the same step. `prepare-release.yml` calls it; a
   consumer that called the action directly renames the `uses:` path.
-
 - The three main workflows have one file name on every forge:
   `pullrequest-workflow.yml`, `release-snapshot-workflow.yml` and
   `release-workflow.yml`. The Forgejo examples were `pullrequest.yml`,
@@ -484,13 +483,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sbom-<id>-<arch>.json`, and the ledger pins the index SBOM under its new
   name. `release files manifest --image-sbom` takes the release from
   `--version` and admits only these names, all with one commit.
-
 - A lint-runner check that could not complete now follows the enforcement of
   the gate it belongs to. With `enforce-lint` or `enforce-vulnerabilities` on,
   the gate still fails. With the gate report-only, the command prints a
   warning naming the checks and no longer fails; the gate still prints
   `result=incomplete` and is never called clean.
-
 - The signed Xcode build of the GitHub layer runs on the caller's
   `runs-on-darwin-arm64`, as the unsigned one does, where it was fixed to
   `macos-26`. The Xcode version a project builds with decides the macOS
@@ -849,7 +846,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `forge-ci container multiarch-image assemble` and
   `forge-ci container release-images publish` is removed. The index SBOM
   holds no download address.
-
 - **BREAKING**: The `install-forge-ci` composite action and
   `scripts/bootstrap/install-forge-ci.sh` are removed. The macOS jobs
   (`lint-swift`, `build-xcode-ios` and `publish-apple-appstore`) build the
@@ -882,7 +878,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   version with 409 Conflict. A refused link stays a warning. GitHub and
   GitLab are unchanged. See
   `docs/forgejo.md#maven-npm-and-gradle-packages-in-the-owners-registry`.
-
 - Every SBOM name carries the first seven characters of the commit.
   `forge-ci sbom assemble` took git's own abbreviation, which is longer in
   a large repository, so its names did not match the seven characters the
@@ -908,7 +903,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A Forgejo release's index SBOM no longer points at release files that
   were never published. It named each platform inventory by a release
   download address, and the Forgejo release offered no such file.
-
 - A GitHub draft release without release files is read back. GitHub lists
   a new draft about a second after it created it, and the list is the only
   way to find a draft by its tag, so the readback ran first and reported
@@ -994,7 +988,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RELEASE_PLATFORMS` narrowing split on commas alone, so
   `linux/amd64 linux/arm64` was refused there as one unknown platform,
   where the image build and the transfer names took two.
-
 - A Gradle release no longer ships the jar of `buildSrc`. The upload of
   `build-gradle-app.yml` (`**/build/libs/*.jar`) and of the GitLab
   `build-gradle` job (`**/build/libs/`) matched `buildSrc/build/libs/`,

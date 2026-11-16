@@ -2074,7 +2074,6 @@ report on this one.
   variable only for scenarios intentionally using fresh ephemeral authority,
   not for a trial claiming reuse of already-signed bases.
 
-
 **Release-file retention** has a separate, short live scenario that needs no
 container-building workflow:
 
@@ -3283,4 +3282,3 @@ regression test.
   accepted as an artifact.
 - Strip ANSI sequences before redacting credentials, under a fixed byte
   locale (`scripts/ci/livescript_test.go`).
-

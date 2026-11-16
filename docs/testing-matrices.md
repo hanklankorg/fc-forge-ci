@@ -141,4 +141,3 @@ Kept scenario lines, by lane:
 | forgejo17-forgejo | `TestForgejoRelease_RerunAfterInterruption` | ✅ (2026-11-14, V 20261114T014333Z-1342205) |
 
 <!-- /generated:e2e-variants -->
-
