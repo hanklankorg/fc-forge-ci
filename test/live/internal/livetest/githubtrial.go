@@ -1380,7 +1380,7 @@ func (trial *GitHubTrial) restoreVariableAfter(repo, name, value string) {
 func (trial *GitHubTrial) engineRun(repo, commit string, rerunFailed bool) *github.WorkflowRun {
 	trial.tb.Helper()
 
-	run := trial.WaitRun(repo, githubEngineWorkflow, "push", commit, githubEngineTimeout)
+	run := trial.WaitRun(repo, githubEngineWorkflow, eventPush, commit, githubEngineTimeout)
 	if !rerunFailed || (run.GetConclusion() != runFailure && run.GetConclusion() != runCancelled) {
 		return run
 	}
