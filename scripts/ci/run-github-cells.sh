@@ -168,7 +168,10 @@ while :; do
   if [[ -z "${ended:-}" ]]; then
     # Only a signal ends the wait without naming a job; anything else would
     # wait on nothing again and again.
-    [[ "$exit_status" -gt 128 ]] || { printf 'live: wait ended with status %d and no cell\n' "$exit_status" >&2; exit 1; }
+    [[ "$exit_status" -gt 128 ]] || {
+      printf 'live: wait ended with status %d and no cell\n' "$exit_status" >&2
+      exit 1
+    }
     continue
   fi
   cell=${running[$ended]}

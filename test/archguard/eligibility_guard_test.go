@@ -124,7 +124,7 @@ func TestBuiltByARelease(t *testing.T) {
 	}
 
 	file, err := parser.ParseFile(token.NewFileSet(), "fixture.go",
-		"// SPDX-License-Identifier: CC0-1.0\n\n//go:build !unix\n\npackage p\n\nvar s = `//go:build linux`\n", parser.ParseComments)
+		"// Package p is a fixture.\n\n//go:build !unix\n\npackage p\n\nvar s = `//go:build linux`\n", parser.ParseComments)
 	if err != nil {
 		t.Fatal(err)
 	}

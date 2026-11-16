@@ -314,12 +314,12 @@ rc_family_handoff() {
 rc_container_first_sboms() {
   local family=$1 type handoff="${CI_PROJECT_DIR}/_release-sbom-$1"
   case "${family}" in
-    go) type=go ;;
-    rust) type=cargo ;;
-    *)
-      echo "ERROR: no container-first build SBOM is written for the ${family} family." >&2
-      return 1
-      ;;
+  go) type=go ;;
+  rust) type=cargo ;;
+  *)
+    echo "ERROR: no container-first build SBOM is written for the ${family} family." >&2
+    return 1
+    ;;
   esac
   rc_release_checkout || return
   rc_new_handoff "${handoff}" || return
