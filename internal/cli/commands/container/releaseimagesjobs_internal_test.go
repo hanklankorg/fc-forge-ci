@@ -274,10 +274,6 @@ func TestReleaseImageBuildsOf_IsTheArchitecturesShareOfThePlan(t *testing.T) {
 	require.Empty(t, releaseImageBuildsOf(plan, "arm64"))
 }
 
-// Kaniko keeps the parents it loads for its next build; the prepared build
-// discards them through this method.
-var _ interface{ DiscardRegistryInputs() } = (*kaniko.Adapter)(nil)
-
 // loadedBuilder holds parents loaded for a build and records their discard.
 type loadedBuilder struct {
 	imageBuilder

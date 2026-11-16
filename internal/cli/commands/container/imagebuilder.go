@@ -40,7 +40,8 @@ const (
 
 // imageBuilder is the build surface both adapters share: the single-image
 // build of `container build`, the two-phase build of `multiarch-image
-// build-arch`, and the verified parent a prepared build starts from.
+// build-arch`, and the verified parent a prepared build starts from, which
+// DiscardRegistryInputs drops once that build ends.
 type imageBuilder interface {
 	Identity() (domaincontainer.BuilderIdentity, error)
 	Build(ctx context.Context, req domaincontainer.BuildRequest, out io.Writer) error
@@ -48,6 +49,7 @@ type imageBuilder interface {
 	BuildSignerImage(ctx context.Context, req domaincontainer.SignerImageBuildToolRequest, out io.Writer) error
 	ExportLocalImageToLayout(ctx context.Context, imageRef, layoutDir string, out io.Writer) error
 	LoadRegistryInput(ctx context.Context, directory, digest string, out io.Writer) (string, error)
+	DiscardRegistryInputs()
 }
 
 func builderIdentityCmd() *cli.Command {

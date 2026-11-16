@@ -16,9 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cache off), where kaniko finds a `FROM` pinned to that digest before any
   registry, and the child keeps the parent's layers byte for byte. So a
   kaniko-only pool, such as Codefloe's, can build a base graph without a
-  borrowed runner;
-  `CI_IMAGE_BUILDER=kaniko` and `image-builder: kaniko` now admit a child
-  stage. The lineage is unchanged: the parent's digest and input ID. See
+  borrowed runner. `CI_IMAGE_BUILDER=kaniko` and `image-builder: kaniko`
+  now admit a child stage. The lineage is unchanged: the parent's digest and input ID. See
   `docs/runners.md#building-on-the-pool-with-kaniko`.
 - On Forgejo, `forge-ci publish forge-packages deploy` links the package it
   has published to the repository the job runs in: an npm package, a Maven

@@ -417,17 +417,44 @@ func TestReleasePlanPassesOnlyTheFlagsOfItsCommand(t *testing.T) {
 		}
 	}
 
-	arrays := regexp.MustCompile(`plan\+?=\(([^)]*)\)`).FindAllStringSubmatch(script, -1)
+	if got := planArrays(`plan=(--a "$(b c)" --d) x)`); !slices.Equal(got, []string{`--a "$(b c)" --d`}) {
+		t.Fatalf("plan arrays %q end at a parenthesis inside them", got)
+	}
+
+	arrays := planArrays(script)
 	if len(arrays) < 3 || !strings.Contains(script, "plan+=(--base-stages") {
 		t.Fatalf("found %d plan arguments, want the call, its file and its base stages:\n%s", len(arrays), script)
 	}
 
 	for _, array := range arrays {
-		for field := range strings.FieldsSeq(array[1]) {
+		for field := range strings.FieldsSeq(array) {
 			name, _, _ := strings.Cut(field, "=")
 			if strings.HasPrefix(name, "--") && !defined[name] {
 				t.Errorf("the release plan passes %s, which plan gitlab-release-pipeline does not define", name)
 			}
 		}
 	}
+}
+
+// planArrays are the words of each plan=( ) and plan+=( ) array in script,
+// up to the parenthesis that closes it, past any $( ) inside.
+func planArrays(script string) []string {
+	var arrays []string
+
+	for _, at := range regexp.MustCompile(`plan\+?=\(`).FindAllStringIndex(script, -1) {
+		depth := 1
+
+		for end := at[1]; end < len(script) && depth > 0; end++ {
+			switch script[end] {
+			case '(':
+				depth++
+			case ')':
+				if depth--; depth == 0 {
+					arrays = append(arrays, script[at[1]:end])
+				}
+			}
+		}
+	}
+
+	return arrays
 }

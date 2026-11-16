@@ -39,3 +39,7 @@ func (a *Adapter) LoadRegistryInput(ctx context.Context, directory, digest strin
 
 	return local, nil
 }
+
+// DiscardRegistryInputs keeps the loaded parents: they are images in the
+// store, tagged by digest, which a later build may start from again.
+func (a *Adapter) DiscardRegistryInputs() {}

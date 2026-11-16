@@ -235,7 +235,6 @@ func (a *Adapter) LoadRegistryInput(_ context.Context, directory, digest string,
 			return "", fmt.Errorf("create the kaniko base-image cache: %w", err)
 		}
 
-		a.baseCache = dir
 		if a.baseCache, err = filepath.Abs(dir); err != nil {
 			_ = os.RemoveAll(dir)
 
@@ -461,18 +460,23 @@ func (a *Adapter) arguments(spec build, layoutDir string) ([]string, func(), []s
 // looks a FROM up in its base-image cache only with --cache=true, which
 // without a cache repository needs --no-push-cache. Its layer cache stays
 // off: no RUN, WORKDIR, COPY or ADD layer is looked up or stored.
+// It is therefore never combined with a CacheRepo; no caller does.
 func baseCacheArguments(dir string) []string {
 	return []string{"--cache-dir", dir, flagIgnorePath, dir, "--cache=true", "--no-push-cache", "--cache-run-layers=false", "--cache-copy-layers=false"}
 }
 
-// asksForRegistryInput reports whether kaniko's report names the registry
-// of container.RegistryInputRepository, which serves nothing: kaniko asks it
-// for a loaded parent it did not find in its base-image cache, and reports
-// the address it could not reach, as "https://localhost/v2/".
+// asksForRegistryInput reports whether kaniko's report is a request to the
+// registry of container.RegistryInputRepository, which serves nothing:
+// kaniko asks it for a loaded parent it did not find in its base-image
+// cache. A manifest request names the repository, as
+// "https://localhost/v2/forge-ci-input/manifests/...". A failed ping names
+// the registry alone, "https://localhost/v2/", and cannot be told apart
+// from one for another image under that host, which a FROM of the
+// Containerfile's own would have to name.
 func asksForRegistryInput(report string) bool {
-	host, _, _ := strings.Cut(container.RegistryInputRepository, "/")
+	host, repository, _ := strings.Cut(container.RegistryInputRepository, "/")
 
-	return strings.Contains(report, "//"+host+"/")
+	return strings.Contains(report, "//"+host+"/v2/"+repository+"/") || strings.Contains(report, `//`+host+`/v2/"`)
 }
 
 // copyLayout copies the directories and regular files of the layout in

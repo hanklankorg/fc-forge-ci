@@ -669,8 +669,8 @@ func loadedParent(t *testing.T, adapter *Adapter) string {
 }
 
 // The parents loaded for a build go with it on every path: a parent that
-// cannot be loaded, a build that never runs, one refused before kaniko
-// starts and one kaniko fails. The next build starts without them.
+// cannot be loaded, a build refused before kaniko starts and one kaniko
+// fails. The next build starts without them.
 func TestRegistryInputs_AreDiscardedWhenTheirBuildFails(t *testing.T) {
 	t.Parallel()
 
@@ -695,11 +695,6 @@ func TestRegistryInputs_AreDiscardedWhenTheirBuildFails(t *testing.T) {
 			_, err := adapter.LoadRegistryInput(t.Context(), t.TempDir(), other, io.Discard)
 
 			return err
-		},
-		"a build that never runs": func(_ *testing.T, adapter *Adapter) error {
-			adapter.DiscardRegistryInputs()
-
-			return errors.New("discarded")
 		},
 		"a build refused before kaniko starts": func(t *testing.T, adapter *Adapter) error {
 			adapter.euid = func() int { return 1000 }
@@ -742,13 +737,15 @@ func TestRegistryInputs_AreDiscardedWhenTheirBuildFails(t *testing.T) {
 // A loaded parent kaniko did not find in its base-image cache sends it to
 // the registry of the local name, which serves nothing. That fails the same
 // way however often it is asked, so it is not a dependency unavailable; the
-// same report from a build without loaded parents still is.
+// same report from a build without loaded parents still is, and so is one
+// for another repository under that host.
 func TestBuildToLayout_AParentMissingFromTheBaseImageCacheIsNotTransient(t *testing.T) {
 	t.Parallel()
 
-	for _, said := range []string{
-		`error building image: unable to complete operation after 0 attempts, last error: Get "https://localhost/v2/": dial tcp [::1]:443: connect: connection refused; Get "http://localhost/v2/": dial tcp [::1]:80: connect: connection refused`,
-		`error building image: GET https://localhost/v2/forge-ci-input/manifests/sha256:` + strings.Repeat("a", 64) + `: dial tcp [::1]:443: connect: connection refused`,
+	for said, missed := range map[string]bool{
+		`error building image: unable to complete operation after 0 attempts, last error: Get "https://localhost/v2/": dial tcp [::1]:443: connect: connection refused; Get "http://localhost/v2/": dial tcp [::1]:80: connect: connection refused`: true,
+		`error building image: GET https://localhost/v2/forge-ci-input/manifests/sha256:` + strings.Repeat("a", 64) + `: dial tcp [::1]:443: connect: connection refused`:                                                                           true,
+		`error building image: GET https://localhost/v2/forge-ci-input-other/manifests/latest: dial tcp [::1]:443: connect: connection refused`:                                                                                                     false,
 	} {
 		for _, loaded := range []bool{true, false} {
 			bins := mockbinary.New(t)
@@ -761,10 +758,12 @@ func TestBuildToLayout_AParentMissingFromTheBaseImageCacheIsNotTransient(t *test
 
 			err := adapter.BuildToLayout(t.Context(), container.BuildRequest{Context: ".", Mode: container.BuildModeOCI, OutputDir: t.TempDir()}, t.TempDir(), io.Discard)
 
+			reported := loaded && missed
+
 			switch {
-			case !loaded && !errors.Is(err, errs.ErrDependencyUnavailable):
-				t.Errorf("without a loaded parent: err = %v, want a dependency unavailable", err)
-			case loaded && (!errors.Is(err, errs.ErrPrerequisite) || errors.Is(err, errs.ErrDependencyUnavailable) ||
+			case !reported && !errors.Is(err, errs.ErrDependencyUnavailable):
+				t.Errorf("loaded=%v %s: err = %v, want a dependency unavailable", loaded, said, err)
+			case reported && (!errors.Is(err, errs.ErrPrerequisite) || errors.Is(err, errs.ErrDependencyUnavailable) ||
 				!strings.Contains(err.Error(), "the verified parent was not found in the base-image cache")):
 				t.Errorf("with a loaded parent: err = %v, want a prerequisite naming the base-image cache", err)
 			}

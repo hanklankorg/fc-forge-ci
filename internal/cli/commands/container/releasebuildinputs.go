@@ -128,10 +128,8 @@ func validateReleaseImageBuilder(builder imageBuilder, build pipeline.ReleaseIma
 
 func stagePreparedReleaseImageBuild(ctx context.Context, cmd *cli.Command, builder imageBuilder, build pipeline.ReleaseImageBuild, directory string) error {
 	// The parents loaded for this build are its own, also when it fails
-	// before it runs. Buildah's are images in its store and stay.
-	if loaded, ok := builder.(interface{ DiscardRegistryInputs() }); ok {
-		defer loaded.DiscardRegistryInputs()
-	}
+	// before it runs.
+	defer builder.DiscardRegistryInputs()
 
 	_, err := appcontainer.StageReleaseBuildWithInputs(ctx, signerImageTool{builder}, builder, ociregistry.NewAnonymous(), os.Stderr, releaseImageBuildInput(cmd, build), build.RegistryInputs, directory)
 

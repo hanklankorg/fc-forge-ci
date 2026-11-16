@@ -393,8 +393,8 @@ child keeps the parent's layers byte for byte
 (`FF_KANIKO_REPRODUCIBLE_PRESERVE_BASE_LAYERS`). Its layer cache stays off
 (`--cache-run-layers=false --cache-copy-layers=false`), so the parent is the
 one thing it looks up there. A parent it does not find fails the build as a
-missing prerequisite, not as a registry that may answer next time. A
-kaniko-only pool can so build a base graph without a borrowed runner.
+missing prerequisite, not as a registry that may answer next time. So a
+kaniko-only pool can build a base graph without a borrowed runner.
 
 Kaniko itself reads only `.dockerignore` names. The engine gives it the same
 ignore file Buildah builds with: the Containerfile's own
