@@ -35,7 +35,7 @@
 # tools of that image: never pass secrets or rate-limit tokens, or execute a
 # shipped-product black-box test here. Add your own static, unit or
 # component-test jobs alongside these.
-name: Pull Request
+name: Pull Request Workflow
 
 on:
   pull_request:

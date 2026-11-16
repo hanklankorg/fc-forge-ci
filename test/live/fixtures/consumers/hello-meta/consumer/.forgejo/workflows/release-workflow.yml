@@ -54,7 +54,7 @@
 # signer signs files, so a release offers at least one. Here that is the
 # source archive of the release commit; any file of yours serves as long as
 # the job ends with the same hand-off.
-name: Release
+name: Release Workflow
 
 on:
   push:

@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
 # SPDX-License-Identifier: CC0-1.0
-# Alternative to release-snapshot-workflow.yml, beside release-goreleaser.yml:
-# copy this file AS .forgejo/workflows/release-snapshot-workflow.yml. It is a
+# Alternative to ../release-snapshot-workflow.yml, beside release-workflow.yml
+# here: copy this file to .forgejo/workflows/release-snapshot-workflow.yml. It is a
 # dry run of that release: the same .goreleaser.yml, tools and import, on the
 # pushed commit under forge-ci's snapshot version, and it signs and publishes
 # nothing. The unsigned files stay a run artifact for 7 days. Replace the same
 # reviewed pin as the release, after publication.
-name: Release Snapshot
+name: Release Snapshot Workflow
 on:
   workflow_dispatch:
   push:

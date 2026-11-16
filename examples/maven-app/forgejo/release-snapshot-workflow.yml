@@ -6,7 +6,7 @@
 # snapshot builds first in the digest-pinned Java toolchain image, then the
 # image from it. Without the input the layer reads the repository variable
 # SNAPSHOT_ARTIFACT_JOB_IMAGE_JAVA instead.
-name: Snapshot
+name: Release Snapshot Workflow
 on:
   push:
     branches: [main]

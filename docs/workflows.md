@@ -369,7 +369,7 @@ repository's Actions; a public repository on an instance that serves its API
 to anonymous readers needs none, so leave the header out there.
 
 ```bash
-FORGE=https://forgejo.example.com REPO=owner/project WORKFLOW=snapshot-files.yml
+FORGE=https://forgejo.example.com REPO=owner/project WORKFLOW=test-snapshot-files.yml
 SHA=$(git rev-parse origin/feat/login) # the commit the caller ran on
 auth="Authorization: token $FORGEJO_TOKEN"
 # The newest run of the caller's workflow file on that commit. A caller that

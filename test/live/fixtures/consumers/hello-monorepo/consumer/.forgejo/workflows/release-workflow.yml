@@ -81,7 +81,7 @@
 # persistent runner pool the image jobs move to; without it they run on the
 # normal pool. A pool without user namespaces can select kaniko. See
 # https://codefloe.com/itiquette/forge-ci/src/commit/2f4e845cee96973d1082bf00a5a18689c1482148/docs/runners.md.
-name: Release
+name: Release Workflow
 on:
   push:
     tags:

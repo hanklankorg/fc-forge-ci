@@ -126,7 +126,7 @@ func exampleDemoFiles(example string) map[string]string {
 	// The Go CLI shows the snapshot of files: the Forgejo caller, and the
 	// include a GitLab policy project holds, kept beside the gate.
 	if example == "go-cli" {
-		files[".forgejo/workflows/snapshot-files.yml"] = path.Join(dir, "forgejo/snapshot-files.yml")
+		files[".forgejo/workflows/test-snapshot-files.yml"] = path.Join(dir, "forgejo/test-snapshot-files.yml")
 		files[".gitlab/snapshot-files-policy.yml"] = path.Join(dir, "gitlab/snapshot-files-policy.yml")
 
 		// And the release of distro packages, the example's GoReleaser
@@ -134,7 +134,7 @@ func exampleDemoFiles(example string) map[string]string {
 		// to, because a second release workflow would run on the same tag.
 		// The trial stages them over the root (WithForgejoFixtures). The
 		// locked mise tools beside them are the demo's own.
-		files[ForgejoPackagesFixtures+"/.forgejo/workflows/release-workflow.yml"] = path.Join(dir, "forgejo/release-goreleaser.yml")
+		files[ForgejoPackagesFixtures+"/.forgejo/workflows/release-workflow.yml"] = path.Join(dir, "forgejo/goreleaser/release-workflow.yml")
 		files[ForgejoPackagesFixtures+"/.forge-ci/artifacts.yml"] = path.Join(dir, "artifacts-forgejo-packages.yml")
 		files[ForgejoPackagesFixtures+"/.goreleaser.yml"] = path.Join(dir, ".goreleaser.yml")
 	}

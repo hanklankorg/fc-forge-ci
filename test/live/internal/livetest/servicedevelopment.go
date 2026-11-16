@@ -259,7 +259,7 @@ const (
 	// ForgejoSnapshotFilesWorkflow is the Forgejo caller a demo ships for a
 	// snapshot of its files: it snapshots the branch it is dispatched on,
 	// from the default declaration.
-	ForgejoSnapshotFilesWorkflow = "snapshot-files.yml"
+	ForgejoSnapshotFilesWorkflow = "test-snapshot-files.yml"
 )
 
 // ForgejoSnapshotRoute names the workflow a Forgejo snapshot dispatches, the

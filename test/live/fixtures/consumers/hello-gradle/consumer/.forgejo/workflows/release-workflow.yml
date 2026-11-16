@@ -73,7 +73,7 @@
 # examples/go-service/forgejo/ and
 # https://codefloe.com/itiquette/forge-ci/src/commit/2f4e845cee96973d1082bf00a5a18689c1482148/docs/forgejo.md
 # show the hand-off.
-name: Release
+name: Release Workflow
 
 on:
   push:

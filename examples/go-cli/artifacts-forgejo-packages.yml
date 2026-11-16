@@ -5,7 +5,7 @@
 # Example: a Go CLI whose Forgejo release also publishes its .deb, .rpm and
 # .apk packages to the owner's Debian, RPM and Alpine registries.
 #
-# Copy to .forge-ci/artifacts.yml beside forgejo/release-goreleaser.yml and
+# Copy to .forge-ci/artifacts.yml beside forgejo/goreleaser/release-workflow.yml and
 # .goreleaser.yml, whose `nfpms:` builds the packages. That workflow sets
 # sign-distro-packages: "true" in both calls, so each package also gets the
 # release's OpenPGP `.sig` file.

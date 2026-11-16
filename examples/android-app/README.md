@@ -6,7 +6,7 @@ AAB builds, release signing and optional Google Play upload.
 ## Per forge
 
 - **GitHub**: three workflows, with `artifacts.yml`:
-  - [`github/build-workflow.yml`](github/build-workflow.yml): a development
+  - [`github/test-build.yml`](github/test-build.yml): a development
     build on push to `main`, or when run by hand.
   - [`github/release-workflow.yml`](github/release-workflow.yml): the release,
     started by a signed `release-request/vX.Y.Z` tag. After validation and

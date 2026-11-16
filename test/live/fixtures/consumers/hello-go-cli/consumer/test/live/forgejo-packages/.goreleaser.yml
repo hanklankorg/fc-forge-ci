@@ -5,7 +5,7 @@
 # Example: the GoReleaser configuration of a Go CLI whose Forgejo release
 # ships archives and .deb, .rpm and .apk packages.
 #
-# Copy to .goreleaser.yml beside forgejo/release-goreleaser.yml and
+# Copy to .goreleaser.yml beside forgejo/goreleaser/release-workflow.yml and
 # artifacts-forgejo-packages.yml. The build job runs
 #   goreleaser release --clean --skip=publish,sign,announce
 # so this file has no `signs:`, no `release:` and no publisher: the layer's

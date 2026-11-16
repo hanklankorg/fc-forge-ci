@@ -3,7 +3,7 @@
 # Ephemeral CLI snapshot: builds/tests only, without signing or publication.
 # Copy beside the PR/release callers and use the same authenticated layer pin.
 # Product-specific generation and extra static gates remain product-owned.
-name: Snapshot
+name: Release Snapshot Workflow
 on:
   workflow_dispatch:
   push:

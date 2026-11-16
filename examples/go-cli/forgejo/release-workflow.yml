@@ -58,7 +58,7 @@
 # before signing, as examples/go-service/forgejo/ does. Set
 # publish-container-images and provide native runner capacity
 # (https://FORGE_HOST/OWNER/forge-ci/src/commit/PIN_FORGE_CI_SHA/docs/runners.md).
-name: Release
+name: Release Workflow
 
 on:
   push:

@@ -3,7 +3,7 @@
 # Copy beside pullrequest-workflow.yml and release-workflow.yml. Replace placeholders with the
 # same authenticated, published layer pin used by those callers. Requires the
 # product's .forge-ci/artifacts.yml; this is container-only, not a CLI release.
-name: Snapshot
+name: Release Snapshot Workflow
 on:
   push:
     branches: [main]

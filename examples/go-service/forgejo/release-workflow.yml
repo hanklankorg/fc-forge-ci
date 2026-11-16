@@ -70,7 +70,7 @@
 # normal pool. A one-job ephemeral runner cannot serve this multi-job workflow.
 # A pool without user namespaces can select kaniko. See
 # https://FORGE_HOST/OWNER/forge-ci/src/commit/PIN_FORGE_CI_SHA/docs/runners.md.
-name: Release
+name: Release Workflow
 on:
   push:
     tags:

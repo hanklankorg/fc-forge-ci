@@ -30,7 +30,7 @@
 # no toolchain. PR jobs use the runner selected by CI_RUNNER_LABEL and the
 # tools of that image: never pass secrets or rate-limit tokens or install
 # packages here.
-name: Pull Request
+name: Pull Request Workflow
 
 on:
   pull_request:

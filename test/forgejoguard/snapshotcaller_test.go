@@ -81,7 +81,7 @@ func TestSnapshotCallerDelegatesWithoutReleaseAuthority(t *testing.T) {
 func TestSnapshotFilesCallerHoldsNoCredential(t *testing.T) {
 	t.Parallel()
 
-	workflow := loadWorkflow(t, "examples/go-cli/forgejo/snapshot-files.yml")
+	workflow := loadWorkflow(t, "examples/go-cli/forgejo/test-snapshot-files.yml")
 	require.Len(t, workflow.jobs, 1)
 
 	caller := workflow.jobs["snapshot"]

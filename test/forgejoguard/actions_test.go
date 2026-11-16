@@ -287,7 +287,7 @@ func TestConsumerReleaseTemplateBuildsWithTheBuildAction(t *testing.T) {
 func TestGoReleaserCallerDelegatesPackagingAndUnsignedHandoff(t *testing.T) {
 	t.Parallel()
 
-	workflow := loadWorkflow(t, "examples/go-cli/forgejo/release-goreleaser.yml")
+	workflow := loadWorkflow(t, "examples/go-cli/forgejo/goreleaser/release-workflow.yml")
 	if len(workflow.jobs) != 3 {
 		t.Fatalf("GoReleaser starter has %d jobs, want prepare, build and sign/publish", len(workflow.jobs))
 	}
@@ -340,7 +340,7 @@ func TestGoReleaserCallerDelegatesPackagingAndUnsignedHandoff(t *testing.T) {
 func TestGoReleaserExampleBuildsSignsAndDeclaresDistroPackages(t *testing.T) {
 	t.Parallel()
 
-	workflow := loadWorkflow(t, "examples/go-cli/forgejo/release-goreleaser.yml")
+	workflow := loadWorkflow(t, "examples/go-cli/forgejo/goreleaser/release-workflow.yml")
 
 	for _, name := range []string{"prepare", "sign-and-publish"} {
 		if got := scalarString(mappingValue(mappingValue(workflow.jobs[name].node, "with"), "sign-distro-packages")); got != "true" {

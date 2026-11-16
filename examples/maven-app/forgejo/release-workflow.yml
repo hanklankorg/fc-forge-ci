@@ -74,7 +74,7 @@
 # examples/go-service/forgejo/ and
 # https://FORGE_HOST/OWNER/forge-ci/src/commit/PIN_FORGE_CI_SHA/docs/forgejo.md
 # show the hand-off.
-name: Release
+name: Release Workflow
 
 on:
   push:

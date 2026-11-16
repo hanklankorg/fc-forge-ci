@@ -33,7 +33,7 @@
 # or rate-limit tokens, install packages, or execute a shipped-product
 # black-box test here. Add your own static, unit or component-test jobs
 # alongside these.
-name: Pull Request
+name: Pull Request Workflow
 
 on:
   pull_request:
