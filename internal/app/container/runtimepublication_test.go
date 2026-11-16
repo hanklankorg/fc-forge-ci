@@ -133,7 +133,7 @@ func TestRuntimePublicationPlanPublishesOnlyAfterCompleteAdmission(t *testing.T)
 			}
 
 			require.NoError(t, err)
-			require.JSONEq(t, `{"include":[{"target":"go","name":"runtime-go","arch":"arm64"}]}`, sink.Single("build-matrix"))
+			require.JSONEq(t, `{"include":[{"target":"go","arch":"arm64"}]}`, sink.Single("build-matrix"))
 			require.JSONEq(t, `{"include":[{"target":"go","name":"runtime-go"}]}`, sink.Single("image-matrix"))
 			require.JSONEq(t, `{"go":{"target":"go","name":"runtime-go","archs":["arm64"]}}`, sink.Single("images-by-target"))
 		})

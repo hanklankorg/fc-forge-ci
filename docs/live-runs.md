@@ -3157,7 +3157,7 @@ just test-live '^TestForgejoLayer_GoModuleReleaseReachesAFreshConsumer$'
 
 `TestForgejoLayer_CargoBinaryRelease` runs the same release with a
 dependency-free Cargo crate built artifact-first with `build-cargo`, and
-requires the `Prepare: version rust` job, a release commit that changes exactly
+requires the `Prepare: version (rust, cargo)` job, a release commit that changes exactly
 `CHANGELOG.md`, `Cargo.toml` and `Cargo.lock`, and the version in the published
 binary. It needs the signer image and `FORGE_CI_LIVE_CARGO_RELEASE_IMAGE`, a
 digest-pinned Rust job image, and skips without it.

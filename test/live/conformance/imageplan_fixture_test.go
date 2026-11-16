@@ -129,7 +129,7 @@ func TestResolvedImagePlanStageJobNames(t *testing.T) {
 		{"Build: image (arm64, steady)", "Build: image", false},
 		{"Build: steady (amd64)", "Build: image", false},
 		{"Build: image (amd64, steady) (map[arch:amd64])", "Build: image", false},
-		{"Publish: image (steady)", "Publish: image", false},
+		{"Publish: image candidate (steady)", "Publish: image candidate", false},
 	} {
 		if imagePlanStageJob(tc.job, tc.stage, "steady") != tc.want {
 			t.Errorf("job %q stage %q: want match=%t", tc.job, tc.stage, tc.want)
@@ -143,7 +143,7 @@ func TestResolvedImagePlanJobsRefuseAmbiguity(t *testing.T) {
 	others := []livetest.RunJob{
 		{ID: 7197, Name: "Check: plan"},
 		{ID: 7217, Name: "Fetch: registry inputs (amd64, changing)"},
-		{ID: 7222, Name: "Publish: image (steady)"},
+		{ID: 7222, Name: "Publish: image candidate (steady)"},
 	}
 
 	for _, tc := range []struct {

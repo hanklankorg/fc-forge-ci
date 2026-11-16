@@ -32,16 +32,26 @@ func PlanRuntimePublication(ctx context.Context, sink ci.OutputSink, in RuntimeP
 		return err
 	}
 
-	builds, err := json.Marshal(struct {
-		Include []domaincontainer.RuntimeBuildLeg `json:"include"`
-	}{Include: plan.Builds})
+	// A build's row holds its target and architecture alone, all its job
+	// reads: Forgejo appends a row's values to its job's name.
+	type buildRow struct {
+		Target string `json:"target"`
+		Arch   string `json:"arch"`
+	}
+
+	buildRows := make([]buildRow, 0, len(plan.Builds))
+	for _, build := range plan.Builds {
+		buildRows = append(buildRows, buildRow{Target: build.Target, Arch: build.Arch})
+	}
+
+	builds, err := json.Marshal(pipeline.Matrix[buildRow]{Include: buildRows})
 	if err != nil {
 		return err
 	}
 
-	// An image's row holds its target and name alone: Forgejo appends a
-	// row's values to its job's name, and the architectures, a list, would
-	// read as a Go slice there. The job reads them from images-by-target.
+	// An image's row holds its target and name alone: the architectures, a
+	// list, would read as a Go slice in the job's name. The job reads them
+	// from images-by-target.
 	type imageRow struct {
 		Target string `json:"target"`
 		Name   string `json:"name"`

@@ -276,7 +276,8 @@ jobs:
     runs-on: ${{ fromJSON(inputs['runs-on']) }}
     timeout-minutes: 5
     outputs:
-      versions: ${{ steps.plan.outputs.versions }}
+      bumps: ${{ steps.plan.outputs.bumps }}
+      version-matrix: ${{ steps.plan.outputs.version-matrix }}
       distro-packages: ${{ steps.packages.outputs.distro-packages }}
       release-file-signing: ${{ steps.file-signing.outputs.release-file-signing }}
     steps:
@@ -351,7 +352,10 @@ jobs:
           run_forge_ci plan release-versions "${file[@]}" --matrix-output "${work}/versions.json" \
             --runtime-image-java "${RUNTIME_IMAGE_JAVA:-}" --runtime-image-node "${RUNTIME_IMAGE_NODE:-}" \
             --runtime-image-rust "${RUNTIME_IMAGE_RUST:-}"
-          printf 'versions=%s\n' "$(cat -- "${work}/versions.json")" >>"${FORGEJO_OUTPUT}"
+          # The version job's whole matrix, as the image workflows read theirs.
+          versions=$(cat -- "${work}/versions.json")
+          bumps=false; if [ "${versions}" != '[]' ]; then bumps=true; fi
+          printf 'bumps=%s\nversion-matrix={"include":%s}\n' "${bumps}" "${versions}" >>"${FORGEJO_OUTPUT}"
           # Warnings and never a failure: a container declared as built from
           # an artifact whose Containerfile runs that artifact's build again,
           # and a Containerfile that names an image without its registry.
@@ -616,8 +620,7 @@ jobs:
     container: ${{ format('{0}', needs.coordinates.outputs[fromJSON('{"java":"runtime_image_java","node":"runtime_image_node","rust":"runtime_image_rust"}')[matrix.family]]) }}
     strategy:
       fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.plan.outputs.versions != '[]' && needs.plan.outputs.versions || '[{}]') }}
+      matrix: ${{ fromJSON(needs.plan.outputs.bumps == 'true' && needs.plan.outputs.version-matrix || '{"include":[{}]}') }}
     # One output a family: Forgejo merges the rows' outputs, each row setting
     # its own family's.
     outputs:

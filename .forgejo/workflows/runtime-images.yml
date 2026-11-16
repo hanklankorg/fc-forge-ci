@@ -333,6 +333,7 @@ jobs:
             printf '%s' "$lender_token" | forge-ci platform request-runner --arch "$arch" --token-file -
           done <<<"$requests"
   build:
+    name: "Build: runtime candidate"
     needs: [coordinates, plan, build-cli, request-runner]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.build-cli.result == 'success' && needs.request-runner.result == 'success' }}
     runs-on: ${{ fromJSON(inputs[format('build-runs-on-linux-{0}', matrix.arch)]) }}
@@ -493,6 +494,7 @@ jobs:
             done <<<"$requests"
           fi
   smoke:
+    name: "Check: runtime smoke"
     needs: [coordinates, collect, request-smoke-runner]
     if: ${{ needs.coordinates.result == 'success' && needs.collect.result == 'success' && needs.request-smoke-runner.result == 'success' }}
     runs-on: ${{ fromJSON(inputs[matrix.arch == 'arm64' && 'runs-on-linux-arm64' || 'runs-on']) }}
@@ -540,6 +542,7 @@ jobs:
           forge-ci artifact upload --name "runtime-smoke-$TARGET-$ARCH" \
             --dir smoke-receipt --retention-days 30 --if-no-files error
   assemble:
+    name: "Build: runtime image"
     needs: [coordinates, plan, smoke]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.smoke.result == 'success' }}
     runs-on: ${{ fromJSON(inputs['runs-on']) }}
@@ -605,6 +608,7 @@ jobs:
         if: always()
         run: test -z "${REGISTRY_AUTH_FILE:-}" || rm -f -- "$REGISTRY_AUTH_FILE"
   sign:
+    name: "Sign: runtime image"
     needs: [coordinates, plan, assemble]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.assemble.result == 'success' }}
     runs-on: ${{ fromJSON(inputs['signer-runs-on']) }}
@@ -691,6 +695,7 @@ jobs:
         if: always()
         run: test -z "${REGISTRY_AUTH_FILE:-}" || rm -f -- "$REGISTRY_AUTH_FILE"
   publish:
+    name: "Publish: runtime image"
     needs: [coordinates, plan, sign]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.sign.result == 'success' }}
     runs-on: ${{ fromJSON(inputs['runs-on']) }}

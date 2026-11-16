@@ -4,9 +4,12 @@
 package forgejoguard
 
 import (
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/diggsweden/forge-ci/internal/testutil/reporoot"
 )
 
 // rowValueDeref matches a matrix row value read as an object or a list:
@@ -18,13 +21,31 @@ var rowValueDeref = regexp.MustCompile(`matrix\.[A-Za-z0-9_-]+[.[]|matrix\['[^']
 // or a list there as a Go map or slice: "Build: x (map[arch:amd64 ...])". So
 // the rows of such a matrix hold short scalar values only, and the job reads
 // anything else by them from its planner's outputs. The job's own name holds
-// no row value, which Forgejo would show twice.
+// no row value, which Forgejo would show twice. The rule holds for the layer's
+// workflows, the examples and the live consumer fixtures alike.
 func TestPlannedMatrixRowsHoldScalarValues(t *testing.T) {
 	t.Parallel()
 
 	planned := 0
 
-	for _, relative := range allWorkflows(t) {
+	workflows := allWorkflows(t)
+	for _, pattern := range []string{"examples/*/forgejo/*.yml", "test/live/fixtures/consumers/*/consumer/.forgejo/workflows/*.yml"} {
+		matches, err := filepath.Glob(filepath.Join(reporoot.Path(t), pattern))
+		if err != nil || len(matches) == 0 {
+			t.Fatalf("found no workflows at %s: %v", pattern, err)
+		}
+
+		for _, match := range matches {
+			relative, err := filepath.Rel(reporoot.Path(t), match)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			workflows = append(workflows, filepath.ToSlash(relative))
+		}
+	}
+
+	for _, relative := range workflows {
 		for name, target := range loadWorkflow(t, relative).jobs {
 			matrix := mappingValue(mappingValue(target.node, "strategy"), "matrix")
 			if !anyString(matrix, func(value string) bool { return strings.Contains(value, "needs.") }) {

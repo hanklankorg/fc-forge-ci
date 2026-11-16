@@ -377,6 +377,20 @@ jobs:
           source "${SNAPSHOT_HELPERS}/.forgejo/bin/snapshot-images.sh"
           run_forge_ci artifact download --name "${SNAPSHOT_NAMESPACE}-plan" --dir .
           snapshot_checkout "${SOURCE_SHA}"
+      # Read before the consumer's build runs, which could change the plan
+      # file in the workspace; a step output it cannot.
+      - name: Name the file output's run artifact
+        id: files-artifact
+        shell: bash
+        env:
+          FILE_NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
+          artifact_name=$(run_forge_ci container snapshot-images read-plan --plan snapshot-plan.json --name "${FILE_NAME}" --field files-artifact-name)
+          # The plan's name carries the snapshot version: <artifact>-<version>-snapshot-<branch>-<commit>.
+          [[ "${artifact_name}" == "${FILE_NAME}"-*-snapshot-* ]]
+          printf 'name=%s\n' "${artifact_name}" >> "${FORGEJO_OUTPUT:?}"
       - name: Build the file output without publication credentials
         shell: bash
         env:
@@ -400,14 +414,12 @@ jobs:
         shell: bash
         env:
           FILE_NAME: ${{ matrix.name }}
+          FILES_ARTIFACT_NAME: ${{ steps.files-artifact.outputs.name }}
         run: |
           set -euo pipefail
           source "${SNAPSHOT_HELPERS}/.engine/bin/lib-forge-ci.sh"
-          artifact_name=$(run_forge_ci container snapshot-images read-plan --plan snapshot-plan.json --name "${FILE_NAME}" --field files-artifact-name)
-          # The plan's name carries the snapshot version: <artifact>-<version>-snapshot-<branch>-<commit>.
-          [[ "${artifact_name}" == "${FILE_NAME}"-*-snapshot-* ]]
           # Under the run's namespace, as every artifact of this workflow is.
-          run_forge_ci artifact upload --name "${SNAPSHOT_NAMESPACE}-files-${artifact_name}" \
+          run_forge_ci artifact upload --name "${SNAPSHOT_NAMESPACE}-files-${FILES_ARTIFACT_NAME:?}" \
             --dir "snapshot-source/snapshot-files/${FILE_NAME}" --include-hidden --if-no-files error --retention-days 7
   context:
     name: "Prepare: image inputs"

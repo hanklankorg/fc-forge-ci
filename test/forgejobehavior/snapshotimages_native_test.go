@@ -338,6 +338,7 @@ snapshot_build_files cli
 		Jobs map[string]struct {
 			If    string `yaml:"if"`
 			Steps []struct {
+				ID  string            `yaml:"id"`
 				Run string            `yaml:"run"`
 				Env map[string]string `yaml:"env"`
 			} `yaml:"steps"`
@@ -353,8 +354,20 @@ snapshot_build_files cli
 	}
 
 	kept := false
+	named, built := -1, -1
 
-	for _, step := range files.Steps {
+	for index, step := range files.Steps {
+		// The run artifact is named before the consumer's build runs, which
+		// could change the plan file in the workspace.
+		if strings.Contains(step.Run, `artifact_name=$(run_forge_ci container snapshot-images read-plan --plan snapshot-plan.json --name "${FILE_NAME}" --field files-artifact-name)`) &&
+			strings.Contains(step.Run, `[[ "${artifact_name}" == "${FILE_NAME}"-*-snapshot-* ]]`) && step.ID == "files-artifact" {
+			named = index
+		}
+
+		if strings.Contains(step.Run, "snapshot_build_files") {
+			built = index
+		}
+
 		for key, value := range step.Env {
 			if strings.Contains(value, "secrets.") || strings.Contains(key, "PASSWORD") || strings.Contains(key, "COSIGN") || strings.Contains(key, "RELEASE") {
 				t.Fatalf("the files job receives %s", key)
@@ -366,10 +379,13 @@ snapshot_build_files cli
 		}
 
 		if strings.Contains(step.Run, "artifact upload") {
-			kept = strings.Contains(step.Run, `artifact_name=$(run_forge_ci container snapshot-images read-plan --plan snapshot-plan.json --name "${FILE_NAME}" --field files-artifact-name)`) &&
-				strings.Contains(step.Run, `--name "${SNAPSHOT_NAMESPACE}-files-${artifact_name}"`) && strings.Contains(step.Run, "--retention-days 7") &&
-				strings.Contains(step.Run, `[[ "${artifact_name}" == "${FILE_NAME}"-*-snapshot-* ]]`)
+			kept = step.Env["FILES_ARTIFACT_NAME"] == "${{ steps.files-artifact.outputs.name }}" &&
+				strings.Contains(step.Run, `--name "${SNAPSHOT_NAMESPACE}-files-${FILES_ARTIFACT_NAME:?}"`) && strings.Contains(step.Run, "--retention-days 7")
 		}
+	}
+
+	if named < 0 || built < 0 || named > built {
+		t.Fatalf("the files job must name its run artifact before the build, step %d, not at step %d", built, named)
 	}
 
 	if !kept {

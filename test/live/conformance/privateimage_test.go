@@ -139,28 +139,31 @@ func requirePrivateGHCRImage(t *testing.T, ref name.Digest, credential livetest.
 }
 
 // No credentials are embedded: the runner consumes the private repository's
-// secret before starting the job container. The dynamic matrix matches runtime CI.
+// secret before starting the job container. The dynamic matrix matches runtime
+// CI's smoke job: a row holds the architecture, which Forgejo appends to the
+// job's name, and the job reads its image by it.
 const privateImageProbe = `on: [push]
 jobs:
   plan:
     runs-on: PROBE_LABELS
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      refs: ${{ steps.plan.outputs.refs }}
     steps:
       - id: plan
         shell: sh
         env:
           IMAGE_REF: PROBE_REFERENCE
-        run: printf 'matrix={"include":[{"ref":"%s","arch":"PROBE_ARCH"}]}\n' "$IMAGE_REF" >> "$GITHUB_OUTPUT"
+        run: printf 'matrix={"include":[{"arch":"PROBE_ARCH"}]}\nrefs={"PROBE_ARCH":"%s"}\n' "$IMAGE_REF" >> "$GITHUB_OUTPUT"
   smoke:
-    name: Private image (${{ matrix.arch }})
+    name: "Check: private image"
     needs: plan
     runs-on: PROBE_LABELS
     timeout-minutes: 5
     strategy:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     container:
-      image: ${{ matrix.ref }}
+      image: ${{ fromJSON(needs.plan.outputs.refs)[matrix.arch] }}
       credentials:
         username: ${{ vars.PULL_USER }}
         password: ${{ secrets.PULL_TOKEN }}

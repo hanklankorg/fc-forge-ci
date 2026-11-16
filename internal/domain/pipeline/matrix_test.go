@@ -12,7 +12,8 @@ import (
 )
 
 // One row reads one build: a plan that builds an image and architecture
-// twice, or publishes an image twice, has no row-keyed form.
+// twice, or publishes an image twice, has no row-keyed form, nor does one
+// whose keys differ only by case.
 func TestReleaseImagesPlanByNameRefusesARowKeyTwice(t *testing.T) {
 	t.Parallel()
 
@@ -27,6 +28,10 @@ func TestReleaseImagesPlanByNameRefusesARowKeyTwice(t *testing.T) {
 		{"one of each", pipeline.ReleaseImagesPlan{Builds: []pipeline.ReleaseImageBuild{build, {Name: "app", Arch: "arm64"}}, Images: []pipeline.ReleaseImage{image}}, false},
 		{"a build twice", pipeline.ReleaseImagesPlan{Builds: []pipeline.ReleaseImageBuild{build, build}, Images: []pipeline.ReleaseImage{image}}, true},
 		{"an image twice", pipeline.ReleaseImagesPlan{Builds: []pipeline.ReleaseImageBuild{build}, Images: []pipeline.ReleaseImage{image, image}}, true},
+		// Forgejo reads an object's keys regardless of case.
+		{"a build's image by case", pipeline.ReleaseImagesPlan{Builds: []pipeline.ReleaseImageBuild{build, {Name: "App", Arch: "arm64"}}, Images: []pipeline.ReleaseImage{image}}, true},
+		{"a build's architecture by case", pipeline.ReleaseImagesPlan{Builds: []pipeline.ReleaseImageBuild{build, {Name: "app", Arch: "AMD64"}}, Images: []pipeline.ReleaseImage{image}}, true},
+		{"an image by case", pipeline.ReleaseImagesPlan{Builds: []pipeline.ReleaseImageBuild{build}, Images: []pipeline.ReleaseImage{image, {Name: "APP"}}}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

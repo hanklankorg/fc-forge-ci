@@ -5,6 +5,7 @@ package pipeline
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 )
@@ -53,13 +54,25 @@ func (plan ReleaseImagesPlan) ImageMatrix() Matrix[ImageRow] {
 
 // BuildsByName is the plan's builds keyed by image name and then by
 // architecture, the keys of a BuildMatrix row. Two builds of one image and
-// architecture are refused: one row would read the other's build.
+// architecture are refused: one row would read the other's build. Forgejo
+// looks an object's key up regardless of case, so two image names, or two
+// architectures of one image, that differ only by case are refused too.
 func (plan ReleaseImagesPlan) BuildsByName() (map[string]map[string]ReleaseImageBuild, error) {
 	builds := map[string]map[string]ReleaseImageBuild{}
+	names := map[string]string{}
+	archs := map[string]string{}
 
 	for _, build := range plan.Builds {
 		if _, taken := builds[build.Name][build.Arch]; taken {
 			return nil, fmt.Errorf("the plan builds image %s for %s twice: %w", build.Name, build.Arch, errs.ErrInvalidConfig)
+		}
+
+		if err := admitRowKey(names, build.Name, "image"); err != nil {
+			return nil, err
+		}
+
+		if err := admitRowKey(archs, build.Name+"/"+build.Arch, "image and architecture"); err != nil {
+			return nil, err
 		}
 
 		if builds[build.Name] == nil {
@@ -73,17 +86,39 @@ func (plan ReleaseImagesPlan) BuildsByName() (map[string]map[string]ReleaseImage
 }
 
 // ImagesByName is the plan's images keyed by name, the key of an ImageMatrix
-// row. Two images of one name are refused.
+// row. Two images of one name, or of names that differ only by case, are
+// refused.
 func (plan ReleaseImagesPlan) ImagesByName() (map[string]ReleaseImage, error) {
 	images := map[string]ReleaseImage{}
+	names := map[string]string{}
 
 	for _, image := range plan.Images {
 		if _, taken := images[image.Name]; taken {
 			return nil, fmt.Errorf("the plan publishes image %s twice: %w", image.Name, errs.ErrInvalidConfig)
 		}
 
+		if err := admitRowKey(names, image.Name, "image"); err != nil {
+			return nil, err
+		}
+
 		images[image.Name] = image
 	}
 
 	return images, nil
+}
+
+// admitRowKey records key in seen by its lower-case form, the form Forgejo
+// matches an object's key by, and refuses a key that differs from one seen
+// before only by case: a row keyed by either would read either's values.
+func admitRowKey(seen map[string]string, key, what string) error {
+	folded := strings.ToLower(key)
+
+	if earlier, taken := seen[folded]; taken && earlier != key {
+		return fmt.Errorf("the plan names %s %s and %s, which differ only by case, and Forgejo reads row keys regardless of case: %w",
+			what, earlier, key, errs.ErrInvalidConfig)
+	}
+
+	seen[folded] = key
+
+	return nil
 }
