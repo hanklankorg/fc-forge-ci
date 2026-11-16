@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Digg - Agency for Digital Government
 # SPDX-License-Identifier: CC0-1.0
 
-name: Release
+name: Release Workflow
 on:
   push:
     tags: ['release-request/v[0-9]*.[0-9]*.[0-9]*']
@@ -11,6 +11,7 @@ env:
   FORGEJO_REPO: ${{ forgejo.repository }}
 jobs:
   prepare:
+    name: 'Prepare: release'
     uses: itiquette/forge-ci/.forgejo/workflows/prepare-release.yml@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
     with:
       runs-on: ${{ vars.CI_RUNNER_LABEL }}
@@ -57,8 +58,8 @@ jobs:
           HANDOFF_RESULT: ${{ needs.handoff.result }}
           PUBLISH_RESULT: ${{ needs.sign-and-publish.result }}
         run: |
-          forge-ci report release --job "Prepare=${PREPARE_RESULT}" --job "Build=${BUILD_RESULT}" \
-            --job "Images=${IMAGES_RESULT}" --job "Hand-off=${HANDOFF_RESULT}" --job "Publish=${PUBLISH_RESULT}"
+          forge-ci report release --job "Prepare: release=${PREPARE_RESULT}" --job "Build=${BUILD_RESULT}" \
+            --job "Images=${IMAGES_RESULT}" --job "Hand-off=${HANDOFF_RESULT}" --job "Sign and publish: release=${PUBLISH_RESULT}"
   build:
     name: 'Build: release files'
     needs: prepare
@@ -128,7 +129,7 @@ jobs:
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 15
     outputs:
-      dist_digest: ${{ steps.dist.outputs.digest }}
+      dist-digest: ${{ steps.dist.outputs.digest }}
     steps:
       - uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/setup-forge-ci@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
       - run: |
@@ -141,6 +142,7 @@ jobs:
           artifact-name: build-dist
           path: dist/
   sign-and-publish:
+    name: 'Sign and publish: release'
     needs: [prepare, handoff]
     uses: itiquette/forge-ci/.forgejo/workflows/sign-and-publish-release.yml@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
     with:
@@ -150,7 +152,7 @@ jobs:
       release-sha: ${{ needs.prepare.outputs.release-sha }}
       artifacts-config: ${{ needs.prepare.outputs.artifacts-config }}
       release-request-sha: ${{ forgejo.sha }}
-      dist-digest: ${{ needs.handoff.outputs['dist_digest'] }}
+      dist-digest: ${{ needs.handoff.outputs.dist-digest }}
       artifact-name: build-dist
       artifact-path: dist/
       release-images-path: dist/release-images.json

@@ -5,13 +5,13 @@
 # secret or installs anything:
 #
 #   lint            nanolinter.toml's plan with the secrets floor
-#   trust-boundary  statically verifies release-workflow.yml's secret boundaries
+#   release-gate    statically verifies release-workflow.yml's secret boundaries
 #   build           ./gradlew build: the tests and the jar
 #
 # lint and build run in CI_JOB_IMAGE: a nanolinter image of the java flavour
 # (nanolinter, its check tools and a JDK), pinned by digest; the wrapper
 # brings Gradle.
-name: Pull Request
+name: Pull Request Workflow
 
 on:
   pull_request:
@@ -41,7 +41,7 @@ jobs:
       - name: Lint
         uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/lint-nanolinter@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
 
-  trust-boundary:
+  release-gate:
     name: "Check: release isolation"
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 10
@@ -58,7 +58,6 @@ jobs:
         uses: https://codefloe.com/itiquette/forge-ci/.forgejo/actions/check-l3-isolation@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
         with:
           build-job: handoff
-          dist-digest-output: dist_digest
 
   build:
     name: "Check: build and test"
@@ -83,7 +82,7 @@ jobs:
   summary:
     name: Summary
     if: ${{ always() }}
-    needs: [lint, trust-boundary, build]
+    needs: [lint, release-gate, build]
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 5
     steps:
@@ -96,7 +95,7 @@ jobs:
           PROJECT_TYPE: gradle
           CI_BRANCH: ${{ forgejo.head_ref }}
           LINT_RESULT: ${{ needs.lint.result }}
-          ISOLATION_RESULT: ${{ needs.trust-boundary.result }}
+          ISOLATION_RESULT: ${{ needs.release-gate.result }}
           BUILD_RESULT: ${{ needs.build.result }}
         run: |
           forge-ci report pr \

@@ -14,7 +14,7 @@
 #
 # The signing logic lives in examplescope/forge-ci, the organization's copy of
 # the layer, and not in this repository. Nothing runs this file.
-name: Release
+name: Release Workflow
 
 on:
   push:
@@ -35,7 +35,7 @@ jobs:
           token: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
 
   prepare:
-    name: Prepare
+    name: "Prepare: release"
     needs: preflight
     if: success() && startsWith(forgejo.ref, 'refs/tags/')
     uses: examplescope/forge-ci/.forgejo/workflows/prepare-release.yml@b369db7d70af68fa93a4b404841c4ce2ddbf90c0
@@ -152,7 +152,7 @@ jobs:
           path: dist/
 
   sign-and-publish:
-    name: Sign and publish
+    name: "Sign and publish: release"
     needs: [prepare, build]
     if: ${{ always() && needs.build.result == 'success' }}
     uses: examplescope/forge-ci/.forgejo/workflows/sign-and-publish-release.yml@b369db7d70af68fa93a4b404841c4ce2ddbf90c0

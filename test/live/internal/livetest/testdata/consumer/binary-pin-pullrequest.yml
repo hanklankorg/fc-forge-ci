@@ -7,7 +7,7 @@
 # binary itself: every setup passes the binary's digest as a literal, in more
 # than one job, and the workflow calls no workflow of the layer. Nothing runs
 # it.
-name: Pull Request
+name: Pull Request Workflow
 
 on:
   pull_request:
@@ -65,7 +65,7 @@ jobs:
 
   # One fact per pin: a bump that changes the commit in one job and leaves the
   # binary digest of another behind is what this gate refuses.
-  trust-boundary:
+  release-gate:
     name: "Check: release isolation"
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 10

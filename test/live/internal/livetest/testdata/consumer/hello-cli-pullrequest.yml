@@ -7,7 +7,7 @@
 # has adopted the layer: every reference names the organization's copy of the
 # layer, at one commit, and the workflow calls no workflow of the layer and
 # passes no binary digest. Nothing runs it.
-name: Pull Request
+name: Pull Request Workflow
 
 on:
   pull_request:
@@ -37,7 +37,7 @@ jobs:
   # The release workflow beside this file is held to the isolation rules on
   # every pull request, so a change that moves a signing secret into the build
   # job is refused before it merges.
-  trust-boundary:
+  release-gate:
     name: "Check: release isolation"
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 10
