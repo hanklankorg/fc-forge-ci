@@ -286,7 +286,16 @@ func TestReleaseFilesRoot_DeclareRefusals(t *testing.T) {
 				require.NoError(t, os.WriteFile(env.Path("dist/release-images.json"), []byte("[]\n"), 0o600))
 			},
 			args: []string{"--asset", "dist/release-images.json"},
-			want: errs.ErrValidation, message: "release image ledger must not be in the release file manifest",
+			want: errs.ErrValidation, message: "release image ledger must not be a release file",
+		},
+		{
+			name: "the release plan matched by a glob",
+			arrange: func(t *testing.T, env *testenv.Env) {
+				t.Helper()
+				require.NoError(t, os.WriteFile(env.Path("dist/release-plan.json"), []byte("{}\n"), 0o600))
+			},
+			args: []string{"--asset", "dist/*"},
+			want: errs.ErrValidation, message: "release plan must not be a release file",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

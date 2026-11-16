@@ -328,7 +328,11 @@ A signed `release-request/vX.Y.Z` tag starts `release-orchestrator.yml`:
 4. **Publish**: one job per target: GitHub Packages, Maven Central, Google
    Play, App Store Connect, and `publish-container` per container.
 5. **Release**: `release-create-github.yml` creates the GitHub release with
-   changelog, checksums, signatures, SBOMs and provenance.
+   changelog, checksums, signatures, SBOMs and provenance. Its
+   `attach-artifacts` patterns add further files, but never the pipeline's
+   own: a pattern that matches the release plan (`release-plan.json`,
+   `snapshot-release-plan.json`) or the image ledger `release-images.json`
+   fails the release.
 6. **Promotion**: `promote-stage.yml` moves the same image digest through
    `:dev`, `:staging` and the release tags. Staging and release wait on the
    GitHub Environments named by `promote-staging-environment` and

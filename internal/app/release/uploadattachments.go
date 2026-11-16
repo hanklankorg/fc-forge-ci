@@ -151,6 +151,10 @@ func expandAttachmentPatterns(root string, patterns []string) ([]string, error) 
 				continue
 			}
 
+			if err := refuseInternalPipelineFile(match); err != nil {
+				return nil, err
+			}
+
 			seen[match] = struct{}{}
 		}
 	}

@@ -398,11 +398,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A release no longer carries the release plan. `release-plan.json` and
   `snapshot-release-plan.json` are the pipeline's own plan, not files a
-  user downloads, so every release file manifest refuses them, on every
-  forge and for releases and snapshots alike: a workflow that added the
-  plan with `release files manifest --unsigned --evidence-file
-  dist/release-plan.json` now fails there, and its later jobs read the plan
-  as a job output or a run artifact instead. Asset retention no longer
+  user downloads, so forge-ci refuses them wherever release files are
+  chosen, on every forge and for releases and snapshots alike: in the
+  release file manifest Forgejo and GitLab publish from, in GitHub's
+  `attach-artifacts` patterns and in `release attachments upload
+  --pattern`. The image ledger `release-images.json`, which the manifest
+  already refused, is refused by those patterns too. A workflow that added
+  the plan with `release files manifest --unsigned --evidence-file
+  dist/release-plan.json`, or matched it with a glob such as `dist/*`, now
+  fails there, and its later jobs read the plan as a job output or a run
+  artifact instead. Asset retention no longer
   keeps `release-plan.json` on older releases, so an older release that
   carries one loses it with its other unkept files; its `.bundle` stays
   with the other signatures.

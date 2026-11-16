@@ -189,15 +189,21 @@ func TestAssemble_RejectsDuplicateAssetBasenames(t *testing.T) {
 // guards. --attach-artifacts is caller-supplied and is globbed against the
 // workspace, so a pattern that is absolute and one that climbs out are
 // refused separately -- and each row names its own guard, because the
-// previous single assertion accepted either message for either input.
+// previous single assertion accepted either message for either input. A
+// pattern that matches the pipeline's own release plan or image ledger is
+// refused too: neither is a release file.
 func TestAssemble_RejectsUnsafeAttachmentPattern(t *testing.T) {
 	for name, testCase := range map[string]struct{ pattern, wantText string }{
 		"climbs out of the workspace": {pattern: "../dist/*.zip", wantText: `contains ".."`},
 		"absolute path":               {pattern: "/etc/*.zip", wantText: "must be relative to the workspace"},
+		"the release plan by a glob":  {pattern: "dist/*.json", wantText: "release plan must not be a release file"},
+		"the image ledger":            {pattern: "release-images.json", wantText: "release image ledger must not be a release file"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			fsys := testfs.NewReal(t)
 			t.Chdir(fsys.Root)
+			fsys.WriteFile(filepath.Join("dist", "release-plan.json"), []byte(`{}`))
+			fsys.WriteFile("release-images.json", []byte(`[]`))
 
 			_, err := apprelease.Assemble(&bytes.Buffer{}, apprelease.AssembleInput{
 				ConfigPlanJSON:           releaseAssemblyConfigJSON(t),

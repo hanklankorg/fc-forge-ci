@@ -18,6 +18,7 @@ import (
 
 	"github.com/diggsweden/forge-ci/internal/cliio"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
 	"github.com/diggsweden/forge-ci/internal/domain/provenance"
 	domainrelease "github.com/diggsweden/forge-ci/internal/domain/release"
 	"github.com/diggsweden/forge-ci/internal/pathsafe"
@@ -1497,12 +1498,8 @@ func validateManifestSections(ctx releaseFilesCtx, manifest *FileManifest) error
 				return err
 			}
 
-			if filepath.Clean(entry.Path) == filepath.Join(ctx.distDir, "release-images.json") {
-				return fmt.Errorf("release image ledger must not be in the release file manifest: %s: %w", entry.Path, errs.ErrValidation)
-			}
-
-			if isReleasePlanFileName(entry.Name) {
-				return fmt.Errorf("release plan must not be in the release file manifest: %s: it is the pipeline's own plan, so hand it to a later job as a job output or a run artifact: %w", entry.Path, errs.ErrValidation)
+			if err := refuseInternalPipelineFile(entry.Path); err != nil {
+				return err
 			}
 		}
 	}
@@ -1515,6 +1512,21 @@ func validateManifestSections(ctx releaseFilesCtx, manifest *FileManifest) error
 // output or a run artifact, and no release publishes it.
 func isReleasePlanFileName(name string) bool {
 	return name == "release-plan.json" || name == "snapshot-release-plan.json"
+}
+
+// refuseInternalPipelineFile refuses a file the pipeline keeps for itself,
+// the release plan or the release image ledger, wherever a release file is
+// chosen: the release file manifest, assembly's attachments and attachment
+// uploads.
+func refuseInternalPipelineFile(path string) error {
+	switch name := filepath.Base(path); {
+	case isReleasePlanFileName(name):
+		return fmt.Errorf("release plan must not be a release file: %s: keep it out of the release files (the dist directory and the attachment patterns) and hand it to a later job as a job output or a run artifact: %w", path, errs.ErrValidation)
+	case name == imageledger.DefaultBasename:
+		return fmt.Errorf("release image ledger must not be a release file: %s: %w", path, errs.ErrValidation)
+	}
+
+	return nil
 }
 
 func validateManifestEntry(ctx releaseFilesCtx, entry FileEntry) error {

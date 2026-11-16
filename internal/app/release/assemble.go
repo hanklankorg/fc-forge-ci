@@ -389,6 +389,10 @@ func collectAttachmentAssets(c *assemblyCollector, patterns string) error {
 	}
 
 	for _, entry := range entries {
+		if err := refuseInternalPipelineFile(entry.Abs); err != nil {
+			return err
+		}
+
 		if err := c.addAsset(entry.Abs, assemblySourceAttachment, "", true); err != nil {
 			return err
 		}

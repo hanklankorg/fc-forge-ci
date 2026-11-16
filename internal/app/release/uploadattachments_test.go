@@ -139,6 +139,38 @@ func TestUploadAttachments_RejectsAbsolutePath(t *testing.T) {
 	}
 }
 
+// The pipeline's own files are no release files: a pattern that matches the
+// release plan or the image ledger uploads nothing, not even the archive
+// beside them.
+func TestUploadAttachments_RefusesInternalPipelineFiles(t *testing.T) {
+	for name, testCase := range map[string]struct{ file, wantText string }{
+		"the release plan":  {file: "release-plan.json", wantText: "release plan must not be a release file"},
+		"the snapshot plan": {file: "snapshot-release-plan.json", wantText: "release plan must not be a release file"},
+		"the image ledger":  {file: "release-images.json", wantText: "release image ledger must not be a release file"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFile(t, dir, "dist/app.tar.gz")
+			writeFile(t, dir, "dist/"+testCase.file)
+
+			fp := fakeprovider.New(t)
+
+			err := apprelease.UploadAttachments(context.Background(), fp, &bytes.Buffer{}, output.Annotator{}, apprelease.UploadAttachmentsInput{
+				Tag:        "v1.0.0",
+				Pattern:    "dist/*",
+				WorkingDir: dir,
+			})
+			if !errors.Is(err, errs.ErrValidation) || !strings.Contains(err.Error(), testCase.wantText) {
+				t.Fatalf("err = %v, want ErrValidation naming %q", err, testCase.wantText)
+			}
+
+			if calls := fp.UploadReleaseAssetCalls(); len(calls) != 0 {
+				t.Errorf("uploaded %+v despite an internal pipeline file", calls)
+			}
+		})
+	}
+}
+
 func TestUploadAttachments_RejectsMissingTag(t *testing.T) {
 	err := apprelease.UploadAttachments(context.Background(), fakeprovider.New(t), io.Discard, output.Annotator{}, apprelease.UploadAttachmentsInput{
 		Pattern: "*.tgz",
