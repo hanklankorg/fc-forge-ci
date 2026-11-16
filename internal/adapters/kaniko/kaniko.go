@@ -471,8 +471,8 @@ func baseCacheArguments(dir string) []string {
 // cache. A manifest request names the repository, as
 // "https://localhost/v2/forge-ci-input/manifests/...". A failed ping names
 // the registry alone, "https://localhost/v2/", and cannot be told apart
-// from one for another image under that host, which a FROM of the
-// Containerfile's own would have to name.
+// from one for another image under that host. A Containerfile FROM of its
+// own under that host is a misreport we accept.
 func asksForRegistryInput(report string) bool {
 	host, repository, _ := strings.Cut(container.RegistryInputRepository, "/")
 
