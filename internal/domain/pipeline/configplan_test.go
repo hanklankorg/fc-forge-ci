@@ -377,8 +377,10 @@ func TestArtifactSets_BuildSBOMArtifacts(t *testing.T) {
 		t.Errorf("build SBOM artifacts = %q, want %q", got, want)
 	}
 
-	var containerFirst []string
-	for _, artifact := range sets.ContainerFirstBuildSBOMs() {
+	builds := sets.ContainerFirstBuildSBOMs()
+
+	containerFirst := make([]string, 0, len(builds))
+	for _, artifact := range builds {
 		containerFirst = append(containerFirst, artifact.Name)
 	}
 

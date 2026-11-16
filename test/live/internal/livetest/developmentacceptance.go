@@ -16,9 +16,9 @@ func ValidateDevelopmentPush(run WorkflowRun, runs []WorkflowRun, workflow strin
 	switch {
 	case run.Status != "success":
 		return fmt.Errorf("development push status = %q, want success: %w", run.Status, errs.ErrValidation)
-	case run.Event != "push":
+	case run.Event != eventPush:
 		return fmt.Errorf("development push event = %q, want push: %w", run.Event, errs.ErrValidation)
-	case run.TriggerEvent != "push":
+	case run.TriggerEvent != eventPush:
 		return fmt.Errorf("development push trigger event = %q, want push: %w", run.TriggerEvent, errs.ErrValidation)
 	case run.WorkflowID != workflow:
 		return fmt.Errorf("development push workflow = %q, want %q: %w", run.WorkflowID, workflow, errs.ErrValidation)

@@ -344,7 +344,7 @@ func TestPublishSelfRuntimeCLI_ReconcilesInPlaceChecksumLastAndTagLast(t *testin
 	}
 
 	assets := writeSelfRuntimeTestAssets(t, map[string]string{
-		"binary.tgz":           "new-binary",
+		"binary.tgz":              "new-binary",
 		"checksums.sha256.bundle": "new-bundle",
 		"checksums.sha256":        "new-checksum",
 	})
@@ -688,7 +688,7 @@ func TestPublishSelfRuntimeCLI_RefusesHostileAssetNames(t *testing.T) {
 			api.assets = []*selfRuntimeAsset{{id: 1, name: name, body: "hostile"}}
 
 			assets := writeSelfRuntimeTestAssets(t, map[string]string{
-				"binary.tgz":           "new-binary",
+				"binary.tgz":              "new-binary",
 				"checksums.sha256.bundle": "new-bundle",
 				"checksums.sha256":        "new-checksum",
 			})
@@ -724,7 +724,7 @@ func TestPublishSelfRuntimeCLI_RefusesDuplicateAssetNames(t *testing.T) {
 	}
 
 	assets := writeSelfRuntimeTestAssets(t, map[string]string{
-		"binary.tgz":           "new-binary",
+		"binary.tgz":              "new-binary",
 		"checksums.sha256.bundle": "new-bundle",
 		"checksums.sha256":        "new-checksum",
 	})

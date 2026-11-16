@@ -104,15 +104,15 @@ func TestCanonicalConsumerWorkflowGraph(t *testing.T) {
 	t.Parallel()
 
 	for file, jobs := range map[string][]string{
-		"release-orchestrator.yml":           {"parse-config", "validate-release-tag", "release-summary"},
-		"release-prepare-stage.yml":          {"prepare-version-files", "version-bump", "summarize-prepare-stage"},
-		"release-create-github.yml":          {"sign-release-gpg", "create-release"},
-		"publish-container.yml":              {"build-arch"},
-		"snapshot-images.yml":                {"build"},
-		"release-snapshot-orchestrator.yml":  {"setup-snapshot", "snapshot-release-summary"},
-		"pullrequest-orchestrator.yml":       {"compose-pr-plan", "pr-summary"},
-		"lint-nanolinter.yml":                {"nanolinter-lint"},
-		"lint-megalinter.yml":                {"megalinter-lint"},
+		"release-orchestrator.yml":          {"parse-config", "validate-release-tag", "release-summary"},
+		"release-prepare-stage.yml":         {"prepare-version-files", "version-bump", "summarize-prepare-stage"},
+		"release-create-github.yml":         {"sign-release-gpg", "create-release"},
+		"publish-container.yml":             {"build-arch"},
+		"snapshot-images.yml":               {"build"},
+		"release-snapshot-orchestrator.yml": {"setup-snapshot", "snapshot-release-summary"},
+		"pullrequest-orchestrator.yml":      {"compose-pr-plan", "pr-summary"},
+		"lint-nanolinter.yml":               {"nanolinter-lint"},
+		"lint-megalinter.yml":               {"megalinter-lint"},
 	} {
 		workflow := readCanonicalConsumerWorkflow(t, file)
 		for _, name := range jobs {

@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/diggsweden/forge-ci/internal/adapters/git"
-	forgecli "github.com/diggsweden/forge-ci/internal/cli"
 	appvalidate "github.com/diggsweden/forge-ci/internal/app/validate"
+	forgecli "github.com/diggsweden/forge-ci/internal/cli"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
 	"github.com/diggsweden/forge-ci/internal/domain/output"
 	"github.com/diggsweden/forge-ci/internal/domain/provider"

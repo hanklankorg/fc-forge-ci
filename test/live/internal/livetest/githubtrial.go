@@ -48,12 +48,12 @@ const GitHubContextEnv = "FORGE_LAB_GITHUB_CONTEXT"
 const GitHubRunTimeout = 90 * time.Minute
 
 const (
-	githubPoll           = 20 * time.Second
-	githubEngineTimeout  = 75 * time.Minute
-	githubRunAppears     = 5 * time.Minute
+	githubPoll          = 20 * time.Second
+	githubEngineTimeout = 75 * time.Minute
+	githubRunAppears    = 5 * time.Minute
 	// githubSeedCommits is the most commits of a consumer's history one push
 	// adds to main, counted along the first parents: seedHistory.
-	githubSeedCommits = 100
+	githubSeedCommits    = 100
 	githubIndexTimeout   = 5 * time.Minute
 	githubIssuer         = "https://token.actions.githubusercontent.com"
 	githubEngineWorkflow = "self-runtime-container.yml"
@@ -1380,7 +1380,7 @@ func (trial *GitHubTrial) restoreVariableAfter(repo, name, value string) {
 func (trial *GitHubTrial) engineRun(repo, commit string, rerunFailed bool) *github.WorkflowRun {
 	trial.tb.Helper()
 
-	run := trial.WaitRun(repo, githubEngineWorkflow, "push", commit, githubEngineTimeout)
+	run := trial.WaitRun(repo, githubEngineWorkflow, eventPush, commit, githubEngineTimeout)
 	if !rerunFailed || (run.GetConclusion() != runFailure && run.GetConclusion() != runCancelled) {
 		return run
 	}

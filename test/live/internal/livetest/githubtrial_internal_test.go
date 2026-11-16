@@ -368,7 +368,7 @@ const (
 
 			files := map[string]string{
 				".forgejo/workflows/release-workflow.yml":             native,
-				"test/policy/workflow_policy_test.go":        policy,
+				"test/policy/workflow_policy_test.go":                 policy,
 				"test/live/github/workflows/pullrequest-workflow.yml": fixturePullRequest,
 			}
 			for path, text := range files {
@@ -475,7 +475,7 @@ func TestGitHubConsumerNativeChecksumPolicy(t *testing.T) {
 
 			files := map[string]string{
 				".forgejo/workflows/pullrequest-workflow.yml":         native,
-				"test/policy/workflow_policy_test.go":        policy,
+				"test/policy/workflow_policy_test.go":                 policy,
 				"test/live/github/workflows/pullrequest-workflow.yml": fixturePullRequest,
 			}
 			for path, text := range files {
@@ -554,7 +554,7 @@ func TestGitHubConsumerCommitsTrialFiles(t *testing.T) {
 	trial.git(root, "init", "--quiet", "--initial-branch=main", ".")
 
 	for name, body := range map[string]string{
-		".forge-ci/allowed_signers":                  "fixture\n",
+		".forge-ci/allowed_signers":                           "fixture\n",
 		"test/live/github/workflows/pullrequest-workflow.yml": fixturePullRequest,
 	} {
 		path := filepath.Join(root, name)
@@ -687,7 +687,7 @@ func TestUnsignedSubjectsListsEveryAssetWithoutAVerifiedSignature(t *testing.T) 
 		"app.tar.gz": 1, "app.tar.gz.bundle": 2,
 		"app.jar": 3, "app.jar.asc": 4,
 		"checksums.sha256": 5,
-		"sbom.cdx.json": 6, "sbom.cdx.json.sig": 7,
+		"sbom.cdx.json":    6, "sbom.cdx.json.sig": 7,
 	}
 	bundles := map[string]bool{"app.tar.gz": true}
 	signatures := map[string]bool{"app.jar": true}

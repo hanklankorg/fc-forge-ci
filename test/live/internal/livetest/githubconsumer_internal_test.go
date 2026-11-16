@@ -473,8 +473,8 @@ func TestKeylessIdentityRegexp(t *testing.T) {
 	for subject, want := range map[string]bool{
 		"https://github.com/Example-Org/fc-forge-ci/.github/workflows/release-create-github.yml@refs/heads/main":   true,
 		"https://github.com/Example-Org/fc-forge-ci/.github/workflows/publish-container.yml@" + trialEngine.Commit: true,
-		"https://github.com/Example-Org/fc-forge-ciX/.github/workflows/release-workflow.yml@refs/heads/main":                false,
-		"https://github.com/other/fc-forge-ci/.github/workflows/release-workflow.yml@refs/heads/main":                       false,
+		"https://github.com/Example-Org/fc-forge-ciX/.github/workflows/release-workflow.yml@refs/heads/main":       false,
+		"https://github.com/other/fc-forge-ci/.github/workflows/release-workflow.yml@refs/heads/main":              false,
 	} {
 		if got := identity.MatchString(subject); got != want {
 			t.Errorf("identity matches %s = %v, want %v", subject, got, want)

@@ -1262,7 +1262,16 @@ What this design does NOT defend against:
 
 ### Swap policy
 
-`release sign` and `release sbom-bundle --sign` refuse to run when the process's memory can be swapped out. The check reads `/proc/swaps`; if any line beyond the header is present, swap is active on the host. `/proc/swaps` is host-wide, so a job container sees the host's swap even when the container itself may not use it. The check then reads the process's cgroup v2 path from `/proc/self/cgroup` and `memory.swap.max` for that cgroup and each ancestor under `/sys/fs/cgroup`. If any of them is `0`, the kernel will not swap the job's memory out: signing proceeds and a `::notice::` names the cgroup. Otherwise, including on cgroup v1 or when the files cannot be read, the binary exits `EX_CONFIG` (78) with an actionable error message.
+`release sign` and `release sbom-bundle --sign` refuse to run when the
+process's memory can be swapped out. The check reads `/proc/swaps`; if any
+line beyond the header is present, swap is active on the host. `/proc/swaps`
+is host-wide, so a job container sees the host's swap even when the container
+itself may not use it. The check then reads the process's cgroup v2 path from
+`/proc/self/cgroup` and `memory.swap.max` for that cgroup and each ancestor
+under `/sys/fs/cgroup`. If any of them is `0`, the kernel will not swap the
+job's memory out: signing proceeds and a `::notice::` names the cgroup.
+Otherwise, including on cgroup v1 or when the files cannot be read, the binary
+exits `EX_CONFIG` (78) with an actionable error message.
 
 A job container started with swap disabled, memory-swap equal to memory, has `memory.swap.max` set to `0` and satisfies the policy on a host with swap. Configure it once in the runner setup:
 
@@ -1270,7 +1279,15 @@ A job container started with swap disabled, memory-swap equal to memory, has `me
 - Forgejo runner: the same flags in `container.options` of the runner's `config.yml`.
 - GitLab Runner, Docker executor: `memory` and `memory_swap` set to the same value under `[runners.docker]`.
 
-The cgroup limit protects less than host swap off. It covers only the memory of the forge-ci process and its children. When the host has swap, the runner daemon (`forgejo-runner` or `act_runner`, `gitlab-runner`) and the container runtime hold the GPG key and passphrase while they deliver them to the job, and their pages can still be swapped out. Hibernation writes all memory to swap regardless of cgroup limits, and the limit is read once, when the check runs. Host swap off covers all of these: use it for production signer runners, and the cgroup route where that residual risk is accepted, for example on disposable or dedicated runners.
+The cgroup limit protects less than host swap off. It covers only the memory
+of the forge-ci process and its children. When the host has swap, the runner
+daemon (`forgejo-runner` or `act_runner`, `gitlab-runner`) and the container
+runtime hold the GPG key and passphrase while they deliver them to the job,
+and their pages can still be swapped out. Hibernation writes all memory to
+swap regardless of cgroup limits, and the limit is read once, when the check
+runs. Host swap off covers all of these: use it for production signer runners,
+and the cgroup route where that residual risk is accepted, for example on
+disposable or dedicated runners.
 
 **No setting skips the check quietly.** The fix is at the runner. The two overrides are described below, and each says in the log that it was used: the `--debug-allow-swap` flag, and the test hook `FORGE_CI_PROC_SWAPS`, which replaces only the file that is read. The error message lists:
 

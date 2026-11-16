@@ -35,22 +35,22 @@ var releaseTagFromImageTagRE = regexp.MustCompile(`^(v[0-9]+[.][0-9]+[.][0-9]+)(
 // error messages name the flags because they are the operator's vocabulary for
 // these fields.
 type AddLedgerEntryInput struct {
-	LedgerPath          string
-	CaptureDigest       bool // resolve the digest from the registry instead of Ref/Digest
-	ReleaseTag          string
-	Role                string
-	ImageKind           string
-	ImageName           string
-	Ref                 string
-	Digest              string
-	SBOM                string
-	SBOMSHA256          string
-	ProvenanceJSON      string
-	DefaultSBOM         bool
+	LedgerPath     string
+	CaptureDigest  bool // resolve the digest from the registry instead of Ref/Digest
+	ReleaseTag     string
+	Role           string
+	ImageKind      string
+	ImageName      string
+	Ref            string
+	Digest         string
+	SBOM           string
+	SBOMSHA256     string
+	ProvenanceJSON string
+	DefaultSBOM    bool
 	// SourceSHA and Platform name a release image's default SBOM: the
 	// release commit and the platform, linux/amd64 when empty.
-	SourceSHA string
-	Platform  string
+	SourceSHA           string
+	Platform            string
 	FinalTagName        string
 	FinalTag            string
 	MovingTagName       string

@@ -86,14 +86,14 @@ func exampleDemoFiles(example string) map[string]string {
 	// the example holds the gate and the two commands that policy names.
 	if example == "base-images" {
 		files := map[string]string{
-			".forge-ci/artifacts.yml":                path.Join(dir, "artifacts.yml"),
-			".forge-ci/gitcliff/keepachangelog.toml": "templates/gitcliff/keepachangelog.toml",
-			".forge-ci/gitcliff/minimal.toml":        "templates/gitcliff/minimal.toml",
-			".forgejo/workflows/release-workflow.yml":         path.Join(dir, "forgejo/release-workflow.yml"),
-			GitLabGateFile:                           path.Join(dir, "gitlab/.gitlab-ci.yml"),
-			"nanolinter.toml":                        path.Join(dir, "nanolinter.toml"),
-			".gitlab/check-release.sh":               path.Join(dir, "gitlab/check-release.sh"),
-			GitLabConsumerBuildScript:                path.Join(dir, "gitlab/build-release.sh"),
+			".forge-ci/artifacts.yml":                 path.Join(dir, "artifacts.yml"),
+			".forge-ci/gitcliff/keepachangelog.toml":  "templates/gitcliff/keepachangelog.toml",
+			".forge-ci/gitcliff/minimal.toml":         "templates/gitcliff/minimal.toml",
+			".forgejo/workflows/release-workflow.yml": path.Join(dir, "forgejo/release-workflow.yml"),
+			GitLabGateFile:                            path.Join(dir, "gitlab/.gitlab-ci.yml"),
+			"nanolinter.toml":                         path.Join(dir, "nanolinter.toml"),
+			".gitlab/check-release.sh":                path.Join(dir, "gitlab/check-release.sh"),
+			GitLabConsumerBuildScript:                 path.Join(dir, "gitlab/build-release.sh"),
 		}
 		for _, file := range []string{"base-plan.sh", "images/base/Containerfile", "images/base/base.txt", "images/tools/Containerfile", "images/tools/tools.txt", "images/debug/Containerfile", "images/debug/debug.txt"} {
 			files[file] = path.Join(dir, file)
@@ -212,9 +212,9 @@ func TestExampleDemosServeEveryForgeTheirExampleDoes(t *testing.T) {
 
 	root := reporoot.Path(t)
 	forges := map[string]string{
-		"github/pullrequest-workflow.yml": githubDemoWorkflows + "/pullrequest-workflow.yml",
-		"forgejo/pullrequest-workflow.yml":         ".forgejo/workflows/pullrequest-workflow.yml",
-		"gitlab/.gitlab-ci.yml":           GitLabGateFile,
+		"github/pullrequest-workflow.yml":  githubDemoWorkflows + "/pullrequest-workflow.yml",
+		"forgejo/pullrequest-workflow.yml": ".forgejo/workflows/pullrequest-workflow.yml",
+		"gitlab/.gitlab-ci.yml":            GitLabGateFile,
 	}
 
 	for demo, example := range exampleDemos {
