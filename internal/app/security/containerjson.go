@@ -148,9 +148,7 @@ func runRawContainerTrivy(ctx context.Context, trivy TrivyOps, out, stderr io.Wr
 		return fmt.Errorf("resolve %s: %w", in.Output, err)
 	}
 
-	var said bytes.Buffer
-
-	code, err := trivy.RunInherit(ctx, out, io.MultiWriter(stderr, &said),
+	args := []string{
 		"image",
 		"--timeout", in.Timeout,
 		"--platform", in.Platform,
@@ -158,8 +156,13 @@ func runRawContainerTrivy(ctx context.Context, trivy TrivyOps, out, stderr io.Wr
 		"--skip-version-check",
 		"--format", "json",
 		"--output", output,
-		in.ImageRef,
-	)
+	}
+	args = append(args, security.TrivyDBSourceArgs()...)
+	args = append(args, in.ImageRef)
+
+	var said bytes.Buffer
+
+	code, err := trivy.RunInherit(ctx, out, io.MultiWriter(stderr, &said), args...)
 	if err != nil {
 		return retry.Permanent(fmt.Errorf("trivy image %s: %w", in.ImageRef, err))
 	}

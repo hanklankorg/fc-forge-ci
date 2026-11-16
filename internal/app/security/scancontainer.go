@@ -338,6 +338,8 @@ func runTrivyContainerScan(ctx context.Context, trivy TrivyOps, out, stderr io.W
 		"--timeout", containerScanTimeout,
 		"--exit-code", "0",
 	}
+	args = append(args, security.TrivyDBSourceArgs()...)
+
 	if ignoreFile != "" {
 		args = append(args, "--ignorefile", ignoreFile)
 	}
