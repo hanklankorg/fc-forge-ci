@@ -127,7 +127,9 @@ func TestBaseImagesPrune_OmittedIdentityAllowsAnotherConsumerAndDeletesOnlyStale
 
 func TestBaseImagesCleanup_LocalInventoryUsesConfiguredRegistry(t *testing.T) {
 	f := newPruneFixture(t, false)
-	require.NoError(t, f.run(t, "cleanup"))
+	// The sweep lists the package only for the flavors it is given.
+	inputs := fmt.Sprintf(`[{"flavor":"go","content_id":%q,"base_input_id":%q}]`, strings.Repeat("f", 64), strings.Repeat("f", 64))
+	require.NoError(t, f.run(t, "cleanup", "--base-inputs-json", inputs))
 	require.Empty(t, f.cosign.Invocations("cosign"))
 	require.NotEmpty(t, f.requests)
 

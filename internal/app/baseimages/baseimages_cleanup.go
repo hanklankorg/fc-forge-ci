@@ -17,7 +17,8 @@ import (
 
 // CleanupStagingBaseImages deletes promoted staging base tags through the forge
 // package-version API, verifies final tags before and after deletion, and sweeps
-// stale staging versions that are still present in the package registry.
+// stale staging versions of the same flavors that are still present in the
+// package registry.
 func CleanupStagingBaseImages(ctx context.Context, registry imageDigestResolver, cleaner baseImagePackageAPI, out io.Writer, in BaseImageCleanupStagingInput) error {
 	if registry == nil {
 		return fmt.Errorf("base images cleanup: registry resolver is required: %w", errs.ErrUsage)
@@ -35,12 +36,26 @@ func CleanupStagingBaseImages(ctx context.Context, registry imageDigestResolver,
 	if err != nil {
 		return err
 	}
+	// The sweep is scoped to the flavors this cleanup was given: another
+	// flavor's candidate belongs to that flavor's own stage, which may run in
+	// parallel and still need it.
+	flavors := make([]string, 0, len(in.BaseInputs)+len(in.Images))
+	for _, input := range in.BaseInputs {
+		flavors = append(flavors, input.Flavor)
+	}
+
 	// Validate the whole supplied set before any tag is removed or reported.
 	for idx, image := range in.Images {
-		if _, _, _, normalizeErr := normalizeCleanupStagingImage(image, in.ExpectedRepository, idx); normalizeErr != nil {
+		item, _, _, normalizeErr := normalizeCleanupStagingImage(image, in.ExpectedRepository, idx)
+		if normalizeErr != nil {
 			return normalizeErr
 		}
+
+		flavors = append(flavors, item.Flavor)
 	}
+
+	slices.Sort(flavors)
+	flavors = slices.Compact(flavors)
 
 	for idx, image := range in.Images {
 		item, digest, skip, _ := normalizeCleanupStagingImage(image, in.ExpectedRepository, idx)
@@ -67,7 +82,7 @@ func CleanupStagingBaseImages(ctx context.Context, registry imageDigestResolver,
 		return fmt.Errorf("base images cleanup: staging cleanup safety check failed: %w", errs.ErrValidation)
 	}
 
-	if err := sweepStaleStagingVersions(ctx, registry, cleaner, out, in.ExpectedRepository, archFinalTags); err != nil {
+	if err := sweepStaleStagingVersions(ctx, registry, cleaner, out, in.ExpectedRepository, flavors, archFinalTags); err != nil {
 		return err
 	}
 
@@ -178,15 +193,21 @@ func cleanupOnePromotedStagingImage(ctx context.Context, registry imageDigestRes
 	return false, nil
 }
 
-// sweepStaleStagingVersions deletes staging package versions that are still
-// present in the registry after promotion.
-func sweepStaleStagingVersions(ctx context.Context, registry imageDigestResolver, cleaner baseImagePackageAPI, out io.Writer, expectedRepository string, archFinalTags map[string]string) error {
+// sweepStaleStagingVersions deletes the given flavors' staging package versions
+// that are still present in the registry after promotion. Other flavors'
+// versions are left to their own cleanup; a version name outside the staging
+// policy is still refused whichever flavor it claims.
+func sweepStaleStagingVersions(ctx context.Context, registry imageDigestResolver, cleaner baseImagePackageAPI, out io.Writer, expectedRepository string, flavors []string, archFinalTags map[string]string) error {
+	if len(flavors) == 0 {
+		return nil
+	}
+
 	owner, name, err := baseImagePackageOwnerName(expectedRepository)
 	if err != nil {
 		return err
 	}
 
-	_, _ = fmt.Fprintln(out, "Checking for stale staging base tags.")
+	_, _ = fmt.Fprintf(out, "Checking for stale staging base tags of %s.\n", strings.Join(flavors, ", "))
 
 	staleVersions, err := cleaner.ListContainerPackageVersions(ctx, owner, name)
 	if err != nil {
@@ -197,6 +218,10 @@ func sweepStaleStagingVersions(ctx context.Context, registry imageDigestResolver
 
 	for _, version := range staleVersions {
 		if !strings.HasPrefix(version, "staging-") {
+			continue
+		}
+
+		if validBaseStagingVersion(version) && !slices.Contains(flavors, stagingVersionFlavor(version)) {
 			continue
 		}
 
@@ -338,6 +363,14 @@ func validBaseStagingVersion(version string) bool {
 	parts := strings.SplitN(strings.TrimPrefix(version, "staging-"), "-", 2)
 
 	return len(parts) == 2 && domaincontainer.ValidSHA256Hex(parts[0]) && baseImageFlavorRE.MatchString(parts[1])
+}
+
+// stagingVersionFlavor returns the flavor of a valid staging version,
+// staging-<id>-<flavor> or staging-<id>-<flavor>-<arch>.
+func stagingVersionFlavor(version string) string {
+	_, flavor, _ := strings.Cut(strings.TrimPrefix(version, "staging-"), "-")
+
+	return strings.TrimSuffix(strings.TrimSuffix(flavor, "-"+domaincontainer.ArchAMD64), "-"+domaincontainer.ArchARM64)
 }
 
 func isBaseArchStagingVersion(version string) bool {

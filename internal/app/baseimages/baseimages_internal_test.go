@@ -245,79 +245,121 @@ func TestCleanupStagingBaseImages_DeletesPromotedAndStaleTags(t *testing.T) {
 	repo := "forge.example/examplescope/myapp-base"
 	baseID := strings.Repeat("1", 64)
 	contentID := strings.Repeat("2", 64)
-	digest := "sha256:" + strings.Repeat("6", 64)
-	registry := &fakeBaseImageRegistry{digests: map[string]string{
-		repo + ":" + baseID + "-rust":                        digest,
-		repo + ":staging-" + baseID + "-rust":                digest,
-		repo + ":staging-" + contentID + "-rust-amd64":       "sha256:" + strings.Repeat("7", 64),
-		repo + ":staging-" + strings.Repeat("3", 64) + "-go": "sha256:" + strings.Repeat("8", 64),
-		repo + ":" + strings.Repeat("3", 64) + "-go":         "sha256:" + strings.Repeat("8", 64),
-	}}
-	cleaner := &fakeBaseImagePackageAPI{versions: []string{
-		"1.0.0",
-		"staging-" + contentID + "-rust-amd64",
-		"staging-" + strings.Repeat("3", 64) + "-go",
-	}}
+	olderID := strings.Repeat("3", 64)
 
-	var log bytes.Buffer
+	// One package holds a root (core) and flavors built on it, each by its own
+	// stage, possibly in parallel. Every manifest candidate here is promoted:
+	// its final exists with the same digest, which is all the sweep needs to
+	// delete it. go and rust-slim are other stages' in-flight candidates, and
+	// rust-slim shares rust's name as a prefix.
+	digests := map[string]string{}
 
-	err := CleanupStagingBaseImages(context.Background(), registry, cleaner, &log, BaseImageCleanupStagingInput{
-		Images: []BaseImageMetadata{{
-			Flavor:       "rust",
-			Tag:          repo + ":" + baseID + "-rust",
-			Ref:          repo + "@" + digest,
-			CandidateTag: repo + ":staging-" + baseID + "-rust",
-			CandidateRef: repo + "@" + digest,
+	for idx, version := range []string{baseID + "-core", baseID + "-rust", baseID + "-go", baseID + "-rust-slim", olderID + "-core", olderID + "-rust"} {
+		digest := fmt.Sprintf("sha256:%064x", idx+1)
+		digests[repo+":"+version] = digest
+		digests[repo+":staging-"+version] = digest
+	}
+
+	for _, flavor := range []string{"core", "rust"} {
+		digests[repo+":staging-"+contentID+"-"+flavor+"-amd64"] = "sha256:" + strings.Repeat("e", 64)
+	}
+
+	image := func(flavor string) BaseImageMetadata {
+		return BaseImageMetadata{
+			Flavor:       flavor,
+			Tag:          repo + ":" + baseID + "-" + flavor,
+			Ref:          repo + "@" + digests[repo+":"+baseID+"-"+flavor],
+			CandidateTag: repo + ":staging-" + baseID + "-" + flavor,
+			CandidateRef: repo + "@" + digests[repo+":"+baseID+"-"+flavor],
 			BaseInputID:  baseID,
-		}},
-		BaseInputs:         []BaseInput{{Flavor: "rust", ContentID: contentID, BaseInputID: baseID}},
-		ExpectedRepository: repo,
-	})
-	if err != nil {
-		t.Fatalf("CleanupStagingBaseImages() error = %v", err)
-	}
-
-	// Ordered equality, not membership. Deletions here are irreversible, and
-	// a substring search over the joined list cannot see the two failures that
-	// matter: a tag deleted that should have been kept -- the final tag, or
-	// another flavour's staging -- and the same tag deleted twice, which a
-	// registry answers with a 404 the second time.
-	//
-	// The order is the pass order: the promoted candidate first, then the
-	// stale versions in the order the package listing returned them.
-	wantDeleted := []string{
-		repo + ":staging-" + baseID + "-rust",
-		repo + ":staging-" + contentID + "-rust-amd64",
-		repo + ":staging-" + strings.Repeat("3", 64) + "-go",
-	}
-	if !slices.Equal(cleaner.deleted, wantDeleted) {
-		t.Fatalf("deleted = %q\nwant     %q", cleaner.deleted, wantDeleted)
-	}
-
-	// Every delete that was attempted also landed: a refused one would leave
-	// deleteHit ahead of the recorded list, and the pass would have reported
-	// success having skipped it.
-	if cleaner.deleteHit != len(wantDeleted) {
-		t.Errorf("DeleteTag was called %d time(s) but %d landed", cleaner.deleteHit, len(wantDeleted))
-	}
-
-	// The final tags are what the whole preflight exists to protect.
-	for _, keep := range []string{
-		repo + ":" + baseID + "-rust",
-		repo + ":" + strings.Repeat("3", 64) + "-go",
-		"1.0.0",
-	} {
-		if slices.Contains(cleaner.deleted, keep) {
-			t.Errorf("cleanup deleted %q, which is not a staging tag", keep)
 		}
 	}
 
-	if cleaner.listOwner != "examplescope" || cleaner.listName != "myapp-base" {
-		t.Fatalf("list package owner/name = %s/%s", cleaner.listOwner, cleaner.listName)
-	}
+	staging := func(version string) string { return repo + ":staging-" + version }
 
-	if !strings.Contains(log.String(), "Preserving base signature artifacts") {
-		t.Fatalf("log missing signature preservation message: %s", log.String())
+	for _, tc := range []struct {
+		name    string
+		flavors []string
+		// The order is the pass order: the promoted candidates first, then
+		// the given flavors' stale versions in sorted listing order.
+		wantDeleted []string
+	}{
+		{
+			name:        "flavor stage keeps the root's and other flavors' candidates",
+			flavors:     []string{"rust"},
+			wantDeleted: []string{staging(baseID + "-rust"), staging(contentID + "-rust-amd64"), staging(olderID + "-rust")},
+		},
+		{
+			name:        "root stage keeps every flavor's candidate",
+			flavors:     []string{"core"},
+			wantDeleted: []string{staging(baseID + "-core"), staging(contentID + "-core-amd64"), staging(olderID + "-core")},
+		},
+		{
+			name:    "one cleanup for several flavors sweeps each of them",
+			flavors: []string{"core", "rust"},
+			wantDeleted: []string{
+				staging(baseID + "-core"), staging(baseID + "-rust"),
+				staging(contentID + "-core-amd64"), staging(contentID + "-rust-amd64"),
+				staging(olderID + "-core"), staging(olderID + "-rust"),
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			in := BaseImageCleanupStagingInput{ExpectedRepository: repo}
+			own := map[string]bool{}
+
+			for _, flavor := range tc.flavors {
+				own[image(flavor).CandidateTag] = true
+				in.Images = append(in.Images, image(flavor))
+				in.BaseInputs = append(in.BaseInputs, BaseInput{Flavor: flavor, ContentID: contentID, BaseInputID: baseID})
+			}
+
+			// The listing holds every staging version except the candidates
+			// this cleanup deletes first, as the registry would after them.
+			cleaner := &fakeBaseImagePackageAPI{versions: []string{"1.0.0"}}
+
+			for ref := range digests {
+				if version := tagName(ref); strings.HasPrefix(version, "staging-") && !own[ref] {
+					cleaner.versions = append(cleaner.versions, version)
+				}
+			}
+
+			registry := &fakeBaseImageRegistry{digests: digests}
+
+			var log bytes.Buffer
+
+			if err := CleanupStagingBaseImages(context.Background(), registry, cleaner, &log, in); err != nil {
+				t.Fatalf("CleanupStagingBaseImages() error = %v", err)
+			}
+
+			// Ordered equality, not membership. Deletions here are
+			// irreversible, and a substring search over the joined list cannot
+			// see the two failures that matter: a tag deleted that should have
+			// been kept -- a final tag, or another flavor's staging -- and the
+			// same tag deleted twice, which a registry answers with a 404 the
+			// second time.
+			if !slices.Equal(cleaner.deleted, tc.wantDeleted) {
+				t.Fatalf("deleted = %q\nwant     %q", cleaner.deleted, tc.wantDeleted)
+			}
+
+			// Every delete that was attempted also landed: a refused one would
+			// leave deleteHit ahead of the recorded list, and the pass would
+			// have reported success having skipped it.
+			if cleaner.deleteHit != len(tc.wantDeleted) {
+				t.Errorf("DeleteTag was called %d time(s) but %d landed", cleaner.deleteHit, len(tc.wantDeleted))
+			}
+
+			if cleaner.listOwner != "examplescope" || cleaner.listName != "myapp-base" {
+				t.Fatalf("list package owner/name = %s/%s", cleaner.listOwner, cleaner.listName)
+			}
+
+			if !strings.Contains(log.String(), "Checking for stale staging base tags of "+strings.Join(tc.flavors, ", ")+".") ||
+				!strings.Contains(log.String(), "Preserving base signature artifacts") {
+				t.Fatalf("log missing sweep scope or signature preservation message: %s", log.String())
+			}
+		})
 	}
 }
 
@@ -354,7 +396,10 @@ func TestCleanupStagingBaseImages_RejectsUnexpectedStagingVersion(t *testing.T) 
 	repo := "forge.example/examplescope/myapp-base"
 	cleaner := &fakeBaseImagePackageAPI{versions: []string{"staging-not-a-content-id-rust"}}
 
+	// The name claims another flavor than the one given; a version outside
+	// the staging policy is refused whichever flavor it names.
 	err := CleanupStagingBaseImages(context.Background(), &fakeBaseImageRegistry{digests: map[string]string{}}, cleaner, io.Discard, BaseImageCleanupStagingInput{
+		BaseInputs:         []BaseInput{{Flavor: "go", ContentID: strings.Repeat("4", 64), BaseInputID: strings.Repeat("4", 64)}},
 		ExpectedRepository: repo,
 	})
 	if !errors.Is(err, errs.ErrValidation) {
