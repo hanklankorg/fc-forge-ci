@@ -903,6 +903,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- On Forgejo, `forge-ci container base-images promote` links the base
+  images' package, such as `<repository>-base`, to the repository the job
+  runs in once their final tags exist, as release-images cleanup links the
+  release images. The base package was linked to no repository before, so
+  it was missing from the repository's Packages page, was not deleted with
+  a demo repository and kept its versions until Forgejo's per-owner package
+  limit refused further uploads. `promote-base-container-images.yml` hands
+  the engine its `RELEASE_REGISTRY_TOKEN` for the link. A link Forgejo
+  refuses is a warning, as for the other packages; a base repository on
+  another registry, such as GHCR, and GitHub and GitLab, link nothing.
 - forge-ci's Trivy scans fetch the vulnerability and Java databases
   from `ghcr.io/aquasecurity` first, with `mirror.gcr.io/aquasec` as the
   fallback only on a registry timeout, rate limit or server error, or a

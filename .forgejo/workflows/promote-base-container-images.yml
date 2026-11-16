@@ -335,7 +335,10 @@ jobs:
             ledger=(--ledger "${SIGNER_WORKSPACE}/base-images.ledger.json")
           fi
           unset LEDGER_JSON
-          printf '%s' "${registry_token}" | FORGE_CI_PROVIDER=forgejo run_forge_ci container base-images promote \
+          # The token that pushed the bases also links their package to
+          # this repository once promoted, as release-images cleanup does.
+          printf '%s' "${registry_token}" | FORGE_CI_PACKAGE_API_TOKEN="${registry_token}" \
+            FORGE_CI_PROVIDER=forgejo run_forge_ci container base-images promote \
             "${ledger[@]}" \
             --expected-repository "${BASE_IMAGE_REPOSITORY}" \
             --registry-username "${registry_user}" \

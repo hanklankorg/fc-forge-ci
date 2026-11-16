@@ -1308,8 +1308,11 @@ Forgejo links no container image on its own either. The `cleanup` job of
 `sign-and-publish-release.yml`, the first after promotion that holds the
 package token, links each release image on this Forgejo's registry under
 the repository's owner, by the image's path beneath the owner, before it
-deletes the candidate tags. An image on another registry, such as GHCR, is
-no package of the owner's and is not linked.
+deletes the candidate tags. Base images are linked the same way by
+`promote-base-container-images.yml`, once their final tags exist, with the
+`RELEASE_REGISTRY_TOKEN` that promotes them; their candidates are versions
+of the same package. An image on another registry, such as GHCR, is no
+package of the owner's and is not linked.
 
 - A package this repository already has is left as it is, so a rerun is no
   error. A package another repository has is never taken from it.

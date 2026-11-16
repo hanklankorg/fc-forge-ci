@@ -2346,8 +2346,8 @@ Forgejo links to each repository, and `demo-delete` deletes them before the
 repository: each only while Forgejo still lists it as that version linked to
 that repository, and a second listing must show them gone. The link is the
 only thing that makes a package a demo's. The release links each package it
-publishes there, container images and Maven and npm packages alike; see
-[Forgejo](forgejo.md#maven-npm-and-gradle-packages-in-the-owners-registry).
+publishes there, release and base images and Maven and npm packages alike;
+see [Forgejo](forgejo.md#maven-npm-and-gradle-packages-in-the-owners-registry).
 A package linked to no repository is never deleted, whatever its name.
 GitLab keeps packages in the project and deletes them with it.
 

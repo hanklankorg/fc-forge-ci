@@ -34,20 +34,32 @@ func TestBaseImagesPromoteParentCLI(t *testing.T) {
 			id := strings.Repeat("a", 64)
 			digest := "sha256:" + strings.Repeat("e", 64)
 
-			var registryCalls atomic.Int64
+			var registryCalls, links atomic.Int64
 
-			registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// The package-API token the promotion links the bases' package with.
+			t.Setenv("FORGE_CI_PACKAGE_API_TOKEN", "fixture-package-token")
+
+			registry := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				registryCalls.Add(1)
 
 				switch {
-				case r.Method == http.MethodGet && r.URL.Path == "/v2/":
-				case r.Method == http.MethodHead && strings.Contains(r.URL.Path, "/manifests/"):
-					w.Header().Set("Docker-Content-Digest", digest)
-					w.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
-					w.Header().Set("Content-Length", "1")
+				case request.Method == http.MethodGet && request.URL.Path == "/v2/":
+				case request.Method == http.MethodHead && strings.Contains(request.URL.Path, "/manifests/"):
+					writer.Header().Set("Docker-Content-Digest", digest)
+					writer.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
+					writer.Header().Set("Content-Length", "1")
+				// The server is a Forgejo: the promoted bases are one container
+				// package of the owner's, linked to no repository yet.
+				case request.Method == http.MethodGet && request.URL.Path == "/api/v1/packages/Owner" &&
+					request.URL.Query().Get("type") == "container" && request.URL.Query().Get("q") == "app-base":
+					_, _ = writer.Write([]byte(`[{"type":"container","name":"app-base"}]`))
+				case request.Method == http.MethodPost && request.URL.Path == "/api/v1/packages/Owner/container/app-base/-/link/App" &&
+					request.Header.Get("Authorization") == "token fixture-package-token":
+					links.Add(1)
+					writer.WriteHeader(http.StatusCreated)
 				default:
-					t.Errorf("unexpected registry mutation/request: %s %s", r.Method, r.URL.Path)
-					w.WriteHeader(http.StatusBadRequest)
+					t.Errorf("unexpected registry mutation/request: %s %s", request.Method, request.URL.Path)
+					writer.WriteHeader(http.StatusBadRequest)
 				}
 			}))
 			t.Cleanup(registry.Close)
@@ -113,11 +125,17 @@ func TestBaseImagesPromoteParentCLI(t *testing.T) {
 			switch mode {
 			case "correct", "full batch":
 				require.NoError(t, err)
+				// Once, for the package all the promoted flavors share.
+				require.Equal(t, int64(1), links.Load(), "base package links")
 			case "no map":
 				// The map is mandatory; there is no legacy path without it.
 				require.ErrorContains(t, err, "base-inputs-json")
 			default:
 				require.ErrorIs(t, err, errs.ErrValidation)
+			}
+
+			if mode != "correct" && mode != "full batch" {
+				require.Zero(t, links.Load(), "a refused promotion links nothing")
 			}
 
 			if strings.HasPrefix(mode, "unknown valid") || mode == "missing batch" || mode == "no map" {

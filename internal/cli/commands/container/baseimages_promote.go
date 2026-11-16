@@ -7,17 +7,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 
 	"github.com/urfave/cli/v3"
 
 	"github.com/diggsweden/forge-ci/internal/adapters/cosign"
 	"github.com/diggsweden/forge-ci/internal/adapters/ociregistry"
 	appbaseimages "github.com/diggsweden/forge-ci/internal/app/baseimages"
+	apppublish "github.com/diggsweden/forge-ci/internal/app/publish"
 	"github.com/diggsweden/forge-ci/internal/cli/deps"
 	"github.com/diggsweden/forge-ci/internal/cli/regflags"
 	"github.com/diggsweden/forge-ci/internal/cliio"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/imageledger"
 )
 
 func baseImagesPromoteCmd() *cli.Command {
@@ -40,7 +44,12 @@ exactly match the target image flavors: missing and extra entries are rejected
 before login. "base-images declared-inputs" projects it from the build's
 ledger; a caller that authenticated the parent itself passes that parent.
 Independently verifying the parent (including cross-repository parents)
-remains the caller's duty.`,
+remains the caller's duty.
+
+On a forge that keeps packages under their owner (Forgejo), the promoted
+images' package is then linked to --repository, with the package-API token
+in $FORGE_CI_PACKAGE_API_TOKEN or the forge's own token variable. A refused
+link is a warning: the images are promoted without it.`,
 		Flags: append(baseImagesCommonFlags(),
 			&cli.StringFlag{Name: flagLedger, Usage: "publication base-image ledger to admit and project; exclusive with --all-images-json"},
 			&cli.StringFlag{Name: "all-images-json", Sources: cli.EnvVars("ALL_IMAGES_JSON"), Usage: "JSON array of base image metadata to verify/promote"},
@@ -81,6 +90,11 @@ remains the caller's duty.`,
 				return err
 			}
 
+			forge, err := baseImagesPackageForge(common)
+			if err != nil {
+				return err
+			}
+
 			return deps.FromCmd(ctx, cmd, func(dep *deps.Deps) error {
 				return withBaseImagesDockerConfig(func(authFile string) error {
 					if err := common.login(authFile); err != nil {
@@ -96,11 +110,50 @@ remains the caller's duty.`,
 						return err
 					}
 
+					linkBaseImagePackages(ctx, forge, os.Stderr, common, images)
+
 					return writeBaseImagesPromoteOutputs(ctx, dep, result)
 				})
 			})
 		},
 	}
+}
+
+// baseImagesPackageForge returns the detected forge, configured with the
+// package-API token and the --server-url and --repository of this
+// invocation, as release-images cleanup configures its own.
+func baseImagesPackageForge(common baseImagesCommon) (any, error) {
+	token, err := regflags.FileOrEnv("", "FORGE_CI_PACKAGE_API_TOKEN")
+	if err != nil {
+		return nil, err
+	}
+
+	return deps.ProviderWith(deps.ProviderConfig{
+		Token:      token,
+		ServerURL:  common.ServerURL,
+		Repository: common.Repository,
+	})
+}
+
+// linkBaseImagePackages links the package of the promoted base images to the
+// repository, as release-images cleanup links the release images. Promotion
+// is the step after which the package is complete: its final tags exist, and
+// the staging candidates pushed before it are versions of the same package,
+// which Forgejo links as a whole. A forge that does not keep packages under
+// their owner, and a repository on another registry such as GHCR, link
+// nothing.
+func linkBaseImagePackages(ctx context.Context, forge any, stderr io.Writer, common baseImagesCommon, images []appbaseimages.BaseImageMetadata) {
+	if common.Foreign {
+		return
+	}
+
+	entries := make([]imageledger.Entry, 0, len(images))
+	for _, image := range images {
+		entries = append(entries, imageledger.Entry{FinalTag: image.Tag})
+	}
+
+	owner, _, _ := strings.Cut(common.Repository, "/")
+	apppublish.LinkPackages(ctx, forge, stderr, "container", imageledger.PackageNames(entries, common.Registry, owner)...)
 }
 
 func basePromotionImages(cmd *cli.Command, repository string) ([]appbaseimages.BaseImageMetadata, error) {

@@ -939,6 +939,11 @@ before login. "base-images declared-inputs" projects it from the build's
 ledger; a caller that authenticated the parent itself passes that parent.
 Independently verifying the parent (including cross-repository parents)
 remains the caller's duty.
+
+On a forge that keeps packages under their owner (Forgejo), the promoted
+images' package is then linked to --repository, with the package-API token
+in $FORGE_CI_PACKAGE_API_TOKEN or the forge's own token variable. A refused
+link is a warning: the images are promoted without it.
 ```
 
 | Flag | Description | Type | Default | Env vars |
