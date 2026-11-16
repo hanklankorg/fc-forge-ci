@@ -206,10 +206,10 @@ func runLayerConsumerPR(t *testing.T, private bool, objectFormat string, pr cons
 	// One commit: neither workflow starts on a push to a branch, and the pull
 	// request should show the one change it makes.
 	files := map[string]string{
-		"go.mod":                         consumerPRGoMod,
-		"main.go":                        consumerPRMain,
-		"main_test.go":                   consumerPRMainTest,
-		consumerPRCanary:                 "consumer-pr-base\n",
+		"go.mod":         consumerPRGoMod,
+		"main.go":        consumerPRMain,
+		"main_test.go":   consumerPRMainTest,
+		consumerPRCanary: "consumer-pr-base\n",
 		".forgejo/workflows/release-workflow.yml": release,
 		".forgejo/workflows/" + workflow + ".yml": scenario.render(t, pr.fixture, pr.facts...),
 	}

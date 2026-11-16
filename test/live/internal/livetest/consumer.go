@@ -1145,7 +1145,7 @@ const EventWorkflowDispatch = "workflow_dispatch"
 func TrialStartEvent(workflow, trial string) (string, error) {
 	starts := []string{"pull_request", EventWorkflowDispatch}
 	if trial == TrialRelease {
-		starts = []string{"push"}
+		starts = []string{eventPush}
 	}
 
 	for _, event := range starts {

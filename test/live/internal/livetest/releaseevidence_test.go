@@ -23,12 +23,12 @@ func TestReleaseEvidencePersistsBeforeCleanup(t *testing.T) {
 
 	target := Target{Forge: provider.ForgeForgejo, Host: "forge.example", Owner: "scratch", Token: "private-provider-credential"}
 	payloads := map[string][]byte{
-		"archive.tar.gz":       {0, 255, 1, 2},
-		"release-files.json":   []byte(`{"assets":["archive.tar.gz"]}`),
+		"archive.tar.gz":          {0, 255, 1, 2},
+		"release-files.json":      []byte(`{"assets":["archive.tar.gz"]}`),
 		"checksums.sha256":        []byte("public checksum\n"),
 		"checksums.sha256.bundle": []byte(`{"signature":"public"}`),
-		"sbom.json":            []byte(`{"bomFormat":"CycloneDX"}`),
-		"package.deb":          []byte("public package"),
+		"sbom.json":               []byte(`{"bomFormat":"CycloneDX"}`),
+		"package.deb":             []byte("public package"),
 	}
 	cleaned := false
 

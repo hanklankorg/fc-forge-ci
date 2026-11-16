@@ -404,7 +404,7 @@ func writeJSON(path string, value any) error {
 }
 
 func plannedNames(artifacts []pipeline.PlannedArtifact) []string {
-	var names []string
+	names := make([]string, 0, len(artifacts))
 	for _, artifact := range artifacts {
 		names = append(names, artifact.Name)
 	}

@@ -70,25 +70,9 @@ func ForgeMavenDeploy(ctx context.Context, model, deploy MavenOps, resolver prov
 
 	_, links := resolver.(provider.ForgePackageLinker)
 
-	var projects []string
-
-	if snapshot || links {
-		body, err := forgeMavenModel(ctx, model, stderr, in)
-		if err != nil {
-			return err
-		}
-
-		if snapshot {
-			if err := domainpublish.ValidateMavenReactorVersions(body, true, ""); err != nil {
-				return err
-			}
-		}
-
-		if links {
-			if projects, err = domainpublish.MavenReactorCoordinates(body); err != nil {
-				return err
-			}
-		}
+	projects, err := forgeMavenReactor(ctx, model, stderr, in, snapshot, links)
+	if err != nil {
+		return err
 	}
 
 	if err := ForgePackagesDeploy(ctx, deploy, resolver, stdout, stderr, in); err != nil {
@@ -102,6 +86,32 @@ func ForgeMavenDeploy(ctx context.Context, model, deploy MavenOps, resolver prov
 	}
 
 	return nil
+}
+
+// forgeMavenReactor reads the effective POM only when snapshot mode checks
+// its versions or the forge links packages, and returns the projects to
+// link: none when it does not link.
+func forgeMavenReactor(ctx context.Context, model MavenOps, stderr io.Writer, in ForgePackagesDeployInput, snapshot, links bool) ([]string, error) {
+	if !snapshot && !links {
+		return nil, nil
+	}
+
+	body, err := forgeMavenModel(ctx, model, stderr, in)
+	if err != nil {
+		return nil, err
+	}
+
+	if snapshot {
+		if err := domainpublish.ValidateMavenReactorVersions(body, true, ""); err != nil {
+			return nil, err
+		}
+	}
+
+	if !links {
+		return nil, nil
+	}
+
+	return domainpublish.MavenReactorCoordinates(body)
 }
 
 // forgeMavenModel is the effective POM a forge deploy with in resolves: the
