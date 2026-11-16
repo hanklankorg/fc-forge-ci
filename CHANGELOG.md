@@ -396,6 +396,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A release no longer carries the release plan. `release-plan.json` and
+  `snapshot-release-plan.json` are the pipeline's own plan, not files a
+  user downloads, so every release file manifest refuses them, on every
+  forge and for releases and snapshots alike: a workflow that added the
+  plan with `release files manifest --unsigned --evidence-file
+  dist/release-plan.json` now fails there, and its later jobs read the plan
+  as a job output or a run artifact instead. Asset retention no longer
+  keeps `release-plan.json` on older releases, so an older release that
+  carries one loses it with its other unkept files; its `.bundle` stays
+  with the other signatures.
 - The examples snapshot as the projects that copy them do: a GitHub
   snapshot caller is run by hand, and the container snapshot no longer runs
   on pushes to `develop` and `feature/**`; a Forgejo one runs on every

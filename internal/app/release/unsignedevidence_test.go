@@ -66,7 +66,7 @@ func TestUnsignedManifestExtendsProducerEvidenceWithoutRediscovery(t *testing.T)
 }
 
 func TestUnsignedManifestEvidenceRefusalsPreserveOriginal(t *testing.T) {
-	for _, scenario := range []string{"missing", "duplicate", "reclassify", "link", "outside", "signed-original", "signed-evidence", "provenance", "without-unsigned", "assets-json"} {
+	for _, scenario := range []string{"missing", "duplicate", "reclassify", "link", "outside", "signed-original", "signed-evidence", "provenance", "without-unsigned", "assets-json", "release-plan"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Chdir(t.TempDir())
 			writeUnsignedReleaseFilesFixture(t)
@@ -103,6 +103,10 @@ func TestUnsignedManifestEvidenceRefusalsPreserveOriginal(t *testing.T) {
 				in.Unsigned = false
 			case "assets-json":
 				in.AssetsJSONFile = "-"
+			case "release-plan":
+				writeReleaseFilesTestFile(t, "dist/release-plan.json", `{"version":1}`)
+
+				in.EvidenceFiles = []string{"dist/release-plan.json"}
 			}
 
 			_, err = apprelease.WriteReleaseFileManifest(in)

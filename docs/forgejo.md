@@ -740,7 +740,9 @@ action's digest to `sign-and-publish-release.yml`.
 [`examples/go-cli/forgejo/goreleaser/release-workflow.yml`](../examples/go-cli/forgejo/goreleaser/release-workflow.yml)
 is the complete caller: copy it in place of the example's `release-workflow.yml`, beside its
 `pullrequest-workflow.yml`. Evidence that arrives after packaging is added with
-`release files manifest --unsigned --evidence-file <file>`.
+`release files manifest --unsigned --evidence-file <file>`. The release plan is
+no release file: a job that needs it reads it as a job output or a run
+artifact, and the manifest refuses `release-plan.json`.
 
 With `snapshot: "true"` the same action is a dry run of that release for a
 snapshot workflow: it packages the checked-out commit with the same skips,

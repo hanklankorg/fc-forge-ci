@@ -1500,10 +1500,21 @@ func validateManifestSections(ctx releaseFilesCtx, manifest *FileManifest) error
 			if filepath.Clean(entry.Path) == filepath.Join(ctx.distDir, "release-images.json") {
 				return fmt.Errorf("release image ledger must not be in the release file manifest: %s: %w", entry.Path, errs.ErrValidation)
 			}
+
+			if isReleasePlanFileName(entry.Name) {
+				return fmt.Errorf("release plan must not be in the release file manifest: %s: it is the pipeline's own plan, so hand it to a later job as a job output or a run artifact: %w", entry.Path, errs.ErrValidation)
+			}
 		}
 	}
 
 	return nil
+}
+
+// isReleasePlanFileName reports whether a file is named as the release or
+// snapshot plan. The plan is the pipeline's own: later jobs read it as a job
+// output or a run artifact, and no release publishes it.
+func isReleasePlanFileName(name string) bool {
+	return name == "release-plan.json" || name == "snapshot-release-plan.json"
 }
 
 func validateManifestEntry(ctx releaseFilesCtx, entry FileEntry) error {

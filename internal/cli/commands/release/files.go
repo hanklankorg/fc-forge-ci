@@ -222,7 +222,10 @@ must exist, so a fresh write to another path uses --output.
 
 With --unsigned, preserve the producer's existing file set and add explicit
 --evidence-file paths before signing. Refuses existing signatures, provenance,
-duplicate paths and reclassification; does not read GoReleaser metadata.
+duplicate paths and reclassification; does not read GoReleaser metadata. The
+release plan (release-plan.json, snapshot-release-plan.json) is refused in any
+release file manifest: it is the pipeline's own, handed to later jobs as a job
+output or a run artifact.
 
 With --release-images-ledger, also writes the image SBOMs the ledger pins into
 the release's SBOM bundle <project>-<version>-sboms.tar.gz, beside the SBOMs

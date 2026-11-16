@@ -66,11 +66,11 @@ func TestReleaseRetentionFindings(t *testing.T) {
 		}
 	}
 
-	// The native inventories and the release plan are kept too: losing
-	// both is two findings, and a release of kept files alone shows nothing.
-	evidence := append(slices.Clone(kept), "sbom-app-amd64.json", "release-plan.json")
-	if got := ReleaseRetentionFindings(evidence, kept, before); len(got) != 3 {
-		t.Errorf("a release of evidence alone: %v, want 3 findings", got)
+	// The native inventories are kept too: losing one is a finding, and a
+	// release of kept files alone shows nothing.
+	evidence := append(slices.Clone(kept), "sbom-app-amd64.json")
+	if got := ReleaseRetentionFindings(evidence, kept, before); len(got) != 2 {
+		t.Errorf("a release of evidence alone: %v, want 2 findings", got)
 	}
 
 	// The GitHub SBOM bundle is kept with the other SBOMs: losing it is a

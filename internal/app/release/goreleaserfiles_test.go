@@ -17,11 +17,11 @@ import (
 func TestImportGoReleaserFileManifest_BeforeSigningThenFinalize(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeUnsignedReleaseFilesFixture(t)
-	writeReleaseFilesTestFile(t, "dist/release-plan.json", `{"version":1}`)
+	writeReleaseFilesTestFile(t, "dist/evidence.json", `{"version":1}`)
 
 	manifest, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{
 		SBOMBundleNaming: testSBOMBundleNaming,
-		EvidenceFiles:    []string{"dist/release-plan.json"},
+		EvidenceFiles:    []string{"dist/evidence.json"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +29,7 @@ func TestImportGoReleaserFileManifest_BeforeSigningThenFinalize(t *testing.T) {
 
 	// GoReleaser's SBOM is published in the SBOM bundle, not beside it, and
 	// the checksums file is the engine's.
-	want := []string{testSBOMBundle, "app.apk", "app.deb", "app.rpm", "app.tar.gz", "checksums.sha256", "release-plan.json"}
+	want := []string{testSBOMBundle, "app.apk", "app.deb", "app.rpm", "app.tar.gz", "checksums.sha256", "evidence.json"}
 
 	names := make([]string, 0, len(manifest.Assets))
 	for _, entry := range manifest.Assets {
@@ -43,7 +43,7 @@ func TestImportGoReleaserFileManifest_BeforeSigningThenFinalize(t *testing.T) {
 	}
 
 	evidence, err := apprelease.ListReleaseFiles(apprelease.ListReleaseFilesInput{Section: "evidence"})
-	if err != nil || !slices.Equal(evidence, []string{"dist/release-plan.json"}) {
+	if err != nil || !slices.Equal(evidence, []string{"dist/evidence.json"}) {
 		t.Fatalf("evidence = %v, err = %v", evidence, err)
 	}
 
@@ -83,7 +83,7 @@ func TestImportGoReleaserFileManifest_BeforeSigningThenFinalize(t *testing.T) {
 
 	// Evidence is no checksum subject: unsigned, it is not published.
 	if _, finalizeErr := apprelease.WriteReleaseFileManifest(apprelease.WriteReleaseFileManifestInput{}); !errors.Is(finalizeErr, errs.ErrValidation) ||
-		!strings.Contains(finalizeErr.Error(), "dist/release-plan.json.bundle") {
+		!strings.Contains(finalizeErr.Error(), "dist/evidence.json.bundle") {
 		t.Fatalf("finalization with unsigned evidence = %v, want the missing bundle refused", finalizeErr)
 	}
 
@@ -91,14 +91,14 @@ func TestImportGoReleaserFileManifest_BeforeSigningThenFinalize(t *testing.T) {
 		t.Fatal("failed finalization changed the unsigned manifest")
 	}
 
-	writeReleaseFilesTestFile(t, "dist/release-plan.json.bundle", "evidence signature\n")
+	writeReleaseFilesTestFile(t, "dist/evidence.json.bundle", "evidence signature\n")
 
 	final, err := apprelease.WriteReleaseFileManifest(apprelease.WriteReleaseFileManifestInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertReleaseAssetsInclude(t, final.Assets, "app.deb.sig", "checksums.sha256.bundle", "release-plan.json", "release-plan.json.bundle", "slsa-provenance.intoto.json", "slsa-provenance.intoto.json.bundle")
+	assertReleaseAssetsInclude(t, final.Assets, "app.deb.sig", "checksums.sha256.bundle", "evidence.json", "evidence.json.bundle", "slsa-provenance.intoto.json", "slsa-provenance.intoto.json.bundle")
 
 	if !slices.Equal(final.Evidence, manifest.Evidence) || len(final.Provenance) != 1 {
 		t.Fatalf("final classifications = %+v", final)
@@ -121,6 +121,8 @@ func TestImportGoReleaserFileManifest_RefusesInvalidEvidence(t *testing.T) {
 		{name: "reclassifies archive", evidence: []string{"dist/app.tar.gz"}, wantErr: errs.ErrValidation},
 		{name: "duplicate", evidence: []string{"dist/plan.json", "dist/plan.json"}, wantErr: errs.ErrValidation},
 		{name: "internal ledger", evidence: []string{"dist/release-images.json"}, wantErr: errs.ErrValidation},
+		{name: "release plan", evidence: []string{"dist/release-plan.json"}, wantErr: errs.ErrValidation},
+		{name: "snapshot plan", evidence: []string{"dist/snapshot-release-plan.json"}, wantErr: errs.ErrValidation},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Chdir(t.TempDir())
@@ -128,6 +130,8 @@ func TestImportGoReleaserFileManifest_RefusesInvalidEvidence(t *testing.T) {
 			writeReleaseFilesTestFile(t, "outside.json", "outside\n")
 			writeReleaseFilesTestFile(t, "dist/plan.json", "evidence\n")
 			writeReleaseFilesTestFile(t, "dist/release-images.json", "[]\n")
+			writeReleaseFilesTestFile(t, "dist/release-plan.json", `{"version":1}`)
+			writeReleaseFilesTestFile(t, "dist/snapshot-release-plan.json", `{"version":1}`)
 
 			if err := os.Symlink("../outside.json", "dist/link.json"); err != nil {
 				t.Fatal(err)
@@ -169,19 +173,19 @@ func TestImportGoReleaserFileManifest_RefusesAnAlreadySignedDist(t *testing.T) {
 		"dist/app.tar.gz.bundle",
 		"dist/app.deb.sig",
 		"dist/checksums.sha256.bundle",
-		"dist/release-plan.json.bundle",
+		"dist/evidence.json.bundle",
 		"dist/slsa-provenance.intoto.json",
 		"dist/slsa-provenance.intoto.json.bundle",
 	} {
 		t.Run(planted, func(t *testing.T) {
 			t.Chdir(t.TempDir())
 			writeUnsignedReleaseFilesFixture(t)
-			writeReleaseFilesTestFile(t, "dist/release-plan.json", `{"version":1}`)
+			writeReleaseFilesTestFile(t, "dist/evidence.json", `{"version":1}`)
 			writeReleaseFilesTestFile(t, planted, "producer supplied\n")
 
 			_, err := apprelease.ImportGoReleaserFileManifest(apprelease.ImportGoReleaserFileManifestInput{
 				SBOMBundleNaming: testSBOMBundleNaming,
-				EvidenceFiles:    []string{"dist/release-plan.json"},
+				EvidenceFiles:    []string{"dist/evidence.json"},
 			})
 			if !errors.Is(err, errs.ErrValidation) {
 				t.Fatalf("err = %v, want the signed dist refused", err)
