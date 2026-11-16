@@ -28,9 +28,15 @@ const (
 )
 
 // TrivyDBSourceArgs names where Trivy fetches its vulnerability and Java
-// databases: the vendor's own registry first, the mirror.gcr.io
-// pull-through cache as fallback. Trivy's default order is the reverse,
-// and it does not fall back when the cache answers a layer with 404.
+// databases: the vendor's own registry, ghcr.io, first. Trivy's default
+// puts the mirror.gcr.io pull-through cache first, and the cache has
+// answered a layer with 404. Trivy moves on to the next repository only
+// on a rate limit, a server error or BLOB_UNKNOWN; a 404, a denied or
+// unauthorised pull, a DNS failure or a refused connection stops the
+// scan. So the mirror is a fallback for rate limits and server errors
+// only, and the runner must reach ghcr.io. The pull sends the job's
+// registry login for ghcr.io, if it has one (DOCKER_CONFIG and
+// REGISTRY_AUTH_FILE are kept), so a stale or under-scoped one fails it.
 func TrivyDBSourceArgs() []string {
 	return []string{
 		"--db-repository", "ghcr.io/aquasecurity/trivy-db:2,mirror.gcr.io/aquasec/trivy-db:2",
