@@ -870,6 +870,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- forge-ci's Trivy scans fetch the vulnerability and Java databases
+  from `ghcr.io/aquasecurity` first and keep `mirror.gcr.io/aquasec` as
+  the fallback. Trivy tries the mirror first by default, and when that
+  pull-through cache answered a database layer with 404, Trivy failed
+  the scan instead of trying GitHub, so a release stopped at its base
+  candidate.
 - On Forgejo, a release links every package it publishes to the repository
   it runs from, as GitHub does. The plain `mvn deploy` form of
   `forge-ci publish forge-packages deploy` now links each reactor project

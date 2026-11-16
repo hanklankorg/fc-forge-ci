@@ -27,6 +27,17 @@ const (
 	DefaultTrivyGitLabContainerFile = "gl-container-scanning-report.json"
 )
 
+// TrivyDBSourceArgs names where Trivy fetches its vulnerability and Java
+// databases: the vendor's own registry first, the mirror.gcr.io
+// pull-through cache as fallback. Trivy's default order is the reverse,
+// and it does not fall back when the cache answers a layer with 404.
+func TrivyDBSourceArgs() []string {
+	return []string{
+		"--db-repository", "ghcr.io/aquasecurity/trivy-db:2,mirror.gcr.io/aquasec/trivy-db:2",
+		"--java-db-repository", "ghcr.io/aquasecurity/trivy-java-db:1,mirror.gcr.io/aquasec/trivy-java-db:1",
+	}
+}
+
 // ParseTrivyReport decodes consumed fields and requires a Results array (possibly
 // empty) or a nonblank ArtifactName. Omitted and null Results decode alike.
 // Unknown fields are allowed; this is not full native-schema validation.

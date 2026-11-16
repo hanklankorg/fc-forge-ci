@@ -18,6 +18,7 @@ import (
 
 	appsecurity "github.com/diggsweden/forge-ci/internal/app/security"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/security"
 	"github.com/diggsweden/forge-ci/internal/testutil/fakeoutputsink"
 	"github.com/stretchr/testify/require"
 )
@@ -95,7 +96,10 @@ func TestRawContainerScan_RunsTrivyValidatesJSONAndWritesOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []string{"image", "--timeout", "7m", "--platform", "linux/arm64", "--scanners", "vuln,secret", "--skip-version-check", "--format", "json", "--output", output, "forge.example/example/app@sha256:deadbeef"}
+	want := []string{"image", "--timeout", "7m", "--platform", "linux/arm64", "--scanners", "vuln,secret", "--skip-version-check", "--format", "json", "--output", output}
+	want = append(want, security.TrivyDBSourceArgs()...)
+	want = append(want, "forge.example/example/app@sha256:deadbeef")
+
 	if !slices.Equal(trivy.args[0], want) {
 		t.Fatalf("trivy args = %#v, want %#v", trivy.args[0], want)
 	}

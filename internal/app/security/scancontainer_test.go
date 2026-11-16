@@ -320,6 +320,8 @@ func TestScanContainer_ImageScanArgsCarryThresholdAndExitZero(t *testing.T) {
 		"--skip-version-check",
 		"--timeout", "30m",
 		"--exit-code", "0",
+		"--db-repository", "ghcr.io/aquasecurity/trivy-db:2,mirror.gcr.io/aquasec/trivy-db:2",
+		"--java-db-repository", "ghcr.io/aquasecurity/trivy-java-db:1,mirror.gcr.io/aquasec/trivy-java-db:1",
 		"ghcr.io/example/img@sha256:deadbeef",
 	}
 	if !slices.Equal(trivy.runs[0], want) {

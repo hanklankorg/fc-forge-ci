@@ -18,6 +18,7 @@ import (
 
 	appcontainer "github.com/diggsweden/forge-ci/internal/app/container"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/domain/security"
 	"github.com/stretchr/testify/require"
 )
 
@@ -196,6 +197,8 @@ func TestImageEvidence_OCILayoutScansAndWritesOptionalSBOM(t *testing.T) {
 	assertPrivateEvidenceOutput(t, stagedTrivy, trivyOut)
 
 	wantArgs := []string{"image", "--input", layout, "--scanners", "vuln", "--skip-version-check", "--timeout", "7m", "--format", "json", "--output", stagedTrivy}
+	wantArgs = append(wantArgs, security.TrivyDBSourceArgs()...)
+
 	if !slices.Equal(trivy.args, wantArgs) {
 		t.Fatalf("trivy args = %#v, want %#v", trivy.args, wantArgs)
 	}

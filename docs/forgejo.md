@@ -145,7 +145,7 @@ host.
 | | the Go download host and the Go module proxy | The Go toolchain and the consumer's modules. |
 | | whatever the consumer's mise config names | Its tools. Tools from GitHub releases go through the GitHub API, which is why the action takes a rate-limit token. |
 | Pull-request lint | whatever nanolinter's checks fetch | For example a rule registry for the SAST check. The `offline` input of `lint-nanolinter` is for a runner without that access. |
-| An image build and scan | the registries of the base images; the Trivy database registry | Base images, and the vulnerability database of the scan. |
+| An image build and scan | the registries of the base images; `ghcr.io`, then `mirror.gcr.io` as fallback | Base images, and the vulnerability and Java databases of the Trivy scan. |
 | The signing jobs, only with `transparency-log: public` | `rekor.sigstore.dev`, `tuf-repo-cdn.sigstore.dev` | The transparency log entry of each signature. With the default, `none`, the signing jobs reach no Sigstore service; see [The transparency log](#the-transparency-log). |
 | The signer image build | `docker.io`, `github.com`, `code.forgejo.org` | The Debian base image, the pinned `jq`, `cosign` and `syft`, and the checkout action. |
 | The binary job of the signer-image workflow | `code.forgejo.org`, the Go download host and the Go module proxy | The checkout and Go set-up actions, the Go release `go.mod` names, and the modules the CLI is built from. Only the organization that serves the layer runs it, once per pinned commit. |

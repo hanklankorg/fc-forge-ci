@@ -680,6 +680,8 @@ func runImageEvidenceTrivy(ctx context.Context, trivy ImageEvidenceTrivy, out, s
 		"--format", "json",
 		"--output", output,
 	}
+	args = append(args, security.TrivyDBSourceArgs()...)
+
 	if platform != "" {
 		args = append(args, "--platform", platform)
 	}
