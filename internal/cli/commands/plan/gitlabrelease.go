@@ -33,7 +33,6 @@ const (
 	flagProjectTypeOutput = "project-type-output"
 	flagPackagesOutput    = "packages-output"
 	flagBaseStages        = "base-stages"
-	flagImageBuilder      = "image-builder"
 )
 
 // gitlabReleasePipelineCmd plans the GitLab release child from the
@@ -97,7 +96,6 @@ EXAMPLE:
 			&cli.StringFlag{Name: flagJobNamesOutput, Usage: "file to write the generated jobs' names to, one a line"},
 			&cli.StringFlag{Name: flagProjectTypeOutput, Usage: "file to write --family's version project type to"},
 			&cli.StringFlag{Name: flagBaseStages, Usage: "the policy's base image graph: stages separated by spaces, each <flavor> for a root or <flavor>[+<flavor>...]:<parent> for the children of one parent built by an earlier stage"},
-			&cli.StringFlag{Name: flagImageBuilder, Value: "buildah", Usage: "the policy's image builder; a child base stage is refused with kaniko"},
 			&cli.StringFlag{Name: flagPackagesOutput, Usage: "file to write the directories of the npm projects published to forge-packages to, one a line"},
 		},
 		Action: planGitLabRelease,
@@ -211,7 +209,7 @@ func writeReleaseFamilies(cmd *cli.Command, plans appconfig.ReleaseStagePlans) e
 		return err
 	}
 
-	if families.Bases, err = gitlabpipeline.ParseBaseStages(cmd.String(flagBaseStages), cmd.String(flagImageBuilder)); err != nil {
+	if families.Bases, err = gitlabpipeline.ParseBaseStages(cmd.String(flagBaseStages)); err != nil {
 		return err
 	}
 

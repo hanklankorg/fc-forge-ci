@@ -21,10 +21,13 @@ import (
 
 const registryInputManifest = "forge-ci-source-manifest.json"
 
-// RegistryInputLoader imports verified local bytes into native builder storage.
-// It receives no registry reference or authentication file.
+// RegistryInputLoader hands verified local bytes to the builder: Buildah
+// imports them into its store, kaniko reads them from its base-image cache.
+// It receives no registry reference or authentication file, and returns the
+// local reference a FROM names the image by, under
+// domaincontainer.RegistryInputRepository and derived from digest.
 type RegistryInputLoader interface {
-	LoadRegistryInput(ctx context.Context, directory, local string, out io.Writer) error
+	LoadRegistryInput(ctx context.Context, directory, digest string, out io.Writer) (string, error)
 }
 
 // ImportRegistryInput verifies the downloaded artifact before the builder sees
@@ -36,12 +39,7 @@ func ImportRegistryInput(ctx context.Context, inspector LayoutInspector, loader 
 		return "", err
 	}
 
-	local := "localhost/forge-ci-input:" + strings.TrimPrefix(image.Digest, "sha256:")
-	if err = loader.LoadRegistryInput(ctx, directory, local, out); err != nil {
-		return "", err
-	}
-
-	return local, nil
+	return loader.LoadRegistryInput(ctx, directory, image.Digest, out)
 }
 
 // RegistryInputReader fetches pinned inputs only. It cannot build or publish.

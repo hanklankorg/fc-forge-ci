@@ -1323,7 +1323,7 @@ func gitLabReleaseRunnerRoles(buildTags, runnerTags []string, images, exports bo
 
 	// A base stage's builds run on the build pool; its other jobs, which run
 	// no Containerfile, do not.
-	stages, err := gitlabpipeline.ParseBaseStages(baseStages, "")
+	stages, err := gitlabpipeline.ParseBaseStages(baseStages)
 	if err != nil {
 		return nil, err
 	}
@@ -1639,7 +1639,7 @@ forge-ci release files declare --dist-dir dist --asset "dist/${package}.tar.gz" 
 func requireGitLabBases(t *testing.T, ctx context.Context, client *gitlabapi.Client, target livetest.Target, project, publication string, child int64, keys releaseKeys, baseStages string) ([]string, map[string]string, []string) {
 	t.Helper()
 
-	stages, err := gitlabpipeline.ParseBaseStages(baseStages, "")
+	stages, err := gitlabpipeline.ParseBaseStages(baseStages)
 	if err != nil {
 		t.Fatal(err)
 	}

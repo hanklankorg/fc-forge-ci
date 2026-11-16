@@ -25,10 +25,11 @@ type registryInputFixture struct {
 	loads    int
 }
 
-func (f *registryInputFixture) LoadRegistryInput(_ context.Context, _, _ string, _ io.Writer) error {
+// LoadRegistryInput names the input as Buildah does, after the digest it is given.
+func (f *registryInputFixture) LoadRegistryInput(_ context.Context, _, digest string, _ io.Writer) (string, error) {
 	f.loads++
 
-	return nil
+	return "localhost/forge-ci-input:" + strings.TrimPrefix(digest, "sha256:"), nil
 }
 
 func (f *registryInputFixture) Manifest(context.Context, string) ([]byte, error) {

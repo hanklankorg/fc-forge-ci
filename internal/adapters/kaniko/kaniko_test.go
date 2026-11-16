@@ -558,3 +558,93 @@ func TestBuildToLayout_ClassifiesTheErrorKanikoEndsOn(t *testing.T) {
 		}
 	}
 }
+
+// A child base starts from the parent its fetch job retained and the build
+// verified. The executor stands in for kaniko offline: given no credential,
+// it finds the parent in --cache-dir under the digest the FROM names, as
+// kaniko does before any registry, and builds from those bytes alone. The
+// loaded parent is that build's: the next one starts without it.
+func TestBuildArch_StartsFromTheVerifiedParentInTheBaseImageCache(t *testing.T) {
+	t.Parallel()
+
+	bins := mockbinary.New(t)
+	bins.Add("executor", `printf 'ARGV %s\n' "$*"
+printf 'ENV DOCKER_CONFIG=%s FF=%s\n' "${DOCKER_CONFIG:-<unset>}" "${FF_KANIKO_REPRODUCIBLE_PRESERVE_BASE_LAYERS:-<unset>}"
+cache= out= from=
+while [ $# -gt 0 ]; do
+  case "$1" in
+  --cache-dir) cache=$2 ;;
+  --oci-layout-path) out=$2 ;;
+  --build-arg) from=${2#PARENT=} ;;
+  esac
+  shift
+done
+if [ -n "$cache" ]; then cp -R "$cache/${from#*@}/." "$out" || exit 97; fi`)
+
+	adapter := &Adapter{Executor: bins.Path("executor"), euid: func() int { return 0 }}
+	registry := ociregistry.NewAnonymous()
+	parent := layoutFixture(t, layerOf(t, tar.Header{Name: "parent", Typeflag: tar.TypeReg, Mode: 0o644}))
+
+	image, err := registry.InspectLayout(t.Context(), parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ref, err := adapter.LoadRegistryInput(t.Context(), parent, image.Digest, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ref != container.RegistryInputRepository+"@"+image.Digest {
+		t.Fatalf("FROM ref %q, want the local name pinned to %s", ref, image.Digest)
+	}
+
+	cache := adapter.baseCache
+
+	var logs [2]strings.Builder
+
+	for build, args := range [][]string{{"PARENT=" + ref}, nil} {
+		req := container.SignerImageBuildToolRequest{Platform: "linux/amd64", LocalImage: "localhost/child:amd64", Context: t.TempDir(), BuildArgs: args}
+		if err := adapter.BuildSignerImage(t.Context(), req, &logs[build]); err != nil {
+			t.Fatal(err)
+		}
+
+		out := filepath.Join(t.TempDir(), "layout")
+		if err := adapter.ExportLocalImageToLayout(t.Context(), req.LocalImage, out, &logs[build]); err != nil {
+			t.Fatalf("build %d: %v\n%s", build, err, logs[build].String())
+		}
+
+		if build > 0 {
+			continue
+		}
+
+		built, err := registry.InspectLayout(t.Context(), out)
+		if err != nil || built.Digest != image.Digest {
+			t.Fatalf("the child is not built from the verified parent: %+v, %v", built, err)
+		}
+	}
+
+	for _, want := range []string{
+		"--build-arg PARENT=localhost/forge-ci-input@" + image.Digest,
+		"--cache-dir " + cache + " --ignore-path " + cache + " --cache=true --no-push-cache",
+		"ENV DOCKER_CONFIG=<unset> FF=1",
+	} {
+		if !strings.Contains(logs[0].String(), want) {
+			t.Errorf("child build lacks %q:\n%s", want, logs[0].String())
+		}
+	}
+
+	if strings.Contains(logs[0].String(), "--cache-repo") {
+		t.Errorf("child build reaches for a cache repository:\n%s", logs[0].String())
+	}
+
+	if _, err := os.Stat(cache); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the base-image cache outlives its build: %v", err)
+	}
+
+	for _, absent := range []string{"--cache-dir", "--cache=true", "FF=1"} {
+		if strings.Contains(logs[1].String(), absent) {
+			t.Errorf("the next build inherits the parent's %q:\n%s", absent, logs[1].String())
+		}
+	}
+}

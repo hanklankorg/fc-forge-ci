@@ -210,9 +210,6 @@ jobs:
       layouts: ${{ steps.plan.outputs.layouts }}
     env:
       FORGE_CI_REPOSITORY_URL: ${{ needs.coordinates.outputs.helpers_repository }}
-      # A child builds with Buildah only: its plan is refused for kaniko here,
-      # before the fetch job reads the parent with the registry token.
-      CI_IMAGE_BUILDER: ${{ needs.coordinates.outputs.builder }}
     steps:
       - name: Checkout layer helpers
         env:

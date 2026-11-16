@@ -730,7 +730,7 @@ The protected caller must independently verify the parent with Cosign, its trust
 build the stage's child BASE images of one architecture using secret-free prepared parent inputs
 
 ```
-Requires --inputs-dir from the existing release-images fetch-build-inputs boundary. No registry fetch credentials or parent authentication run in the builder.
+Requires --inputs-dir from the existing release-images fetch-build-inputs boundary. No registry fetch credentials or parent authentication run in the builder: Buildah imports the verified parent layout into its store, kaniko reads it from its base-image cache.
 ```
 
 | Flag | Description | Type | Default | Env vars |
@@ -799,7 +799,6 @@ planned unchecked: without any --runner-input the plan is refused.
 | `--retry-attempts` | registry attempts | int | `3` | n/a |
 | `--output` | admitted plan output file (required) | string | `""` | n/a |
 | `--runner-input` | runner input of the calling layer as it passed it, name=value, such as build-runs-on-linux-arm64=["arm64"] (repeatable, at least one); a planned build whose image build runner input has no value is refused | string | `""` | n/a |
-| `--image-builder` | image builder the build jobs will use; kaniko is refused here, before any parent is fetched | string | `""` | `$CI_IMAGE_BUILDER` |
 | `--parent-base-json` | explicit caller-verified immediate parent as {ref: digest-pinned-ref, input_id: opaque-sha256-ID}; not producer authentication (required) | string | `""` | n/a |
 | `--stage-flavors` | the stage's flavors, separated by commas; a plan with another set of flavors is refused | string | `""` | n/a |
 
@@ -3266,7 +3265,6 @@ EXAMPLE:
 | `--job-names-output` | file to write the generated jobs' names to, one a line | string | `""` | n/a |
 | `--project-type-output` | file to write --family's version project type to | string | `""` | n/a |
 | `--base-stages` | the policy's base image graph: stages separated by spaces, each <flavor> for a root or <flavor>[+<flavor>...]:<parent> for the children of one parent built by an earlier stage | string | `""` | n/a |
-| `--image-builder` | the policy's image builder; a child base stage is refused with kaniko | string | `"buildah"` | n/a |
 | `--packages-output` | file to write the directories of the npm projects published to forge-packages to, one a line | string | `""` | n/a |
 
 ### `forge-ci plan gitlab-snapshot-pipeline`

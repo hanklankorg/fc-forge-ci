@@ -227,7 +227,7 @@ func TestBaseChildIsPlannedAndBuiltOnlyOnItsVerifiedParent(t *testing.T) {
 			call: "rc_base_plan 'tools+debug' 'base'", given: map[string]string{"_release-base-promote/base.json": baseProjection},
 			calls: []string{
 				"planner: tools,debug " + baseRepository + " " + baseRepository + "@sha256:" + strings.Repeat("c", 64) + " " + strings.Repeat("d", 64) + " token=unset",
-				"container base-images child-base plan --parent-base-json " + baseProjection + " --image-builder buildah --plan ",
+				"container base-images child-base plan --parent-base-json " + baseProjection + " --plan ",
 				" --stage-flavors tools,debug ", amd64BaseRunner,
 			},
 		},

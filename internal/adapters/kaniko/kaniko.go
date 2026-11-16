@@ -28,6 +28,9 @@
 //     kaniko leaves alone, for a job that builds more than once.
 //   - Build secrets are refused: kaniko keeps them recoverable by later RUN
 //     steps of the same build.
+//   - A verified parent is not imported into a store but copied into kaniko's
+//     base-image cache, which the next build reads offline instead of the
+//     registry (LoadRegistryInput).
 //
 // The multiarch build-arch tool expects a build into a local tag followed by an
 // export. Here the build is recorded under that tag and performed when the
@@ -41,6 +44,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,6 +54,7 @@ import (
 	"github.com/diggsweden/forge-ci/internal/archive"
 	"github.com/diggsweden/forge-ci/internal/domain/container"
 	"github.com/diggsweden/forge-ci/internal/domain/errs"
+	"github.com/diggsweden/forge-ci/internal/pathsafe"
 	"github.com/diggsweden/forge-ci/internal/safeexec"
 )
 
@@ -69,6 +74,10 @@ const (
 	ExecutionNotice = "kaniko replaces this container's root filesystem with the image's and deletes it after the build; mounts, the layout, the context and /kaniko are kept."
 )
 
+// flagIgnorePath keeps a path through kaniko's replacement of the root
+// filesystem.
+const flagIgnorePath = "--ignore-path"
+
 // Adapter wraps the kaniko executor. Executor is overridable for tests and
 // for an installation that places the binary elsewhere.
 type Adapter struct {
@@ -81,6 +90,9 @@ type Adapter struct {
 	// staged holds build-arch requests between BuildSignerImage and the
 	// export that gives them their layout directory.
 	staged map[string]container.SignerImageBuildToolRequest
+	// baseCache holds the verified parents LoadRegistryInput copied for the
+	// next build, which consumes and removes it.
+	baseCache string
 }
 
 // LayoutFilesystem reads the effective filesystem of a verified OCI layout as
@@ -101,6 +113,8 @@ type build struct {
 	Reproducible  bool
 	CacheRepo     string
 	CachePush     bool
+	// BaseCache is the base-image cache of verified parents, or empty.
+	BaseCache string
 }
 
 // Build exports a stage's filesystem (--mode local) and refuses the load mode,
@@ -195,6 +209,39 @@ func (a *Adapter) ExportLocalImageToLayout(ctx context.Context, imageRef, layout
 	}, layoutDir, out)
 }
 
+// LoadRegistryInput makes the verified OCI layout in directory the base image
+// a FROM pinned to digest starts from. Kaniko looks such a FROM up in its
+// base-image cache before any registry, as <cache-dir>/<digest>: an OCI layout
+// holding the one image, the format `kaniko warmer` writes. The layout is
+// copied there, so the build reads this process's own copy, and the returned
+// reference names it; no registry is contacted and no credential is read.
+func (a *Adapter) LoadRegistryInput(_ context.Context, directory, digest string, _ io.Writer) (string, error) {
+	if !container.ValidDigest(digest) {
+		return "", fmt.Errorf("registry input digest %q is not a sha256 digest: %w", digest, errs.ErrValidation)
+	}
+
+	if a.baseCache == "" {
+		// Under TMPDIR, which the kaniko job image keeps under /kaniko.
+		dir, err := os.MkdirTemp("", "forge-ci-kaniko-base-*")
+		if err != nil {
+			return "", fmt.Errorf("create the kaniko base-image cache: %w", err)
+		}
+
+		if a.baseCache, err = filepath.Abs(dir); err != nil {
+			return "", fmt.Errorf("resolve the kaniko base-image cache: %w", err)
+		}
+	}
+
+	entry := filepath.Join(a.baseCache, digest)
+	if _, err := os.Lstat(entry); errors.Is(err, fs.ErrNotExist) {
+		if err := copyLayout(directory, entry); err != nil {
+			return "", fmt.Errorf("copy the verified parent into the kaniko base-image cache: %w", err)
+		}
+	}
+
+	return container.RegistryInputRepository + "@" + digest, nil
+}
+
 // exportFilesystem builds the target into a private layout, which the build
 // keeps through --ignore-path, then extracts its flattened filesystem into
 // req.OutputDir. Image layers are untrusted: the extraction never writes
@@ -268,6 +315,12 @@ func (a *Adapter) preflight() error {
 }
 
 func (a *Adapter) run(ctx context.Context, spec build, layoutDir string, out io.Writer) error {
+	// The loaded parents are this build's: the next starts without them.
+	spec.BaseCache, a.baseCache = a.baseCache, ""
+	if spec.BaseCache != "" {
+		defer func() { _ = os.RemoveAll(spec.BaseCache) }()
+	}
+
 	if err := a.preflight(); err != nil {
 		return err
 	}
@@ -338,13 +391,22 @@ func (a *Adapter) arguments(spec build, layoutDir string) ([]string, func(), []s
 	}
 
 	if stageDir != "" {
-		args = append(args, "--ignore-path", stageDir)
+		args = append(args, flagIgnorePath, stageDir)
 	}
 
 	args = append(args, imageArguments(spec)...)
 
+	var env []string
+
+	if spec.BaseCache != "" {
+		args = append(args, baseCacheArguments(spec)...)
+		// --reproducible would rewrite the parent's layers as well; the child
+		// carries the verified parent's layers byte for byte, as with Buildah.
+		env = append(env, "FF_KANIKO_REPRODUCIBLE_PRESERVE_BASE_LAYERS=1")
+	}
+
 	if spec.AuthFile == "" {
-		return args, cleanup, nil, nil
+		return args, cleanup, env, nil
 	}
 
 	configDir, err := stageDockerConfig(spec.AuthFile)
@@ -353,9 +415,71 @@ func (a *Adapter) arguments(spec build, layoutDir string) ([]string, func(), []s
 	}
 
 	staged = append(staged, configDir)
-	args = append(args, "--ignore-path", configDir)
+	args = append(args, flagIgnorePath, configDir)
 
-	return args, cleanup, []string{"DOCKER_CONFIG=" + configDir}, nil
+	return args, cleanup, append(env, "DOCKER_CONFIG="+configDir), nil
+}
+
+// baseCacheArguments point kaniko at the verified parents. It reads its
+// base-image cache only with --cache=true, which without a cache repository
+// needs --no-push-cache; its layer cache then has no repository to look in.
+func baseCacheArguments(spec build) []string {
+	args := []string{"--cache-dir", spec.BaseCache, flagIgnorePath, spec.BaseCache}
+	if spec.CacheRepo == "" {
+		args = append(args, "--cache=true", "--no-push-cache")
+	}
+
+	return args
+}
+
+// copyLayout copies the directories and regular files of the layout in
+// source to the new directory destination, and refuses anything else.
+func copyLayout(source, destination string) error {
+	root, err := pathsafe.OpenRoot(source)
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = root.Close() }()
+
+	return fs.WalkDir(root.FS(), ".", func(name string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		target := filepath.Join(destination, filepath.FromSlash(name))
+
+		switch {
+		case entry.IsDir():
+			return os.Mkdir(target, 0o700)
+		case entry.Type().IsRegular():
+			return copyLayoutFile(root, name, target)
+		default:
+			return fmt.Errorf("layout entry %s is not a regular file: %w", name, errs.ErrValidation)
+		}
+	})
+}
+
+func copyLayoutFile(root *os.Root, name, target string) error {
+	in, err := root.Open(name)
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = in.Close() }()
+
+	out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // target is under this process's own cache directory.
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+
+		return err
+	}
+
+	return out.Close()
 }
 
 // layoutArguments names where the build reads and writes, absolutely, and
@@ -382,8 +506,8 @@ func layoutArguments(spec build, containerfile, layoutDir string) ([]string, err
 		// A base image is fetched again when the registry cannot be reached.
 		"--image-download-retry", strconv.Itoa(container.RegistryRetries),
 		"--oci-layout-path", layout,
-		"--ignore-path", layout,
-		"--ignore-path", contextDir,
+		flagIgnorePath, layout,
+		flagIgnorePath, contextDir,
 	}
 
 	if containerfile != "" {

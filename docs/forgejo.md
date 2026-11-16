@@ -952,8 +952,9 @@ image here neither signs nor promotes it; that is the
 A private parent image is declared in each build's `registry-inputs`, for
 example `{"BASE_IMAGE":"ghcr.io/owner/base@sha256:..."}`, matching a build
 argument with that digest-pinned value. A separate job fetches it with the
-registry credential, so no token enters the build job. Private parents need
-Buildah; kaniko refuses them.
+registry credential, so no token enters the build job. Either builder builds
+on it: Buildah imports the verified layout into its store, kaniko reads it
+from its base-image cache.
 
 ### Base images
 
@@ -1009,13 +1010,13 @@ registry token and runs nothing of yours, and the build job starts from
 those bytes. The child's signed lineage then names its parent's digest and
 input ID, and promotion holds the image's own statement to it.
 
-A child builds with Buildah only, from the parent layout imported after it
-is verified against the pinned digest; kaniko would need a registry
-credential in the job that runs your Containerfile. With
-`CI_IMAGE_BUILDER=kaniko` the plan refuses the child. A root builds with
-either builder. Where your runners are kaniko-only, set `CI_IMAGE_BUILDER` to
-`buildah` on the repository and borrow a runner; see
-[Runner lending](runners.md#runner-lending).
+A child builds with either builder, from the parent layout verified against
+the pinned digest, in the job that runs your Containerfile without a
+registry credential. Buildah imports the layout into its store; kaniko reads
+it from its base-image cache, where a `FROM` pinned to that digest finds it
+before any registry, and the child keeps the parent's layers byte for byte.
+A kaniko-only pool builds the whole graph; see
+[Building on the pool with kaniko](runners.md#building-on-the-pool-with-kaniko).
 
 Siblings share a stage. A plan that lists several images, with the builds of
 each, is one call of each of the four workflows for all of them: every image

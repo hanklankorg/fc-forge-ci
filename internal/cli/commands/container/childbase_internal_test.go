@@ -17,7 +17,7 @@ import (
 )
 
 func TestChildBaseVerbsRefuseUnadmittedParentBeforeTools(t *testing.T) {
-	for _, defect := range []string{"missing projection", "malformed projection", "unknown projection field", "mutable ref", "same id", "wrong expected ref", "missing lineage", "missing registry inputs", "mixed", "warm", "moving tag", "no prepared inputs", "kaniko"} {
+	for _, defect := range []string{"missing projection", "malformed projection", "unknown projection field", "mutable ref", "same id", "wrong expected ref", "missing lineage", "missing registry inputs", "mixed", "warm", "moving tag", "no prepared inputs"} {
 		t.Run(defect, func(t *testing.T) {
 			env := testenv.New(t)
 			t.Chdir(env.Temp)
@@ -76,11 +76,6 @@ func TestChildBaseVerbsRefuseUnadmittedParentBeforeTools(t *testing.T) {
 				if defect == "no prepared inputs" && verb != "build" {
 					continue
 				}
-				// An otherwise admitted plan is refused for its builder at
-				// plan time, before a parent is fetched.
-				if defect == "kaniko" && verb != "plan" {
-					continue
-				}
 
 				args := []string{"child-base", verb, "--plan", "plan.json", "--image-repository", "registry.example/org/base", "--release-tag", "v1.2.3", "--release-sha", strings.Repeat("d", 40)}
 				if len(projection) != 0 {
@@ -94,12 +89,6 @@ func TestChildBaseVerbsRefuseUnadmittedParentBeforeTools(t *testing.T) {
 					args = append(args, "--arch", "amd64", "--metadata-dir", "never-layouts", "--created", "2026-01-02T03:04:05Z")
 				case "publish":
 					args = append(args, "--layouts-dir", "missing-layouts", "--output-dir", "never-payload", "--auth-file", "missing-auth")
-				}
-
-				if defect == "kaniko" {
-					require.ErrorContains(t, childBaseGroup().Run(t.Context(), append(args, "--image-builder", "kaniko")), "builds with Buildah")
-
-					continue
 				}
 
 				require.Error(t, childBaseGroup().Run(t.Context(), args), verb)

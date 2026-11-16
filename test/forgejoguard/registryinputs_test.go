@@ -144,9 +144,10 @@ func TestBaseImagesStageKeepsItsTokenAndItsGates(t *testing.T) {
 		}
 	}
 
-	// The plan learns the builder, so a kaniko child stops before its fetch.
-	if got := scalarString(mappingValue(mappingValue(workflow.jobs["plan"].node, "env"), "CI_IMAGE_BUILDER")); got != "${{ needs.coordinates.outputs.builder }}" {
-		t.Errorf("job plan admits the stage for builder %q, want the validated one", got)
+	// The plan admits a child for either builder: Buildah and kaniko both
+	// build it from the fetched parent, so the plan does not learn which.
+	if got := mappingValue(mappingValue(workflow.jobs["plan"].node, "env"), "CI_IMAGE_BUILDER"); got != nil {
+		t.Errorf("job plan admits the stage for builder %q, want no builder", scalarString(got))
 	}
 
 	for job, want := range map[string]string{

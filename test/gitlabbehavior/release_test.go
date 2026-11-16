@@ -348,7 +348,7 @@ func TestReleasePrepareAppliesOnlyAVerifiedVersionBump(t *testing.T) {
 
 		joined := patches["java"] + patches["node"]
 		for _, want := range []string{
-			"engine plan gitlab-release-pipeline --base-stages  --image-builder buildah --prepare-plan-output " + dir + "/prepare-plan.json",
+			"engine plan gitlab-release-pipeline --base-stages  --prepare-plan-output " + dir + "/prepare-plan.json",
 			"engine version bump-plan --plan-json  --version 1.2.3 --release-policy stable --patch " + dir + "/version-bump.patch --patch-sha256 " + digestOf(joined) +
 				" --paths-file " + dir + "/bump-paths",
 			"--include-paths-file " + dir + "/bump-paths",

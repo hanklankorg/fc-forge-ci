@@ -28,15 +28,12 @@ func (s BaseStage) Name() string { return strings.Join(s.Flavors, "+") }
 
 var baseFlavorPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
-const imageBuilderKaniko = "kaniko"
-
 // ParseBaseStages reads the base-stages policy input: stages separated by
 // spaces, each <flavor> for a root or <flavor>[+<flavor>...]:<parent> for
-// the children of one parent, which an earlier stage builds. A child builds
-// with Buildah only: its build job holds no registry credential, and kaniko
-// has no local store to load the verified parent into, so a kaniko policy
-// with a child stage is refused here, before anything runs.
-func ParseBaseStages(input, imageBuilder string) ([]BaseStage, error) {
+// the children of one parent, which an earlier stage builds. Either image
+// builder builds a stage: a child's build job starts from the verified
+// parent bytes its parent job fetched, without a registry credential.
+func ParseBaseStages(input string) ([]BaseStage, error) {
 	var stages []BaseStage
 
 	known := map[string]bool{}
@@ -60,8 +57,6 @@ func ParseBaseStages(input, imageBuilder string) ([]BaseStage, error) {
 			return nil, fmt.Errorf("base-stages entry %q: a root stage is one flavor; siblings name their parent as <flavor>+<flavor>:<parent>: %w", spec, errs.ErrUsage)
 		case child && !known[parent]:
 			return nil, fmt.Errorf("base-stages entry %q: the parent %q is no flavor of an earlier stage: %w", spec, parent, errs.ErrUsage)
-		case child && imageBuilder == imageBuilderKaniko:
-			return nil, fmt.Errorf("base-stages entry %q builds on the verified parent %q, which needs image-builder buildah: the build job holds no registry credential, and kaniko has no local store to load the parent into. Select buildah, on a runner that permits user namespaces: %w", spec, parent, errs.ErrUnsupported)
 		}
 
 		for _, flavor := range stage.Flavors {

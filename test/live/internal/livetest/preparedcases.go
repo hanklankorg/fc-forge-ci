@@ -315,9 +315,8 @@ var ForgejoPreparedCases = []PreparedCase{
 
 	// The base-image graph is a release alone: a root, then a flavor on the
 	// parent the release authenticated. Its own jobs take no job image; the
-	// row names a flavor because every case's settings carry one.
-	// Buildah alone: the engine refuses to build on a prepared private parent
-	// with kaniko.
+	// row names a flavor because every case's settings carry one. Buildah,
+	// the default; kaniko builds the graph from the same verified parent.
 	{Lane: LaneBaseGraph, Demo: "hello-base-images", Event: TrialRelease, JobImage: flavorGo, Builder: ImageBuilderBuildah, Set: SetMedium},
 
 	// The Go CLI released with the example's GoReleaser alternative, which
@@ -423,9 +422,10 @@ var GitLabPreparedCases = []PreparedCase{
 
 	// The base-image graph, as on Forgejo: the policy's base stages build,
 	// sign and promote the root, then its two flavors on the parent a signer
-	// job verified, and the release's file names all three by digest. Buildah
-	// alone: a child stage is refused with kaniko. The planner and the build
-	// script need no toolchain; the Go flavor carries them. The second
+	// job verified, and the release's file names all three by digest. Buildah,
+	// the default; kaniko builds the graph from the same verified parent. The
+	// planner and the build script need no toolchain; the Go flavor carries
+	// them. The second
 	// release changes no base input, so it reuses every stage the first
 	// promoted, verified again and signed no further.
 	{Lane: LaneBaseGraph, Demo: "hello-base-images", Event: TrialRelease, JobImage: flavorGo, Builder: ImageBuilderBuildah, Version: "0.2.0", NextVersion: "0.2.1", Set: SetMedium},

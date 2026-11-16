@@ -951,10 +951,11 @@ See the [base-images example](../examples/base-images/README.md).
 | `base-stages` | The stages, separated by spaces and in build order: a flavor for a root, `flavor:parent` for a child of a parent that an earlier stage builds, and `flavor+flavor:parent` for siblings on one parent. `base tools+debug:base` is a root and two flavors on it. Empty, the default: no base stage. |
 | `base-plan` | The project's planner, for example `bash base-plan.sh`. Its words are split at spaces and run without a shell. |
 
-A release with `base-stages` needs `base-plan` and `builder-job-image`, and a
-child stage needs `image-builder: buildah`: its build job holds no registry
-credential, and kaniko has no local store to load the verified parent into.
+A release with `base-stages` needs `base-plan` and `builder-job-image`;
 `Check: release plan` refuses the release otherwise, before anything runs.
+Either image builder builds a child stage: its build job holds no registry
+credential and starts from the parent `Base: parent` verified, which
+Buildah imports into its store and kaniko reads from its base-image cache.
 
 Each stage is these jobs, named after it, in the `build` stage:
 
