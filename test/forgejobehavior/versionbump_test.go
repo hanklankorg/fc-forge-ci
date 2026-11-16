@@ -283,7 +283,7 @@ func TestVersionBumpSigningJobRefusesAPatchItsJobDidNotReport(t *testing.T) {
 		},
 		"a planned family without a digest": {
 			env:     []string{"PATCH_DIGEST_JAVA=" + javaDigest},
-			refusal: `the plan bumps the node family, but "Prepare: version node" reported no patch digest`,
+			refusal: `the plan bumps the node family, but its "Prepare: version" job reported no patch digest`,
 		},
 		"a linked patch": {
 			env:     []string{"ARTIFACT_STORE=" + linked, "PATCH_DIGEST_JAVA=" + javaDigest, "PATCH_DIGEST_NODE=" + nodeDigest},

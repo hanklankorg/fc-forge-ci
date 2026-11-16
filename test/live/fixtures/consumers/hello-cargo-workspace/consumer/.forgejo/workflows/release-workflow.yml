@@ -65,8 +65,8 @@ jobs:
           HANDOFF_RESULT: ${{ needs.handoff.result }}
           PUBLISH_RESULT: ${{ needs.sign-and-publish.result }}
         run: |
-          forge-ci report release --job "Prepare: release=${PREPARE_RESULT}" --job "Test=${TEST_RESULT}" --job "Export=${EXPORT_RESULT}" --job "Build=${BUILD_RESULT}" \
-            --job "Images=${IMAGES_RESULT}" --job "Hand-off=${HANDOFF_RESULT}" --job "Sign and publish: release=${PUBLISH_RESULT}"
+          forge-ci report release --job "Prepare: release=${PREPARE_RESULT}" --job "Test: release=${TEST_RESULT}" --job "Build: export=${EXPORT_RESULT}" --job "Build: release files=${BUILD_RESULT}" \
+            --job "Build: release images=${IMAGES_RESULT}" --job "Build: release hand-off=${HANDOFF_RESULT}" --job "Sign and publish: release=${PUBLISH_RESULT}"
   test:
     name: 'Test: release'
     needs: prepare
@@ -140,9 +140,9 @@ jobs:
           esac
           printf 'builder=%s\nbuilder_job_image=%s\n' "${builder}" "${builder_job_image}" >>"${FORGEJO_OUTPUT}"
   export:
-    name: 'Build: export ${{ matrix.leg.suffix }}'
+    name: 'Build: export'
     needs: [prepare, export-plan]
-    runs-on: ${{ fromJSON(matrix.leg.suffix == 'arm64' && (vars.CI_RUNNER_LABEL_CONTAINER_ARM64 || vars.CI_RUNNER_LABEL_ARM64) || (vars.CI_RUNNER_LABEL_CONTAINER || vars.CI_RUNNER_LABEL)) }}
+    runs-on: ${{ fromJSON(matrix.suffix == 'arm64' && (vars.CI_RUNNER_LABEL_CONTAINER_ARM64 || vars.CI_RUNNER_LABEL_ARM64) || (vars.CI_RUNNER_LABEL_CONTAINER || vars.CI_RUNNER_LABEL)) }}
     # kaniko's job image, checked above; empty for Buildah, which runs in the
     # runner's own environment.
     container: ${{ needs.export-plan.outputs.builder_job_image }}
@@ -150,7 +150,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        leg: ${{ fromJSON(needs.export-plan.outputs.matrix) }}
+        include: ${{ fromJSON(needs.export-plan.outputs.matrix) }}
     env:
       BUILDAH_ISOLATION: chroot
       CI_IMAGE_BUILDER: ${{ needs.export-plan.outputs.builder }}
@@ -174,19 +174,19 @@ jobs:
       # Keep the container-first binary-export witness. It pulls public bases
       # and executes without a registry or signing token. Image publication is
       # a separate release-images job and never consumes the extract declaration.
-      - name: Export ${{ matrix.leg.suffix }} binaries
+      - name: Export ${{ matrix.suffix }} binaries
         working-directory: source
         env:
-          PLATFORM: ${{ matrix.leg.platform }}
-          ARCH: ${{ matrix.leg.suffix }}
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.suffix }}
         run: |
           set -euo pipefail
           forge-ci container build --mode local --target export-binaries --file Containerfile --context . \
             --platform "${PLATFORM}" --output-dir "../export/linux-${ARCH}"
           forge-ci container suffix-extracted-binaries --binaries-dir "../export/linux-${ARCH}" --arch "${ARCH}" --expected-names "hello-worker,hello-keytool"
-      - name: Upload ${{ matrix.leg.suffix }} binaries
+      - name: Upload ${{ matrix.suffix }} binaries
         env:
-          ARCH: ${{ matrix.leg.suffix }}
+          ARCH: ${{ matrix.suffix }}
         run: forge-ci artifact upload --name "release-binary-${ARCH}" --dir export/ --retention-days 1 --if-no-files error
   build:
     name: 'Build: release files'
@@ -228,6 +228,7 @@ jobs:
           artifact-name: release-files
           path: dist/
   release-images:
+    name: 'Build: release images'
     needs: [prepare, export-plan, test]
     uses: itiquette/forge-ci/.forgejo/workflows/release-images.yml@c08b59fe61f4b926d80875ce850f6bdc695b1d9a
     with:
@@ -243,6 +244,7 @@ jobs:
     secrets:
       RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
   handoff:
+    name: 'Build: release hand-off'
     needs: [build, release-images]
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 15

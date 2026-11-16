@@ -601,11 +601,12 @@ jobs:
   #
   # The rows are include entries, so their fields are the matrix's own.
   # Forgejo appends a row's values to the name of a job whose matrix needs
-  # another job's output: scalar fields read "(java, maven)", and the empty
-  # row, which is no matrix at all, keeps the bare name. A row held under one
-  # key would be appended as a Go map, "(map[])".
+  # another job's output, so the name holds none of them: a family's job
+  # reads "Prepare: version (java, maven)", and the empty row, which is no
+  # matrix at all, the bare name. A row held under one key would be appended
+  # as a Go map, "(map[])".
   version:
-    name: "Prepare: version ${{ matrix.family || 'none' }}"
+    name: "Prepare: version"
     needs: [coordinates, plan, render]
     if: ${{ needs.coordinates.result == 'success' && needs.plan.result == 'success' && needs.render.result == 'success' }}
     runs-on: ${{ fromJSON(inputs['runs-on']) }}
@@ -962,7 +963,7 @@ jobs:
               *) echo "ERROR: the plan names a version family this job does not know: ${family}" >&2; exit 1 ;;
             esac
             if [[ ! "${digest}" =~ ^[0-9a-f]{64}$ ]]; then
-              echo "ERROR: the plan bumps the ${family} family, but \"Prepare: version ${family}\" reported no patch digest." >&2
+              echo "ERROR: the plan bumps the ${family} family, but its \"Prepare: version\" job reported no patch digest." >&2
               exit 1
             fi
             handoff="${work}/${family}"

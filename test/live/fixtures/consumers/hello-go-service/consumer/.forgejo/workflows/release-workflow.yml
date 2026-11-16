@@ -234,7 +234,7 @@ jobs:
           artifact-name: release-files
           path: dist/
   release-images:
-    name: Build, scan and stage release images
+    name: "Build: release images"
     needs: [prepare, build]
     uses: itiquette/forge-ci/.forgejo/workflows/release-images.yml@2f4e845cee96973d1082bf00a5a18689c1482148
     with:
@@ -251,7 +251,7 @@ jobs:
     secrets:
       RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
   handoff:
-    name: Join release files and image ledger
+    name: "Build: release hand-off"
     needs: [build, release-images]
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 15
@@ -344,6 +344,6 @@ jobs:
           forge-ci report release \
             --job "Prepare: release=${PREPARE_RESULT}" \
             --job "Build: release files=${BUILD_RESULT}" \
-            --job "Release images=${IMAGES_RESULT}" \
-            --job "Hand-off=${HANDOFF_RESULT}" \
+            --job "Build: release images=${IMAGES_RESULT}" \
+            --job "Build: release hand-off=${HANDOFF_RESULT}" \
             --job "Sign and publish: release=${PUBLISH_RESULT}"

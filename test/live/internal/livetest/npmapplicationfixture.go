@@ -297,7 +297,7 @@ func npmStableReleaseWorkflow(workflow string, pin ConsumerPin, image string) (s
 	workflow = workflow[:ownPublish]
 	workflow = workflow[:start] + workflow[end:]
 	workflow = workflow[:buildStart] + npmApplicationBuildSteps + workflow[buildEnd:]
-	workflow = strings.NewReplacer("@IMAGE@", image, "publish-container-images: 'true'", "publish-container-images: 'false'", "needs: [build, release-images]", "needs: [build]", "prepare, build, release-images, handoff", "prepare, build, handoff", "          IMAGES_RESULT: ${{ needs.release-images.result }}\n", "", `--job "Images=${IMAGES_RESULT}" `, "", "          forge-ci artifact download --name release-images --dir dist\n", "", "      release-images-path: dist/release-images.json\n", "").Replace(workflow)
+	workflow = strings.NewReplacer("@IMAGE@", image, "publish-container-images: 'true'", "publish-container-images: 'false'", "needs: [build, release-images]", "needs: [build]", "prepare, build, release-images, handoff", "prepare, build, handoff", "          IMAGES_RESULT: ${{ needs.release-images.result }}\n", "", `--job "Build: release images=${IMAGES_RESULT}" `, "", "          forge-ci artifact download --name release-images --dir dist\n", "", "      release-images-path: dist/release-images.json\n", "").Replace(workflow)
 	// The plan's npm bump runs in the image the fixture builds with.
 	const runtimeImageInput = "      runtime-image-node: ${{ vars.CI_JOB_IMAGE }}\n"
 	if strings.Count(workflow, runtimeImageInput) != 1 {

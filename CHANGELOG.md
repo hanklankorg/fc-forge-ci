@@ -912,11 +912,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `files-artifact-name`. The existing outputs, and so GitHub, are unchanged.
 
 - On Forgejo, a release whose plan bumps no version shows its version job
-  as `Prepare: version none`, where it was `Prepare: version none
-  (map[])`, and a family's job as, for example, `Prepare: version java
-  (java, maven)`, where the row's values were shown as a Go map. Forgejo
-  appends a row's values to the name of a job whose matrix needs another
-  job's output, so the rows are now plain include entries.
+  as `Prepare: version`, where it was `Prepare: version none (map[])`, and
+  a family's job as, for example, `Prepare: version (java, maven)`, where
+  the row's values were shown as a Go map. Forgejo appends a row's values
+  to the name of a job whose matrix needs another job's output, so the rows
+  are now plain include entries and the name holds no family of its own.
+
+- The Forgejo release examples name their image and hand-off jobs `Build:
+  release images` and `Build: release hand-off`, and their release summary
+  labels each job by exactly its name, where it read `Release images` and
+  `Hand-off` beside jobs named otherwise.
 
 - On Forgejo, a release links every package it publishes to the repository
   it runs from, as GitHub does. The plain `mvn deploy` form of

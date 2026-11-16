@@ -17,7 +17,8 @@ var rowValueDeref = regexp.MustCompile(`matrix\.[A-Za-z0-9_-]+[.[]|matrix\['[^']
 // from another job's output, whatever name the job sets, and shows an object
 // or a list there as a Go map or slice: "Build: x (map[arch:amd64 ...])". So
 // the rows of such a matrix hold short scalar values only, and the job reads
-// anything else by them from its planner's outputs.
+// anything else by them from its planner's outputs. The job's own name holds
+// no row value, which Forgejo would show twice.
 func TestPlannedMatrixRowsHoldScalarValues(t *testing.T) {
 	t.Parallel()
 
@@ -34,6 +35,10 @@ func TestPlannedMatrixRowsHoldScalarValues(t *testing.T) {
 
 			if anyString(target.node, rowValueDeref.MatchString) {
 				t.Errorf("%s: job %s reads a value of its planned matrix row as an object or a list, which Forgejo shows in the job's name", relative, name)
+			}
+
+			if jobName := scalarString(mappingValue(target.node, "name")); strings.Contains(jobName, "matrix") {
+				t.Errorf("%s: job %s is named %q, and Forgejo appends its row's values to the name already", relative, name, jobName)
 			}
 		}
 	}

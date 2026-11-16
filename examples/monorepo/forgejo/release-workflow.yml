@@ -321,7 +321,7 @@ jobs:
   # containers are those of .forge-ci/artifacts.yml, the default declaration.
   # ===========================================================================
   release-images:
-    name: Build, scan and stage release images
+    name: "Build: release images"
     needs: [prepare, build]
     uses: OWNER/forge-ci/.forgejo/workflows/release-images.yml@PIN_FORGE_CI_SHA
     with:
@@ -337,7 +337,7 @@ jobs:
     secrets:
       RELEASE_REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
   handoff:
-    name: Join release files and image ledger
+    name: "Build: release hand-off"
     needs: [build, release-images]
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABEL) }}
     timeout-minutes: 15
@@ -473,7 +473,7 @@ jobs:
             --job "Build: backend=${BACKEND_RESULT}" \
             --job "Build: frontend=${FRONTEND_RESULT}" \
             --job "Build: release files=${BUILD_RESULT}" \
-            --job "Release images=${IMAGES_RESULT}" \
-            --job "Hand-off=${HANDOFF_RESULT}" \
+            --job "Build: release images=${IMAGES_RESULT}" \
+            --job "Build: release hand-off=${HANDOFF_RESULT}" \
             --job "Sign and publish: release=${PUBLISH_RESULT}" \
             --job "Publish: package=${PACKAGE_RESULT}"

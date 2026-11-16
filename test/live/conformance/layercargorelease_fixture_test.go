@@ -117,11 +117,11 @@ func declaredReleaseBumps(declaration string) ([]releaseBump, []string, error) {
 // Forgejo skips the dependant of a skipped job on the server; one that names
 // families runs a row for each instead.
 func releaseRunJobs(families []string) ([]string, []string) {
-	versionJobs := []string{releaseVersionNoBump}
+	versionJobs := []string{releaseVersionJob}
 	if len(families) != 0 {
 		versionJobs = make([]string, 0, len(families))
 		for _, family := range families {
-			versionJobs = append(versionJobs, releaseVersionJobs+family)
+			versionJobs = append(versionJobs, releaseVersionJob+" ("+family+")")
 		}
 	}
 
@@ -142,11 +142,12 @@ func releaseRunJobs(families []string) ([]string, []string) {
 	return jobs, versionJobs
 }
 
-// releaseVersionJobName is the name the workflow gives a version job: Forgejo
-// appends a matrix row's values to it.
+// releaseVersionJobName holds a version job's name to the family alone:
+// Forgejo appends the row's family and project type, "Prepare: version (rust,
+// cargo)", and the project type is the plan's to choose.
 func releaseVersionJobName(name string, versionJobs []string) string {
 	for _, job := range versionJobs {
-		if strings.HasPrefix(name, job+" (") {
+		if family, found := strings.CutSuffix(job, ")"); found && strings.HasPrefix(name, family+", ") && strings.HasSuffix(name, ")") {
 			return job
 		}
 	}
@@ -392,29 +393,30 @@ func TestReleaseRunJobs(t *testing.T) {
 	// always been held to them.
 	plain := []string{
 		"Build minimal binary release", "Check: release settings", "Check: signing settings", "Prepare: changelog",
-		"Prepare: release commit and tag", "Prepare: version none", "Prepare: version plan",
+		"Prepare: release commit and tag", "Prepare: version", "Prepare: version plan",
 		"Publish: images", "Publish: release", "Publish: tidy up", "Sign: files and images",
 	}
-	if jobs, versionJobs := releaseRunJobs(nil); !slices.Equal(jobs, plain) || !slices.Equal(versionJobs, []string{"Prepare: version none"}) {
+	if jobs, versionJobs := releaseRunJobs(nil); !slices.Equal(jobs, plain) || !slices.Equal(versionJobs, []string{"Prepare: version"}) {
 		t.Errorf("a release without a family runs %v and bumps in %v, want %v", jobs, versionJobs, plain)
 	}
 
 	rust := []string{
 		"Build minimal binary release", "Check: release settings", "Check: signing settings", "Prepare: changelog",
-		"Prepare: release commit and tag", "Prepare: version plan", "Prepare: version rust",
+		"Prepare: release commit and tag", "Prepare: version (rust)", "Prepare: version plan",
 		"Publish: images", "Publish: release", "Publish: tidy up", "Sign: files and images",
 	}
 
 	jobs, versionJobs := releaseRunJobs([]string{"rust"})
-	if !slices.Equal(jobs, rust) || !slices.Equal(versionJobs, []string{"Prepare: version rust"}) {
+	if !slices.Equal(jobs, rust) || !slices.Equal(versionJobs, []string{"Prepare: version (rust)"}) {
 		t.Errorf("a Cargo release runs %v and bumps in %v, want %v", jobs, versionJobs, rust)
 	}
 
 	for name, want := range map[string]string{
-		"Prepare: version rust":                  "Prepare: version rust",
-		"Prepare: version rust (rust, cargo)":    "Prepare: version rust",
-		"Prepare: version rustic":                "Prepare: version rustic",
-		"Prepare: version none ()":               "Prepare: version none ()",
+		"Prepare: version (rust, cargo)":         "Prepare: version (rust)",
+		"Prepare: version (rust)":                "Prepare: version (rust)",
+		"Prepare: version (rustic, cargo)":       "Prepare: version (rustic, cargo)",
+		"Prepare: version (rust, cargo":          "Prepare: version (rust, cargo",
+		"Prepare: version":                       "Prepare: version",
 		"Prepare: version plan":                  "Prepare: version plan",
 		"Build minimal binary release (anybody)": "Build minimal binary release (anybody)",
 	} {
