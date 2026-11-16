@@ -21,11 +21,12 @@ import (
 // <project>-<version>-sboms.tar.gz every forge's release publishes (and the
 // -sboms.zip of a release made before the bundle became a tar.gz), the SBOMs
 // an older release published as files of their own (<name>.cdx.json among
-// them) and native sbom-<image>-<arch>.json inventories. They are small, and
-// with them a file rebuilt from the tag can still be checked against what was
-// released: by its checksum, and by its own signature when the build is
-// reproducible.
-const DefaultAssetRetentionKeepFiles = `(?i)(checksums\.(txt|sha256)|sha256sums)|-sboms\.(tar\.gz|zip)$|\.(bundle|sig|asc|pem|intoto\.jsonl?)$|\.(sbom|cdx|cyclonedx|spdx)\.json$|^sbom-[a-z0-9][a-z0-9._-]*\.json$`
+// them) and native sbom-<image>-<arch>.json inventories, and the
+// release-plan.json an older release published beside its bundle before the
+// plan stopped being a release file. They are small, and with them a file
+// rebuilt from the tag can still be checked against what was released: by
+// its checksum, and by its own signature when the build is reproducible.
+const DefaultAssetRetentionKeepFiles = `(?i)(checksums\.(txt|sha256)|sha256sums)|-sboms\.(tar\.gz|zip)$|\.(bundle|sig|asc|pem|intoto\.jsonl?)$|\.(sbom|cdx|cyclonedx|spdx)\.json$|^(sbom-[a-z0-9][a-z0-9._-]*|release-plan)\.json$`
 
 // AssetRetentionInput drives `release asset-retention`.
 type AssetRetentionInput struct {

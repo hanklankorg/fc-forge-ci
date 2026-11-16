@@ -175,7 +175,8 @@ func TestApplyAssetRetention_KeepsPublicReleaseEvidenceDependencies(t *testing.T
 
 	old := goRelease("v1.0.0", 1)
 	// The index SBOM references the native inventories; each inventory is
-	// also a subject of a retained signing bundle.
+	// also a subject of a retained signing bundle, and so is the plan an
+	// older release published.
 	for _, name := range []string{
 		"image-sbom-distroless.cyclonedx.json",
 		"image-sbom-distroless.cyclonedx.json.bundle",
@@ -185,6 +186,8 @@ func TestApplyAssetRetention_KeepsPublicReleaseEvidenceDependencies(t *testing.T
 		"sbom-distroless-arm64.json.bundle",
 		"sbom-alpine-amd64.json",
 		"sbom-alpine-amd64.json.bundle",
+		"release-plan.json",
+		"release-plan.json.bundle",
 	} {
 		old.Assets = append(old.Assets, provider.ListedAsset{Name: name, Size: 1e3})
 	}
@@ -194,7 +197,6 @@ func TestApplyAssetRetention_KeepsPublicReleaseEvidenceDependencies(t *testing.T
 		"release-images.json", // Internal image ledger, not public evidence.
 		"trivy-results-distroless-amd64.json",
 		"payload.json",
-		"release-plan.json", // The pipeline's own plan, no release file.
 		"other-release-plan.json",
 		"release-plan.json.backup",
 		"other-sbom-distroless-amd64.json",

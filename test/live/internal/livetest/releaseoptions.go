@@ -96,11 +96,13 @@ func BaseStageReuseFindings(stages []string, traces map[string]string, first, la
 // retainedReleaseFile matches what retention says an older release keeps:
 // its checksums, its signatures and provenance, its SBOMs, the native
 // sbom-<image>-<arch>.json inventories and the GitHub SBOM bundle (a .zip on
-// a release made before it became a tar.gz) among them.
+// a release made before it became a tar.gz) among them, and the
+// release-plan.json a release made before the plan stopped being a release
+// file published.
 // It is written from what the release-asset-retention input and
 // `release asset-retention` promise, not copied from the product's pattern,
 // which it is here to judge.
-var retainedReleaseFile = regexp.MustCompile(`(?i)checksums|sha256sums|\.(bundle|sig|asc|pem)$|\.intoto\.jsonl?$|\.(cdx|cyclonedx|spdx|sbom)\.json$|^sbom-.+\.json$|-sboms\.(tar\.gz|zip)$`)
+var retainedReleaseFile = regexp.MustCompile(`(?i)checksums|sha256sums|\.(bundle|sig|asc|pem)$|\.intoto\.jsonl?$|\.(cdx|cyclonedx|spdx|sbom)\.json$|^sbom-.+\.json$|-sboms\.(tar\.gz|zip)$|^release-plan\.json$`)
 
 // ReleaseRetentionFindings holds an older release to retention of one
 // release: before and after are its files before and after the newer release

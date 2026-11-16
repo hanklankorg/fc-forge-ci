@@ -407,10 +407,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the plan with `release files manifest --unsigned --evidence-file
   dist/release-plan.json`, or matched it with a glob such as `dist/*`, now
   fails there, and its later jobs read the plan as a job output or a run
-  artifact instead. Asset retention no longer
-  keeps `release-plan.json` on older releases, so an older release that
-  carries one loses it with its other unkept files; its `.bundle` stays
-  with the other signatures.
+  artifact instead. An older release that published the plan keeps it
+  under asset retention, beside its bundle.
 - The examples snapshot as the projects that copy them do: a GitHub
   snapshot caller is run by hand, and the container snapshot no longer runs
   on pushes to `develop` and `feature/**`; a Forgejo one runs on every

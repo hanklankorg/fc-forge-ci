@@ -139,9 +139,10 @@ func TestUploadAttachments_RejectsAbsolutePath(t *testing.T) {
 	}
 }
 
-// The pipeline's own files are no release files: a pattern that matches the
+// The pipeline's own files are not release files: a pattern that matches the
 // release plan or the image ledger uploads nothing, not even the archive
-// beside them.
+// beside them. The refusal names the file by its path in the working
+// directory, never by the runner's absolute path.
 func TestUploadAttachments_RefusesInternalPipelineFiles(t *testing.T) {
 	for name, testCase := range map[string]struct{ file, wantText string }{
 		"the release plan":  {file: "release-plan.json", wantText: "release plan must not be a release file"},
@@ -154,14 +155,15 @@ func TestUploadAttachments_RefusesInternalPipelineFiles(t *testing.T) {
 			writeFile(t, dir, "dist/"+testCase.file)
 
 			fp := fakeprovider.New(t)
+			want := testCase.wantText + ": " + filepath.Join("dist", testCase.file) + ": it is the pipeline's own"
 
 			err := apprelease.UploadAttachments(context.Background(), fp, &bytes.Buffer{}, output.Annotator{}, apprelease.UploadAttachmentsInput{
 				Tag:        "v1.0.0",
 				Pattern:    "dist/*",
 				WorkingDir: dir,
 			})
-			if !errors.Is(err, errs.ErrValidation) || !strings.Contains(err.Error(), testCase.wantText) {
-				t.Fatalf("err = %v, want ErrValidation naming %q", err, testCase.wantText)
+			if !errors.Is(err, errs.ErrValidation) || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), dir) {
+				t.Fatalf("err = %v, want ErrValidation naming %q and not %s", err, want, dir)
 			}
 
 			if calls := fp.UploadReleaseAssetCalls(); len(calls) != 0 {

@@ -741,7 +741,7 @@ action's digest to `sign-and-publish-release.yml`.
 is the complete caller: copy it in place of the example's `release-workflow.yml`, beside its
 `pullrequest-workflow.yml`. Evidence that arrives after packaging is added with
 `release files manifest --unsigned --evidence-file <file>`. The release plan is
-no release file: a job that needs it reads it as a job output or a run
+not a release file: a job that needs it reads it as a job output or a run
 artifact, and the manifest refuses `release-plan.json` and
 `snapshot-release-plan.json`.
 

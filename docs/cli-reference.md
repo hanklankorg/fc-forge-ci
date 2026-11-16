@@ -4153,7 +4153,7 @@ EXAMPLE:
 |------|-------------|------|---------|----------|
 | `--repository` | "owner/repo" whose releases to trim (required) | string | `""` | `$REPOSITORY`, `$CI_REPO`, `$CI_PROJECT_PATH`, `$FORGEJO_REPOSITORY`, `$FORGEJO_REPO`, `$GITHUB_REPOSITORY` |
 | `--keep` | how many of the newest published releases keep every file (required) | int | `0` | `$RELEASE_ASSET_RETENTION` |
-| `--keep-files` | regular expression of the file names older releases keep | string | `"(?i)(checksums\\.(txt\|sha256)\|sha256sums)\|-sboms\\.(tar\\.gz\|zip)$\|\\.(bundle\|sig\|asc\|pem\|intoto\\.jsonl?)$\|\\.(sbom\|cdx\|cyclonedx\|spdx)\\.json$\|^sbom-[a-z0-9][a-z0-9._-]*\\.json$"` | `$RELEASE_ASSET_RETENTION_KEEP_FILES` |
+| `--keep-files` | regular expression of the file names older releases keep | string | `"(?i)(checksums\\.(txt\|sha256)\|sha256sums)\|-sboms\\.(tar\\.gz\|zip)$\|\\.(bundle\|sig\|asc\|pem\|intoto\\.jsonl?)$\|\\.(sbom\|cdx\|cyclonedx\|spdx)\\.json$\|^(sbom-[a-z0-9][a-z0-9._-]*\|release-plan)\\.json$"` | `$RELEASE_ASSET_RETENTION_KEEP_FILES` |
 | `--max-delete` | refuse a pass that would delete more files than this (0 disables the bound) | int | `200` | `$RELEASE_ASSET_RETENTION_MAX_DELETE` |
 | `--dry-run` | report what would be deleted without deleting it (default: true; pass --dry-run=false to delete) | bool | `true` | `$RELEASE_ASSET_RETENTION_DRY_RUN` |
 
@@ -4182,7 +4182,8 @@ expand a glob pattern and attach matching files to the platform release (gh rele
 
 ```
 A file that fails to upload does not stop the others. The command then
-fails and names each file the release lacks.
+fails and names each file the release lacks. A pattern that matches the
+release plan or the release image ledger is refused before anything uploads.
 
 EXAMPLE:
    forge-ci release attachments upload --tag v1.2.3 --pattern "dist/*.zip"
@@ -4391,10 +4392,11 @@ must exist, so a fresh write to another path uses --output.
 
 With --unsigned, preserve the producer's existing file set and add explicit
 --evidence-file paths before signing. Refuses existing signatures, provenance,
-duplicate paths and reclassification; does not read GoReleaser metadata. The
-release plan (release-plan.json, snapshot-release-plan.json) is refused in any
-release file manifest: it is the pipeline's own, handed to later jobs as a job
-output or a run artifact.
+duplicate paths and reclassification; does not read GoReleaser metadata.
+
+Every manifest refuses the pipeline's own files: the release plan
+(release-plan.json, snapshot-release-plan.json) and the release image ledger
+(release-images.json). Later jobs read them as job outputs or run artifacts.
 
 With --release-images-ledger, also writes the image SBOMs the ledger pins into
 the release's SBOM bundle <project>-<version>-sboms.tar.gz, beside the SBOMs

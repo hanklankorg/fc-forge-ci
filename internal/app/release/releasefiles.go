@@ -1507,23 +1507,19 @@ func validateManifestSections(ctx releaseFilesCtx, manifest *FileManifest) error
 	return nil
 }
 
-// isReleasePlanFileName reports whether a file is named as the release or
-// snapshot plan. The plan is the pipeline's own: later jobs read it as a job
-// output or a run artifact, and no release publishes it.
-func isReleasePlanFileName(name string) bool {
-	return name == "release-plan.json" || name == "snapshot-release-plan.json"
-}
-
 // refuseInternalPipelineFile refuses a file the pipeline keeps for itself,
-// the release plan or the release image ledger, wherever a release file is
-// chosen: the release file manifest, assembly's attachments and attachment
-// uploads.
+// the release or snapshot plan and the release image ledger, wherever a
+// release file is chosen: the release file manifest, assembly's attachments
+// and attachment uploads. Later jobs read them as job outputs or run
+// artifacts, and no release publishes them.
 func refuseInternalPipelineFile(path string) error {
-	switch name := filepath.Base(path); {
-	case isReleasePlanFileName(name):
-		return fmt.Errorf("release plan must not be a release file: %s: keep it out of the release files (the dist directory and the attachment patterns) and hand it to a later job as a job output or a run artifact: %w", path, errs.ErrValidation)
-	case name == imageledger.DefaultBasename:
-		return fmt.Errorf("release image ledger must not be a release file: %s: %w", path, errs.ErrValidation)
+	const keepOut = "it is the pipeline's own; keep it out of the release files (the dist directory and the attachment patterns)"
+
+	switch filepath.Base(path) {
+	case "release-plan.json", "snapshot-release-plan.json":
+		return fmt.Errorf("release plan must not be a release file: %s: %s and hand it to a later job as a job output or a run artifact: %w", path, keepOut, errs.ErrValidation)
+	case imageledger.DefaultBasename:
+		return fmt.Errorf("release image ledger must not be a release file: %s: %s: %w", path, keepOut, errs.ErrValidation)
 	}
 
 	return nil

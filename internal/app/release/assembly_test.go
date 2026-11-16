@@ -196,8 +196,8 @@ func TestAssemble_RejectsUnsafeAttachmentPattern(t *testing.T) {
 	for name, testCase := range map[string]struct{ pattern, wantText string }{
 		"climbs out of the workspace": {pattern: "../dist/*.zip", wantText: `contains ".."`},
 		"absolute path":               {pattern: "/etc/*.zip", wantText: "must be relative to the workspace"},
-		"the release plan by a glob":  {pattern: "dist/*.json", wantText: "release plan must not be a release file"},
-		"the image ledger":            {pattern: "release-images.json", wantText: "release image ledger must not be a release file"},
+		"the release plan by a glob":  {pattern: "dist/*.json", wantText: "release plan must not be a release file: release-plan.json: it is the pipeline's own"},
+		"the image ledger":            {pattern: "release-images.json", wantText: "release image ledger must not be a release file: release-images.json: it is the pipeline's own"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			fsys := testfs.NewReal(t)

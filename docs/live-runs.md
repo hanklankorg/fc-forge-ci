@@ -1626,8 +1626,9 @@ its release that option and holds the release to it
   flag for one, so the release notes open with the pre-release notice.
 - `retention`: with `next-version=`, after the second release the first
   offers exactly the files it offered that retention keeps (checksums,
-  signatures, provenance, SBOMs): every other file is gone, and it had
-  one. The second keeps a file that is none of those. On
+  signatures, provenance, SBOMs, and the `release-plan.json` of a release
+  made before the plan stopped being a release file): every other file is
+  gone, and it had one. The second keeps a file that is none of those. On
   GitLab a kept file also serves the bytes it served, and a removed file's
   upload is gone with its link.
 
